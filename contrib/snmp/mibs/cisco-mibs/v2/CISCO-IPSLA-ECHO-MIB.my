@@ -1,0 +1,1133 @@
+-- *****************************************************************
+-- CISCO-IPSLA-ECHO-MIB.my:  IP SLA MIB for udp echo, icmp echo
+-- and tcp connect operations templates
+--   
+-- November 2006, Katherine Yang
+--   
+-- Copyright (c) 2006-2007 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-IPSLA-ECHO-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    StorageType,
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddress,
+    InetAddressType,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoIpSlaEchoMIB MODULE-IDENTITY
+    LAST-UPDATED    "200708160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems, Inc.
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+
+            Tel: +1 800 553 NETS
+            Email: cs-ipsla@cisco.com"
+    DESCRIPTION
+        "This MIB module defines the templates for IP SLA operations of
+        ICMP echo, UDP echo and TCP connect.
+
+        The ICMP echo operation measures end-to-end response time between 
+        a Cisco router and any IP enabled device by computing the time
+        taken between sending an ICMP echo request message to the 
+        destination and receiving an ICMP echo reply.
+
+
+        The UDP echo operation measures end-to-end response time between 
+        a Cisco router and any IP enabled device by computing the time
+        taken between sending an UDP echo request message to the 
+        destination and receiving an UDP echo reply.
+
+        The TCP connect operation measures end-to-end response time between 
+        a Cisco router and any IP enabled device by computing the time
+        taken to perform a TCP connect operation."
+    REVISION        "200708160000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 636 }
+
+
+ciscoIpSlaEchoMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoIpSlaEchoMIB 0 }
+
+ciscoIpSlaEchoMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoIpSlaEchoMIB 1 }
+
+
+cipslaIcmpEchoTmplTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CipslaIcmpEchoTmplEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table that contains ICMP echo template definitions."
+    ::= { ciscoIpSlaEchoMIBObjects 1 }
+
+cipslaIcmpEchoTmplEntry OBJECT-TYPE
+    SYNTAX          CipslaIcmpEchoTmplEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A row entry representing an IPSLA ICMP echo template."
+    INDEX           { cipslaIcmpEchoTmplName } 
+    ::= { cipslaIcmpEchoTmplTable 1 }
+
+CipslaIcmpEchoTmplEntry ::= SEQUENCE {
+        cipslaIcmpEchoTmplName         SnmpAdminString,
+        cipslaIcmpEchoTmplDescription  SnmpAdminString,
+        cipslaIcmpEchoTmplSrcAddrType  InetAddressType,
+        cipslaIcmpEchoTmplSrcAddr      InetAddress,
+        cipslaIcmpEchoTmplTimeOut      Unsigned32,
+        cipslaIcmpEchoTmplVerifyData   TruthValue,
+        cipslaIcmpEchoTmplReqDataSize  Unsigned32,
+        cipslaIcmpEchoTmplTOS          Unsigned32,
+        cipslaIcmpEchoTmplVrfName      SnmpAdminString,
+        cipslaIcmpEchoTmplThreshold    Unsigned32,
+        cipslaIcmpEchoTmplHistLives    Unsigned32,
+        cipslaIcmpEchoTmplHistBuckets  Unsigned32,
+        cipslaIcmpEchoTmplHistFilter   INTEGER ,
+        cipslaIcmpEchoTmplStatsHours   Unsigned32,
+        cipslaIcmpEchoTmplDistBuckets  Unsigned32,
+        cipslaIcmpEchoTmplDistInterval Unsigned32,
+        cipslaIcmpEchoTmplStorageType  StorageType,
+        cipslaIcmpEchoTmplRowStatus    RowStatus
+}
+
+cipslaIcmpEchoTmplName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This field is used to specify the ICMP echo template name." 
+    ::= { cipslaIcmpEchoTmplEntry 1 }
+
+cipslaIcmpEchoTmplDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This field is used to provide description for the ICMP echo
+        template."
+    DEFVAL          { "" } 
+    ::= { cipslaIcmpEchoTmplEntry 2 }
+
+cipslaIcmpEchoTmplSrcAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the IP address type
+        of the source. It must be used along with the
+        cipslaIcmpEchoTmplSrcAddr object."
+    DEFVAL          { ipv4 } 
+    ::= { cipslaIcmpEchoTmplEntry 3 }
+
+cipslaIcmpEchoTmplSrcAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the IP address of the source." 
+    ::= { cipslaIcmpEchoTmplEntry 4 }
+
+cipslaIcmpEchoTmplTimeOut OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..604800000 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the duration to wait for a IP SLA operation
+        completion. 
+
+        For connection oriented protocols, this may cause the
+        connection to be closed by the operation.  Once closed, it
+        will be assumed that the connection reestablishment
+        will be performed.  To prevent unwanted closure of
+        connections, be sure to set this value to a realistic
+        connection timeout."
+    DEFVAL          { 5000 } 
+    ::= { cipslaIcmpEchoTmplEntry 5 }
+
+cipslaIcmpEchoTmplVerifyData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "When set to true, the resulting data in each IP SLA
+        operation is compared with the expected data.  This
+        includes checking header information (if possible) and
+        exact packet size."
+    DEFVAL          { false } 
+    ::= { cipslaIcmpEchoTmplEntry 6 }
+
+cipslaIcmpEchoTmplReqDataSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..16384 )
+    UNITS           "octets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of octets to be
+        placed into the ARR Data portion of the request
+        message, when using SNA protocols.
+
+        For non-ARR protocols' IP SLA request/responses,
+        this value represents the native payload size.
+
+        REMEMBER:  The ARR Header overhead is not included
+                   in this value."
+    DEFVAL          { 28 } 
+    ::= { cipslaIcmpEchoTmplEntry 7 }
+
+cipslaIcmpEchoTmplTOS OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of service octet in an
+        IP header."
+    REFERENCE
+        "Refer to the following documents for TOS definition.
+               RFC791/1349  for IPv4, IPv6, draft-ietf-diffserv-header-02.txt"
+    DEFVAL          { 0 } 
+    ::= { cipslaIcmpEchoTmplEntry 8 }
+
+cipslaIcmpEchoTmplVrfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This field is used to specify the VRF name with
+        which the IP SLA operation will be used. For regular IP SLA
+        operation this field should not be configured. The agent
+        will use this field to identify the VRF routing table for
+        this operation."
+    DEFVAL          { "" } 
+    ::= { cipslaIcmpEchoTmplEntry 9 }
+
+cipslaIcmpEchoTmplThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines an administrative threshold limit.
+        If the IP SLA operation time exceeds this limit and if the
+        condition specified in cipslaIcmpEchoTmplHistFilter is
+        satisfied, one threshold crossing occurrence will be counted."
+    DEFVAL          { 5000 } 
+    ::= { cipslaIcmpEchoTmplEntry 10 }
+
+cipslaIcmpEchoTmplHistLives OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of history lives to record.  A life
+        is defined by the countdown (or transition) to zero 
+        by the cipslaAutoGroupScheduleLife object.  A new life is
+        created when the same conceptual control row is
+        restarted via the transition of the 
+        cipslaAutoGroupScheduleLife object and its subsequent 
+        countdown.
+
+        The value of zero will shut off all data collection."
+    DEFVAL          { 0 } 
+    ::= { cipslaIcmpEchoTmplEntry 11 }
+
+cipslaIcmpEchoTmplHistBuckets OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..60 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of history buckets to record.
+        This value is set to the number of operations 
+        to keep per lifetime.
+
+        After cipslaIcmpEchoTmplHistBuckets are filled, the 
+        oldest entries are deleted and the most recent
+        cipslaIcmpEchoTmplHistBuckets buckets are retained."
+    DEFVAL          { 15 } 
+    ::= { cipslaIcmpEchoTmplEntry 12 }
+
+cipslaIcmpEchoTmplHistFilter OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        all(2),
+                        overThreshold(3),
+                        failures(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines a filter for adding RTT results to the history
+        buffer:
+
+        none(1)          - no history is recorded
+        all(2)           - the results of all completion times 
+                           and failed completions are recorded
+        overThreshold(3) - the results of completion times
+                           over cipslaIcmpEchoTmplThreshold are 
+                           recorded.
+        failures(4)      - the results of failed operations (only) 
+                           are recorded."
+    DEFVAL          { none } 
+    ::= { cipslaIcmpEchoTmplEntry 13 }
+
+cipslaIcmpEchoTmplStatsHours OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..25 )
+    UNITS           "hours"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of hours for which statistics are
+        maintained. Specifically this is the number of hourly 
+        groups to keep before rolling over.
+
+        The value of one is not advisable because the hourly
+        group will close and immediately be deleted before
+        the network management station will have the
+        opportunity to retrieve the statistics.
+
+        The value of zero will shut off data collection."
+    DEFVAL          { 2 } 
+    ::= { cipslaIcmpEchoTmplEntry 14 }
+
+cipslaIcmpEchoTmplDistBuckets OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..20 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of statistical distribution
+        buckets to accumulate.
+
+        Since this index does not rollover, only the first
+        cipslaIcmpEchoTmplStatsNumDistBuckets will be kept.
+
+        The last cipslaIcmpEchoTmplStatsNumDistBucket will
+        contain all entries from its distribution interval
+        start point to infinity."
+    DEFVAL          { 1 } 
+    ::= { cipslaIcmpEchoTmplEntry 15 }
+
+cipslaIcmpEchoTmplDistInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The statistical distribution buckets interval.
+
+        Distribution Bucket Example:
+
+        cipslaIcmpEchoTmplDistBuckets = 5 buckets
+        cipslaIcmpEchoTmplDistInterval = 10 milliseconds
+
+        | Bucket 1 | Bucket 2 | Bucket 3 | Bucket 4 | Bucket 5  |
+        |  0-9 ms  | 10-19 ms | 20-29 ms | 30-39 ms | 40-Inf ms |
+
+        Odd Example:
+
+        cipslaIcmpEchoTmplDistBuckets = 1 buckets
+        cipslaIcmpEchoTmplDistInterval = 10 milliseconds
+
+        | Bucket 1  |
+        |  0-Inf ms |
+
+        Thus, this odd example shows that the value of
+        cipslaIcmpEchoTmplDistInterval does not apply when
+        cipslaIcmpEchoTmplDistBuckets is one."
+    DEFVAL          { 20 } 
+    ::= { cipslaIcmpEchoTmplEntry 16 }
+
+cipslaIcmpEchoTmplStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type of this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cipslaIcmpEchoTmplEntry 17 }
+
+cipslaIcmpEchoTmplRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of the conceptual ICMP echo template control row.
+        When the status is active, all the read-create objects in that 
+        row can be modified." 
+    ::= { cipslaIcmpEchoTmplEntry 18 }
+ 
+
+
+cipslaUdpEchoTmplTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CipslaUdpEchoTmplEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table that contains UDP echo template specific definitions."
+    ::= { ciscoIpSlaEchoMIBObjects 2 }
+
+cipslaUdpEchoTmplEntry OBJECT-TYPE
+    SYNTAX          CipslaUdpEchoTmplEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A row entry representing an IPSLA UDP echo template."
+    INDEX           { cipslaUdpEchoTmplName } 
+    ::= { cipslaUdpEchoTmplTable 1 }
+
+CipslaUdpEchoTmplEntry ::= SEQUENCE {
+        cipslaUdpEchoTmplName          SnmpAdminString,
+        cipslaUdpEchoTmplDescription   SnmpAdminString,
+        cipslaUdpEchoTmplControlEnable TruthValue,
+        cipslaUdpEchoTmplSrcAddrType   InetAddressType,
+        cipslaUdpEchoTmplSrcAddr       InetAddress,
+        cipslaUdpEchoTmplSrcPort       InetPortNumber,
+        cipslaUdpEchoTmplTimeOut       Unsigned32,
+        cipslaUdpEchoTmplVerifyData    TruthValue,
+        cipslaUdpEchoTmplReqDataSize   Unsigned32,
+        cipslaUdpEchoTmplTOS           Unsigned32,
+        cipslaUdpEchoTmplVrfName       SnmpAdminString,
+        cipslaUdpEchoTmplThreshold     Unsigned32,
+        cipslaUdpEchoTmplHistLives     Unsigned32,
+        cipslaUdpEchoTmplHistBuckets   Unsigned32,
+        cipslaUdpEchoTmplHistFilter    INTEGER ,
+        cipslaUdpEchoTmplStatsHours    Unsigned32,
+        cipslaUdpEchoTmplDistBuckets   Unsigned32,
+        cipslaUdpEchoTmplDistInterval  Unsigned32,
+        cipslaUdpEchoTmplStorageType   StorageType,
+        cipslaUdpEchoTmplRowStatus     RowStatus
+}
+
+cipslaUdpEchoTmplName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the UDP echo template name." 
+    ::= { cipslaUdpEchoTmplEntry 1 }
+
+cipslaUdpEchoTmplDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string which provides description to the UDP echo template."
+    DEFVAL          { "" } 
+    ::= { cipslaUdpEchoTmplEntry 2 }
+
+cipslaUdpEchoTmplControlEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "If this object is enabled, then the IP SLA application
+        will send control messages to a responder, residing on the
+        target router to respond to the data request packets being
+        sent by the source router."
+    DEFVAL          { true } 
+    ::= { cipslaUdpEchoTmplEntry 3 }
+
+cipslaUdpEchoTmplSrcAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the IP address type
+        of the source. It must be used along with the
+        cipslaUdpEchoTmplSrcAddr object."
+    DEFVAL          { ipv4 } 
+    ::= { cipslaUdpEchoTmplEntry 4 }
+
+cipslaUdpEchoTmplSrcAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the IP address of the source." 
+    ::= { cipslaUdpEchoTmplEntry 5 }
+
+cipslaUdpEchoTmplSrcPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the source's port number. If this
+        object is not specified, the application will get a
+        port allocated by the system."
+    DEFVAL          { 0 } 
+    ::= { cipslaUdpEchoTmplEntry 6 }
+
+cipslaUdpEchoTmplTimeOut OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..604800000 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the duration to wait for an IP SLA operation
+        completion.
+
+        For connection oriented protocols, this may cause the
+        connection to be closed by the operation.  Once closed, it
+        will be assumed that the connection reestablishment
+        will be performed.  To prevent unwanted closure of
+        connections, be sure to set this value to a realistic
+        connection timeout."
+    DEFVAL          { 5000 } 
+    ::= { cipslaUdpEchoTmplEntry 7 }
+
+cipslaUdpEchoTmplVerifyData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "When set to true, the resulting data in each IP SLA
+        operation is compared with the expected data.  This
+        includes checking header information (if possible) and
+        exact packet size."
+    DEFVAL          { false } 
+    ::= { cipslaUdpEchoTmplEntry 8 }
+
+cipslaUdpEchoTmplReqDataSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (4..1500 )
+    UNITS           "octets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of octets to be
+        placed into the ARR Data portion of the request
+        message, when using SNA protocols.
+
+        For non-ARR protocols' RTT request/responses,
+        this value represents the native payload size.
+
+        REMEMBER:  The ARR Header overhead is not included
+                   in this value."
+    DEFVAL          { 16 } 
+    ::= { cipslaUdpEchoTmplEntry 9 }
+
+cipslaUdpEchoTmplTOS OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of service octet in an
+        IP header."
+    REFERENCE
+        "Refer to the following documents for TOS definition.
+               RFC791/1349  for IPv4, IPv6, draft-ietf-diffserv-header-02.txt"
+    DEFVAL          { 0 } 
+    ::= { cipslaUdpEchoTmplEntry 10 }
+
+cipslaUdpEchoTmplVrfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This field is used to specify the VRF name with
+        which the IP SLA operation will be used. For regular IP SLA
+        operation this field should not be configured. The agent
+        will use this field to identify the VRF routing Table for
+        this operation."
+    DEFVAL          { "" } 
+    ::= { cipslaUdpEchoTmplEntry 11 }
+
+cipslaUdpEchoTmplThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines an administrative threshold limit.
+        If the IP SLA operation time exceeds this limit and if the
+        condition specified in cipslaUdpEchoTmplHistFilter is 
+        satisfied, one threshold crossing occurrence will be counted."
+    DEFVAL          { 5000 } 
+    ::= { cipslaUdpEchoTmplEntry 12 }
+
+cipslaUdpEchoTmplHistLives OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of history lives to record.  A life
+        is defined by the countdown (or transition) to zero 
+        by the cipslaAutoGroupScheduleLife object.  A new life is
+        created when the same conceptual control row is
+        restarted via the transition of the 
+        cipslaAutoGroupScheduleLife object and its subsequent 
+        countdown.
+
+        The value of zero will shut off all data collection."
+    DEFVAL          { 0 } 
+    ::= { cipslaUdpEchoTmplEntry 13 }
+
+cipslaUdpEchoTmplHistBuckets OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..60 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of history buckets to record.
+        This value should be set to the number of operations 
+        to keep per lifetime.
+
+        After cipslaUdpEchoTmplHistBuckets are filled, the 
+        oldest entries are deleted and the most recent
+        cipslaUdpEchoTmplHistBuckets buckets are retained."
+    DEFVAL          { 15 } 
+    ::= { cipslaUdpEchoTmplEntry 14 }
+
+cipslaUdpEchoTmplHistFilter OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        all(2),
+                        overThreshold(3),
+                        failures(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines a filter for adding RTT results to the history
+        buffer:
+
+        none(1)          - no history is recorded
+        all(2)           - the results of all completion times 
+                           and failed completions are recorded
+        overThreshold(3) - the results of completion times
+                           over cipslaUdpEchoTmplThreshold are 
+                           recorded.
+        failures(4)      - the results of failed operations (only) 
+                           are recorded."
+    DEFVAL          { none } 
+    ::= { cipslaUdpEchoTmplEntry 15 }
+
+cipslaUdpEchoTmplStatsHours OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..25 )
+    UNITS           "hours"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of hours for which statistics are
+        maintained. Specifically this is the number of hourly 
+        groups to keep before rolling over.
+
+        The value of one is not advisable because the hourly
+        group will close and immediately be deleted before
+        the network management station will have the
+        opportunity to retrieve the statistics.
+
+        The value of zero will shut off data collection."
+    DEFVAL          { 2 } 
+    ::= { cipslaUdpEchoTmplEntry 16 }
+
+cipslaUdpEchoTmplDistBuckets OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..20 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of statistical distribution
+        buckets to accumulate.
+
+        Since this index does not rollover, only the first
+        cipslaUdpEchoTmplStatsNumDistBuckets will be kept.
+
+        The last cipslaUdpEchoTmplStatsNumDistBuckets will
+        contain all entries from its distribution interval
+        start point to infinity."
+    DEFVAL          { 1 } 
+    ::= { cipslaUdpEchoTmplEntry 17 }
+
+cipslaUdpEchoTmplDistInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The statistical distribution buckets interval.
+
+        Distribution Bucket Example:
+
+        cipslaUdpEchoTmplDistBuckets = 5 buckets
+        cipslaUdpEchoTmplDistInterval = 10 milliseconds
+
+        | Bucket 1 | Bucket 2 | Bucket 3 | Bucket 4 | Bucket 5  |
+        |  0-9 ms  | 10-19 ms | 20-29 ms | 30-39 ms | 40-Inf ms |
+
+        Odd Example:
+
+        cipslaUdpEchoTmplDistBuckets = 1 buckets
+        cipslaUdpEchoTmplDistInterval = 10 milliseconds
+
+        | Bucket 1  |
+        |  0-Inf ms |
+
+        Thus, this odd example shows that the value of
+        cipslaUdpEchoTmplDistInterval does not apply when
+        cipslaUdpEchoTmplDistBuckets is one."
+    DEFVAL          { 20 } 
+    ::= { cipslaUdpEchoTmplEntry 18 }
+
+cipslaUdpEchoTmplStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type of this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cipslaUdpEchoTmplEntry 19 }
+
+cipslaUdpEchoTmplRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of the conceptual UDP echo template control row.
+        When the status is active, all the read-create objects in 
+        that row can be modified." 
+    ::= { cipslaUdpEchoTmplEntry 20 }
+ 
+
+
+cipslaTcpConnTmplTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CipslaTcpConnTmplEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table that contains TCP connect template specific definitions."
+    ::= { ciscoIpSlaEchoMIBObjects 3 }
+
+cipslaTcpConnTmplEntry OBJECT-TYPE
+    SYNTAX          CipslaTcpConnTmplEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A row entry representing an IPSLA TCP connect template."
+    INDEX           { cipslaTcpConnTmplName } 
+    ::= { cipslaTcpConnTmplTable 1 }
+
+CipslaTcpConnTmplEntry ::= SEQUENCE {
+        cipslaTcpConnTmplName          SnmpAdminString,
+        cipslaTcpConnTmplDescription   SnmpAdminString,
+        cipslaTcpConnTmplControlEnable TruthValue,
+        cipslaTcpConnTmplSrcAddrType   InetAddressType,
+        cipslaTcpConnTmplSrcAddr       InetAddress,
+        cipslaTcpConnTmplSrcPort       InetPortNumber,
+        cipslaTcpConnTmplTimeOut       Unsigned32,
+        cipslaTcpConnTmplVerifyData    TruthValue,
+        cipslaTcpConnTmplTOS           Unsigned32,
+        cipslaTcpConnTmplThreshold     Unsigned32,
+        cipslaTcpConnTmplHistLives     Unsigned32,
+        cipslaTcpConnTmplHistBuckets   Unsigned32,
+        cipslaTcpConnTmplHistFilter    INTEGER ,
+        cipslaTcpConnTmplStatsHours    Unsigned32,
+        cipslaTcpConnTmplDistBuckets   Unsigned32,
+        cipslaTcpConnTmplDistInterval  Unsigned32,
+        cipslaTcpConnTmplStorageType   StorageType,
+        cipslaTcpConnTmplRowStatus     RowStatus
+}
+
+cipslaTcpConnTmplName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the TCP connect template name." 
+    ::= { cipslaTcpConnTmplEntry 1 }
+
+cipslaTcpConnTmplDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string which provides description for the TCP connect template."
+    DEFVAL          { "" } 
+    ::= { cipslaTcpConnTmplEntry 2 }
+
+cipslaTcpConnTmplControlEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "If this object is enabled, then the IP SLA application
+        will send control messages to a responder, residing on the
+        target router to respond to the data request packets being
+        sent by the source router."
+    DEFVAL          { true } 
+    ::= { cipslaTcpConnTmplEntry 3 }
+
+cipslaTcpConnTmplSrcAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "An enumerated value which specifies the IP address type
+        of the source. It must be used along with the
+        cipslaTcpConnTmplSrcAddr object."
+    DEFVAL          { ipv4 } 
+    ::= { cipslaTcpConnTmplEntry 4 }
+
+cipslaTcpConnTmplSrcAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string which specifies the IP address of the source." 
+    ::= { cipslaTcpConnTmplEntry 5 }
+
+cipslaTcpConnTmplSrcPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the source's port number. If this
+        object is not specified, the application will get a
+        port allocated by the system."
+    DEFVAL          { 0 } 
+    ::= { cipslaTcpConnTmplEntry 6 }
+
+cipslaTcpConnTmplTimeOut OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..604800000 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the duration to wait for an IP SLA operation
+        completion.
+
+        For connection oriented protocols, this may cause the
+        connection to be closed by the operation.  Once closed, it
+        will be assumed that the connection reestablishment
+        will be performed.  To prevent unwanted closure of
+        connections, be sure to set this value to a realistic
+        connection timeout."
+    DEFVAL          { 5000 } 
+    ::= { cipslaTcpConnTmplEntry 7 }
+
+cipslaTcpConnTmplVerifyData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "When set to true, the resulting data in each IP SLA
+        operation is compared with the expected data.  This
+        includes checking header information (if possible) and
+        exact packet size."
+    DEFVAL          { false } 
+    ::= { cipslaTcpConnTmplEntry 8 }
+
+cipslaTcpConnTmplTOS OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of service octet in an
+        IP header."
+    REFERENCE
+        "Refer to the following documents for TOS definition.
+               RFC791/1349  for IPv4, IPv6, draft-ietf-diffserv-header-02.txt"
+    DEFVAL          { 0 } 
+    ::= { cipslaTcpConnTmplEntry 9 }
+
+cipslaTcpConnTmplThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines an administrative threshold limit.
+        If the IP SLA operation time exceeds this limit and if the
+        condition specified in cipslaTcpConnTmplHistFilter is 
+        satisfied, one threshold crossing occurrence will be counted."
+    DEFVAL          { 5000 } 
+    ::= { cipslaTcpConnTmplEntry 10 }
+
+cipslaTcpConnTmplHistLives OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of history lives to record.  A life
+        is defined by the countdown (or transition) to zero 
+        by the cipslaAutoGroupScheduleLife object.  A new life is
+        created when the same conceptual control row is
+        restarted via the transition of the 
+        cipslaAutoGroupScheduleLife object and its subsequent 
+        countdown.
+
+        The value of zero will shut off all data collection."
+    DEFVAL          { 0 } 
+    ::= { cipslaTcpConnTmplEntry 11 }
+
+cipslaTcpConnTmplHistBuckets OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..60 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of history buckets to record.
+        This value should be set to the number of operations 
+        to keep per lifetime.
+
+        After cipslaTcpConnTmplHistBuckets are filled, the 
+        oldest entries are deleted and the most recent
+        cipslaTcpConnTmplHistBuckets buckets are retained."
+    DEFVAL          { 15 } 
+    ::= { cipslaTcpConnTmplEntry 12 }
+
+cipslaTcpConnTmplHistFilter OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        all(2),
+                        overThreshold(3),
+                        failures(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines a filter for adding RTT results to the history
+        buffer:
+
+        none(1)          - no history is recorded
+        all(2)           - the results of all completion times 
+                           and failed completions are recorded
+        overThreshold(3) - the results of completion times
+                           over cipslaTcpConnTmplThreshold are 
+                           recorded.
+        failures(4)      - the results of failed operations (only) 
+                           are recorded."
+    DEFVAL          { none } 
+    ::= { cipslaTcpConnTmplEntry 13 }
+
+cipslaTcpConnTmplStatsHours OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..25 )
+    UNITS           "hours"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of hours for which statistics are
+        maintained. Specifically this is the number of hourly 
+        groups to keep before rolling over.
+
+        The value of one is not advisable because the hourly
+        group will close and immediately be deleted before
+        the network management station will have the
+        opportunity to retrieve the statistics.
+
+        The value of zero will shut off data collection."
+    DEFVAL          { 2 } 
+    ::= { cipslaTcpConnTmplEntry 14 }
+
+cipslaTcpConnTmplDistBuckets OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..20 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of statistical distribution
+        buckets to accumulate.
+
+        Since this index does not rollover, only the first
+        cipslaTcpConnTmplDistBuckets will be kept.
+
+        The last cipslaTcpConnTmplDistBuckets will
+        contain all entries from its distribution interval
+        start point to infinity."
+    DEFVAL          { 1 } 
+    ::= { cipslaTcpConnTmplEntry 15 }
+
+cipslaTcpConnTmplDistInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The statistical distribution buckets interval.
+
+        Distribution Bucket Example:
+
+        cipslaTcpConnTmplDistBuckets = 5 buckets
+        cipslaTcpConnTmplDistInterval = 10 milliseconds
+
+        | Bucket 1 | Bucket 2 | Bucket 3 | Bucket 4 | Bucket 5  |
+        |  0-9 ms  | 10-19 ms | 20-29 ms | 30-39 ms | 40-Inf ms |
+
+        Odd Example:
+
+        cipslaTcpConnTmplDistBuckets = 1 buckets
+        cipslaTcpConnTmplDistInterval = 10 milliseconds
+
+        | Bucket 1  |
+        |  0-Inf ms |
+
+        Thus, this odd example shows that the value of
+        cipslaTcpConnTmplDistInterval does not apply when
+        cipslaTcpConnTmplDistBuckets is one."
+    DEFVAL          { 20 } 
+    ::= { cipslaTcpConnTmplEntry 16 }
+
+cipslaTcpConnTmplStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type of this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cipslaTcpConnTmplEntry 17 }
+
+cipslaTcpConnTmplRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of the conceptual tcp connect control row.
+        When the status is active, all the read-create objects 
+        in that row can be modified." 
+    ::= { cipslaTcpConnTmplEntry 18 }
+ 
+
+-- Conformance Information
+
+ciscoIpSlaEchoMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoIpSlaEchoMIB 2 }
+
+ciscoIpSlaEchoMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoIpSlaEchoMIBConform 1 }
+
+ciscoIpSlaEchoMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoIpSlaEchoMIBConform 2 }
+
+
+ciscoIpSlaEchoMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for IP SLA
+        (1)  ICMP echo Template
+        (2)  UDP echo Template
+        (3)  TCP connect Template"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoIpSlaIcmpEchoTmplGroup,
+                        ciscoIpSlaUdpEchoTmplGroup,
+                        ciscoIpSlaTcpConnTmplGroup
+                    }
+    ::= { ciscoIpSlaEchoMIBCompliances 1 }
+
+ciscoIpSlaIcmpEchoTmplGroup OBJECT-GROUP
+    OBJECTS         {
+                        cipslaIcmpEchoTmplDescription,
+                        cipslaIcmpEchoTmplSrcAddrType,
+                        cipslaIcmpEchoTmplSrcAddr,
+                        cipslaIcmpEchoTmplTimeOut,
+                        cipslaIcmpEchoTmplVerifyData,
+                        cipslaIcmpEchoTmplReqDataSize,
+                        cipslaIcmpEchoTmplTOS,
+                        cipslaIcmpEchoTmplVrfName,
+                        cipslaIcmpEchoTmplThreshold,
+                        cipslaIcmpEchoTmplHistLives,
+                        cipslaIcmpEchoTmplHistBuckets,
+                        cipslaIcmpEchoTmplHistFilter,
+                        cipslaIcmpEchoTmplStatsHours,
+                        cipslaIcmpEchoTmplDistBuckets,
+                        cipslaIcmpEchoTmplDistInterval,
+                        cipslaIcmpEchoTmplStorageType,
+                        cipslaIcmpEchoTmplRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related to ICMP echo Template."
+    ::= { ciscoIpSlaEchoMIBGroups 1 }
+
+ciscoIpSlaUdpEchoTmplGroup OBJECT-GROUP
+    OBJECTS         {
+                        cipslaUdpEchoTmplDescription,
+                        cipslaUdpEchoTmplControlEnable,
+                        cipslaUdpEchoTmplSrcAddrType,
+                        cipslaUdpEchoTmplSrcAddr,
+                        cipslaUdpEchoTmplSrcPort,
+                        cipslaUdpEchoTmplTimeOut,
+                        cipslaUdpEchoTmplVerifyData,
+                        cipslaUdpEchoTmplReqDataSize,
+                        cipslaUdpEchoTmplTOS,
+                        cipslaUdpEchoTmplVrfName,
+                        cipslaUdpEchoTmplThreshold,
+                        cipslaUdpEchoTmplHistLives,
+                        cipslaUdpEchoTmplHistBuckets,
+                        cipslaUdpEchoTmplHistFilter,
+                        cipslaUdpEchoTmplStatsHours,
+                        cipslaUdpEchoTmplDistBuckets,
+                        cipslaUdpEchoTmplDistInterval,
+                        cipslaUdpEchoTmplStorageType,
+                        cipslaUdpEchoTmplRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related to UDP echo Template."
+    ::= { ciscoIpSlaEchoMIBGroups 2 }
+
+ciscoIpSlaTcpConnTmplGroup OBJECT-GROUP
+    OBJECTS         {
+                        cipslaTcpConnTmplDescription,
+                        cipslaTcpConnTmplControlEnable,
+                        cipslaTcpConnTmplSrcAddrType,
+                        cipslaTcpConnTmplSrcAddr,
+                        cipslaTcpConnTmplSrcPort,
+                        cipslaTcpConnTmplTimeOut,
+                        cipslaTcpConnTmplVerifyData,
+                        cipslaTcpConnTmplTOS,
+                        cipslaTcpConnTmplThreshold,
+                        cipslaTcpConnTmplHistLives,
+                        cipslaTcpConnTmplHistBuckets,
+                        cipslaTcpConnTmplHistFilter,
+                        cipslaTcpConnTmplStatsHours,
+                        cipslaTcpConnTmplDistBuckets,
+                        cipslaTcpConnTmplDistInterval,
+                        cipslaTcpConnTmplStorageType,
+                        cipslaTcpConnTmplRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related to TCP connect Template."
+    ::= { ciscoIpSlaEchoMIBGroups 3 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

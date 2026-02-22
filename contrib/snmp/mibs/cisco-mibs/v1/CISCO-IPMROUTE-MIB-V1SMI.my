@@ -1,0 +1,858 @@
+-- MIB file created 11-Jun-2005 18:06:52, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IPMROUTE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IPMROUTE-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TimeStamp, RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    ipMRouteGroup, ipMRouteSource, ipMRouteSourceMask, 
+    ipMRouteNextHopGroup, ipMRouteNextHopSource, 
+    ipMRouteNextHopSourceMask, ipMRouteNextHopIfIndex, 
+    ipMRouteNextHopAddress, ipMRouteInterfaceIfIndex
+            FROM IPMROUTE-STD-MIB
+    CounterBasedGauge64
+            FROM HCNUM-TC
+    ciscoExperiment
+            FROM CISCO-SMI
+    Counter, Gauge, IpAddress, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoIpMRouteMIB OBJECT IDENTIFIER ::= { ciscoExperiment 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200503070000Z
+--  OrgName
+--    ciscoSytems
+--  ContactInfo
+--     cisco Systems, Inc.
+--      170 Tasman Drive
+--      San Jose, CA
+--      EMail: cs-ipmulticast@cisco.com
+--  Descr
+--    The MIB module for management of IP Multicast routing,
+--    but independent of the specific multicast routing protocol
+--    in use.
+--  RevDate
+--    200503070000Z
+--  RevDescr
+--    Add 32-bit and 64-bit per interface packet counters.
+--    These apply to all interfaces, including Point-To-Point
+--    types, unlike ifInMulticastPkts etc which only apply to
+--    interfaces with multicast at that layer. Also fix import
+--    of Unsigned32.
+--  RevDate
+--    200012220000Z
+--  RevDescr
+--    Add ciscoIpMRouteNumberOfEntries. Also add 64-bit
+--    counters to represent information for high speed
+--    interfaces like OC-192. Deprecate ciscoIpMRouteBps in
+--    favour of the 64-bit counter ciscoIpMRouteBps2. 
+--    ciscoIpMouteMetric deprecated in favour of
+--    ciscoIpMouteMetric2 to correctly represent a 32-bit
+--    unsigned metric value.
+--  RevDate
+--    200005150000Z
+--  RevDescr
+--    Added MIB support for multicast heartbeat monitoring.
+--  RevDate
+--    9902080000Z
+--  RevDescr
+--    Add ciscoIpMRouteJoinFlag, ciscoIpMRouteMsdpFlag and
+--    ciscoIpMRouteProxyJoinFlag.
+--  RevDate
+--    9610110000Z
+--  RevDescr
+--    Obsolete ciscoIpMRouteInLimit and replaced with
+--    ciscoIpMRouteInLimit2.
+
+ciscoIpMRouteMIBObjects OBJECT IDENTIFIER ::= { ciscoIpMRouteMIB 1 }
+ciscoIpMRoute   OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBObjects 1 }
+ciscoIpMRouteNotifications OBJECT IDENTIFIER ::= { ciscoIpMRouteMIB 3 }
+ciscoIpMRouteMissingHeartBeatsNotificationPrefix OBJECT IDENTIFIER ::= { ciscoIpMRouteNotifications 1 }
+ciscoIpMRouteMissingHeartBeatsNotifications OBJECT IDENTIFIER ::= { ciscoIpMRouteMissingHeartBeatsNotificationPrefix 0 }
+ciscoIpMRouteMIBConformance OBJECT IDENTIFIER ::= { ciscoIpMRouteMIB 2 }
+ciscoIpMRouteMIBCompliances OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBConformance 1 }
+ciscoIpMRouteMIBGroups OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBConformance 2 }
+
+ciscoIpMRouteNumberOfEntries OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maintains a count of the number of entries in the
+        ipMRouteTable."
+    ::= { ciscoIpMRoute 1 }
+
+ciscoIpMRouteTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoIpMRouteEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table containing multicast routing
+        information for IP datagrams sent by particular sources to
+        the IP multicast groups known to this router. This table is 
+        augmented to the ipMRouteTable."
+    ::= { ciscoIpMRoute 2 }
+
+ciscoIpMRouteEntry OBJECT-TYPE
+    SYNTAX CiscoIpMRouteEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) containing the multicast routing
+        information for IP datagrams from a particular source and
+        addressed to a particular IP multicast group address."
+    INDEX { ipMRouteGroup, ipMRouteSource, ipMRouteSourceMask }
+-- Augments ipMRouteEntry FROM IPMROUTE-STD-MIB
+    ::= { ciscoIpMRouteTable 1 }
+
+CiscoIpMRouteEntry ::= SEQUENCE {
+    ciscoIpMRoutePruneFlag TruthValue,
+    ciscoIpMRouteSparseFlag TruthValue,
+    ciscoIpMRouteConnectedFlag TruthValue,
+    ciscoIpMRouteLocalFlag TruthValue,
+    ciscoIpMRouteRegisterFlag TruthValue,
+    ciscoIpMRouteRpFlag TruthValue,
+    ciscoIpMRouteSptFlag TruthValue,
+    ciscoIpMRouteBps Gauge,
+    ciscoIpMRouteMetric INTEGER,
+    ciscoIpMRouteMetricPreference INTEGER,
+    ciscoIpMRouteInLimit INTEGER,
+    ciscoIpMRouteLastUsed TimeTicks,
+    ciscoIpMRouteInLimit2 Gauge,
+    ciscoIpMRouteJoinFlag TruthValue,
+    ciscoIpMRouteMsdpFlag TruthValue,
+    ciscoIpMRouteProxyJoinFlag TruthValue,
+    ciscoIpMRoutePkts Counter,
+    ciscoIpMRouteDifferentInIfPkts Counter,
+    ciscoIpMRouteOctets Counter,
+    ciscoIpMRouteBps2 CounterBasedGauge64,
+    ciscoIpMRouteMetric2 Gauge
+    }
+
+ciscoIpMRoutePruneFlag OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean, indicates whether this route is pruned. A pruned
+        route is one that has an empty outgoing interface list or
+        all interfaces are in Pruned state. A multicast packet
+        that matches a pruned route doesn't get forwarded."
+    ::= { ciscoIpMRouteEntry 12 }
+
+ciscoIpMRouteSparseFlag OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean, indicating PIM multicast routing protocol
+        sparse-mode (versus dense-mode).  In sparse-mode, packets
+        are forwarded only out interfaces that have been joined.
+        In dense-mode, they are forwarded out all interfaces that
+        have not been pruned."
+    ::= { ciscoIpMRouteEntry 13 }
+
+ciscoIpMRouteConnectedFlag OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean, indicating whether there is a directly connected
+        member for a group attached to the router."
+    ::= { ciscoIpMRouteEntry 14 }
+
+ciscoIpMRouteLocalFlag OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean, indicating whether local system is a member of a
+        group on any interface."
+    ::= { ciscoIpMRouteEntry 15 }
+
+ciscoIpMRouteRegisterFlag OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean, indicates whether to send registers for the
+        entry. A first hop router directly connected to a
+        multicast source host, as well as a border router on the
+        boundary of two domains running different multicast
+        routing protocols, encapsulates packets to be sent on the
+        shared tree. This is done until the RP sends Joins back to
+        this router."
+    ::= { ciscoIpMRouteEntry 16 }
+
+ciscoIpMRouteRpFlag OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean, indicating whether there is a Prune state for
+        this source along the shared tree."
+    ::= { ciscoIpMRouteEntry 17 }
+
+ciscoIpMRouteSptFlag OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean, indicating whether data is being received on the
+        SPT tree, ie the Shortest Path Tree."
+    ::= { ciscoIpMRouteEntry 18 }
+
+ciscoIpMRouteBps OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "Bits per second forwarded by this router.  This is the
+        sum of all forwarded bits during a 1 second interval.  At
+        the end of each second the field is cleared. This object
+        has been superseded by ciscoIpMRouteBps2 (which is the
+        64-bit version of this object)."
+    ::= { ciscoIpMRouteEntry 19 }
+
+ciscoIpMRouteMetric OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "Metric - The best metric heard from Assert messages. This
+        object has been replaced by ciscoIpMRouteMetric2 in order
+        to correctly represent a 32-bit unsigned metric value."
+    ::= { ciscoIpMRouteEntry 20 }
+
+ciscoIpMRouteMetricPreference OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Metric Preference - The best metric preference heard from
+        Assert messages."
+    ::= { ciscoIpMRouteEntry 21 }
+
+ciscoIpMRouteInLimit OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    Kbits/second
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "Incoming interface's limit for rate limiting data
+        traffic, in Kbps. Replaced by ciscoIpMRouteInLimit2."
+    ::= { ciscoIpMRouteEntry 22 }
+
+ciscoIpMRouteLastUsed OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "How long has it been since the last multicast packet was
+        fastswitched."
+    ::= { ciscoIpMRouteEntry 23 }
+
+ciscoIpMRouteInLimit2 OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Kbits/second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Incoming interface's limit for rate limiting data
+        traffic, in Kbps."
+    ::= { ciscoIpMRouteEntry 24 }
+
+ciscoIpMRouteJoinFlag OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean, indicates whether this route is created due to
+        SPT threshold."
+    ::= { ciscoIpMRouteEntry 25 }
+
+ciscoIpMRouteMsdpFlag OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean, indicates whether this route is learned via
+        MSDP."
+    ::= { ciscoIpMRouteEntry 26 }
+
+ciscoIpMRouteProxyJoinFlag OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean, indicates whether to send join for this entry."
+    ::= { ciscoIpMRouteEntry 27 }
+
+ciscoIpMRoutePkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets which this router has received from
+        these sources and addressed to this multicast group
+        address. This object is a 64-bit version of ipMRoutePkts."
+    ::= { ciscoIpMRouteEntry 28 }
+
+ciscoIpMRouteDifferentInIfPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets which this router has received from
+        these sources and addressed to this multicast group
+        address, which were not received from the interface
+        indicated by ipMRouteInIfIndex. This object is a 64-bit
+        version of ipMRouteDifferentInIfPackets."
+    ::= { ciscoIpMRouteEntry 29 }
+
+ciscoIpMRouteOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets contained in IP datagrams which were
+        received from these sources and addressed to this multicast
+        group address, and which were forwarded by this
+        router. This object is a 64-bit version of
+        ipMRouteOctets."
+    ::= { ciscoIpMRouteEntry 30 }
+
+ciscoIpMRouteBps2 OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           CounterBasedGauge64
+--    Rsyntax Counter64
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Bits per second forwarded by this router. This is the sum
+        of all forwarded bits during a 1 second interval. At the
+        end of each second the field is cleared."
+    ::= { ciscoIpMRouteEntry 31 }
+
+ciscoIpMRouteMetric2 OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Metric - The best metric heard from Assert messages."
+    ::= { ciscoIpMRouteEntry 32 }
+
+ciscoIpMRouteNextHopTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoIpMRouteNextHopEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table containing information on the next
+        hops on outgoing interfaces for routing IP multicast
+        datagrams.  Each entry is one of a list of next hops on
+        outgoing interfaces for particular sources sending to a
+        particular multicast group address."
+    ::= { ciscoIpMRoute 3 }
+
+ciscoIpMRouteNextHopEntry OBJECT-TYPE
+    SYNTAX CiscoIpMRouteNextHopEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the list of next hops on
+        outgoing interfaces to which IP multicast datagrams from
+        particular sources to a IP multicast group address are
+        routed."
+    INDEX { ipMRouteNextHopGroup, ipMRouteNextHopSource, ipMRouteNextHopSourceMask, ipMRouteNextHopIfIndex, ipMRouteNextHopAddress }
+-- Augments ipMRouteNextHopEntry FROM IPMROUTE-STD-MIB
+    ::= { ciscoIpMRouteNextHopTable 1 }
+
+CiscoIpMRouteNextHopEntry ::= SEQUENCE {
+    ciscoIpMRouteNextHopOutLimit Gauge,
+    ciscoIpMRouteNextHopMacHdr OCTET STRING,
+    ciscoIpMRouteNextHopPkts Counter
+    }
+
+ciscoIpMRouteNextHopOutLimit OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Kbits/second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An outgoing interface's limit for rate limiting data
+        traffic, in Kbps."
+    ::= { ciscoIpMRouteNextHopEntry 9 }
+
+ciscoIpMRouteNextHopMacHdr OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The data link mac address header for a multicast
+        datagram. Used by IP multicast fastswitching."
+    ::= { ciscoIpMRouteNextHopEntry 10 }
+
+ciscoIpMRouteNextHopPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets which have been forwarded using
+        this route. This object is a 64-bit version of
+        ipMRouteNextHopPkts."
+    ::= { ciscoIpMRouteNextHopEntry 11 }
+
+ciscoIpMRouteHeartBeatTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoIpMRouteHeartBeatEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table listing sets of IP Multicast
+        heartbeat parameters.  If no IP Multicast heartbeat is
+        configured, this table would be empty."
+    ::= { ciscoIpMRoute 4 }
+
+ciscoIpMRouteHeartBeatEntry OBJECT-TYPE
+    SYNTAX CiscoIpMRouteHeartBeatEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) representing a set of IP
+        Multicast heartbeat parameters."
+    INDEX { ciscoIpMRouteHeartBeatGroupAddr }
+    ::= { ciscoIpMRouteHeartBeatTable 1 }
+
+CiscoIpMRouteHeartBeatEntry ::= SEQUENCE {
+    ciscoIpMRouteHeartBeatGroupAddr IpAddress,
+    ciscoIpMRouteHeartBeatSourceAddr IpAddress,
+    ciscoIpMRouteHeartBeatInterval INTEGER,
+    ciscoIpMRouteHeartBeatWindowSize INTEGER,
+    ciscoIpMRouteHeartBeatCount Gauge,
+    ciscoIpMRouteHeartBeatMinimum INTEGER,
+    ciscoIpMRouteHeartBeatAlertTime TimeStamp,
+    ciscoIpMRouteHeartBeatStatus RowStatus
+    }
+
+ciscoIpMRouteHeartBeatGroupAddr OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Multicast group address used to receive heartbeat
+        packets."
+    ::= { ciscoIpMRouteHeartBeatEntry 1 }
+
+ciscoIpMRouteHeartBeatSourceAddr OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Source address of the last multicast heartbeat packet
+        received."
+    ::= { ciscoIpMRouteHeartBeatEntry 2 }
+
+ciscoIpMRouteHeartBeatInterval OBJECT-TYPE
+    SYNTAX INTEGER(10..3600)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Number of seconds in which a Cisco multicast router
+        expects a valid heartBeat packet from a source.  This
+        value must be a multiple of 10."
+    ::= { ciscoIpMRouteHeartBeatEntry 3 }
+
+ciscoIpMRouteHeartBeatWindowSize OBJECT-TYPE
+    SYNTAX INTEGER(1..100)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Number of ciscoIpMRouteHeartBeatInterval intervals a
+        Cisco multicast router waits before checking if expected
+        number of heartbeat packets are received or not."
+    ::= { ciscoIpMRouteHeartBeatEntry 4 }
+
+ciscoIpMRouteHeartBeatCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of time intervals where multicast packets were
+        received in the last ciscoIpMRouteHeartBeatWindowSize
+        intervals."
+    ::= { ciscoIpMRouteHeartBeatEntry 5 }
+
+ciscoIpMRouteHeartBeatMinimum OBJECT-TYPE
+    SYNTAX INTEGER(1..100)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The minimal number of heartbeat packets expected in the
+        last ciscoIpMRouteHeartBeatWindowSize intervals. If
+        ciscoIpMRouteHeartBeatCount falls below this value, an
+        SNMP trap/notification, if configured, will be sent to the
+        NMS."
+    ::= { ciscoIpMRouteHeartBeatEntry 6 }
+
+ciscoIpMRouteHeartBeatAlertTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime on the most recent occasion at
+        which a missing IP multicast heartbeat condition occured
+        for the group address specified in this entry.  If no such
+        condition have occurred since the last re-initialization
+        of the local management subsystem, then this object
+        contains a zero value."
+    ::= { ciscoIpMRouteHeartBeatEntry 7 }
+
+ciscoIpMRouteHeartBeatStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create a new row or delete an
+        existing row in this table."
+    ::= { ciscoIpMRouteHeartBeatEntry 8 }
+
+ciscoIpMRouteInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoIpMRouteInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table containing multicast routing
+        information specific to interfaces. This table augments
+        the ipMRouteInterfaceTable."
+    ::= { ciscoIpMRoute 5 }
+
+ciscoIpMRouteInterfaceEntry OBJECT-TYPE
+    SYNTAX CiscoIpMRouteInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) containing the multicast
+        routing information for a particular interface."
+    INDEX { ipMRouteInterfaceIfIndex }
+-- Augments ipMRouteInterfaceEntry FROM IPMROUTE-STD-MIB
+    ::= { ciscoIpMRouteInterfaceTable 1 }
+
+CiscoIpMRouteInterfaceEntry ::= SEQUENCE {
+    ciscoIpMRouteIfInMcastOctets Counter,
+    ciscoIpMRouteIfOutMcastOctets Counter,
+    ciscoIpMRouteIfInMcastPkts Counter,
+    ciscoIpMRouteIfHCInMcastPkts Counter,
+    ciscoIpMRouteIfOutMcastPkts Counter,
+    ciscoIpMRouteIfHCOutMcastPkts Counter
+    }
+
+ciscoIpMRouteIfInMcastOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets of multicast packets that have
+        arrived on the interface. This object is a 64-bit version
+        of ipMRouteInterfaceInMcastOctets."
+    ::= { ciscoIpMRouteInterfaceEntry 1 }
+
+ciscoIpMRouteIfOutMcastOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets of multicast packets that have been
+        sent on the interface. This object is a 64-bit version of
+        ipMRouteInterfaceOutMcastOctets."
+    ::= { ciscoIpMRouteInterfaceEntry 2 }
+
+ciscoIpMRouteIfInMcastPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of multicast packets that have arrived on the
+        interface."
+    ::= { ciscoIpMRouteInterfaceEntry 3 }
+
+ciscoIpMRouteIfHCInMcastPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of multicast packets that have arrived on the
+        interface. This object is a 64-bit version of
+        ciscoIpMRouteIfInMcastPkts"
+    ::= { ciscoIpMRouteInterfaceEntry 4 }
+
+ciscoIpMRouteIfOutMcastPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of multicast packets that have been sent on
+        the interface."
+    ::= { ciscoIpMRouteInterfaceEntry 5 }
+
+ciscoIpMRouteIfHCOutMcastPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of multicast packets that have been sent on
+        the interface. This object is a 64-bit version of
+        ciscoIpMRouteIfOutMcastPkts"
+    ::= { ciscoIpMRouteInterfaceEntry 6 }
+
+ciscoIpMRouteMissingHeartBeats TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIpMRouteMissingHeartBeatsNotificationPrefix
+    VARIABLES {
+        ciscoIpMRouteHeartBeatSourceAddr, 
+        ciscoIpMRouteHeartBeatInterval, 
+        ciscoIpMRouteHeartBeatWindowSize, 
+        ciscoIpMRouteHeartBeatCount }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ciscoIpMRouteMissingHeartBeat is sent if a multicast router
+        with this feature enabled failed to receive configured number
+        of heartbeat packets from heartbeat sources within a
+        configured time interval."
+    ::= 1
+
+ciscoIpMRouteMIBGroup OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    obsolete
+--  Descr
+--    A collection of objects to support management of IP
+--    Multicast routing.
+--    Superseded by ciscoIpMRouteMIBGroupV11R01.
+--  objects
+--    ciscoIpMRoutePruneFlag, ciscoIpMRouteSparseFlag, 
+--    ciscoIpMRouteConnectedFlag, ciscoIpMRouteLocalFlag, 
+--    ciscoIpMRouteRegisterFlag, ciscoIpMRouteRpFlag, 
+--    ciscoIpMRouteSptFlag, ciscoIpMRouteBps, ciscoIpMRouteMetric, 
+--    ciscoIpMRouteMetricPreference, ciscoIpMRouteInLimit, 
+--    ciscoIpMRouteLastUsed, ciscoIpMRouteNextHopOutLimit, 
+--    ciscoIpMRouteNextHopMacHdr
+
+ciscoIpMRouteMIBGroupV11R01 OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects to support management of IP
+--    Multicast routing.
+--    Superseded by ciscoIpMRouteMIBGroupV12R00S.
+--  objects
+--    ciscoIpMRoutePruneFlag, ciscoIpMRouteSparseFlag, 
+--    ciscoIpMRouteConnectedFlag, ciscoIpMRouteLocalFlag, 
+--    ciscoIpMRouteRegisterFlag, ciscoIpMRouteRpFlag, 
+--    ciscoIpMRouteSptFlag, ciscoIpMRouteBps, ciscoIpMRouteMetric, 
+--    ciscoIpMRouteMetricPreference, ciscoIpMRouteLastUsed, 
+--    ciscoIpMRouteInLimit2, ciscoIpMRouteJoinFlag, 
+--    ciscoIpMRouteMsdpFlag, ciscoIpMRouteProxyJoinFlag, 
+--    ciscoIpMRouteNextHopOutLimit, ciscoIpMRouteNextHopMacHdr
+
+ciscoIpMRouteMIBHeartBeatGroup OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of unconditionally optional objects to
+--    support IP Multicast heartbeat monitoring.
+--  objects
+--    ciscoIpMRouteHeartBeatSourceAddr, 
+--    ciscoIpMRouteHeartBeatInterval, 
+--    ciscoIpMRouteHeartBeatWindowSize, ciscoIpMRouteHeartBeatCount, 
+--    ciscoIpMRouteHeartBeatMinimum, 
+--    ciscoIpMRouteHeartBeatAlertTime, ciscoIpMRouteHeartBeatStatus
+
+ciscoIpMRouteMIBGroupV12R00S OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects to support management of IP
+--    Multicast routing. Superseded by
+--    ciscoIpMRouteMIBGroupV12R28S
+--  objects
+--    ciscoIpMRouteNumberOfEntries, ciscoIpMRoutePruneFlag, 
+--    ciscoIpMRouteSparseFlag, ciscoIpMRouteConnectedFlag, 
+--    ciscoIpMRouteLocalFlag, ciscoIpMRouteRegisterFlag, 
+--    ciscoIpMRouteRpFlag, ciscoIpMRouteSptFlag, 
+--    ciscoIpMRouteMetricPreference, ciscoIpMRouteLastUsed, 
+--    ciscoIpMRouteInLimit2, ciscoIpMRouteJoinFlag, 
+--    ciscoIpMRouteMsdpFlag, ciscoIpMRouteProxyJoinFlag, 
+--    ciscoIpMRoutePkts, ciscoIpMRouteDifferentInIfPkts, 
+--    ciscoIpMRouteOctets, ciscoIpMRouteBps2, ciscoIpMRouteMetric2, 
+--    ciscoIpMRouteNextHopOutLimit, ciscoIpMRouteNextHopMacHdr, 
+--    ciscoIpMRouteNextHopPkts, ciscoIpMRouteIfInMcastOctets, 
+--    ciscoIpMRouteIfOutMcastOctets
+
+ciscoIpMRouteMIBGroupV12R28S OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to support management of IP
+--    Multicast routing.
+--  objects
+--    ciscoIpMRouteNumberOfEntries, ciscoIpMRoutePruneFlag, 
+--    ciscoIpMRouteSparseFlag, ciscoIpMRouteConnectedFlag, 
+--    ciscoIpMRouteLocalFlag, ciscoIpMRouteRegisterFlag, 
+--    ciscoIpMRouteRpFlag, ciscoIpMRouteSptFlag, 
+--    ciscoIpMRouteMetricPreference, ciscoIpMRouteLastUsed, 
+--    ciscoIpMRouteInLimit2, ciscoIpMRouteJoinFlag, 
+--    ciscoIpMRouteMsdpFlag, ciscoIpMRouteProxyJoinFlag, 
+--    ciscoIpMRoutePkts, ciscoIpMRouteDifferentInIfPkts, 
+--    ciscoIpMRouteOctets, ciscoIpMRouteBps2, ciscoIpMRouteMetric2, 
+--    ciscoIpMRouteNextHopOutLimit, ciscoIpMRouteNextHopMacHdr, 
+--    ciscoIpMRouteNextHopPkts
+
+ciscoIpMRouteMIBIfGroup OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to support management of IP
+--    Multicast routing on an interface.
+--  objects
+--    ciscoIpMRouteIfInMcastOctets, ciscoIpMRouteIfOutMcastOctets, 
+--    ciscoIpMRouteIfInMcastPkts, ciscoIpMRouteIfHCInMcastPkts, 
+--    ciscoIpMRouteIfOutMcastPkts, ciscoIpMRouteIfHCOutMcastPkts
+
+ciscoIpMRouteMIBNotifGroup OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBGroups 5 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of IPMroute related notifications.
+--  notifications
+--    ciscoIpMRouteMissingHeartBeats
+
+ciscoIpMRouteMIBCompliance OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    obsolete
+--  Descr
+--    The compliance statement for the cisco IP Multicast
+--    MIB. Superseded by ciscoIpMRouteComplianceV11R01.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoIpMRouteMIBGroup
+
+ciscoIpMRouteMIBComplianceV11R01 OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the cisco IP Multicast
+--    MIB. Superseded by ciscoIpMRouteComplianceV12R00S.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoIpMRouteMIBGroupV11R01
+
+ciscoIpMRouteMIBComplianceV12R00S OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the cisco IP Multicast
+--    MIB. Superseded by ciscoIpMRouteMIBComplianceV12R28S
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoIpMRouteMIBGroupV12R00S
+
+ciscoIpMRouteMIBComplianceV12R28S OBJECT IDENTIFIER ::= { ciscoIpMRouteMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the cisco IP Multicast
+--    MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoIpMRouteMIBGroupV12R28S
+--   MandGroup
+--    ciscoIpMRouteMIBIfGroup
+
+
+END
+

@@ -1,0 +1,2847 @@
+-- *****************************************************************
+-- CISCO-OTN-IF-MIB.my
+-- DWDM OTN INTERFACE MIB
+--   
+-- June 2007 Hameed Yasser Shahul (hsahul)
+--   
+-- Copyright (c) 2007, 2008, 2011, 2015-2016 by cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-OTN-IF-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    Integer32,
+    Counter32,
+    Unsigned32,
+    Counter64,
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    RowStatus,
+    StorageType,
+    DisplayString
+        FROM SNMPv2-TC
+    ifIndex,
+    ifName
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+     SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB;
+
+
+ciscoOtnIfMIB MODULE-IDENTITY
+    LAST-UPDATED    "201605250000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+             E-mail: cs-dwdm-mibs@cisco.com"
+    DESCRIPTION
+        "This MIB module defines the managed objects for physical layer
+        characteristics of DWDM optical channel interfaces and
+        performance statistics objects for protocol specific error
+        counters in DWDM optical devices.
+
+        Performance monitoring (PM) parameters are used by service
+        providers to gather, store, set thresholds for and report
+        performance data for early detection of problems.
+        Thresholds are used to set error levels for each PM parameter.
+        During the accumulation cycle, if the current value of a
+        performance monitoring parameter reaches or exceeds its
+        corresponding threshold value, a threshold crossing alarm (TCA)
+        is generated. The TCAs provide early detection of performance
+        degradation.
+
+        The definitions contained herein are based on the OTN
+        specifications in ITU-T G.872[ITU-T G.872], G.709 [ITU-T G.709],
+        G.798[ITU-T G.798], G.874[ITU-T G.874], and 
+        G.874.1[ITU-T G.874.1].
+
+        Glossary:
+
+        OTN  :  Optical Transport Network (ITU-T G.709).
+        FEC  :  Forward Error Correction.
+        PM   :  Performance Monitor.
+        DWDM :  Dense Wavelength Division Multiplexing.
+        FE   :  Farend or client side of the interface.
+        NE   :  Nearend or trunk side of the interface.
+        ADM  :  Add Drop Multiplexer.
+        OCH  :  Optical Channel.
+        OTS  :  Optical Transport Section.
+        OMS  :  Optical Multiplex Section.
+        TCA  :  Threshold Crossing Alarm.
+        OSC  :  Optical Supervisory Channel.
+        DCU  :  Dispersion Compensation Unit.
+        EXP  :  Express Channel.
+        OSNR :  Optical singal to noise ratio.
+        OTU  :  Optical Channel Transport Unit.
+        ODU  :  Optical Channel Data Unit."
+    REVISION        "201605250000Z"
+    DESCRIPTION
+        "Added Objects in-
+        1. coiFECIntervalTable -
+        coiFECIntervalPreFECMin, coiFECIntervalPreFECMax,
+        coiFECIntervalPreFECAvg, coiFECIntervalPostFECMin,
+        coiFECIntervalPostFECMax, coiFECIntervalPostFECAvg,
+        coiFECIntervalQFactorMin, coiFECIntervalQFactorMax,
+        coiFECIntervalQFactorAvg, coiFECIntervalQMarginMin,
+        coiFECIntervalQMarginMax, coiFECIntervalQMarginAvg
+        2. coiFECCurrentTable -
+        coiFECCurrentPreFECMin, coiFECCurrentPreFECMax,
+        coiFECCurrentPreFECAvg, coiFECCurrentPostFECMin,
+        coiFECCurrentPostFECMax, coiFECCurrentPostFECAvg,
+        coiFECCurrentQFactorMin, coiFECCurrentQFactorMax,
+        coiFECCurrentQFactorAvg, coiFECCurrentQMarginMin,
+        coiFECCurrentQMarginMax, coiFECCurrentQMarginAvg
+        3. Added FEC Modes to the existing coiIfControllerFECMode object
+        in coiIfControllerTable.
+        enableEnhancedI4(4),
+        enableEnhancedI7(5),
+        enableHighGain(6),
+        enableLongHaul(7),
+        enableEnhancedSD7(8),
+        enableEnhancedSD20(9)
+        4. Extend CoiIntervalType to include thirtySecond.
+        5. Import SnmpAdminString FROM SNMP-FRAMEWORK-MIB."
+    REVISION        "201101240000Z"
+    DESCRIPTION
+        "1. Added a new defect status AIS in object coiOtnIfODUStatus.
+        2. Changed the description for objects coiOtnIfOTUStatus and
+        coiOtnIfODUStatus in coiIfControllerTable."
+    REVISION        "200809110000Z"
+    DESCRIPTION
+        "1. Added two new notifications coiOtnIfOTUStatusChange and
+        coiOtnIfODUStatusChange.
+        2. Added a new scalar objects coiOtnIfNotifEnabled and two new
+        objects coiOtnIfOTUStatus and coiOtnIfODUStatus in the table
+        coiIfControllerTable"
+    REVISION        "200710100000Z"
+    DESCRIPTION
+        "The initial revision of this MIB."
+    ::= { ciscoMgmt 639 }
+
+
+
+-- Textual Conventions
+
+CoiIntervalType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the time period over which performance
+        monitoring data has been collected. Valid values are -
+
+        fifteenMin(1)  -  values for the 15 min interval.
+        oneDay(2)      -  values for the 1  Day interval.
+        thirtySecond(3)-  values for the 30 Second interval"
+    SYNTAX          INTEGER  {
+                        fifteenMin(1),
+                        oneDay(2),
+                        thirtySecond(3)
+                    }
+
+CoiMonitorType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the part of the optical network in which 
+        the performance statistics is being monitored. Valid values 
+        are -
+
+        path(1)    - Performance statistics for path parameters.
+        section(2) - Performance statistics for section parameters.
+        tcm1(3)    - Performance statistics for tandem connection
+                     monitoring 1.
+        tcm2(4)    - Performance statistics for tandem connection 
+                     monitoring 2."
+    SYNTAX          INTEGER  {
+                        path(1),
+                        section(2),
+                        tcm1(3),
+                        tcm2(4)
+                    }
+
+CoiOtnThresholdType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the type of OTN Error Thresholds that can
+        be defined. Valid values are -
+
+        fc(1)    - Failure Counts.
+        es(2)    - Errored Seconds.
+        ses(3)   - Severely Errored Seconds.
+        uas(4)   - Unavailable Seconds.
+        bbe(5)   - Bit Block Errors.
+        esr(6)   - Error Seconds Ratio.
+        sesr(7)  - Severely Errored Seconds Ratio.
+        bber(8)  - Background Block Errored Seconds Ratio."
+
+    REFERENCE
+        "ITU - T Recommendation G.8201 - Error performance parameters 
+         and objectives for multi-operator international paths within 
+         the Optical Transport Network (OTN).
+         ITU  - T Recommendation M.2140: Transport network event  
+         correlation.
+         ITU - T Recommendation G.826 - End-to-end error performance 
+         parameters and objectives for international constant bit-rate 
+         digital paths and connections."
+    SYNTAX          INTEGER  {
+                        fc(1),
+                        es(2),
+                        ses(3),
+                        uas(4),
+                        bbe(5),
+                        esr(6),
+                        sesr(7),
+                        bber(8)
+                    }
+
+CoiOpticalWavelength ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value represents the wavelength of optical signals in a
+        DWDM optical channel. It is represented in units of picometers.
+        A  value of zero either indicates that the wavelength is
+        unknown,
+        or that it does not fall under the frequency grid defined in 
+        ITU-T G.694.1"
+
+    REFERENCE
+        "ITU - T Recommendation G.694.1 - Spectral grids for WDM 
+        applications: DWDM frequency grid, May 2002"
+    SYNTAX          Unsigned32 (0 | 1528770..1604030)
+-- MIB Notification Definitions
+
+ciscoOtnIfMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoOtnIfMIB 0 }
+
+-- MIB Object Definitions
+
+ciscoOtnIfMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoOtnIfMIB 1 }
+
+coiDwdmInterface  OBJECT IDENTIFIER
+    ::= { ciscoOtnIfMIBObjects 1 }
+
+coiDwdmIfOtn  OBJECT IDENTIFIER
+    ::= { ciscoOtnIfMIBObjects 2 }
+
+coiDwdmIfFEC  OBJECT IDENTIFIER
+    ::= { ciscoOtnIfMIBObjects 3 }
+
+
+coiIfControllerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiIfControllerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for physical layer
+        related attributes of interfaces with an ifType of 
+        opticalChannel(195)."
+    ::= { coiDwdmInterface 1 }
+
+coiIfControllerEntry OBJECT-TYPE
+    SYNTAX          CoiIfControllerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on physical layer
+        related attributes of interfaces with an ifType 
+        opticalChannel(195). Entries are created by the agent when a 
+        new interface is added to the ifTable. Entries are deleted by 
+        the agent when an interface is removed from the ifTable."
+    INDEX           { ifIndex } 
+    ::= { coiIfControllerTable 1 }
+
+CoiIfControllerEntry ::= SEQUENCE {
+        coiIfControllerLoopback          INTEGER,
+        coiIfControllerWavelength        CoiOpticalWavelength,
+        coiIfControllerLaserAdminStatus  INTEGER,
+        coiIfControllerLaserOperStatus   INTEGER,
+        coiIfControllerOtnStatus         TruthValue,
+        coiIfControllerFECMode           INTEGER,
+        coiIfControllerTDCOperMode       INTEGER,
+        coiIfControllerTDCOperStatus     INTEGER,
+        coiIfControllerTDCOperSetting    Integer32,
+        coiIfControllerPreFECBERMantissa Integer32,
+        coiIfControllerPreFECBERExponent Integer32,
+        coiIfControllerQFactor           Integer32,
+        coiIfControllerQMargin           Integer32,
+        coiIfControllerOTNValidIntervals Unsigned32,
+        coiIfControllerFECValidIntervals Unsigned32,
+        coiOtnIfOTUStatus                BITS,
+        coiOtnIfODUStatus                BITS
+}
+
+coiIfControllerLoopback OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        noLoop(1),
+                        otherLoop(2),
+                        diagnosticLoop(3),
+                        lineLoop(4)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the loopback mode of the
+        interface.
+        valid values are -
+        'noLoop'         - No Loopback present.
+        'otherLoop'      - A loopback of type other than rest of types 
+                           defined in this enumeration.
+        'diagnosticLoop' - This is an internal loopback, where the
+                           data stream is looped from the transmit
+                           to receive section. It is used for  
+                           hardware debug, bring-up and diagnostics.
+        'lineLoop'       - In this mode, the receive data stream is
+                           looped back to the transmit side."
+    DEFVAL          { noLoop } 
+    ::= { coiIfControllerEntry 1 }
+
+coiIfControllerWavelength OBJECT-TYPE
+    SYNTAX          CoiOpticalWavelength
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the wavelength of operation on
+        applicable optical channel interfaces."
+    DEFVAL          { 1529553 } 
+    ::= { coiIfControllerEntry 2 }
+
+coiIfControllerLaserAdminStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        up(1),
+                        down(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure laser status on applicable
+        interfaces. when it is set to down(2), it results in traffic
+        drop and there should be corresponding change in  
+        coiIfControllerLaserOperStatus. 
+
+        Valid values are -
+        'up'             - Turn on the Laser
+        'down'           - shutdown the Laser."
+    DEFVAL          { up } 
+    ::= { coiIfControllerEntry 3 }
+
+coiIfControllerLaserOperStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        up(1),
+                        down(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the current operational state of the Laser.
+        Valid values are -
+        'up'      - The laser is operational.
+        'down'    - The laser is not operational.
+
+        if coiIfControllerLaserAdminStatus is down(2) then 
+        coiIfControllerLaserOperStatus should be down(2). If 
+        coiIfControllerLaserAdminStatus is changed to up(1) then
+        coiIfControllerLaserOperStatus should change to up(1), provided
+        the laser is operational and ready to transmit traffic.
+        It should remain in down(2) if there is a fault that prevents
+        it from going to the up(1) state." 
+    ::= { coiIfControllerEntry 4 }
+
+coiIfControllerOtnStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows the management client to enable
+        the OTN (ITU-T G.709) framing on applicable interfaces of 
+        ifType opticalChannel(195).
+
+        Valid values are -
+        'true' - Enables OTN (ITU-T g.709) framing on the interface.
+        'false' - Disables OTN (ITU-T g.709 framing on the interface.
+
+        Setting a value of 'false' to coiIfControllerOtnStatus
+        would result in loss of traffic."
+    DEFVAL          { true } 
+    ::= { coiIfControllerEntry 5 }
+
+coiIfControllerFECMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        disable(1),
+                        enableStandard(2),
+                        enableEnhanced(3),
+                        enableEnhancedI4(4),
+                        enableEnhancedI7(5),
+                        enableHighGain(6),
+                        enableLongHaul(7),
+                        enableEnhancedSD7(8),
+                        enableEnhancedSD20(9)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows the management client to enable
+        FEC ( Forward Error Correction ) on applicable interfaces.
+
+        FEC is a technique that improves digital channel quality
+        through the addition of redundant data at the sending node.
+        This redundant data is decoded at the receiver to detect and
+        correct errors.
+
+        Valid values are
+        'disable'           - disables FEC on the interface.
+        'enableStandard'    - enables standard FEC on the interface
+                               (ITU-T G.975).
+        'enableEnhanced'    - enables Default Enhanced FEC
+                               (ITU-T G.975 I.4/I.7) on the interface
+        'enableEnhancedI4'  - enables ITU-T G.975 I.4 FEC Mode on the
+                              Interface
+        'enableEnhancedI7'  - enables ITU-T G.975 I.7 FEC Mode on the
+                              Interface
+        'enableLongHaul'    - enable proprietary long haul FEC on the
+                              Interface
+        'enableHighGain'    - enable proprietary high gain FEC on the
+                              Interface
+        'enableEnhancedSD7' - enable FEC Software Decision 7%
+        'enableEnhancedSD20'- enable FEC Software Decision 20%."
+    DEFVAL          { enableEnhanced } 
+    ::= { coiIfControllerEntry 6 }
+
+coiIfControllerTDCOperMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        manual(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the operational mode of the Tuned
+        Dispersion Compensator (TDC).
+
+        The values may be -
+        'auto'   - Automatic tuning of dispersion compensation.
+        'manual' - Manual tuning of dispersion compensation." 
+    ::= { coiIfControllerEntry 7 }
+
+coiIfControllerTDCOperStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        disabled(1),
+                        acquiring(2),
+                        locked(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the operational status of the Tuned
+        Dispersion Compensator (TDC).
+
+        The values may be -
+        'disabled'   - TDC has been disabled.
+        'acquiring'  - TDC is acquiring or tuning to the desired
+                       compensation setting.
+        'locked'     - TDC has been tuned and locked at the desired
+                       compensation setting" 
+    ::= { coiIfControllerEntry 8 }
+
+coiIfControllerTDCOperSetting OBJECT-TYPE
+    SYNTAX          Integer32 (-2000..2000)
+    UNITS           "ps/nm - picoseconds per nanometer"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the dispersion compensation setting that the
+        TDC has been tuned to. It is expressed in pico-seconds per 
+        nanometer.
+        Example: The value of -650 represents a dispersion compensation
+        setting of -650 ps/nm." 
+    ::= { coiIfControllerEntry 9 }
+
+coiIfControllerPreFECBERMantissa OBJECT-TYPE
+    SYNTAX          Integer32 (0..999)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the mantissa part of the Pre FEC BER or
+        correctable BER at any instance of time. It is represented in 
+        one hundreths of a unit.The exponent part is defined in 
+        coiIfControllerPreFECBERExponent
+
+        Pre FEC BER is the BER of the signal before it undergoes the 
+        FEC algorithm.  FEC will correct errors upto a certain 
+        Pre FEC BER beyond which the signal starts becoming 
+        uncorrectable. Knowing the Pre FEC BER helps monitor system 
+        health. Pre FEC BER is expressed in Scientific E notation 
+        with two decimal places
+
+        Example: The value 235 represents the mantissa of 2.35" 
+    ::= { coiIfControllerEntry 10 }
+
+coiIfControllerPreFECBERExponent OBJECT-TYPE
+    SYNTAX          Integer32 (-30..0)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the exponent part of the Pre FEC BER or
+        correctable BER at any instance of time. It is  represented in 
+        powers of 10. The mantissa part is defined in 
+        coiIfControllerPreFECBERMantissa.
+
+        Pre FEC BER is the BER of the signal before it undergoes the 
+        FEC algorithm. FEC will correct errors upto a certain 
+        Pre FEC BER beyond which the signal starts becoming 
+        uncorrectable. Knowing the Pre FEC BER helps monitor system 
+        health. Pre FEC BER is expressed in Scientific E notation with 
+        two decimal places
+        Example: The value -11 represents the exponent value of 10 to 
+        the power of -11." 
+    ::= { coiIfControllerEntry 11 }
+
+coiIfControllerQFactor OBJECT-TYPE
+    SYNTAX          Integer32 (0..9999)
+    UNITS           "one hundredths of a dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Object gives the value of Q-Factor represented in one
+        hundredths of a dB. Q-Factor represents the analog signal to 
+        noise ratio. It suggests the minimum correctable BER for a 
+        given signal. The higher the Q-factor, the better. Q-factor is 
+        expressed in dB
+
+        Example: The value 365 represents a Q-Factor of 3.65 dB" 
+    ::= { coiIfControllerEntry 12 }
+
+coiIfControllerQMargin OBJECT-TYPE
+    SYNTAX          Integer32 (0..9999)
+    UNITS           "one hundredths of a dBQ"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Q-Margin defines how much operational system margin that is
+        available for a given circuit.  Minimum margin should be 
+        defined by one's Network Engineering Group.  Q-margin is 
+        expressed in dBQ. dBQ is a scale relative to min required
+        Q-Factor given by coiIfControllerQFactor.
+
+        This object gives the value of the Q-Margin represented in one 
+        hundredths of a dBQ.
+        Example: The value 236 represents a Q-Margin of 2.36 dBQ." 
+    ::= { coiIfControllerEntry 13 }
+
+coiIfControllerOTNValidIntervals OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..96)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of contiguous 15 minute
+        intervals for which valid OTN performance monitoring data is 
+        available for the particular interface.
+
+        The actual performance data is available in the following
+        Tables 
+        coiOtnNearEndIntervalTable
+        coiOtnFarEndIntervalTable
+
+        The value of this object will be n (where n is the maximum
+        number of 15 minute intervals supported at this interface), 
+        unless the measurement was (re-)started within the last
+        (nx15) minutes, in which case the value will be the
+        number of 15 minute intervals for which the agent
+        has some data.
+
+         This object reports value zero, if OTN is turned off by 
+         setting coiIfControllerOtnStatus to 'false'." 
+    ::= { coiIfControllerEntry 14 }
+
+coiIfControllerFECValidIntervals OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..96)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of contiguous 15 minute
+        intervals for which valid FEC PM data is available 
+        for the particular interface.
+
+        The actual performance data is available in the following
+        Table
+        coiFECIntervalTable
+
+        The value of this object will be n (where n is the maximum
+        number of 15 minute intervals supported at this interface), 
+        unless the measurement was (re-)started within the last
+        (nx15) minutes, in which case the value will be the
+        number of 15 minute intervals for which the agent
+        has some data.
+
+        This object reports a value 0, if FEC is disabled by setting
+        coiIfControllerFECMode to 'disable'." 
+    ::= { coiIfControllerEntry 15 }
+
+coiOtnIfOTUStatus OBJECT-TYPE
+    SYNTAX          BITS {
+                        noDefect(0),
+                        los(1),
+                        lof(2),
+                        lom(3),
+                        bdi(4),
+                        tim(5),
+                        ais(6),
+                        fecMismatch(7),
+                        fecUncorrectedWord(8)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current defect status of the OTU
+        layer on an OTN interface.
+
+
+         noDefect(0):    No defect. This bit will be set when none of
+                         the following defect bits are set.
+         los(1):         LOS (Loss Of Signal). This bit will be set
+                         when LOS defect is present.
+         lof(2):         LOF (Loss Of Frame). This bit will be set
+                         when LOF defect is present.
+         lom(3):         LOM (Loss Of Multiframe). This bit will be
+                         set when LOM defect is present.
+         bdi(4):         BDI (Backward Defect Indication). This bit
+                         will be set when BDI defect is present.
+         tim(5):         TIM (Trace Identifier Mismatch). This bit
+                         will be set when TIM defect is present.
+         ais(6):         AIS (Alarm Indication Signal). This bit will 
+                         be set when AIS defect is present.
+         fecMismatch(7): FecMismatch (Forward Error Correction Mismatch
+                         ). This bit will be set when FECMISMATCH
+                         defect is present.
+         fecUncorrectedWord(8): fecUncorrectedWord (Forward Error
+                         Correction Uncorrected Word). This bit
+                         will be set when at least one Uncorrected
+                         Word is detected." 
+    ::= { coiIfControllerEntry 16 }
+
+coiOtnIfODUStatus OBJECT-TYPE
+    SYNTAX          BITS {
+                        noDefect(0),
+                        oci(1),
+                        lck(2),
+                        tim(3),
+                        bdi(4),
+                        ais(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current defect status of the ODU
+        layer on an OTN interface.
+
+         noDefect(0):   No Defect. This bit will be set when none of
+                        the following defect bits are set.
+         oci(1):        OCI (Open Connection Indication). This bit
+                        will be set when OCI defect is present. 
+         lck(2):        LCK (Locked). This bit will be set when OCI
+                        defect is present. 
+         tim(3):        TIM (Trace Identifier Mismatch). This bit
+                        will be set when TIM defect is present.
+         bdi(4):        BDI (Backward Defect Indication). This bit
+                        will be set when BDI defect is present.
+         ais(5):        AIS (Alarm Indication Signal). This bit will 
+                        be set when AIS defect is present." 
+    ::= { coiIfControllerEntry 17 }
+ 
+
+
+coiOtnNearEndThresholdsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiOtnNearEndThresholdsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides objects for configuring OTN ( G.709 )
+        near end error thresholds on interfaces of ifType 
+        opticalChannel (195)."
+    ::= { coiDwdmIfOtn 1 }
+
+coiOtnNearEndThresholdsEntry OBJECT-TYPE
+    SYNTAX          CoiOtnNearEndThresholdsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information for configuration of
+        performance monitoring thresholds for a given monitor and 
+        threshold type. Entries can be created for interfaces with
+        ifType of opticalChannel(195). Thresholds are created/destroyed
+        through the entry's RowStatus object semantics.
+
+        The coiOtnNearEndThreshIntervalType defines the time interval
+        over which the data being monitored is accumulated for which
+        the threshold is to be applied.
+
+        The coiOtnNearEndThreshMonType defines the type of statistics to
+        which the threshold applies.  
+
+        The coiOtnNearEndThresholdType defines the specific threshold
+        type value, which the threshold refers to."
+    INDEX           {
+                        ifIndex,
+                        coiOtnNearEndThreshIntervalType,
+                        coiOtnNearEndThreshMonType,
+                        coiOtnNearEndThresholdType
+                    } 
+    ::= { coiOtnNearEndThresholdsTable 1 }
+
+CoiOtnNearEndThresholdsEntry ::= SEQUENCE {
+        coiOtnNearEndThreshIntervalType CoiIntervalType,
+        coiOtnNearEndThreshMonType      CoiMonitorType,
+        coiOtnNearEndThresholdType      CoiOtnThresholdType,
+        coiOtnNearEndThreshValue        Unsigned32,
+        coiOtnNearEndThreshStorageType  StorageType,
+        coiOtnNearEndThreshStatus       RowStatus
+}
+
+coiOtnNearEndThreshIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval type during  which the
+        performance statistics were accumulated." 
+    ::= { coiOtnNearEndThresholdsEntry 1 }
+
+coiOtnNearEndThreshMonType OBJECT-TYPE
+    SYNTAX          CoiMonitorType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the type of performance monitoring for which
+        the threshold is being set." 
+    ::= { coiOtnNearEndThresholdsEntry 2 }
+
+coiOtnNearEndThresholdType OBJECT-TYPE
+    SYNTAX          CoiOtnThresholdType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the type of Error Threshold that is being
+        set." 
+    ::= { coiOtnNearEndThresholdsEntry 3 }
+
+coiOtnNearEndThreshValue OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to set the near end threshold value for the
+        given threshold type as identified by coiOtnNearEndThresholdType
+        For esr(Error Seconds Ratio), 
+        sesr(Severely Errored Seconds Ratio),
+        bber(Background Block Errored Seconds Ratio), value displayed
+        is multiplied by 10^5." 
+    ::= { coiOtnNearEndThresholdsEntry 4 }
+
+coiOtnNearEndThreshStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { coiOtnNearEndThresholdsEntry 5 }
+
+coiOtnNearEndThreshStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object controls the creation and deletion of a conceptual
+        row in this table. The value of this object has no effect on
+        whether other objects in this conceptual row can be modified.
+
+        A conceptual row can not be made active until the 
+        coiOtnNearEndThreshValue has been set to a valid threshold 
+        value." 
+    ::= { coiOtnNearEndThresholdsEntry 6 }
+ 
+
+
+coiOtnFarEndThresholdsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiOtnFarEndThresholdsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides objects for configuring OTN ( G.709 )
+        thresholds for far end of interfaces of ifType 
+        opticalChannel(195)."
+    ::= { coiDwdmIfOtn 2 }
+
+coiOtnFarEndThresholdsEntry OBJECT-TYPE
+    SYNTAX          CoiOtnFarEndThresholdsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing managment information for configuration of
+        far end performance monitoring thresholds for a given monitor 
+        and threshold type. Entries can be created for interfaces with
+        ifType of opticalChannel(195).  Thresholds are created/destroyed
+        through the entry's RowStatus object semantics.  
+
+        The coiOtnFarEndThreshIntervalType defines the time interval 
+        over which the data being monitored is accumulated for which
+        the threshold is to be applied.
+
+        The coiOtnFarEndThreshMonType defines the type of statistics to 
+        which the threshold applies.  
+
+        The coiOtnFarEndThresholdType defines the specific threshold 
+        type value, which the threshold refers to."
+    INDEX           {
+                        ifIndex,
+                        coiOtnFarEndThreshIntervalType,
+                        coiOtnFarEndThreshMonType,
+                        coiOtnFarEndThresholdType
+                    } 
+    ::= { coiOtnFarEndThresholdsTable 1 }
+
+CoiOtnFarEndThresholdsEntry ::= SEQUENCE {
+        coiOtnFarEndThreshIntervalType CoiIntervalType,
+        coiOtnFarEndThreshMonType      CoiMonitorType,
+        coiOtnFarEndThresholdType      CoiOtnThresholdType,
+        coiOtnFarEndThreshValue        Unsigned32,
+        coiOtnFarEndThreshStorageType  StorageType,
+        coiOtnFarEndThreshStatus       RowStatus
+}
+
+coiOtnFarEndThreshIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type during  which the
+        performance statistics were accumulated in the far end of the 
+        interface." 
+    ::= { coiOtnFarEndThresholdsEntry 1 }
+
+coiOtnFarEndThreshMonType OBJECT-TYPE
+    SYNTAX          CoiMonitorType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives specify the type of monitoring for which
+        threshold is being set on interfaces in the far end of the 
+        interface ." 
+    ::= { coiOtnFarEndThresholdsEntry 2 }
+
+coiOtnFarEndThresholdType OBJECT-TYPE
+    SYNTAX          CoiOtnThresholdType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the type of Error Threshold that is being
+        set on far end interfaces of ifType opticalChannel (195)." 
+    ::= { coiOtnFarEndThresholdsEntry 3 }
+
+coiOtnFarEndThreshValue OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to set the far end threshold value for
+        the given threshold type as identified by the index 
+        coiOtnFarEndThresholdType.For esr(Error Seconds Ratio),
+        sesr(Severely Errored Seconds Ratio),
+        bber(Background Block Errored Seconds Ratio), value displayed
+        is multiplied by 10^5." 
+    ::= { coiOtnFarEndThresholdsEntry 4 }
+
+coiOtnFarEndThreshStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { coiOtnFarEndThresholdsEntry 5 }
+
+coiOtnFarEndThreshStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object controls the creation and deletion of a conceptual
+        row in this table. The value of this object has no effect on
+        whether other objects in this conceptual row can be modified.
+
+        A conceptual row can not be made active until the 
+        coiOtnFarEndThreshValue has been set to valid threshold value." 
+    ::= { coiOtnFarEndThresholdsEntry 6 }
+ 
+
+
+coiOtnNearEndCurrentTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiOtnNearEndCurrentEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the cumulative OTN (G.709) PM statistics
+        for the near end of interfaces of ifType opticalChannel(195).
+        The statistics are for the current interval of interval type 
+        identified by coiOtnNearEndCurIntervalType.  The current 
+        PM statistics is the accumlated statistics for the time 
+        period defined by the interval type."
+    ::= { coiDwdmIfOtn 3 }
+
+coiOtnNearEndCurrentEntry OBJECT-TYPE
+    SYNTAX          CoiOtnNearEndCurrentEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on near end
+        error/statistics counters such as Failure Counts, Errored 
+        Seconds...etc in the current interval"
+    INDEX           {
+                        ifIndex,
+                        coiOtnNearEndCurIntervalType,
+                        coiOtnNearEndCurrentMonType
+                    } 
+    ::= { coiOtnNearEndCurrentTable 1 }
+
+CoiOtnNearEndCurrentEntry ::= SEQUENCE {
+        coiOtnNearEndCurIntervalType CoiIntervalType,
+        coiOtnNearEndCurrentMonType  CoiMonitorType,
+        coiOtnNearEndCurrentFCs      Counter32,
+        coiOtnNearEndCurrentESs      Counter32,
+        coiOtnNearEndCurrentSESs     Counter32,
+        coiOtnNearEndCurrentUASs     Counter32,
+        coiOtnNearEndCurrentBBEs     Counter32,
+        coiOtnNearEndCurrentESRs     Counter32,
+        coiOtnNearEndCurrentSESRs    Counter32,
+        coiOtnNearEndCurrentBBERs    Counter32
+}
+
+coiOtnNearEndCurIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type during  which the
+        near end performance statistics are accumulated." 
+    ::= { coiOtnNearEndCurrentEntry 1 }
+
+coiOtnNearEndCurrentMonType OBJECT-TYPE
+    SYNTAX          CoiMonitorType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the part of optical network for which
+        the near end OTN performance statistics are being monitored." 
+    ::= { coiOtnNearEndCurrentEntry 2 }
+
+coiOtnNearEndCurrentFCs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of failures
+        encountered on the near end of interface in the current 
+        interval of type coiOtnNearEndCurIntervalType."
+    REFERENCE       "ITU - T Recommendation G.826" 
+    ::= { coiOtnNearEndCurrentEntry 3 }
+
+coiOtnNearEndCurrentESs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Errored Seconds
+        encountered  on near end of interface in the current 
+        interval of type coiOtnNearEndCurIntervalType."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.6.1" 
+    ::= { coiOtnNearEndCurrentEntry 4 }
+
+coiOtnNearEndCurrentSESs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Severely Errored 
+        Seconds encountered on the near end of interface in the
+        current interval of type coiOtnNearEndCurIntervalType."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.6.2" 
+    ::= { coiOtnNearEndCurrentEntry 5 }
+
+coiOtnNearEndCurrentUASs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Unavailable Seconds
+        encountered on the near end of interface in the current 
+        interval of type coiOtnNearEndCurIntervalType."
+    REFERENCE       "ITU - T Recommendation G.826" 
+    ::= { coiOtnNearEndCurrentEntry 6 }
+
+coiOtnNearEndCurrentBBEs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Background Block 
+        Errors encountered on the near end of interface in the 
+        current interval of type coiOtnNearEndCurIntervalType."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.5.4" 
+    ::= { coiOtnNearEndCurrentEntry 7 }
+
+coiOtnNearEndCurrentESRs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the Errored Seconds Ratio on
+        the near end of interface in the current interval of type 
+        coiOtnNearEndCurIntervalType.
+        Display value multiplied by 10^5."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.7.1" 
+    ::= { coiOtnNearEndCurrentEntry 8 }
+
+coiOtnNearEndCurrentSESRs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the Severely Errored Seconds
+        ratio on the near end of interface in current interval of type 
+        coiOtnNearEndCurIntervalType.
+        Display value multiplied by 10^5."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.7.2" 
+    ::= { coiOtnNearEndCurrentEntry 9 }
+
+coiOtnNearEndCurrentBBERs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the Background Block Errors
+        ratio on the near end of interface in current interval of type 
+        coiOtnNearEndCurIntervalType.
+        Display value multiplied by 10^5."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.7.3" 
+    ::= { coiOtnNearEndCurrentEntry 10 }
+ 
+
+
+coiOtnFarEndCurrentTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiOtnFarEndCurrentEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the cumulative OTN (G.709) PM stats
+        for the far end of interfaces of ifType opticalChannel(195).
+        The statistics are for the current interval of interval type 
+        identified by coiOtnFarEndCurIntervalType.  The current 
+        PM statistics is the accumlated statistics for the time 
+        period defined by the interval type."
+    ::= { coiDwdmIfOtn 4 }
+
+coiOtnFarEndCurrentEntry OBJECT-TYPE
+    SYNTAX          CoiOtnFarEndCurrentEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing managment information on far end
+        error/statistics counters such as Failure Counts, Errored
+        Seconds...etc in the current interval"
+    INDEX           {
+                        ifIndex,
+                        coiOtnFarEndCurIntervalType,
+                        coiOtnFarEndCurrentMonType
+                    } 
+    ::= { coiOtnFarEndCurrentTable 1 }
+
+CoiOtnFarEndCurrentEntry ::= SEQUENCE {
+        coiOtnFarEndCurIntervalType CoiIntervalType,
+        coiOtnFarEndCurrentMonType  CoiMonitorType,
+        coiOtnFarEndCurrentFCs      Counter32,
+        coiOtnFarEndCurrentESs      Counter32,
+        coiOtnFarEndCurrentSESs     Counter32,
+        coiOtnFarEndCurrentUASs     Counter32,
+        coiOtnFarEndCurrentBBEs     Counter32,
+        coiOtnFarEndCurrentESRs     Counter32,
+        coiOtnFarEndCurrentSESRs    Counter32,
+        coiOtnFarEndCurrentBBERs    Counter32
+}
+
+coiOtnFarEndCurIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type during  which the
+        performance statistics are accumulated in the far end 
+        of the interface." 
+    ::= { coiOtnFarEndCurrentEntry 1 }
+
+coiOtnFarEndCurrentMonType OBJECT-TYPE
+    SYNTAX          CoiMonitorType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the part of optical network for which
+        far end OTN performance statistics are being monitored." 
+    ::= { coiOtnFarEndCurrentEntry 2 }
+
+coiOtnFarEndCurrentFCs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of failures
+        encountered on far end of interface in current interval of 
+        type coiOtnFarEndCurIntervalType."
+    REFERENCE       "ITU - T Recommendation G.826" 
+    ::= { coiOtnFarEndCurrentEntry 3 }
+
+coiOtnFarEndCurrentESs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Errored Seconds
+        encountered on far end of interface in current interval of 
+        type coiOtnFarEndCurIntervalType."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.6.1" 
+    ::= { coiOtnFarEndCurrentEntry 4 }
+
+coiOtnFarEndCurrentSESs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Severely Errored
+        Seconds encountered on far end of interface in the current
+        interval of type coiOtnFarEndCurIntervalType."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.6.2" 
+    ::= { coiOtnFarEndCurrentEntry 5 }
+
+coiOtnFarEndCurrentUASs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Unavailable
+        Seconds encountered on far end of interface in the current
+        interval of type coiOtnFarEndCurIntervalType."
+    REFERENCE       "ITU - T Recommendation G.826" 
+    ::= { coiOtnFarEndCurrentEntry 6 }
+
+coiOtnFarEndCurrentBBEs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Background Block
+        Errors encountered on far end of interface in the current 
+        interval of type coiOtnFarEndCurIntervalType."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.5.4" 
+    ::= { coiOtnFarEndCurrentEntry 7 }
+
+coiOtnFarEndCurrentESRs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the Errored Seconds Ratio
+        on far end of interface in the current interval of type 
+        coiOtnFarEndCurIntervalType.
+        Display value multiplied by 10^5."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.7.1" 
+    ::= { coiOtnFarEndCurrentEntry 8 }
+
+coiOtnFarEndCurrentSESRs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the Severely Errored Seconds
+        ratio on far end of interface in the current interval of type 
+        coiOtnFarEndCurIntervalType.
+        Display value multiplied by 10^5."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.7.2" 
+    ::= { coiOtnFarEndCurrentEntry 9 }
+
+coiOtnFarEndCurrentBBERs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the Background Block Errors
+        ratio on far end of interface in the current interval of type 
+        coiOtnFarEndCurIntervalType.
+        Display value multiplied by 10^5."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.7.3" 
+    ::= { coiOtnFarEndCurrentEntry 10 }
+ 
+
+
+coiOtnNearEndIntervalTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiOtnNearEndIntervalEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains historical cumulative OTN (G.709) PM stats
+        for the near end of interfaces of ifType opticalChannel(195), 
+        for the interval type identified by the index 
+        coiOtnNearEndIntervalType and the interval number as identified
+        by the index coiOtnNearEndIntervalNum. The PM statistics is the
+        accumlated stats for the time period defined by the interval 
+        type in the time interval as defined by interval number."
+    ::= { coiDwdmIfOtn 5 }
+
+coiOtnNearEndIntervalEntry OBJECT-TYPE
+    SYNTAX          CoiOtnNearEndIntervalEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on near end
+        error/statistics counters such as Failure Counts, Errored
+        Seconds...etc in the given interval."
+    INDEX           {
+                        ifIndex,
+                        coiOtnNearEndIntervalType,
+                        coiOtnNearEndIntervalMonType,
+                        coiOtnNearEndIntervalNum
+                    } 
+    ::= { coiOtnNearEndIntervalTable 1 }
+
+CoiOtnNearEndIntervalEntry ::= SEQUENCE {
+        coiOtnNearEndIntervalType      CoiIntervalType,
+        coiOtnNearEndIntervalMonType   CoiMonitorType,
+        coiOtnNearEndIntervalNum       Integer32,
+        coiOtnNearEndIntervalFCs       Counter32,
+        coiOtnNearEndIntervalESs       Counter32,
+        coiOtnNearEndIntervalSESs      Counter32,
+        coiOtnNearEndIntervalUASs      Counter32,
+        coiOtnNearEndIntervalBBEs      Counter32,
+        coiOtnNearEndIntervalESRs      Counter32,
+        coiOtnNearEndIntervalSESRs     Counter32,
+        coiOtnNearEndIntervalBBERs     Counter32,
+        coiOtnNearEndIntervalValidData TruthValue
+}
+
+coiOtnNearEndIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type during  which the
+        performance statistics are accumulated." 
+    ::= { coiOtnNearEndIntervalEntry 1 }
+
+coiOtnNearEndIntervalMonType OBJECT-TYPE
+    SYNTAX          CoiMonitorType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the part of optical network for which
+        near end OTN performance statistics are being monitored." 
+    ::= { coiOtnNearEndIntervalEntry 2 }
+
+coiOtnNearEndIntervalNum OBJECT-TYPE
+    SYNTAX          Integer32 (1..96)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the interval for which the set of
+        near end OTN performance values is available.
+
+        The interval identified by 1 is the most recent
+        15 minute or 24 hour interval, and the interval
+        identified by N is the interval immediately preceding the
+        one identified by N-1." 
+    ::= { coiOtnNearEndIntervalEntry 3 }
+
+coiOtnNearEndIntervalFCs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of failures encountered
+        on the near end of interface in the interval identified by 
+        coiOtnNearEndIntervalType and coiOtnNearEndIntervalNum."
+    REFERENCE       "ITU - T Recommendation G.826." 
+    ::= { coiOtnNearEndIntervalEntry 4 }
+
+coiOtnNearEndIntervalESs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Errored Seconds
+        encountered  on the near end of interface in the interval     
+        identified by coiOtnNearEndIntervalType and 
+        coiOtnNearEndIntervalNum."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.6.1" 
+    ::= { coiOtnNearEndIntervalEntry 5 }
+
+coiOtnNearEndIntervalSESs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Severely Errored
+        Seconds encountered on the near end of interface in the
+        interval identified by coiOtnNearEndIntervalType and 
+        coiOtnNearEndIntervalNum."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.6.2" 
+    ::= { coiOtnNearEndIntervalEntry 6 }
+
+coiOtnNearEndIntervalUASs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Unavailable Seconds
+        encountered on the near end of interface in the interval     
+        identified by coiOtnNearEndIntervalType and 
+        coiOtnNearEndIntervalNum."
+    REFERENCE       "ITU - T Recommendation G.826." 
+    ::= { coiOtnNearEndIntervalEntry 7 }
+
+coiOtnNearEndIntervalBBEs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Background Block
+        Errors encountered on the near end of interface in the
+        interval identified by coiOtnNearEndIntervalType and 
+        coiOtnNearEndIntervalNum."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.5.4" 
+    ::= { coiOtnNearEndIntervalEntry 8 }
+
+coiOtnNearEndIntervalESRs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the Errored Seconds Ratio on 
+        the near end of interface in the interval identified by 
+        coiiOtnNearEndIntervalType and coiOtnNearEndIntervalNum.
+        Display value multiplied by 10^5."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.7.1" 
+    ::= { coiOtnNearEndIntervalEntry 9 }
+
+coiOtnNearEndIntervalSESRs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the Severely Errored Seconds ratio
+        on the near end of interface in the interval identified by 
+        coiOtnNearEndIntervalType and coiOtnNearEndIntervalNum.
+        Display value multiplied by 10^5."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.7.2" 
+    ::= { coiOtnNearEndIntervalEntry 10 }
+
+coiOtnNearEndIntervalBBERs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the Background Block Errors ratio
+        on the near end of interface in the interval identified by 
+        coiOtnNearEndIntervalType and coiOtnNearEndIntervalNum.
+        Display value multiplied by 10^5."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.7.2" 
+    ::= { coiOtnNearEndIntervalEntry 11 }
+
+coiOtnNearEndIntervalValidData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates if the data for the interval identified
+        by coiOtnNearEndIntervalType and coiOtnNearEndIntervalNum is
+        valid." 
+    ::= { coiOtnNearEndIntervalEntry 12 }
+ 
+
+
+coiOtnFarEndIntervalTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiOtnFarEndIntervalEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains historical cumulative OTN (G.709) PM stats
+        for the far end interfaces of ifType opticalChannel(195), for 
+        the interval type identified by the index 
+        coiOtnFarEndIntervalType and the interval number as identified 
+        by coiOtnFarEndIntervalNum. The PM statistics is the accumlated
+        stats for the time period defined by the interval type in the 
+        time interval as defined by interval number."
+    ::= { coiDwdmIfOtn 6 }
+
+coiOtnFarEndIntervalEntry OBJECT-TYPE
+    SYNTAX          CoiOtnFarEndIntervalEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing managment information on far end
+        error/statistics counters such as Failure Counts, Errored
+        Seconds...etc in the given interval"
+    INDEX           {
+                        ifIndex,
+                        coiOtnFarEndIntervalType,
+                        coiOtnFarEndIntervalMonType,
+                        coiOtnFarEndIntervalNum
+                    } 
+    ::= { coiOtnFarEndIntervalTable 1 }
+
+CoiOtnFarEndIntervalEntry ::= SEQUENCE {
+        coiOtnFarEndIntervalType      CoiIntervalType,
+        coiOtnFarEndIntervalMonType   CoiMonitorType,
+        coiOtnFarEndIntervalNum       Integer32,
+        coiOtnFarEndIntervalFCs       Counter32,
+        coiOtnFarEndIntervalESs       Counter32,
+        coiOtnFarEndIntervalSESs      Counter32,
+        coiOtnFarEndIntervalUASs      Counter32,
+        coiOtnFarEndIntervalBBEs      Counter32,
+        coiOtnFarEndIntervalESRs      Counter32,
+        coiOtnFarEndIntervalSESRs     Counter32,
+        coiOtnFarEndIntervalBBERs     Counter32,
+        coiOtnFarEndIntervalValidData TruthValue
+}
+
+coiOtnFarEndIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type during  which the
+        far end performance statistics are accumulated." 
+    ::= { coiOtnFarEndIntervalEntry 1 }
+
+coiOtnFarEndIntervalMonType OBJECT-TYPE
+    SYNTAX          CoiMonitorType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the part of optical network for which
+        far end OTN performance statistics are being monitored." 
+    ::= { coiOtnFarEndIntervalEntry 2 }
+
+coiOtnFarEndIntervalNum OBJECT-TYPE
+    SYNTAX          Integer32 (1..96)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the interval for which the set of
+        far end OTN performance values for this interface is available. 
+
+        The interval identified by 1 is the most recent
+        15 minute or 24 hour interval, and the interval
+        identified by N is the interval immediately preceding the 
+        one identified by N-1." 
+    ::= { coiOtnFarEndIntervalEntry 3 }
+
+coiOtnFarEndIntervalFCs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Failures
+        encountered on the far end of interface in the interval
+        identified by coiOtnFarEndIntervalType and
+        coiOtnFarEndIntervalNum."
+    REFERENCE       "ITU - T Recommendation G.826" 
+    ::= { coiOtnFarEndIntervalEntry 4 }
+
+coiOtnFarEndIntervalESs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Errored Seconds
+        encountered on far end of interface in the interval identified 
+        by coiOtnFarEndIntervalType and coiOtnFarEndIntervalNum."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.6.1" 
+    ::= { coiOtnFarEndIntervalEntry 5 }
+
+coiOtnFarEndIntervalSESs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Severely Errored
+        Seconds encountered on far end interface in the interval
+        identified by coiOtnFarEndIntervalType and
+        coiOtnFarEndIntervalNum."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.6.2" 
+    ::= { coiOtnFarEndIntervalEntry 6 }
+
+coiOtnFarEndIntervalUASs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Unavailable Seconds
+        encountered on far end of interface in the interval identified 
+        by coiOtnFarEndIntervalType and coiOtnFarEndIntervalNum."
+    REFERENCE       "ITU - T Recommendation G.826" 
+    ::= { coiOtnFarEndIntervalEntry 7 }
+
+coiOtnFarEndIntervalBBEs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Background Block
+        Errors encountered on far end of interface in the interval
+        identified by coiOtnFarEndIntervalType and
+        coiOtnFarEndIntervalNum."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.5.4" 
+    ::= { coiOtnFarEndIntervalEntry 8 }
+
+coiOtnFarEndIntervalESRs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the Errored Seconds Ratio on far
+        end of interface in the interval identified by
+        coiOtnFarEndIntervalType and coiOtnFarEndIntervalNum.
+        Display value multiplied by 10^5."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.7.1" 
+    ::= { coiOtnFarEndIntervalEntry 9 }
+
+coiOtnFarEndIntervalSESRs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the Severely Errored Seconds
+        ratio on far end of interface in the interval identified 
+        by coiOtnFarEndIntervalType and coiOtnFarEndIntervalNum.
+        Display value multiplied by 10^5."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.7.2" 
+    ::= { coiOtnFarEndIntervalEntry 10 }
+
+coiOtnFarEndIntervalBBERs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the Background Block Errors
+        ratio on far end of interface in the interval identified 
+        by coiOtnFarEndIntervalType and coiOtnFarEndIntervalNum.
+        Display value multiplied by 10^5."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.7.3" 
+    ::= { coiOtnFarEndIntervalEntry 11 }
+
+coiOtnFarEndIntervalValidData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates if the far end data for the interval
+        identified by coiOtnFarEndIntervalType and  
+        coiOtnFarEndIntervalNum is valid."
+    REFERENCE       "ITU - T Recommendation G.826 Section 4.7.2" 
+    ::= { coiOtnFarEndIntervalEntry 12 }
+ 
+
+
+coiOtnIfNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object controls the generation of
+        coiOtnIfOTUStatusChange and coiOtnIfODUStatusChange
+        notifications.
+
+        If the value of this object is 'true', then the generation of
+        coiOtnIfOTUStatusChange and coiOtnIfODUStatusChange
+        notifications is enabled. If the value of this object is
+        'false', then the generation of coiOtnIfOTUStatusChange and
+        coiOtnIfODUStatusChange notifications is disabled." 
+    ::= { coiDwdmIfOtn 7 }
+-- FECThresholds Table
+
+coiFECThresholdsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiFECThresholdsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the configurable thresholds
+        for FEC ( Forward Error Correction ) statistics."
+    ::= { coiDwdmIfFEC 1 }
+
+coiFECThresholdsEntry OBJECT-TYPE
+    SYNTAX          CoiFECThresholdsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information for configuration of
+        FEC thresholds. Entries can be created for ifIndices with an
+        ifType of opticalChannel(195). Thresholds are created/destroyed,
+        through the entry's RowStatus object semantics.  
+
+        The coiFECThreshIntervalType defines the time interval over
+        which the data being monitored is accumulated for which the 
+        threshold is to be applied.
+
+        The coiFECThreshType defines the specific threshold type value,
+        which the threshold refers to."
+    INDEX           {
+                        ifIndex,
+                        coiFECThreshIntervalType,
+                        coiFECThreshType
+                    } 
+    ::= { coiFECThresholdsTable 1 }
+
+CoiFECThresholdsEntry ::= SEQUENCE {
+        coiFECThreshIntervalType CoiIntervalType,
+        coiFECThreshType         INTEGER,
+        coiFECThreshValue        Unsigned32,
+        coiFECThreshStorageType  StorageType,
+        coiFECThreshStatus       RowStatus
+}
+
+coiFECThreshIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the type of the interval for which the
+        thresholds are being set." 
+    ::= { coiFECThresholdsEntry 1 }
+
+coiFECThreshType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        bitErrCor(1),
+                        byteErrcor(2),
+                        zeroErrDet(3),
+                        oneErrDet(4),
+                        unCorWords(5)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the type of the FEC Threshold that is being
+        set. Valid values are -
+
+        bitErrCor(1)    : Bit Errors Corrected
+        byteErrcor(2)   : Byte Errors Corrected
+        zeroErrDet(3)   : Zero Bit Errors Detected
+        oneErrDet(4)    : One Bit Errors Detected
+        unCorWords(5)   : Un Correctable Words"
+    REFERENCE
+        "ITU - T Recommendation G.8201 - Error performance parameters
+         and objectives for multi-operator international paths within
+         the Optical Transport Network (OTN). ITU  - T Recommendation 
+         M.2140: Transport network event correlation." 
+    ::= { coiFECThresholdsEntry 2 }
+
+coiFECThreshValue OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used  for configuring the FEC threshold
+        value for the given threshold type." 
+    ::= { coiFECThresholdsEntry 3 }
+
+coiFECThreshStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { coiFECThresholdsEntry 4 }
+
+coiFECThreshStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object controls the creation and deletion of a conceptual
+        row in this table.The RowStatus TC requires that this 
+        DESCRIPTION clause states under which circumstances other 
+        objects in this row can be modified. The value of this object 
+        has no effect on whether other objects in this conceptual row 
+        can be modified.
+
+        A conceptual row can not be made active until atleast 
+        coiFECThreshValueLSB has been set to a valid threshold value." 
+    ::= { coiFECThresholdsEntry 5 }
+ 
+
+-- FEC Current Table
+
+coiFECCurrentTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiFECCurrentEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the cumulative FEC PM stats
+        for the interfaces of ifType opticalChannel(195) for the current
+        interval of interval type identified coiFECCurIntervalType."
+    ::= { coiDwdmIfFEC 2 }
+
+coiFECCurrentEntry OBJECT-TYPE
+    SYNTAX          CoiFECCurrentEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing managment information on FEC related
+        error/statistics counters such as Bit Errors Corrected,
+        Byte Errors Corrected etc in the current interval."
+    INDEX           {
+                        ifIndex,
+                        coiFECCurIntervalType
+                    } 
+    ::= { coiFECCurrentTable 1 }
+
+CoiFECCurrentEntry ::= SEQUENCE {
+        coiFECCurIntervalType    CoiIntervalType,
+        coiFECCurrentCorBitErrs  Counter64,
+        coiFECCurrentCorByteErrs Counter64,
+        coiFECCurrentDetZeroErrs Counter64,
+        coiFECCurrentDetOneErrs  Counter64,
+        coiFECCurrentUncorWords  Counter64,
+        coiFECCurrentPreFECMin   SnmpAdminString,
+        coiFECCurrentPreFECMax   SnmpAdminString,
+        coiFECCurrentPreFECAvg   SnmpAdminString,
+        coiFECCurrentPostFECMin  SnmpAdminString,
+        coiFECCurrentPostFECMax  SnmpAdminString,
+        coiFECCurrentPostFECAvg  SnmpAdminString,
+        coiFECCurrentQFactorMin  SnmpAdminString,
+        coiFECCurrentQFactorMax  SnmpAdminString,
+        coiFECCurrentQFactorAvg  SnmpAdminString,
+        coiFECCurrentQMarginMin  SnmpAdminString,
+        coiFECCurrentQMarginMax  SnmpAdminString,
+        coiFECCurrentQMarginAvg  SnmpAdminString
+}
+
+coiFECCurIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type during which the FEC PM
+        statistics have been collected." 
+    ::= { coiFECCurrentEntry 1 }
+
+coiFECCurrentCorBitErrs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Bit Errors Corrected
+        on this interface in the current interval of type 
+        coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 2 }
+
+coiFECCurrentCorByteErrs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Byte Errors Corrected
+        on this interface in the current interval of type 
+        coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 3 }
+
+coiFECCurrentDetZeroErrs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of zero bit errors
+        detected on this interface in the current interval of type 
+        coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 4 }
+
+coiFECCurrentDetOneErrs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of one bit errors
+        detected on this interface in the current interval of type 
+        coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 5 }
+
+coiFECCurrentUncorWords OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Uncorrectable Words
+        encountered on this interface in the current interval of type 
+        coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 6 }
+
+coiFECCurrentPreFECMin OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum value of PreFEC on this interface in the current
+        interval of type coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 7 }
+
+coiFECCurrentPreFECMax OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum value of PreFEC on this interface in the current
+        interval of type coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 8 }
+
+coiFECCurrentPreFECAvg OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average value of PreFEC on this interface in the current
+        interval of type coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 9 }
+
+coiFECCurrentPostFECMin OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum value of PostFEC on this interface in the current
+        interval of type coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 10 }
+
+coiFECCurrentPostFECMax OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum value of PostFEC on this interface in the current
+        interval of type coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 11 }
+
+coiFECCurrentPostFECAvg OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average value of PostFEC on this interface in the current
+        interval of type coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 12 }
+
+coiFECCurrentQFactorMin OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum value of QFactor on this interface in the current
+        interval of type coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 13 }
+
+coiFECCurrentQFactorMax OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum value of QFactor on this interface in the current
+        interval of type coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 14 }
+
+coiFECCurrentQFactorAvg OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average value of QFactor on this interface in the current
+        interval of type coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 15 }
+
+coiFECCurrentQMarginMin OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum value of QMargin on this interface in the current
+        interval of type coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 16 }
+
+coiFECCurrentQMarginMax OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum value of QMargin on this interface in the current
+        interval of type coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 17 }
+
+coiFECCurrentQMarginAvg OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average value of QMargin on this interface in the current
+        interval of type coiFECCurIntervalType." 
+    ::= { coiFECCurrentEntry 18 }
+ 
+
+-- FEC Interval Table
+
+coiFECIntervalTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiFECIntervalEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains historical cumulative FEC PM stats
+        for the interfaces of ifType opticalChannel(195), for the
+        interval type identified by the index coiFECIntervalType and
+        the interval number as identified by index coiFECIntervalNum.
+        The PM statistics is the accumlated stats for the time period 
+        defined by the interval type in the time interval as defined by 
+        interval number."
+    ::= { coiDwdmIfFEC 3 }
+
+coiFECIntervalEntry OBJECT-TYPE
+    SYNTAX          CoiFECIntervalEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing managment information on FEC
+        error/statistics counters such as Bit Errors Corrected,
+        Byte Errors Corrected etc in the given interval."
+    INDEX           {
+                        ifIndex,
+                        coiFECIntervalType,
+                        coiFECIntervalNum
+                    } 
+    ::= { coiFECIntervalTable 1 }
+
+CoiFECIntervalEntry ::= SEQUENCE {
+        coiFECIntervalType        CoiIntervalType,
+        coiFECIntervalNum         Integer32,
+        coiFECIntervalCorBitErrs  Counter64,
+        coiFECIntervalCorByteErrs Counter64,
+        coiFECIntervalDetZeroErrs Counter64,
+        coiFECIntervalDetOneErrs  Counter64,
+        coiFECIntervalUncorWords  Counter64,
+        coiFECIntervalValidData   TruthValue,
+        coiFECIntervalPreFECMin   SnmpAdminString,
+        coiFECIntervalPreFECMax   SnmpAdminString,
+        coiFECIntervalPreFECAvg   SnmpAdminString,
+        coiFECIntervalPostFECMin  SnmpAdminString,
+        coiFECIntervalPostFECMax  SnmpAdminString,
+        coiFECIntervalPostFECAvg  SnmpAdminString,
+        coiFECIntervalQFactorMin  SnmpAdminString,
+        coiFECIntervalQFactorMax  SnmpAdminString,
+        coiFECIntervalQFactorAvg  SnmpAdminString,
+        coiFECIntervalQMarginMin  SnmpAdminString,
+        coiFECIntervalQMarginMax  SnmpAdminString,
+        coiFECIntervalQMarginAvg  SnmpAdminString
+}
+
+coiFECIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the type of interval for which the FEC values
+        have been collected." 
+    ::= { coiFECIntervalEntry 1 }
+
+coiFECIntervalNum OBJECT-TYPE
+    SYNTAX          Integer32 (1..96)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval for which the set of FEC PM
+        values are available. 
+
+        The interval identified by 1 is the most recent
+        15 minute or 24 hour interval, and the interval
+        identified by N is the interval immediately preceding the one
+        identified by N-1." 
+    ::= { coiFECIntervalEntry 2 }
+
+coiFECIntervalCorBitErrs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of
+        Bit Errors Corrected in the interval identified by 
+        coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 3 }
+
+coiFECIntervalCorByteErrs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of
+        Byte Errors Corrected
+        on this interface in the interval identified by 
+        coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 4 }
+
+coiFECIntervalDetZeroErrs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of
+        zero bit errors detected
+        on this interface in the interval identified by 
+        coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 5 }
+
+coiFECIntervalDetOneErrs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of
+        one bit errors detected
+        on this interface in the interval identified by 
+        coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 6 }
+
+coiFECIntervalUncorWords OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of
+        Uncorrectable Words encountered 
+        on this interface in the interval identified by 
+        coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 7 }
+
+coiFECIntervalValidData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the data for the interval
+        identified by coiFECIntervalType and coiFECIntervalNum is
+        valid." 
+    ::= { coiFECIntervalEntry 8 }
+
+coiFECIntervalPreFECMin OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum value of PreFEC on this interface in the interval
+        identified by coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 9 }
+
+coiFECIntervalPreFECMax OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum value of PreFEC on this interface in the interval
+        identified by coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 10 }
+
+coiFECIntervalPreFECAvg OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average value of PreFEC on this interface in the interval
+        identified by coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 11 }
+
+coiFECIntervalPostFECMin OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum value of PostFEC on this interface in the interval
+        identified by coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 12 }
+
+coiFECIntervalPostFECMax OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum value of PostFEC on this interface in the interval
+        identified by coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 13 }
+
+coiFECIntervalPostFECAvg OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average value of PostFEC on this interface in the interval
+        identified by coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 14 }
+
+coiFECIntervalQFactorMin OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum value of QFactor on this interface in the interval
+        identified by coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 15 }
+
+coiFECIntervalQFactorMax OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum value of QFactor on this interface in the interval
+        identified by coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 16 }
+
+coiFECIntervalQFactorAvg OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average value of QFactor on this interface in the interval
+        identified by coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 17 }
+
+coiFECIntervalQMarginMin OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum value of QMargin on this interface in the interval
+        identified by coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 18 }
+
+coiFECIntervalQMarginMax OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum value of QMargin on this interface in the interval
+        identified by coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 19 }
+
+coiFECIntervalQMarginAvg OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average value of QMargin on this interface in the interval
+        identified by coiFECIntervalType and coiFECIntervalNum." 
+    ::= { coiFECIntervalEntry 20 }
+ 
+
+-- MIB Conformance Statements
+
+ciscoOtnIfMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoOtnIfMIB 2 }
+
+ciscoOtnIfMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoOtnIfMIBConformance 1 }
+
+
+coiOtnIfOTUStatusChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        ifName,
+                        coiOtnIfOTUStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated whenever the defect status of
+        OTU layer on an interface changes.
+
+        Varbind 'ifName' indicates the interface whose defect status of
+        the OTU layer has just changed. Varbind 'coiOtnIfOTUStatus'
+        indicates the current defect status of the OTU layer on the
+        interface."
+   ::= { ciscoOtnIfMIBNotifs 1 }
+
+coiOtnIfODUStatusChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        ifName,
+                        coiOtnIfODUStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated whenever the defect status of
+        ODU layer on an interface changes.
+
+        Varbind 'ifName' indicates the interface whose defect status of
+        the ODU layer has just changed. Varbind 'coiOtnIfODUStatus'
+        indicates the current defect status of the ODU layer on the
+        interface."
+   ::= { ciscoOtnIfMIBNotifs 2 }
+ciscoOtnIfMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoOtnIfMIBConformance 2 }
+
+
+ciscoOtnIfMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for platforms that monitor the
+        operating status and FEC/OTN with respect to error
+        counters, for the physical layer."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        coiIfControllerGroup,
+                        coiIfOtnGroup,
+                        coiIfFECGroup
+                    }
+
+    GROUP           coiIfOtnNearEndCurrentGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the near end
+        OTN error counters in the current interval."
+
+    GROUP           coiIfOtnNearEndIntervalGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the near end
+        OTN error counters in a given interval."
+
+    GROUP           coiIfOtnFarEndCurrentGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the far end
+        OTN error counters in the current interval."
+
+    GROUP           coiIfOtnFarEndIntervalGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the far end
+        OTN error counters in a given interval."
+
+    GROUP           coiIfFECCurrentGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the FEC error
+        counters in the current interval."
+
+    GROUP           coiIfFECIntervalGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the FEC error
+        counters in a given interval."
+
+    OBJECT          coiIfControllerLoopback
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiIfControllerWavelength
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiIfControllerOtnStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiIfControllerLaserAdminStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnNearEndThreshValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnNearEndThreshStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnFarEndThreshValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnFarEndThreshStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiFECThreshValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiFECThreshStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoOtnIfMIBCompliances 1 }
+
+ciscoOtnIfMIBCompliance1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for platforms that monitor the
+        operating status and FEC/OTN with respect to error
+        counters, for the physical layer."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        coiIfControllerGroup,
+                        coiIfOtnGroup,
+                        coiIfFECGroup
+                    }
+
+    GROUP           coiIfOtnNearEndCurrentGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the near end
+        OTN error counters in the current interval."
+
+    GROUP           coiIfOtnNearEndIntervalGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the near end
+        OTN error counters in a given interval."
+
+    GROUP           coiIfOtnFarEndCurrentGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the far end
+        OTN error counters in the current interval."
+
+    GROUP           coiIfOtnFarEndIntervalGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the far end
+        OTN error counters in a given interval."
+
+    GROUP           coiIfFECCurrentGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the FEC error
+        counters in the current interval."
+
+    GROUP           coiIfFECIntervalGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the FEC error
+        counters in a given interval."
+
+    GROUP           coiIfOtnNotifGroup
+    DESCRIPTION
+        "The collection of OTN status change notifications whenever the
+        defect status of OTU and ODU layer on an OTN interface changes."
+
+    GROUP           coiIfOtnNotifEnableGroup
+    DESCRIPTION
+        "The collection of objects to enable the notification
+        generations upon an OTN interface's defect status change on OTU
+        and ODU layer."
+
+    GROUP           coiIfOtnNotifStatusObjectGroup
+    DESCRIPTION
+        "The collection of objects to be included in an OTN interface's
+        defect status change notification."
+
+    OBJECT          coiIfControllerLoopback
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiIfControllerWavelength
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiIfControllerOtnStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiIfControllerLaserAdminStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnNearEndThreshValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnNearEndThreshStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnFarEndThreshValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnFarEndThreshStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiFECThreshValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiFECThreshStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnIfNotifEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoOtnIfMIBCompliances 2 }
+
+ciscoOtnIfMIBCompliance2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for platforms that monitor the
+        operating status and FEC/OTN with respect to error
+        counters, for the physical layer."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        coiIfControllerGroup,
+                        coiIfOtnGroup,
+                        coiIfFECGroup
+                    }
+
+    GROUP           coiIfOtnNearEndCurrentGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the near end
+        OTN error counters in the current interval."
+
+    GROUP           coiIfOtnNearEndIntervalGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the near end
+        OTN error counters in a given interval."
+
+    GROUP           coiIfOtnFarEndCurrentGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the far end
+        OTN error counters in the current interval."
+
+    GROUP           coiIfOtnFarEndIntervalGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the far end
+        OTN error counters in a given interval."
+
+    GROUP           coiIfFECCurrentGroup1
+    DESCRIPTION
+        "The collection of objects used for monitoring the FEC error
+        counters in the current interval."
+
+    GROUP           coiIfFECIntervalGroup1
+    DESCRIPTION
+        "The collection of objects used for monitoring the FEC error
+        counters in a given interval."
+
+    GROUP           coiIfOtnNotifGroup
+    DESCRIPTION
+        "The collection of OTN status change notifications whenever the
+        defect status of OTU and ODU layer on an OTN interface changes."
+
+    GROUP           coiIfOtnNotifEnableGroup
+    DESCRIPTION
+        "The collection of objects to enable the notification
+        generations upon an OTN interface's defect status change on OTU
+        and ODU layer."
+
+    GROUP           coiIfOtnNotifStatusObjectGroup
+    DESCRIPTION
+        "The collection of objects to be included in an OTN interface's
+        defect status change notification."
+
+    OBJECT          coiIfControllerLoopback
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiIfControllerWavelength
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiIfControllerOtnStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiIfControllerLaserAdminStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnNearEndThreshValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnNearEndThreshStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnFarEndThreshValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnFarEndThreshStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiFECThreshValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiFECThreshStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          coiOtnIfNotifEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoOtnIfMIBCompliances 3 }
+
+-- units of conformance
+
+coiIfControllerGroup OBJECT-GROUP
+    OBJECTS         {
+                        coiIfControllerLoopback,
+                        coiIfControllerWavelength,
+                        coiIfControllerLaserAdminStatus,
+                        coiIfControllerLaserOperStatus,
+                        coiIfControllerOtnStatus,
+                        coiIfControllerFECMode,
+                        coiIfControllerTDCOperMode,
+                        coiIfControllerTDCOperStatus,
+                        coiIfControllerTDCOperSetting,
+                        coiIfControllerPreFECBERMantissa,
+                        coiIfControllerPreFECBERExponent,
+                        coiIfControllerQFactor,
+                        coiIfControllerQMargin,
+                        coiIfControllerOTNValidIntervals,
+                        coiIfControllerFECValidIntervals
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects to allow configurations and give
+        information related to the physical layer characteristics
+        for interfaces of ifType opticalChannel(195)."
+    ::= { ciscoOtnIfMIBGroups 1 }
+
+coiIfOtnNearEndCurrentGroup OBJECT-GROUP
+    OBJECTS         {
+                        coiOtnNearEndThreshValue,
+                        coiOtnNearEndThreshStorageType,
+                        coiOtnNearEndThreshStatus,
+                        coiOtnNearEndCurrentFCs,
+                        coiOtnNearEndCurrentESs,
+                        coiOtnNearEndCurrentSESs,
+                        coiOtnNearEndCurrentUASs,
+                        coiOtnNearEndCurrentBBEs,
+                        coiOtnNearEndCurrentESRs,
+                        coiOtnNearEndCurrentSESRs,
+                        coiOtnNearEndCurrentBBERs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used for monitoring the near end
+        OTN error counters in the current interval."
+    ::= { ciscoOtnIfMIBGroups 3 }
+
+coiIfOtnNearEndIntervalGroup OBJECT-GROUP
+    OBJECTS         {
+                        coiOtnNearEndThreshValue,
+                        coiOtnNearEndThreshStorageType,
+                        coiOtnNearEndThreshStatus,
+                        coiOtnNearEndIntervalFCs,
+                        coiOtnNearEndIntervalESs,
+                        coiOtnNearEndIntervalSESs,
+                        coiOtnNearEndIntervalUASs,
+                        coiOtnNearEndIntervalBBEs,
+                        coiOtnNearEndIntervalESRs,
+                        coiOtnNearEndIntervalSESRs,
+                        coiOtnNearEndIntervalBBERs,
+                        coiOtnNearEndIntervalValidData
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used for monitoring the near end
+        OTN error counters in a given interval."
+    ::= { ciscoOtnIfMIBGroups 4 }
+
+coiIfOtnFarEndCurrentGroup OBJECT-GROUP
+    OBJECTS         {
+                        coiOtnFarEndThreshValue,
+                        coiOtnFarEndThreshStorageType,
+                        coiOtnFarEndThreshStatus,
+                        coiOtnFarEndCurrentFCs,
+                        coiOtnFarEndCurrentESs,
+                        coiOtnFarEndCurrentSESs,
+                        coiOtnFarEndCurrentUASs,
+                        coiOtnFarEndCurrentBBEs,
+                        coiOtnFarEndCurrentESRs,
+                        coiOtnFarEndCurrentSESRs,
+                        coiOtnFarEndCurrentBBERs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used for monitoring the far end
+        OTN error counters in the current interval."
+    ::= { ciscoOtnIfMIBGroups 5 }
+
+coiIfOtnFarEndIntervalGroup OBJECT-GROUP
+    OBJECTS         {
+                        coiOtnFarEndThreshValue,
+                        coiOtnFarEndThreshStorageType,
+                        coiOtnFarEndThreshStatus,
+                        coiOtnFarEndIntervalFCs,
+                        coiOtnFarEndIntervalESs,
+                        coiOtnFarEndIntervalSESs,
+                        coiOtnFarEndIntervalUASs,
+                        coiOtnFarEndIntervalBBEs,
+                        coiOtnFarEndIntervalESRs,
+                        coiOtnFarEndIntervalSESRs,
+                        coiOtnFarEndIntervalBBERs,
+                        coiOtnFarEndIntervalValidData
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used for monitoring the far end
+        OTN error counters in a given interval."
+    ::= { ciscoOtnIfMIBGroups 6 }
+
+coiIfOtnGroup OBJECT-GROUP
+    OBJECTS         {
+                        coiOtnNearEndThreshValue,
+                        coiOtnNearEndThreshStorageType,
+                        coiOtnNearEndThreshStatus,
+                        coiOtnNearEndCurrentFCs,
+                        coiOtnNearEndCurrentESs,
+                        coiOtnNearEndCurrentSESs,
+                        coiOtnNearEndCurrentUASs,
+                        coiOtnNearEndCurrentBBEs,
+                        coiOtnNearEndCurrentESRs,
+                        coiOtnNearEndCurrentSESRs,
+                        coiOtnNearEndCurrentBBERs,
+                        coiOtnNearEndIntervalFCs,
+                        coiOtnNearEndIntervalESs,
+                        coiOtnNearEndIntervalSESs,
+                        coiOtnNearEndIntervalUASs,
+                        coiOtnNearEndIntervalBBEs,
+                        coiOtnNearEndIntervalESRs,
+                        coiOtnNearEndIntervalSESRs,
+                        coiOtnNearEndIntervalBBERs,
+                        coiOtnNearEndIntervalValidData,
+                        coiOtnFarEndThreshValue,
+                        coiOtnFarEndThreshStorageType,
+                        coiOtnFarEndThreshStatus,
+                        coiOtnFarEndCurrentFCs,
+                        coiOtnFarEndCurrentESs,
+                        coiOtnFarEndCurrentSESs,
+                        coiOtnFarEndCurrentUASs,
+                        coiOtnFarEndCurrentBBEs,
+                        coiOtnFarEndCurrentESRs,
+                        coiOtnFarEndCurrentSESRs,
+                        coiOtnFarEndCurrentBBERs,
+                        coiOtnFarEndIntervalFCs,
+                        coiOtnFarEndIntervalESs,
+                        coiOtnFarEndIntervalSESs,
+                        coiOtnFarEndIntervalUASs,
+                        coiOtnFarEndIntervalBBEs,
+                        coiOtnFarEndIntervalESRs,
+                        coiOtnFarEndIntervalSESRs,
+                        coiOtnFarEndIntervalBBERs,
+                        coiOtnFarEndIntervalValidData
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used for monitoring the OTN error
+        counters."
+    ::= { ciscoOtnIfMIBGroups 7 }
+
+coiIfFECGroup OBJECT-GROUP
+    OBJECTS         {
+                        coiFECThreshValue,
+                        coiFECThreshStorageType,
+                        coiFECThreshStatus,
+                        coiFECCurrentCorBitErrs,
+                        coiFECCurrentCorByteErrs,
+                        coiFECCurrentDetZeroErrs,
+                        coiFECCurrentDetOneErrs,
+                        coiFECCurrentUncorWords,
+                        coiFECIntervalCorBitErrs,
+                        coiFECIntervalCorByteErrs,
+                        coiFECIntervalDetZeroErrs,
+                        coiFECIntervalDetOneErrs,
+                        coiFECIntervalUncorWords,
+                        coiFECIntervalValidData
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection objects used for monitoring the FEC error
+        counters."
+    ::= { ciscoOtnIfMIBGroups 8 }
+
+coiIfFECCurrentGroup OBJECT-GROUP
+    OBJECTS         {
+                        coiFECThreshValue,
+                        coiFECThreshStorageType,
+                        coiFECThreshStatus,
+                        coiFECCurrentCorBitErrs,
+                        coiFECCurrentCorByteErrs,
+                        coiFECCurrentDetZeroErrs,
+                        coiFECCurrentDetOneErrs,
+                        coiFECCurrentUncorWords
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "The collection of objects used for monitoring the FEC error
+        counters in the current interval.coiIfFECCurrentGroup object
+        is superseded by coiIfFECCurrentGroup1."
+    ::= { ciscoOtnIfMIBGroups 9 }
+
+coiIfFECIntervalGroup OBJECT-GROUP
+    OBJECTS         {
+                        coiFECThreshValue,
+                        coiFECThreshStorageType,
+                        coiFECThreshStatus,
+                        coiFECIntervalCorBitErrs,
+                        coiFECIntervalCorByteErrs,
+                        coiFECIntervalDetZeroErrs,
+                        coiFECIntervalDetOneErrs,
+                        coiFECIntervalUncorWords,
+                        coiFECIntervalValidData
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "The collection of objects used for monitoring the FEC error
+        counters in a given interval .
+        coiIfFECIntervalGroup object is superseded by 
+        coiIfFECIntervalGroup1."
+    ::= { ciscoOtnIfMIBGroups 10 }
+
+coiIfOtnNotifEnableGroup OBJECT-GROUP
+    OBJECTS         { coiOtnIfNotifEnabled }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects to enable the notification
+        generations upon an OTN interface's defect status change on OTU
+        and ODU layer."
+    ::= { ciscoOtnIfMIBGroups 11 }
+
+coiIfOtnNotifStatusObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        coiOtnIfOTUStatus,
+                        coiOtnIfODUStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used to monitor the defect status
+        of OTU and ODU layer on an OTN interface."
+    ::= { ciscoOtnIfMIBGroups 12 }
+
+coiIfOtnNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        coiOtnIfOTUStatusChange,
+                        coiOtnIfODUStatusChange
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of OTN status change notifications whenever the
+        defect status of OTU and ODU layer on an OTN interface changes."
+    ::= { ciscoOtnIfMIBGroups 13 }
+
+coiIfFECCurrentGroup1 OBJECT-GROUP
+    OBJECTS         {
+                        coiFECThreshValue,
+                        coiFECThreshStorageType,
+                        coiFECThreshStatus,
+                        coiFECCurrentCorBitErrs,
+                        coiFECCurrentCorByteErrs,
+                        coiFECCurrentDetZeroErrs,
+                        coiFECCurrentDetOneErrs,
+                        coiFECCurrentUncorWords,
+                        coiFECCurrentPreFECMin,
+                        coiFECCurrentPreFECMax,
+                        coiFECCurrentPreFECAvg,
+                        coiFECCurrentPostFECMin,
+                        coiFECCurrentPostFECMax,
+                        coiFECCurrentPostFECAvg,
+                        coiFECCurrentQFactorMin,
+                        coiFECCurrentQFactorMax,
+                        coiFECCurrentQFactorAvg,
+                        coiFECCurrentQMarginMin,
+                        coiFECCurrentQMarginMax,
+                        coiFECCurrentQMarginAvg
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used for monitoring the FEC error
+        counters in the current interval."
+    ::= { ciscoOtnIfMIBGroups 14 }
+
+coiIfFECIntervalGroup1 OBJECT-GROUP
+    OBJECTS         {
+                        coiFECThreshValue,
+                        coiFECThreshStorageType,
+                        coiFECThreshStatus,
+                        coiFECIntervalCorBitErrs,
+                        coiFECIntervalCorByteErrs,
+                        coiFECIntervalDetZeroErrs,
+                        coiFECIntervalDetOneErrs,
+                        coiFECIntervalUncorWords,
+                        coiFECIntervalValidData,
+                        coiFECIntervalPreFECMin,
+                        coiFECIntervalPreFECMax,
+                        coiFECIntervalPreFECAvg,
+                        coiFECIntervalPostFECMin,
+                        coiFECIntervalPostFECMax,
+                        coiFECIntervalPostFECAvg,
+                        coiFECIntervalQFactorMin,
+                        coiFECIntervalQFactorMax,
+                        coiFECIntervalQFactorAvg,
+                        coiFECIntervalQMarginMin,
+                        coiFECIntervalQMarginMax,
+                        coiFECIntervalQMarginAvg
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used for monitoring the FEC error
+        counters in a given interval ."
+    ::= { ciscoOtnIfMIBGroups 15 }
+
+END
+
+
+
+
+
+
+
+
+
+
+

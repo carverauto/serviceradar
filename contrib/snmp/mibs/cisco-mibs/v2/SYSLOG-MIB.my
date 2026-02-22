@@ -1,0 +1,1445 @@
+SYSLOG-MIB DEFINITIONS ::= BEGIN
+
+   IMPORTS
+       MODULE-IDENTITY, OBJECT-TYPE,
+                 Unsigned32, Counter32, Integer32, mib-2,
+                 NOTIFICATION-TYPE
+                 FROM SNMPv2-SMI
+       RowStatus, StorageType,
+       TEXTUAL-CONVENTION, TimeStamp
+                 FROM SNMPv2-TC
+       InetAddressType, InetAddress, InetPortNumber
+                 FROM INET-ADDRESS-MIB
+       MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+                 FROM SNMPv2-CONF
+       SyslogFacility, SyslogSeverity
+                 FROM SYSLOG-TC-MIB
+       SnmpAdminString
+                 FROM SNMP-FRAMEWORK-MIB;
+
+   syslogMIB  MODULE-IDENTITY
+       LAST-UPDATED "200703040000Z"  --  4th March, 2007
+       ORGANIZATION "IETF Syslog Working Group"
+       CONTACT-INFO
+       "                      Glenn Mansfield Keeni
+                      Postal: Cyber Solutions Inc.
+                              6-6-3, Minami Yoshinari
+                              Aoba-ku, Sendai, Japan 989-3204.
+                         Tel: +81-22-303-4012
+                         Fax: +81-22-303-4015
+                      E-mail: glenn@cysols.com
+
+        Support Group E-mail: syslog@ietf.org
+        "
+
+       DESCRIPTION
+           "The MIB module for monitoring syslog applications.
+
+            A syslog application sends and/or receives syslog messages.
+            The reader is referred to [RFCPROT] for a description of
+            the various roles of a syslog application viz. ''sender'',
+            ''receiver'' and ''relay''. The discussion in this
+            document in general applies to a generic syslog application.
+            For special cases the specific role of the syslog
+            application will be mentioned.
+
+
+            Copyright (C) The IETF Trust (2008). This version of
+            this MIB module is part of RFC XXXX; see the RFC itself for
+            full legal notices.
+           "
+      -- RFC Ed.: replace XXXX with the actual RFC number & remove this
+      -- note
+
+
+       REVISION "200703040000Z"  --   4th March, 2007
+       DESCRIPTION
+           "The initial version, published as RFC XXXX."
+
+      -- RFC Ed.: replace XXXX with the actual RFC number & remove this
+      -- note
+
+
+       ::= { mib-2 200 }     -- Will be assigned by IANA
+
+      -- IANA Reg.: Please assign a value for "YYYY" under the
+      -- 'mib-2' subtree and record the assignment in the SMI
+      -- Numbers registry.
+
+      -- RFC Ed.: When the above assignment has been made, please
+      --     remove the above note
+      --     replace "YYYY" here with the assigned value and
+      --     remove this note.
+
+
+
+   -- -------------------------------------------------------------
+   -- Textual Conventions
+   -- -------------------------------------------------------------
+
+
+   SyslogRoles ::=  TEXTUAL-CONVENTION
+       STATUS  current
+       DESCRIPTION
+           "This textual convention enumerates the roles of a
+            syslog application. Note that a syslog application can
+            have multiple roles.
+           "
+       REFERENCE
+           "The Syslog Protocol [RFCPROT] sec. 3.
+           "
+       SYNTAX      BITS
+             {
+               sender    (0),
+               receiver  (1),
+               relay     (2)
+             }
+
+   SyslogEncapsulation  ::=  TEXTUAL-CONVENTION
+       STATUS  current
+       DESCRIPTION
+           "This textual convention enumerates the encapsulations
+            of the syslog message that is used between syslog
+            application endpoints.
+           "
+       REFERENCE
+           "Transmission of syslog messages over UDP [RFCUDPX],
+            TLS Transport Mapping for Syslog [RFCTLSX],
+            Reliable Delivery for syslog [RFC3195].
+           "
+       SYNTAX  INTEGER
+            {
+              other           (1),
+              none            (2),  -- [RFCUDPX] (no encapsulation)
+              tls             (3),  -- [RFCTLSX]
+              beep            (4)   -- [RFC3195]
+            }
+
+   -- syslogMIB - the main groups
+   -- -------------------------------------------------------------
+
+   syslogNotifications       OBJECT IDENTIFIER
+                         ::= { syslogMIB 0 }
+
+   syslogObjects             OBJECT IDENTIFIER
+                         ::= { syslogMIB 1 }
+
+
+   syslogConformance         OBJECT IDENTIFIER
+                         ::= { syslogMIB 3 }
+
+
+   -- -------------------------------------------------------------
+   -- syslog application configuration info table
+   -- -------------------------------------------------------------
+   syslogControlTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF SyslogControlEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "A table containing the configuration parameters
+            pertaining to the syslog applications serviced by an
+            SNMP agent.
+           "
+       ::= { syslogObjects 1 }
+
+   syslogControlEntry OBJECT-TYPE
+       SYNTAX      SyslogControlEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "The configuration parameters pertaining to a syslog
+            application.
+           "
+       INDEX  { syslogControlIndex }
+       ::= { syslogControlTable 1 }
+
+
+
+   SyslogControlEntry ::=
+       SEQUENCE {
+           syslogControlIndex
+                Unsigned32,
+           syslogControlDescr
+                SnmpAdminString,
+           syslogControlRoles
+                SyslogRoles,
+           syslogControlBindAddrType
+                InetAddressType,
+           syslogControlBindAddr
+                InetAddress,
+           syslogControlBindPort
+                InetPortNumber,
+           syslogControlEncapsulation
+                SyslogEncapsulation,
+           syslogControlMaxMessageSize
+                Unsigned32,
+           syslogControlConfFileName
+                SnmpAdminString,
+           syslogControlStorageType
+                StorageType,
+           syslogControlRowStatus
+                RowStatus
+        }
+
+
+   syslogControlIndex OBJECT-TYPE
+       SYNTAX      Unsigned32 (1..2147483647)
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "The Index that uniquely identifies the syslog
+            application in the syslogControlTable.
+            The value of the index for a syslog application may
+            not be the same across system reboots. Users and
+            applications will need to determine the index of a
+            syslog application after system reboots.
+           "
+       ::= { syslogControlEntry 1 }
+
+   syslogControlDescr OBJECT-TYPE
+       SYNTAX      SnmpAdminString
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "A user definable description of the syslog application.
+            This description could be used by syslog management
+            applications e.g. in reports or in user interfaces.
+           "
+       ::= { syslogControlEntry 2 }
+
+   syslogControlRoles OBJECT-TYPE
+       SYNTAX      SyslogRoles
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The roles of the syslog application.
+           "
+       ::= { syslogControlEntry 3 }
+
+
+   syslogControlBindAddrType OBJECT-TYPE
+       SYNTAX      InetAddressType
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The type of Internet address which follows
+            in syslogControlBindAddr.
+            If this syslog application is not a syslog receiver,
+            the value of this object will be 'unknown' (0).
+           "
+       ::= { syslogControlEntry 4 }
+
+   syslogControlBindAddr OBJECT-TYPE
+       SYNTAX      InetAddress
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The specific address the syslog receiver will bind to.
+            The format of the address is specified by the
+            corresponding syslogControlBindAddrType object.
+            If the address is specified in the DNS domain name format
+            [syslogControlBindAddrType = 'dns'], the
+            corresponding IPv4 or IPv6 address obtained at the time
+            of the binding operation by the syslog application, will be
+
+            used.
+            If this syslog application is not a syslog receiver, the
+            value of this object will be a zero-length string.
+           "
+       ::= { syslogControlEntry 5 }
+
+   syslogControlBindPort OBJECT-TYPE
+       SYNTAX      InetPortNumber
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The port number that this syslog receiver will bind to.
+
+            If this syslog application is not a syslog receiver the
+            value of this object will be zero.
+           "
+       ::= { syslogControlEntry 6 }
+
+   syslogControlEncapsulation OBJECT-TYPE
+       SYNTAX      SyslogEncapsulation
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The encapsulation that will be used for syslog messages
+            by the syslog receiver.
+
+            If this syslog application is not a syslog receiver the
+            value of this object will be ''other''.
+           "
+       ::= { syslogControlEntry 7 }
+
+
+   syslogControlMaxMessageSize OBJECT-TYPE
+       SYNTAX      Unsigned32
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The maximum size of the syslog messages in bytes
+            for this syslog application.
+
+            A syslog receiver may reject or truncate messages larger
+            than the specified maximum syslog message size.
+           "
+       REFERENCE
+           "The Syslog Protocol [RFCPROT] sec. 6.1.
+
+           "
+       ::= { syslogControlEntry 8 }
+
+
+   syslogControlConfFileName OBJECT-TYPE
+       SYNTAX       SnmpAdminString
+       MAX-ACCESS   read-create
+       STATUS       current
+       DESCRIPTION
+         "The fullpath name of the configuration file where the
+          syslog application's message selection and corresponding
+          action rules will be read from.
+          If the syslog application does not support the specification
+          of a configuration file, the value of this object will
+          be a zero-length string.
+         "
+       DEFVAL { "/etc/syslog.conf" }
+       ::= { syslogControlEntry 9 }
+
+   syslogControlStorageType OBJECT-TYPE
+       SYNTAX       StorageType
+       MAX-ACCESS   read-create
+       STATUS       current
+       DESCRIPTION
+           "This object defines whether the parameters defined in
+            this row are kept in volatile storage and lost upon
+            reboot or are backed up by non-volatile or permanent
+            storage.
+            Conceptual rows having the value 'permanent' need not
+            allow write-access to any columnar objects in the row.
+           "
+       DEFVAL      { nonVolatile }
+       ::= { syslogControlEntry 11 }
+
+
+   syslogControlRowStatus OBJECT-TYPE
+       SYNTAX      RowStatus
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "This object is used to create, modify and delete rows in
+            the syslogControlTable.
+            The value of syslogControlDescr can be changed
+            when this object is in state ''active'' or in
+            ''notInService''.
+            The other objects in a row can be modified only when the
+            value of this object in the corresponding conceptual row
+            is not ''active''. Thus to modify one or more of the
+            objects in this conceptual row,
+              a. change the row status to ''notInService'',
+              b. change the values of the row
+              c. change the row status to ''active''
+            The syslogControlRowStatus may be changed to
+            ''active'' if all the managed objects in the conceptual
+            row with MAX-ACCESS read-create except
+            syslogControlBindPort and
+            syslogControlEncapsulation have been assigned valid
+            values.
+           "
+       ::= { syslogControlEntry 12 }
+
+   -- -------------------------------------------------------------
+   -- syslogOperations
+   -- -------------------------------------------------------------
+   syslogOperationsTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF SyslogOperationsEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "A table containing operations information about
+            the syslog applications serviced by an SNMP agent.
+            This table complements the (configuration) information
+            in syslogControlTable .
+           "
+       ::= { syslogObjects 2 }
+
+
+   syslogOperationsEntry OBJECT-TYPE
+       SYNTAX      SyslogOperationsEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "The operations information pertaining to a syslog
+            application.
+           "
+       AUGMENTS  { syslogControlEntry }
+       ::= { syslogOperationsTable 1 }
+
+   SyslogOperationsEntry ::=
+       SEQUENCE {
+           syslogOperationsMsgsReceived
+                Counter32,
+           syslogOperationsMsgsTransmitted
+                Counter32,
+           syslogOperationsMsgsRelayed
+                Counter32,
+           syslogOperationsMsgsDropped
+                Counter32,
+           syslogOperationsMsgsMalFormed
+                Counter32,
+           syslogOperationsMsgsDiscarded
+                Counter32,
+           syslogOperationsLastMsgRecdTime
+                TimeStamp,
+           syslogOperationsLastMsgTransmittedTime
+                TimeStamp,
+           syslogOperationsStartTime
+                TimeStamp,
+           syslogOperationsLastError
+                SnmpAdminString,
+           syslogOperationsLastErrorTime
+                TimeStamp,
+           syslogOperationsRunIndex
+                Integer32,
+           syslogOperationsCounterDiscontinuityTime
+                TimeStamp,
+           syslogOperationsStatus
+                INTEGER
+       }
+
+   syslogOperationsMsgsReceived OBJECT-TYPE
+       SYNTAX      Counter32
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The number of messages received by the syslog
+            receiver. This includes messages that were discarded.
+            If this syslog application is not a syslog receiver the
+            value of this object will be zero.
+            Discontinuities in the value of this counter can
+            occur at re-initialization of the management system,
+            and at other times as indicated by the value of
+            syslogOperationsCounterDiscontinuityTime.
+           "
+       ::= { syslogOperationsEntry 1 }
+
+   syslogOperationsMsgsTransmitted OBJECT-TYPE
+       SYNTAX      Counter32
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The number of messages transmitted by the syslog
+            sender. This does not include the messages that could
+            not be queued for transmission by the syslog sender.
+            If this syslog application is not a syslog sender the
+            value of this object will be zero.
+            Discontinuities in the value of this counter can
+            occur at re-initialization of the management system,
+            and at other times as indicated by the value of
+            syslogOperationsCounterDiscontinuityTime.
+           "
+       ::= { syslogOperationsEntry 2 }
+
+   syslogOperationsMsgsRelayed OBJECT-TYPE
+       SYNTAX      Counter32
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The number of messages relayed by the syslog
+            relay to other syslog applications.
+            If this syslog application is not a syslog relay the value
+            of this object will be zero.
+            Discontinuities in the value of this counter can
+            occur at re-initialization of the management system,
+            and at other times as indicated by the value of
+            syslogOperationsCounterDiscontinuityTime.
+           "
+       REFERENCE
+           "The Syslog Protocol [RFCPROT] sec. 3.
+           "
+       ::= { syslogOperationsEntry 3 }
+
+   syslogOperationsMsgsDropped OBJECT-TYPE
+       SYNTAX      Counter32
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The number of messages that could not be queued
+            for transmission by the syslog sender.
+            If this syslog application is not a syslog sender the
+            value of this object will be zero.
+            Discontinuities in the value of this counter can
+            occur at re-initialization of the management system,
+            and at other times as indicated by the value of
+            syslogOperationsCounterDiscontinuityTime.
+           "
+       ::= { syslogOperationsEntry 4 }
+
+   syslogOperationsMsgsMalFormed OBJECT-TYPE
+       SYNTAX      Counter32
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The number of messages received by the syslog
+            receiver which had malformed header.
+            If this syslog application is not a syslog receiver,
+            then this object will have a zero value.
+            Discontinuities in the value of this counter can
+            occur at re-initialization of the management system,
+            and at other times as indicated by the value of
+            syslogOperationsCounterDiscontinuityTime.
+           "
+       REFERENCE
+           "The Syslog Protocol [RFCPROT] sec. 6.3.
+           "
+       ::= { syslogOperationsEntry 5 }
+
+   syslogOperationsMsgsDiscarded OBJECT-TYPE
+       SYNTAX      Counter32
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The number of messages that were discarded by the
+            syslog receiver. This will include messages that
+            were discarded because the message size was greater
+            than the system's maximum message size.
+            If this syslog application is not a syslog receiver this
+            object will have a zero value.
+            Discontinuities in the value of this counter can
+            occur at re-initialization of the management system,
+            and at other times as indicated by the value of
+            syslogOperationsCounterDiscontinuityTime.
+           "
+       REFERENCE
+           "The Syslog Protocol [RFCPROT] sec. 6.1.
+           "
+       ::= { syslogOperationsEntry 6 }
+
+   syslogOperationsLastMsgRecdTime OBJECT-TYPE
+       SYNTAX      TimeStamp
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The value of sysUpTime when the last message was
+            received by the syslog receiver.
+            If this syslog application is not a syslog receiver or,
+            if no messages have been received by this syslog
+            application, since the last re-initialization of the
+            local SNMP management subsystem, then this object
+            will have a zero value.
+           "
+       ::= { syslogOperationsEntry 7 }
+
+   syslogOperationsLastMsgTransmittedTime OBJECT-TYPE
+       SYNTAX      TimeStamp
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The value of sysUpTime when the last message
+            was transmitted by the syslog sender.
+            If this syslog application is not a syslog sender or,
+            if no messages have been transmitted by this syslog
+            application, since the last re-initialization of the local
+            management subsystem, then this object will have a
+            zero value.
+           "
+       ::= { syslogOperationsEntry 8 }
+
+
+   syslogOperationsStartTime OBJECT-TYPE
+       SYNTAX      TimeStamp
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The value of sysUpTime when this syslog application was
+            started.
+           "
+       ::= { syslogOperationsEntry 9 }
+
+   syslogOperationsLastError OBJECT-TYPE
+       SYNTAX      SnmpAdminString
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "A description of the last error related to sending,
+            receiving or processing a syslog message that was
+            encountered by this syslog application.
+            If no error has been encountered by this syslog
+            application then the value of this object will be a
+            zero-length string.
+            If no error has been encountered by this syslog
+            application since the last re-initialization of the
+            local management subsystem then the value of this
+            object will be a zero-length string.
+           "
+       ::= { syslogOperationsEntry 10 }
+
+   syslogOperationsLastErrorTime OBJECT-TYPE
+       SYNTAX      TimeStamp
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The value of sysUpTime when the last error was
+            encountered.
+            If no error has been encountered by this syslog
+            application since the last re-initialization of the
+            local management subsystem, then this object will
+            have a zero value.
+           "
+       ::= { syslogOperationsEntry 11 }
+
+   syslogOperationsRunIndex OBJECT-TYPE
+       SYNTAX      Integer32 (0..2147483647)
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "If the Host resource MIB is instantiated on the
+            host then this entry will have the value of the
+            hrSWRunIndex of the corresponding entry in the
+            hrSWRunTable.
+            Note that the hrSWRunIndex is not persistent
+            across system reboots or software restarts. The
+            value of syslogOperationsRunIndex SHOULD
+            reference the latest value of the hrSWRunIndex
+            of the corresponding entry in the hrSWRunTable.
+
+            The special value of zero indicates that the Host
+            resource MIB is not instantiated.
+           "
+       ::= { syslogOperationsEntry 12 }
+
+
+   syslogOperationsCounterDiscontinuityTime OBJECT-TYPE
+       SYNTAX      TimeStamp
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+            "The value of sysUpTime on the most recent occasion
+             at which any one or more of this syslog application's
+             counters, viz., counters with OID prefix
+             'syslogOperationsMsgsReceived' or
+             'syslogOperationsMsgsTransmitted' or
+             'syslogOperationsMsgsRelayed' or
+             'syslogOperationsMsgsDropped' or
+             'syslogOperationsMsgsMalFormed' or
+             'syslogOperationsMsgsDiscarded' suffered a
+             discontinuity.
+             If no such discontinuities have occurred since the
+             last re-initialization of the local management
+             subsystem, then this object will have a zero value.
+            "
+       ::= { syslogOperationsEntry 13 }
+
+
+
+   syslogOperationsStatus OBJECT-TYPE
+       SYNTAX       INTEGER  {
+                         unknown  (1),
+                         started  (2),
+                         suspended(3),
+                         stopped  (4)
+                       }
+       MAX-ACCESS   read-only
+       STATUS       current
+       DESCRIPTION
+           "The status of the syslog application.
+           "
+       DEFVAL      { unknown }
+       ::= { syslogOperationsEntry 14 }
+
+   syslogPriorityTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF SyslogPriorityEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "A table containing the relay configuration
+            parameters pertaining to the syslog applications
+            serviced by an SNMP agent.
+           "
+       ::= { syslogObjects 3 }
+
+   syslogPriorityEntry OBJECT-TYPE
+       SYNTAX      SyslogPriorityEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "The relay configuration parameters pertaining to
+            a syslog application.
+           "
+       INDEX  { syslogControlIndex,
+                syslogPriorityFacility,
+                syslogPrioritySeverity }
+       ::= { syslogPriorityTable 1 }
+
+
+   SyslogPriorityEntry ::=
+       SEQUENCE {
+           syslogPriorityFacility
+                SyslogFacility,
+           syslogPrioritySeverity
+                SyslogSeverity,
+           syslogPriorityDescr
+                SnmpAdminString,
+           syslogPriorityDestinationIndex
+                Unsigned32,
+           syslogPriorityStorageType
+                StorageType,
+           syslogPriorityRowStatus
+                RowStatus
+       }
+
+   syslogPriorityFacility OBJECT-TYPE
+       SYNTAX      SyslogFacility
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "The facility value of this entry.
+           "
+       ::= { syslogPriorityEntry 1 }
+
+   syslogPrioritySeverity OBJECT-TYPE
+       SYNTAX      SyslogSeverity
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "The severity value of this entry.
+           "
+       ::= { syslogPriorityEntry 2 }
+
+   syslogPriorityDescr OBJECT-TYPE
+       SYNTAX      SnmpAdminString
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "A textual description of this priority entry.
+           "
+       ::= { syslogPriorityEntry 3 }
+
+   syslogPriorityDestinationIndex OBJECT-TYPE
+       SYNTAX      Unsigned32
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "On systems where the priority value in a syslog message
+            indicates the destination to which a syslog message
+            should be relayed, the value of this object will identify
+            the row in syslogRelayTable that contains
+            information about the relay destination to which
+            messages which have the priority value represented by
+            syslogPriorityFacility and syslogPrioritySeverity values
+            of this row will be relayed.
+            A value of 0 will indicate that there is no corresponding
+            row in the syslogRelayTable table.
+           "
+       ::= { syslogPriorityEntry 4 }
+
+   syslogPriorityStorageType OBJECT-TYPE
+       SYNTAX       StorageType
+       MAX-ACCESS   read-create
+       STATUS       current
+       DESCRIPTION
+           "This object defines whether the parameters defined in
+            this row are kept in volatile storage and lost upon
+            reboot or are backed up by non-volatile or permanent
+            storage.
+            Conceptual rows having the value 'permanent' need not
+            allow write-access to any columnar objects in the row.
+           "
+       DEFVAL      { nonVolatile }
+       ::= { syslogPriorityEntry 5 }
+
+   syslogPriorityRowStatus OBJECT-TYPE
+       SYNTAX      RowStatus
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "This object is used to create, modify and delete rows
+            in the syslogPriorityTable.
+            The value of syslogPriorityDescr can be changed
+            when this object is in state ''active'' or in
+            ''notInService''.
+            The other objects in a row can be modified only when the
+            value of this object in the corresponding conceptual row
+            is not ''active''. Thus to modify one or more of the
+            objects in this conceptual row,
+              a. change the row status to ''notInService'',
+              b. change the values of the row
+              c. change the row status to ''active''
+            The syslogPriorityRowStatus may be changed to
+            ''active'' if all the managed objects in the conceptual
+            row with MAX-ACCESS read-create have been assigned valid
+            values.
+           "
+       ::= { syslogPriorityEntry 6 }
+
+
+   syslogRelayTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF SyslogRelayEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "A table containing information for the relay
+            destinations.
+           "
+       ::= { syslogObjects 4 }
+
+   syslogRelayEntry OBJECT-TYPE
+       SYNTAX      SyslogRelayEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "The information pertaining to a syslog message
+            relay destination.
+           "
+       INDEX  { syslogRelayIndex }
+       ::= { syslogRelayTable 1 }
+
+   SyslogRelayEntry ::=
+       SEQUENCE {
+           syslogRelayIndex
+                Unsigned32,
+           syslogRelayDescr
+                SnmpAdminString,
+           syslogRelayAddrType
+                InetAddressType,
+           syslogRelayAddr
+                InetAddress,
+           syslogRelayPort
+                InetPortNumber,
+           syslogRelayEncapsulation
+                SyslogEncapsulation,
+           syslogRelayMsgsRelayed
+                Counter32,
+           syslogRelayCounterDiscontinuityTime
+                TimeStamp,
+           syslogRelayStorageType
+                StorageType,
+           syslogRelayRowStatus
+                RowStatus
+       }
+
+
+   syslogRelayIndex OBJECT-TYPE
+       SYNTAX      Unsigned32 (1..2147483647)
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "The Index that uniquely identifies the syslog
+            relay in the syslogRelayTable.
+            The value of the index for a syslog relay may
+            not be the same across system reboots. Users and
+            applications will need to determine the index of a
+            syslog relay after system reboots.
+           "
+       ::= { syslogRelayEntry 1 }
+
+   syslogRelayDescr OBJECT-TYPE
+       SYNTAX      SnmpAdminString
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "A user definable description of the syslog relay.
+            This description could be used by syslog management
+            applications e.g. in reports or in user interfaces.
+           "
+       ::= { syslogRelayEntry 2 }
+
+   syslogRelayAddrType OBJECT-TYPE
+       SYNTAX      InetAddressType
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The type of Internet address which follows
+            in syslogRelayAddr.
+           "
+       ::= { syslogRelayEntry 3 }
+
+   syslogRelayAddr OBJECT-TYPE
+       SYNTAX      InetAddress
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The address of the syslog relay .
+            The format of the address is specified by the
+            corresponding syslogRelayAddrType object.
+            If the address is specified in the DNS domain name format
+            [syslogRelayAddrType = 'dns'], the
+            corresponding IPv4 or IPv6 address obtained at the time
+            of the relay operation by the syslog application, will be
+            used.
+           "
+       ::= { syslogRelayEntry 4 }
+
+
+   syslogRelayPort OBJECT-TYPE
+       SYNTAX      InetPortNumber
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The port number of the syslog relay.
+           "
+       ::= { syslogRelayEntry 5 }
+
+   syslogRelayEncapsulation OBJECT-TYPE
+       SYNTAX      SyslogEncapsulation
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The encapsulation that will be used for syslog messages
+            sent by the syslog sender to the relay destination.
+           "
+       ::= { syslogRelayEntry 6 }
+
+   syslogRelayMsgsRelayed OBJECT-TYPE
+       SYNTAX      Counter32
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The number of messages relayed by the syslog
+            relay to this relay destination.
+            Discontinuities in the value of this counter can
+            occur at re-initialization of the management system,
+            and at other times as indicated by the value of
+            syslogRelayCounterDiscontinuityTime.
+           "
+       REFERENCE
+           "The Syslog Protocol [RFCPROT] sec. 3.
+           "
+       ::= { syslogRelayEntry 7 }
+
+   syslogRelayCounterDiscontinuityTime OBJECT-TYPE
+       SYNTAX      TimeStamp
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+            "The value of sysUpTime on the most recent occasion
+             at which counters with OID prefix
+             'syslogRelayMsgsRelayed' suffered a
+             discontinuity.
+             If no such discontinuities have occurred since the
+             last re-initialization of the local management
+             subsystem, then this object will have a zero value.
+            "
+       ::= { syslogRelayEntry 8 }
+
+   syslogRelayStorageType OBJECT-TYPE
+       SYNTAX       StorageType
+       MAX-ACCESS   read-create
+       STATUS       current
+       DESCRIPTION
+           "This object defines whether the parameters defined in
+            this row are kept in volatile storage and lost upon
+            reboot or are backed up by non-volatile or permanent
+            storage.
+            Conceptual rows having the value 'permanent' need not
+            allow write-access to any columnar objects in the row.
+           "
+       DEFVAL      { nonVolatile }
+       ::= { syslogRelayEntry 9 }
+
+      syslogRelayRowStatus OBJECT-TYPE
+          SYNTAX      RowStatus
+          MAX-ACCESS  read-create
+          STATUS      current
+          DESCRIPTION
+              "This object is used to create, modify and delete rows
+               in the syslogRelayTable.
+               The value of syslogRelayDescr can be changed
+               when this object is in state ''active'' or in
+               ''notInService''.
+               The other objects in a row can be modified only when the
+               value of this object in the corresponding conceptual row
+               is not ''active''. Thus to modify one or more of the
+               objects in this conceptual row,
+                 a. change the row status to ''notInService'',
+                 b. change the values of the row
+                 c. change the row status to ''active''
+               The syslogRelayRowStatus may be changed to
+               ''active'' if all the managed objects in the conceptual
+               row with MAX-ACCESS read-create have been assigned valid
+               values.
+              "
+          ::= { syslogRelayEntry 10 }
+
+   syslogStatusChanged NOTIFICATION-TYPE
+       OBJECTS   {
+                    syslogControlDescr,
+                    syslogControlRoles,
+                    syslogControlBindAddrType,
+                    syslogControlBindAddr,
+                    syslogControlBindPort,
+                    syslogControlEncapsulation,
+                    syslogControlConfFileName,
+                    syslogOperationsStatus
+                 }
+       STATUS    current
+       DESCRIPTION
+               "This notification is sent when a syslog application
+                changes state. For example when the syslog application
+                starts [syslogOperationsStatus is ''started'' ]
+                or the syslog application stops [syslogOperationsStatus
+                is ''suspended'' or ''stopped''].
+                The value of syslogOperationsStatus will be the
+                new status of the syslog application after the change.
+                The syslog application corresponding to the notification
+                will be identified by the syslogOperationsIndex
+                instance identifier of the objects in the notification.
+               "
+       ::= { syslogNotifications 1 }
+
+
+
+   -- -------------------------------------------------------------
+   -- Conformance Information
+   -- -------------------------------------------------------------
+
+   syslogGroups OBJECT IDENTIFIER
+                             ::= { syslogConformance 1 }
+
+   syslogCompliances OBJECT IDENTIFIER
+                             ::= { syslogConformance 2 }
+
+   -- -------------------------------------------------------------
+   -- units of conformance
+   -- -------------------------------------------------------------
+
+   syslogOperationsGroup OBJECT-GROUP
+       OBJECTS {
+               --  syslogOperationsIndex,
+                   syslogOperationsMsgsReceived,
+                   syslogOperationsMsgsTransmitted,
+                   syslogOperationsMsgsRelayed,
+                   syslogOperationsMsgsDropped,
+                   syslogOperationsMsgsMalFormed,
+                   syslogOperationsMsgsDiscarded,
+                   syslogOperationsLastMsgRecdTime,
+                   syslogOperationsLastMsgTransmittedTime,
+                   syslogOperationsStartTime,
+                   syslogOperationsLastError,
+                   syslogOperationsLastErrorTime,
+                   syslogOperationsRunIndex,
+                   syslogOperationsCounterDiscontinuityTime,
+                   syslogOperationsStatus
+               }
+       STATUS  current
+       DESCRIPTION
+           "A collection of objects providing message related
+            statistics."
+       ::= { syslogGroups 1}
+
+   syslogControlGroup OBJECT-GROUP
+       OBJECTS {
+                   syslogControlDescr,
+                   syslogControlRoles,
+                   syslogControlBindAddrType,
+                   syslogControlBindAddr,
+                   syslogControlEncapsulation,
+                   syslogControlBindPort,
+                   syslogControlMaxMessageSize,
+                   syslogControlConfFileName,
+                   syslogControlStorageType,
+                   syslogControlRowStatus
+               }
+       STATUS  current
+       DESCRIPTION
+           "A collection of objects representing the run time parameters
+            for the syslog applications.
+           "
+       ::= { syslogGroups 2}
+
+   syslogPriorityGroup OBJECT-GROUP
+       OBJECTS {
+                   syslogPriorityDescr,
+                   syslogPriorityDestinationIndex,
+                   syslogPriorityStorageType,
+                   syslogPriorityRowStatus
+               }
+       STATUS  current
+       DESCRIPTION
+           "A collection of objects representing the priority
+            groupings of syslog messages.
+           "
+       ::= { syslogGroups 3}
+
+   syslogRelayGroup OBJECT-GROUP
+       OBJECTS {
+                   syslogRelayDescr,
+                   syslogRelayAddrType,
+                   syslogRelayAddr,
+                   syslogRelayPort,
+                   syslogRelayEncapsulation,
+                   syslogRelayMsgsRelayed,
+                   syslogRelayCounterDiscontinuityTime,
+                   syslogRelayStorageType,
+                   syslogRelayRowStatus
+               }
+       STATUS  current
+       DESCRIPTION
+           "A collection of objects representing the relay
+            destinations for syslog messages.
+           "
+       ::= { syslogGroups 4}
+
+
+   syslogNotificationGroup NOTIFICATION-GROUP
+       NOTIFICATIONS {
+                   syslogStatusChanged
+               }
+       STATUS  current
+       DESCRIPTION
+           "A collection of notifications about the operational
+            state of a syslog application.
+           "
+       ::= { syslogGroups 5}
+
+   -- -------------------------------------------------------------
+   -- compliance statements
+   -- -------------------------------------------------------------
+
+   syslogFullCompliance1 MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+           "The compliance statement for SNMP entities which
+            implement the SYSLOG-MIB with support for writable
+            objects and notifications. Such an implementation can
+            be both monitored and configured via SNMP. It can
+            also send notifications about change in the
+            operational status of the syslog application.
+           "
+       MODULE -- this module
+       MANDATORY-GROUPS {
+           syslogNotificationGroup,
+           syslogOperationsGroup,
+           syslogControlGroup,
+           syslogPriorityGroup,
+           syslogRelayGroup
+       }
+
+       ::= { syslogCompliances 1 }
+
+   syslogFullCompliance2 MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+           "The compliance statement for SNMP entities which
+            implement the SYSLOG-MIB with support for writable
+            objects. Such an implementation can
+            be both monitored and configured via SNMP.
+           "
+       MODULE -- this module
+       MANDATORY-GROUPS {
+           syslogOperationsGroup,
+           syslogControlGroup,
+           syslogPriorityGroup,
+           syslogRelayGroup
+       }
+
+       ::= { syslogCompliances 2 }
+
+   syslogFullCompliance3 MODULE-COMPLIANCE
+       STATUS  current
+
+
+       DESCRIPTION
+           "The compliance statement for SNMP entities which
+            implement the SYSLOG-MIB with support for writable
+            objects but without support for the objects in
+            syslogPriorityGroup and syslogRelayGroup. Such an
+            implementation can be both monitored and configured
+            via SNMP.
+           "
+       MODULE -- this module
+       MANDATORY-GROUPS {
+           syslogOperationsGroup,
+           syslogControlGroup
+       }
+
+       ::= { syslogCompliances 3 }
+
+   syslogReadOnlyCompliance1 MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+           "The compliance statement for SNMP entities which
+            implement the syslog MIB without support
+            for read-write (i.e. in read-only mode). It can
+            also send notifications about change in the
+            operational status of the syslog application.
+           "
+       MODULE -- this module
+       MANDATORY-GROUPS {
+           syslogNotificationGroup,
+           syslogOperationsGroup,
+           syslogControlGroup,
+           syslogPriorityGroup,
+           syslogRelayGroup
+       }
+
+       OBJECT  syslogControlDescr
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlRoles
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+
+       OBJECT  syslogControlBindAddrType
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlBindAddr
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlBindPort
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlEncapsulation
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlMaxMessageSize
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlConfFileName
+       MIN-ACCESS   read-only
+       DESCRIPTION
+         "Write access is not required.
+         "
+       OBJECT  syslogControlStorageType
+       MIN-ACCESS   read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlRowStatus
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+
+       ::= { syslogCompliances 4 }
+
+
+   syslogReadOnlyCompliance2 MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+           "The compliance statement for SNMP entities which
+            implement the syslog MIB without support
+            for read-write (i.e. in read-only mode).
+           "
+       MODULE -- this module
+       MANDATORY-GROUPS {
+           syslogOperationsGroup,
+           syslogControlGroup,
+           syslogPriorityGroup,
+           syslogRelayGroup
+       }
+
+       OBJECT  syslogControlDescr
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlRoles
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlBindAddrType
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlBindAddr
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlBindPort
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlEncapsulation
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+
+       OBJECT  syslogControlMaxMessageSize
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlConfFileName
+       MIN-ACCESS   read-only
+       DESCRIPTION
+         "Write access is not required.
+         "
+       OBJECT  syslogControlStorageType
+       MIN-ACCESS   read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlRowStatus
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogPriorityDescr
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogPriorityDestinationIndex
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogPriorityStorageType
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogPriorityRowStatus
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogRelayDescr
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+
+       OBJECT  syslogRelayAddrType
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogRelayAddr
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogRelayPort
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogRelayEncapsulation
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogRelayStorageType
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogRelayRowStatus
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       ::= { syslogCompliances 5 }
+
+   syslogReadOnlyCompliance3 MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+           "The compliance statement for SNMP entities which
+            implement the syslog MIB without support
+            for read-write (i.e. in read-only mode) and without
+            support for the objects in syslogRelayGroup and
+            syslogPriorityGroup.
+           "
+       MODULE -- this module
+       MANDATORY-GROUPS {
+           syslogOperationsGroup,
+           syslogControlGroup
+       }
+
+       OBJECT  syslogControlDescr
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlRoles
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlBindAddrType
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlBindAddr
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlBindPort
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlEncapsulation
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+
+       OBJECT  syslogControlMaxMessageSize
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlConfFileName
+       MIN-ACCESS   read-only
+       DESCRIPTION
+         "Write access is not required.
+         "
+       OBJECT  syslogControlStorageType
+       MIN-ACCESS   read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       OBJECT  syslogControlRowStatus
+       MIN-ACCESS  read-only
+       DESCRIPTION
+           "Write access is not required.
+           "
+       ::= { syslogCompliances 6 }
+
+   syslogNotificationCompliance MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+           "The compliance statement for SNMP entities
+            which implement the SYSLOG-MIB and support
+            only notifications about change in the
+            operational status of a syslog application.
+           "
+       MODULE -- this module
+       MANDATORY-GROUPS {
+           syslogNotificationGroup
+       }
+
+       ::= { syslogCompliances 7 }
+
+
+
+   END
+
+
+

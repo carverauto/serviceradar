@@ -1,0 +1,270 @@
+-- MIB file created 26-Aug-2009 10:08:36, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ETHERNET-ACCESS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ETHERNET-ACCESS-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ifIndex
+            FROM IF-MIB
+    vtpVlanIndex, managementDomainIndex
+            FROM CISCO-VTP-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoEthernetAccessMIB OBJECT IDENTIFIER ::= { ciscoMgmt 466 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200709140000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA 95134
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-dsbu@cisco.com
+--  Descr
+--    The tables defined by this MIB module contain a collection
+--    of managed objects that are general in nature and apply to
+--    an edge device in an organizations network, e.g. a Metro 
+--    Ethernet network. An edge device, is a customer located 
+--    equipment, this is the first device which will connect the
+--    Service Provider's network and map subscriber traffic into
+--    the next layer. The access media could be either CAT5 or
+--    fiber. The access device (edge device) can be designed for
+--    DSL, Ethernet or other technologies, however, this MIB is 
+--    designed for Ethernet. 
+--    
+--    Terminology:
+--    UNI - User to Network Interface 
+--    NNI - Network to Network Interface.
+--    ENI - Enhanced Network Interface. Enhanced UNI port.
+--    module/device
+--        - In an environment (specifically, in an SNMP context)
+--          consisting of a single chassis which can contain
+--          multiple cards, the term 'module' refers to a card
+--          and the term 'device' refers to the whole chassis.
+--          In an environment where multiple chassis are 'stacked'
+--          together, the term 'module' refers to a chassis and
+--          the term 'device' refers to the whole stack.
+--          In an environment containing only a single chassis
+--          without removable cards, the terms 'device' and
+--          'module' both refer to the chassis and its contents.
+--  RevDate
+--    200709140000Z
+--  RevDescr
+--    Added ENI as a new port type to the ceaPortType and
+--    ceaPortCapability objects.
+--  RevDate
+--    200501180000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoEthernetAccessMIBObjects OBJECT IDENTIFIER ::= { ciscoEthernetAccessMIB 1 }
+ciscoEthernetAccessMIBConform OBJECT IDENTIFIER ::= { ciscoEthernetAccessMIB 2 }
+ceaGlobals      OBJECT IDENTIFIER ::= { ciscoEthernetAccessMIBObjects 1 }
+ceaConfig       OBJECT IDENTIFIER ::= { ciscoEthernetAccessMIBObjects 2 }
+cEthernetAccessMIBCompliances OBJECT IDENTIFIER ::= { ciscoEthernetAccessMIBConform 1 }
+cEthernetAccessMIBGroups OBJECT IDENTIFIER ::= { ciscoEthernetAccessMIBConform 2 }
+
+CeaVlanUNIType ::= INTEGER {
+        other(1),
+        isolated(2),
+        community(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The type of a VLAN.
+--    
+--    'other' == this VLAN is not a UNI VLAN 
+--    
+--    'isolated' == this VLAN is a UNI isolated VLAN.  
+--        UNI ports that are members of a UNI isolated VLAN can
+--        not communicate with other ports in that VLAN, however 
+--        NNI ports can communicate with UNI and NNI ports in the
+--        same VLAN. 
+--    
+--    'community' == this VLAN is a UNI community VLAN.  
+--    UNI and NNI ports that are members of the community 
+--    VLAN can communicate with all other UNI and NNI ports 
+--    in the same VLAN.
+
+ceaMaxNNIPorts OBJECT-TYPE
+    SYNTAX INTEGER(0..512)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The max number of interfaces per module for which the
+        ceaPortType can have the value 'nni'.
+        The value of 0 is returned by this object if there is no 
+        limitation to the number of NNI ports."
+    ::= { ceaGlobals 1 }
+
+ceaMaxUNIVlanCommunityPorts OBJECT-TYPE
+    SYNTAX INTEGER(0..512)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of ports on this device for which
+        the ceaUNIVlanType object can have the value 'community'.
+        The value of 0 is returned by this object if there is no 
+        limitation to the number of UNI VLAN Communities."
+    ::= { ceaGlobals 2 }
+
+ceaPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CeaPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains Ethernet port specific information.
+        There exists an entry for each Ethernet port with an ifType
+        of 6 (ethernetCsmacd) in this table.
+        Note that the maximum number of NNI ports that can be
+        configured per module on this device is given by the value
+        of ceaMaxNNIPorts."
+    ::= { ceaConfig 1 }
+
+ceaPortEntry OBJECT-TYPE
+    SYNTAX CeaPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of Ethernet port specific parameters for a device
+        which can be configured with a mixture of port types 
+        defined by the ceaPortType object."
+    INDEX { ifIndex }
+    ::= { ceaPortTable 1 }
+
+CeaPortEntry ::= SEQUENCE {
+    ceaPortType INTEGER,
+    ceaPortCapability OCTET STRING
+    }
+
+ceaPortType OBJECT-TYPE
+    SYNTAX INTEGER {
+        unspecified(1),
+        uni(2),
+        nni(3),
+        eni(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The current configuration of the port. Only ports that are
+        supported by the  ceaPortCapability object can be set.
+        Unspecified port type is any other port type than NNI, 
+        UNI or ENI.
+        unspecified = Not UNI, or NNI, or ENI
+        uni         = User to Network Interface port type.
+        nni         = Network to Network Interface port type.
+        eni         = Enhanced UNI port type."
+    ::= { ceaPortEntry 1 }
+
+ceaPortCapability OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   nni(0)
+        --   uni(1)
+        --   eni(2)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Types   supported by the Ethernet port. If a port doesn't
+        support the port type the ceaPortType will not allow 
+        set of the unsupported type.
+        nni  = Port supports NNI.
+        uni  = Port supports UNI.
+        eni  = Port supports ENI."
+    ::= { ceaPortEntry 2 }
+
+ceaUNIVlanTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CeaUNIVlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains UNI VLAN information for all the VLANs
+        which currently exist on this device. 
+        The number of UNI ports that can belong to a VLAN type 
+        'community' is limited by the ceaMaxUNIVlanCommunityPorts 
+        object."
+    ::= { ceaConfig 2 }
+
+ceaUNIVlanEntry OBJECT-TYPE
+    SYNTAX CeaUNIVlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "There is an entry in this table for each VLAN that
+        exist on this device."
+    INDEX { managementDomainIndex, vtpVlanIndex }
+    ::= { ceaUNIVlanTable 1 }
+
+CeaUNIVlanEntry ::= SEQUENCE {
+    ceaUNIVlanType CeaVlanUNIType
+    }
+
+ceaUNIVlanType OBJECT-TYPE
+    SYNTAX CeaVlanUNIType
+--    Rsyntax INTEGER {
+--        other(1),
+--        isolated(2),
+--        community(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the VLAN type defined for the UNI VLAN."
+    ::= { ceaUNIVlanEntry 1 }
+
+ceaPortGroup OBJECT IDENTIFIER ::= { cEthernetAccessMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of managed objects defining port types.
+--  objects
+--    ceaMaxNNIPorts, ceaPortType, ceaPortCapability
+
+ceaVlanGroup OBJECT IDENTIFIER ::= { cEthernetAccessMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of managed objects defining VLAN types.
+--  objects
+--    ceaMaxUNIVlanCommunityPorts, ceaUNIVlanType
+
+cEthernetAccessMIBCompliance OBJECT IDENTIFIER ::= { cEthernetAccessMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities that implement the
+--    CISCO-ETHERNET-ACCESS-MIB. Implementation of this MIB is
+--    mandatory for any platform that have Ethernet UNI/NNI 
+--    capable interfaces.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ceaPortGroup
+--   MandGroup
+--    ceaVlanGroup
+--   ObjVar
+--    ceaUNIVlanType
+--   ObjVar
+--    ceaPortType
+
+
+END
+

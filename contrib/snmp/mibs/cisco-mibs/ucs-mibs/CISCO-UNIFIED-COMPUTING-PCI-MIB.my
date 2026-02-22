@@ -1,0 +1,424 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-PCI-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- PCI management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-PCI-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsEquipmentDiscoveryState,
+    CucsEquipmentOperability,
+    CucsEquipmentPowerState,
+    CucsEquipmentPresence,
+    CucsEquipmentSensorThresholdStatus,
+    CucsPciEquipSlotId
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsPciObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        PCI management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 36 }
+
+cucsPciEquipSlotTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPciEquipSlotEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot managed object table"
+    ::= { cucsPciObjects 2 }
+
+cucsPciEquipSlotEntry OBJECT-TYPE
+    SYNTAX           CucsPciEquipSlotEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPciEquipSlotTable table."
+    INDEX { cucsPciEquipSlotInstanceId }
+    ::= { cucsPciEquipSlotTable 1 }
+
+CucsPciEquipSlotEntry ::= SEQUENCE {
+    cucsPciEquipSlotInstanceId                                       CucsManagedObjectId,
+    cucsPciEquipSlotDn                                               CucsManagedObjectDn,
+    cucsPciEquipSlotRn                                               SnmpAdminString,
+    cucsPciEquipSlotControllerReported                               SnmpAdminString,
+    cucsPciEquipSlotDiscoveryState                                   CucsEquipmentDiscoveryState,
+    cucsPciEquipSlotFltAggr                                          Unsigned64,
+    cucsPciEquipSlotHostReported                                     SnmpAdminString,
+    cucsPciEquipSlotId                                               CucsPciEquipSlotId,
+    cucsPciEquipSlotMacLeft                                          MacAddress,
+    cucsPciEquipSlotMacRight                                         MacAddress,
+    cucsPciEquipSlotModel                                            SnmpAdminString,
+    cucsPciEquipSlotRevision                                         SnmpAdminString,
+    cucsPciEquipSlotSerial                                           SnmpAdminString,
+    cucsPciEquipSlotSmbiosId                                         Gauge32,
+    cucsPciEquipSlotVendor                                           SnmpAdminString
+}
+
+cucsPciEquipSlotInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPciEquipSlotEntry 1 }
+
+cucsPciEquipSlotDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:dn managed object property"
+    ::= { cucsPciEquipSlotEntry 2 }
+
+cucsPciEquipSlotRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:rn managed object property"
+    ::= { cucsPciEquipSlotEntry 3 }
+
+cucsPciEquipSlotControllerReported OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:controllerReported managed
+        object property"
+    ::= { cucsPciEquipSlotEntry 4 }
+
+cucsPciEquipSlotDiscoveryState OBJECT-TYPE
+    SYNTAX       CucsEquipmentDiscoveryState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:discoveryState managed object property"
+    ::= { cucsPciEquipSlotEntry 5 }
+
+cucsPciEquipSlotFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:fltAggr managed object property"
+    ::= { cucsPciEquipSlotEntry 6 }
+
+cucsPciEquipSlotHostReported OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:hostReported managed object property"
+    ::= { cucsPciEquipSlotEntry 7 }
+
+cucsPciEquipSlotId OBJECT-TYPE
+    SYNTAX       CucsPciEquipSlotId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:id managed object property"
+    ::= { cucsPciEquipSlotEntry 8 }
+
+cucsPciEquipSlotMacLeft OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:macLeft managed object property"
+    ::= { cucsPciEquipSlotEntry 9 }
+
+cucsPciEquipSlotMacRight OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:macRight managed object property"
+    ::= { cucsPciEquipSlotEntry 10 }
+
+cucsPciEquipSlotModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:model managed object property"
+    ::= { cucsPciEquipSlotEntry 11 }
+
+cucsPciEquipSlotRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:revision managed object property"
+    ::= { cucsPciEquipSlotEntry 12 }
+
+cucsPciEquipSlotSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:serial managed object property"
+    ::= { cucsPciEquipSlotEntry 13 }
+
+cucsPciEquipSlotSmbiosId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:smbiosId managed object property"
+    ::= { cucsPciEquipSlotEntry 14 }
+
+cucsPciEquipSlotVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:EquipSlot:vendor managed object property"
+    ::= { cucsPciEquipSlotEntry 15 }
+
+cucsPciUnitTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPciUnitEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS pci:Unit managed object table"
+    ::= { cucsPciObjects 1 }
+
+cucsPciUnitEntry OBJECT-TYPE
+    SYNTAX           CucsPciUnitEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPciUnitTable table."
+    INDEX { cucsPciUnitInstanceId }
+    ::= { cucsPciUnitTable 1 }
+
+CucsPciUnitEntry ::= SEQUENCE {
+    cucsPciUnitInstanceId                                            CucsManagedObjectId,
+    cucsPciUnitDn                                                    CucsManagedObjectDn,
+    cucsPciUnitRn                                                    SnmpAdminString,
+    cucsPciUnitId                                                    Gauge32,
+    cucsPciUnitModel                                                 SnmpAdminString,
+    cucsPciUnitOperState                                             CucsEquipmentOperability,
+    cucsPciUnitOperability                                           CucsEquipmentOperability,
+    cucsPciUnitPciAddr                                               SnmpAdminString,
+    cucsPciUnitPciSlot                                               SnmpAdminString,
+    cucsPciUnitPerf                                                  CucsEquipmentSensorThresholdStatus,
+    cucsPciUnitPower                                                 CucsEquipmentPowerState,
+    cucsPciUnitPresence                                              CucsEquipmentPresence,
+    cucsPciUnitRevision                                              SnmpAdminString,
+    cucsPciUnitSerial                                                SnmpAdminString,
+    cucsPciUnitThermal                                               CucsEquipmentSensorThresholdStatus,
+    cucsPciUnitVendor                                                SnmpAdminString,
+    cucsPciUnitVoltage                                               CucsEquipmentSensorThresholdStatus,
+    cucsPciUnitOperQualifierReason                                   SnmpAdminString,
+    cucsPciUnitLocationDn                                            SnmpAdminString
+}
+
+cucsPciUnitInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPciUnitEntry 1 }
+
+cucsPciUnitDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:dn managed object property"
+    ::= { cucsPciUnitEntry 2 }
+
+cucsPciUnitRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:rn managed object property"
+    ::= { cucsPciUnitEntry 3 }
+
+cucsPciUnitId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:id managed object property"
+    ::= { cucsPciUnitEntry 4 }
+
+cucsPciUnitModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:model managed object property"
+    ::= { cucsPciUnitEntry 5 }
+
+cucsPciUnitOperState OBJECT-TYPE
+    SYNTAX       CucsEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:operState managed object property"
+    ::= { cucsPciUnitEntry 6 }
+
+cucsPciUnitOperability OBJECT-TYPE
+    SYNTAX       CucsEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:operability managed object property"
+    ::= { cucsPciUnitEntry 7 }
+
+cucsPciUnitPciAddr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:pciAddr managed object property"
+    ::= { cucsPciUnitEntry 8 }
+
+cucsPciUnitPciSlot OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:pciSlot managed object property"
+    ::= { cucsPciUnitEntry 9 }
+
+cucsPciUnitPerf OBJECT-TYPE
+    SYNTAX       CucsEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:perf managed object property"
+    ::= { cucsPciUnitEntry 10 }
+
+cucsPciUnitPower OBJECT-TYPE
+    SYNTAX       CucsEquipmentPowerState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:power managed object property"
+    ::= { cucsPciUnitEntry 11 }
+
+cucsPciUnitPresence OBJECT-TYPE
+    SYNTAX       CucsEquipmentPresence
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:presence managed object property"
+    ::= { cucsPciUnitEntry 12 }
+
+cucsPciUnitRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:revision managed object property"
+    ::= { cucsPciUnitEntry 13 }
+
+cucsPciUnitSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:serial managed object property"
+    ::= { cucsPciUnitEntry 14 }
+
+cucsPciUnitThermal OBJECT-TYPE
+    SYNTAX       CucsEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:thermal managed object property"
+    ::= { cucsPciUnitEntry 15 }
+
+cucsPciUnitVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:vendor managed object property"
+    ::= { cucsPciUnitEntry 16 }
+
+cucsPciUnitVoltage OBJECT-TYPE
+    SYNTAX       CucsEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:voltage managed object property"
+    ::= { cucsPciUnitEntry 17 }
+
+cucsPciUnitOperQualifierReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:operQualifierReason managed object property"
+    ::= { cucsPciUnitEntry 18 }
+
+cucsPciUnitLocationDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS pci:Unit:locationDn managed object property"
+    ::= { cucsPciUnitEntry 19 }
+
+END

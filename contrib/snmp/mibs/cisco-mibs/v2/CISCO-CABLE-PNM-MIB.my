@@ -1,0 +1,129 @@
+-- $Id$
+-- $Source$
+-- *****************************************************************
+-- CISCO-CABLE-PNM-MIB.my: Cisco Data Over Cable PNM
+-- MIB file
+--   
+-- October 2021 Jianjun Hu
+--   
+-- Copyright (c) 1998, 2000-2021 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+-- $Log$
+-- *****************************************************************
+-- $Endlog$
+
+CISCO-CABLE-PNM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    NOTIFICATION-TYPE,
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Integer32,
+    Gauge32,
+    Counter32
+        FROM SNMPv2-SMI
+    OBJECT-GROUP,
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    MacAddress,
+    RowStatus,
+    DateAndTime,
+    TimeStamp,
+    StorageType,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    ifIndex,
+    InterfaceIndex,
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    docsPnmCmtsUtscCfgIndex
+        FROM DOCS-PNM-MIB;
+
+
+ciscoCablePNMMIB MODULE-IDENTITY
+    LAST-UPDATED    "202110180000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: cisco Systems
+            170 West Tasman Drive
+            San Jose, CA 95134
+            U.S.A.
+            Tel: +1 800 553-NETS
+            E-mail: cs-ubr@cisco.com"
+    DESCRIPTION
+        "This is the MIB Module for Cable PNM for
+        DOCSIS-compliant Cable Modem Termination Systems (CMTS)."
+
+    ::= { ciscoMgmt 115 }
+
+
+
+ciscoCablePNMMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCablePNMMIB 1 }
+
+pnmSessionObjects  OBJECT IDENTIFIER
+    ::= { ciscoCablePNMMIBObjects 1 }
+
+
+pnmSessionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF PNMSessionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table keeps the records of PNM capture in running."
+    ::= { pnmSessionObjects 1 }
+
+pnmSessionEntry OBJECT-TYPE
+    SYNTAX          PNMSessionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "List of attributes for an entry in the PNMTable.
+        An entry in this table exists for each l2tp session
+        established for PNM capture."
+    INDEX           { ifIndex,
+    		  docsPnmCmtsUtscCfgIndex } 
+    ::= { pnmSessionTable 1 }
+
+PNMSessionEntry ::= SEQUENCE {
+        pnmSessionId            Unsigned32,
+        pnmSessionSacIndex      Unsigned32,
+        pnmSessionCreateTime      DateAndTime
+}
+
+pnmSessionId OBJECT-TYPE
+    SYNTAX		Unsigned32
+    MAX-ACCESS       read-only
+    STATUS		current
+    DESCRIPTION
+	"l2tp session id for this capture."
+    ::={pnmSessionEntry 1}
+
+pnmSessionSacIndex OBJECT-TYPE
+    SYNTAX		Unsigned32
+    MAX-ACCESS	read-only
+    STATUS		current
+    DESCRIPTION
+	"SAC index for this capture."
+    ::={pnmSessionEntry 2}
+
+pnmSessionCreateTime OBJECT-TYPE
+    SYNTAX		DateAndTime
+    MAX-ACCESS	read-only
+    STATUS		current
+    DESCRIPTION
+	"session created for this capture."
+    ::={pnmSessionEntry 3}
+
+END
+
+
+--%DNP%  MTF -TRUE MTF

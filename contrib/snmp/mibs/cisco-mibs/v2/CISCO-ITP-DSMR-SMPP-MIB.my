@@ -1,0 +1,850 @@
+-- *****************************************************************
+-- CISCO-ITP-DSMR-SMPP-MIB: Distributed Short Message Routing
+--                          Short Message Peer-to-Peer delivery
+--
+-- Feburary 2005, John Linton, Shekhar Acharya
+--
+-- Copyright (c) 2005 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+CISCO-ITP-DSMR-SMPP-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+        CmlrName                       
+                FROM CISCO-ITP-MLR-MIB
+                
+        cgspCLLICode,
+        cgspEventSequenceNumber,
+        cgspInstNetwork
+                FROM CISCO-ITP-GSP-MIB
+        
+        ciscoMgmt
+                FROM CISCO-SMI
+             
+        InetAddressType, 
+        InetAddress,
+        InetPortNumber
+             FROM INET-ADDRESS-MIB         
+   
+        MODULE-COMPLIANCE,
+        NOTIFICATION-GROUP,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+                
+        Counter32,  
+        MODULE-IDENTITY,
+        NOTIFICATION-TYPE,
+        OBJECT-TYPE,
+        Unsigned32
+                FROM SNMPv2-SMI
+        
+        RowStatus,
+        TEXTUAL-CONVENTION,
+        TruthValue
+                FROM SNMPv2-TC;
+                
+ciscoItpDsmrSmppMIB MODULE-IDENTITY
+        LAST-UPDATED    "200505180000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems, Inc
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-ss7@cisco.com"
+                
+        DESCRIPTION                                     
+           "The MIB for providing information about Distributed 
+            Short Message Routing delivery using Short Message 
+            Peer-to-Peer protocol. 
+                                                                    
+            Acronyms and Terms
+           
+            DSMR       Distributed Short Message Routing
+           
+            SMPP       Short Message Peer-to-Peer (protocol)
+
+            SMS        Short Message Service
+            
+            UCP        Universal Computer Protocol. 
+            
+            WRR        Weighted Round Robin.  A variation of 
+                       the round robin algorithm that uses 
+                       server weights to allow uneven 
+                       distribution of traffic among a set 
+                       of available servers.
+            
+            ********************************************"
+        REVISION        "200505180000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 1301 }
+
+
+-- Top-level structure of the MIB
+ciscoItpDsmrSmppMIBNotifs  OBJECT IDENTIFIER ::= 
+                                       { ciscoItpDsmrSmppMIB 0 }
+ciscoItpDsmrSmppMIBObjects OBJECT IDENTIFIER ::= 
+                                       { ciscoItpDsmrSmppMIB 1 }
+ciscoItpDsmrSmppMIBConform OBJECT IDENTIFIER ::= 
+                                       { ciscoItpDsmrSmppMIB 2 }
+
+--  ********************************************************************
+--  *                                                                  *
+--  * Textual Conventions                                              *
+--  *                                                                  *
+--  ********************************************************************
+CdsmrSmppInactivityTimer ::= TEXTUAL-CONVENTION
+        STATUS          current
+        DESCRIPTION
+           "This textual convention defines the allowed values
+            used to define Inactivity timer used by Short Message 
+            Peer-to-Peer session. The value of zero is reserved to
+            indicate that an object has not been set to value and that
+            the default value is to be used."
+        SYNTAX Unsigned32 (0 | 1000..9000000)
+                                 
+CdsmrSmppResponseTimer ::= TEXTUAL-CONVENTION
+        STATUS          current
+        DESCRIPTION
+           "This textual convention defines the allowed values
+            used to define response timer ,in milliseconds,
+            used by Short Message Peer-to-Peer session. The value
+            of zero is reserved to indicate that an object has not
+            been set to value and that the default value is to 
+            be used."
+        SYNTAX Unsigned32 (0 | 1000..10000)
+
+CdsmrSmppSendWindow ::= TEXTUAL-CONVENTION
+        STATUS          current
+        DESCRIPTION
+           "This textual convention defines the allowed values
+            used to define send window used by Short Message 
+            Peer-to-Peer session. The value of zero is reserved to
+            indicate that an object has not been set to value and 
+            that the default value is to be used."
+        SYNTAX Unsigned32 (0 | 1..100)
+
+CdsmrSmppSessionInitTimer ::= TEXTUAL-CONVENTION
+        STATUS          current
+        DESCRIPTION
+           "This textual convention defines the allowed values
+            used to define session initiation timer used to create
+            Short Message Peer-to-Peer session. The value of zero 
+            is reserved to indicate that an object has not been 
+            set to value and that the default value is to be used."
+        SYNTAX Unsigned32 (0 | 500..120000)
+
+        
+CdsmrSmppBindType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+       "List of possible bind types.
+        'none'       : Bind type not specified.
+        'any'        : Allow receipt of any SMPP bind type, send 
+                       transceiver binds   
+        'receiver'   : Receive or send SMPP receiver binds only
+        'transceiver': Receive or send SMPP transceiver binds only 
+        'transmitter': Receive or send SMPP transmitter binds only"
+    SYNTAX                       INTEGER {
+                                    none(1),
+                                    any(2),
+                                    receiver(3),
+                                    transceiver(4), 
+                                    transmitter(5) 
+                                 }
+            
+CdsmrSmppKeepaliveTimer ::= TEXTUAL-CONVENTION
+        STATUS          current
+        DESCRIPTION
+           "This textual convention defines the allowed values
+            used to define keep alive timer used by Short Message 
+            Peer-to-Peer session.  The value of zero is reserved to
+            indicate that an object has not been set to value and 
+            that the default value is to be used."
+        SYNTAX Unsigned32 (0 | 500..120000)
+                 
+--  *************************************************************
+--  *                                                           *
+--  * Scalars                                                   *
+--  *                                                           *
+--  *************************************************************
+cdsmrSmppScalars   OBJECT IDENTIFIER ::= 
+                                 { ciscoItpDsmrSmppMIBObjects 0 }
+
+cdsmrSmppSessionStateNotifEnable OBJECT-TYPE
+     SYNTAX                      TruthValue
+     MAX-ACCESS                  read-write
+     STATUS                      current
+     DESCRIPTION          
+         "A control to enable or disable 
+          notifications as follows:
+        'true'  Indicates that the ciscoItpDsmrSmppSessionState
+                notification should be generated..  
+                
+        'false' Indicates that ciscoItpDsmrSmppSessionState
+                notification generation is disabled."
+     DEFVAL { false }
+    ::= { cdsmrSmppScalars 1 }
+    
+        
+-- *************************************************************
+-- *                                                           *
+-- * Short Message Peer-to-Peer Protocol Profile               *
+-- *                                                           *
+-- *************************************************************
+cdsmrSmppProfileTable       OBJECT-TYPE
+    SYNTAX                  SEQUENCE OF CdsmrSmppProfileTableEntry 
+    MAX-ACCESS              not-accessible
+    STATUS                  current
+    DESCRIPTION
+       "A table that is used to monitor specific information 
+        used to configure short message peer-to-peer protocol
+        profile. Entries are added to this table via 
+        cdsmrSmppProfileRowStatus in accordance with the RowStatus 
+        convention."
+    ::= { ciscoItpDsmrSmppMIBObjects 2 }
+
+cdsmrSmppProfileTableEntry        OBJECT-TYPE
+    SYNTAX                        CdsmrSmppProfileTableEntry 
+    MAX-ACCESS                    not-accessible
+    STATUS                        current
+    DESCRIPTION
+       "Each entry defines parameter that can be used to default 
+        values for sessions."
+    INDEX   { cgspInstNetwork,
+              cdsmrSmppProfileName
+    }
+    ::= { cdsmrSmppProfileTable  1 }
+
+CdsmrSmppProfileTableEntry ::= SEQUENCE {
+    cdsmrSmppProfileName                CmlrName,
+    cdsmrSmppProfileBindType            CdsmrSmppBindType,
+    cdsmrSmppProfileInactivityTimer     CdsmrSmppInactivityTimer,
+    cdsmrSmppProfileKeepaliveTimer      CdsmrSmppKeepaliveTimer,
+    cdsmrSmppProfileCallingParty        TruthValue,
+    cdsmrSmppProfileResponseTimer       CdsmrSmppResponseTimer,
+    cdsmrSmppProfileSendWindow          CdsmrSmppSendWindow,
+    cdsmrSmppProfileSessionInitTimer    CdsmrSmppSessionInitTimer,
+    cdsmrSmppProfileRowStatus           RowStatus
+}
+
+cdsmrSmppProfileName             OBJECT-TYPE
+    SYNTAX                       CmlrName
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+       "A name used to define a collection of parameters for 
+        short message peer-to-peer protocol. A name that is 
+        used to identify a unique SMPP profile."
+    ::= { cdsmrSmppProfileTableEntry  1}
+    
+
+cdsmrSmppProfileBindType         OBJECT-TYPE
+    SYNTAX                       CdsmrSmppBindType
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "Specifies allowed types of binds for session."
+    ::= { cdsmrSmppProfileTableEntry  2 }
+    
+  
+cdsmrSmppProfileInactivityTimer  OBJECT-TYPE
+    SYNTAX                       CdsmrSmppInactivityTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object defines the allowed values used to define 
+        inactivity timer used by Short Message Peer-to-Peer 
+        session. Indicates the maximum time lapse allowed 
+        time between transactions before destination is 
+        considered inactive. The value for this object should
+        be two to three times the value specified for the
+        cdsmrSmppProfileKeepaliveTimer object."
+    ::= { cdsmrSmppProfileTableEntry  3 }
+    
+cdsmrSmppProfileKeepaliveTimer   OBJECT-TYPE
+    SYNTAX                       CdsmrSmppKeepaliveTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object defines the allowed values used to define 
+        keep alive timer used by Short Message Peer-to-Peer 
+        session."
+    ::= { cdsmrSmppProfileTableEntry  4 }
+    
+cdsmrSmppProfileCallingParty     OBJECT-TYPE
+    SYNTAX                       TruthValue
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object is used to indicate presence of
+        optional calling party option."
+    ::= { cdsmrSmppProfileTableEntry  5 }
+
+cdsmrSmppProfileResponseTimer    OBJECT-TYPE
+    SYNTAX                       CdsmrSmppResponseTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object defines the allowed values used to define
+        response timer used by Short Message Peer-to-Peer session.
+        This is the amount of time to wait before retransmitting
+        packet."
+    ::= { cdsmrSmppProfileTableEntry  6 }
+    
+cdsmrSmppProfileSendWindow       OBJECT-TYPE
+    SYNTAX                       CdsmrSmppSendWindow
+    UNITS                        "bytes"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object defines the allowed size of send window used 
+        by Short Message Peer-to-Peer session window."
+    ::= { cdsmrSmppProfileTableEntry  7 }
+    
+cdsmrSmppProfileSessionInitTimer OBJECT-TYPE
+    SYNTAX                       CdsmrSmppSessionInitTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object defines the allowed values used to define 
+        session initiation timer used to create Short Message
+        Peer-to-Peer session.  This specifies the maximum amount
+        of time to wait for the session Bind to be received."
+    ::= { cdsmrSmppProfileTableEntry  8 }
+
+cdsmrSmppProfileRowStatus        OBJECT-TYPE
+    SYNTAX                       RowStatus
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "The object is used by a management station to 
+        create or delete the row entry in cdsmrSmppProfileTable
+        following the RowStatus textual convention."
+    ::= { cdsmrSmppProfileTableEntry  9 }
+
+-- *************************************************************
+-- *                                                           *
+-- * Short Message Peer-to-Peer Sessions                       *
+-- *                                                           *
+-- *************************************************************
+cdsmrSmppSessionTable       OBJECT-TYPE
+    SYNTAX                  SEQUENCE OF CdsmrSmppSessionTableEntry 
+    MAX-ACCESS              not-accessible
+    STATUS                  current
+    DESCRIPTION
+       "A table that is used to collection information on 
+        short message peer-to-peer protocol sessions. Entries are 
+        added to this table via cdsmrSmppSessionRowStatus in 
+        accordance with the RowStatus convention."
+    ::= { ciscoItpDsmrSmppMIBObjects 3 }
+
+cdsmrSmppSessionTableEntry        OBJECT-TYPE
+    SYNTAX                        CdsmrSmppSessionTableEntry 
+    MAX-ACCESS                    not-accessible
+    STATUS                        current
+    DESCRIPTION
+       "Each entry defines parameter and state information on   
+        short message peer-to-peer protocol sessions."
+    INDEX   { cgspInstNetwork,
+              cdsmrSmppSessionLocalPortNumber
+    }
+    ::= { cdsmrSmppSessionTable  1 }
+
+CdsmrSmppSessionTableEntry ::= SEQUENCE {
+    cdsmrSmppSessionLocalPortNumber     InetPortNumber,
+    cdsmrSmppSessionLocalIpAddrType     InetAddressType,
+    cdsmrSmppSessionLocalIpAddress      InetAddress,
+    cdsmrSmppSessionDynamicDest         TruthValue,
+    cdsmrSmppSessionRowStatus           RowStatus
+}
+
+cdsmrSmppSessionLocalPortNumber  OBJECT-TYPE
+    SYNTAX                       InetPortNumber
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+       "Local port number used to establish short message 
+        peer-to-peer protocol."
+    ::= { cdsmrSmppSessionTableEntry  1}
+    
+cdsmrSmppSessionLocalIpAddrType  OBJECT-TYPE
+        SYNTAX                   InetAddressType
+        MAX-ACCESS               read-create
+        STATUS                   current
+        DESCRIPTION
+            "This object contains the type of the local
+             IP address used to create an session."
+    ::= { cdsmrSmppSessionTableEntry  2}
+
+cdsmrSmppSessionLocalIpAddress   OBJECT-TYPE
+        SYNTAX                   InetAddress
+        MAX-ACCESS               read-create
+        STATUS                   current
+        DESCRIPTION
+            "This object contains the local IP address used to 
+             create the session with the partner of this 
+             session."
+    ::= { cdsmrSmppSessionTableEntry  3}
+
+cdsmrSmppSessionDynamicDest      OBJECT-TYPE
+    SYNTAX                       TruthValue
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "Indicates whether dynamic destinations are allowed as 
+        follows.
+            'true'  - dynamic destination are allowed.
+            'false' - dynamic destinations are not allowed."
+    ::= { cdsmrSmppSessionTableEntry  4}
+
+cdsmrSmppSessionRowStatus        OBJECT-TYPE
+    SYNTAX                       RowStatus
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "The object is used by a management station to 
+        create or delete the row entry in cdsmrSmppSessionTable
+        following the RowStatus textual convention."
+    ::= { cdsmrSmppSessionTableEntry  5}
+
+-- *************************************************************
+-- *                                                           *
+-- * Short Message Peer-to-Peer Destinations                   *
+-- *                                                           *
+-- *************************************************************
+cdsmrSmppDestTable          OBJECT-TYPE
+    SYNTAX                  SEQUENCE OF CdsmrSmppDestTableEntry 
+    MAX-ACCESS              not-accessible
+    STATUS                  current
+    DESCRIPTION
+       "A table that is used to define a collection of information
+        on short message destinations.  One or more destination is
+        defined under each session using peer to peer protocol. 
+        Entries are added to this table via cdsmrSmppDestRowStatus
+        in accordance with the RowStatus convention."
+    ::= { ciscoItpDsmrSmppMIBObjects 4 }
+
+cdsmrSmppDestTableEntry           OBJECT-TYPE
+    SYNTAX                        CdsmrSmppDestTableEntry 
+    MAX-ACCESS                    not-accessible
+    STATUS                        current
+    DESCRIPTION
+       "Each entry defines parameter and state information on   
+        short message peer-to-peer protocol destinations."
+    INDEX   { cgspInstNetwork,
+              cdsmrSmppSessionLocalPortNumber,
+              cdsmrSmppDestName
+    }
+    ::= { cdsmrSmppDestTable  1 }
+
+CdsmrSmppDestTableEntry ::= SEQUENCE {
+    cdsmrSmppDestName                CmlrName,
+    cdsmrSmppDestBindType            CdsmrSmppBindType,
+    cdsmrSmppDestInactivityTimer     CdsmrSmppInactivityTimer,
+    cdsmrSmppDestKeepaliveTimer      CdsmrSmppKeepaliveTimer,
+    cdsmrSmppDestCallingParty        TruthValue,
+    cdsmrSmppDestResponseTimer       CdsmrSmppResponseTimer,
+    cdsmrSmppDestSendWindow          CdsmrSmppSendWindow,
+    cdsmrSmppDestSessionInitTimer    CdsmrSmppSessionInitTimer,
+    cdsmrSmppDestRemotePortNumber    InetPortNumber,
+    cdsmrSmppDestRemoteIpAddrType    InetAddressType,
+    cdsmrSmppDestRemoteIpAddress     InetAddress,
+    cdsmrSmppDestProfileName         CmlrName,
+    cdsmrSmppDestState               INTEGER,
+    cdsmrSmppDestSentRequests        Counter32,
+    cdsmrSmppDestRcvdRequests        Counter32,
+    cdsmrSmppDestSentResponses       Counter32,
+    cdsmrSmppDestRcvdResponses       Counter32,
+    cdsmrSmppDestRowStatus           RowStatus
+}                                   
+
+cdsmrSmppDestName                OBJECT-TYPE
+    SYNTAX                       CmlrName
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+       "A name used to uniquely identify a destination using 
+        short message peer-to-peer protocol."
+    ::= { cdsmrSmppDestTableEntry  1}
+    
+
+cdsmrSmppDestBindType            OBJECT-TYPE
+    SYNTAX                       CdsmrSmppBindType
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "Specifies allowed types of binds for session."
+    ::= { cdsmrSmppDestTableEntry  2 }
+    
+  
+cdsmrSmppDestInactivityTimer     OBJECT-TYPE
+    SYNTAX                       CdsmrSmppInactivityTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object defines the allowed values used to define 
+        inactivity timer used by Short Message Peer-to-Peer session.
+        Indicates the maximum time lapse allowed between 
+        transactions before destination is considered inactive."
+    ::= { cdsmrSmppDestTableEntry  3 }
+    
+cdsmrSmppDestKeepaliveTimer      OBJECT-TYPE
+    SYNTAX                       CdsmrSmppKeepaliveTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object defines the allowed values used to define 
+        keep alive timer used by Short Message Peer-to-Peer 
+        session."
+    ::= { cdsmrSmppDestTableEntry  4 }
+    
+cdsmrSmppDestCallingParty        OBJECT-TYPE
+    SYNTAX                       TruthValue
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This textual convention is used to indicate presence of
+        optional calling party option."
+    ::= { cdsmrSmppDestTableEntry  5 }
+
+cdsmrSmppDestResponseTimer       OBJECT-TYPE
+    SYNTAX                       CdsmrSmppResponseTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object defines the allowed values used to define
+        response timer used by Short Message Peer-to-Peer session.
+        This is the amount of time to wait before retransmitting
+        packet."
+    ::= { cdsmrSmppDestTableEntry  6 }
+    
+cdsmrSmppDestSendWindow          OBJECT-TYPE
+    SYNTAX                       CdsmrSmppSendWindow
+    UNITS                        "bytes"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object defines the allowed size of send window 
+        used by Short Message Peer-to-Peer session."
+    ::= { cdsmrSmppDestTableEntry  7 }
+    
+cdsmrSmppDestSessionInitTimer    OBJECT-TYPE
+    SYNTAX                       CdsmrSmppSessionInitTimer
+    UNITS                        "milliseconds"
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "This object defines the allowed values used to define 
+        session initiation timer used to create Short Message
+        Peer-to-Peer session. This specifies the maximum amount
+        of time to wait for the session Bind to be received."
+    ::= { cdsmrSmppDestTableEntry  8 }
+    
+cdsmrSmppDestRemotePortNumber    OBJECT-TYPE
+    SYNTAX                       InetPortNumber
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "Remote port number used to establish short message 
+        peer-to-peer protocol session."
+    ::= { cdsmrSmppDestTableEntry  9 }
+    
+cdsmrSmppDestRemoteIpAddrType    OBJECT-TYPE
+        SYNTAX                   InetAddressType
+        MAX-ACCESS               read-create
+        STATUS                   current
+        DESCRIPTION
+            "This object contains the type of the remote
+             IP address used to create an session."
+    ::= { cdsmrSmppDestTableEntry  10 }
+
+cdsmrSmppDestRemoteIpAddress     OBJECT-TYPE
+        SYNTAX                   InetAddress
+        MAX-ACCESS               read-create
+        STATUS                   current
+        DESCRIPTION
+            "This object contains the remote IP address used to 
+             create the session."
+    ::= { cdsmrSmppDestTableEntry  11 }
+    
+cdsmrSmppDestProfileName         OBJECT-TYPE
+    SYNTAX                       CmlrName
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "Specifies Profile from cdsmrSmppProfileTable table to 
+        define common default parameters for destination."
+    ::= { cdsmrSmppDestTableEntry  12 }
+    
+cdsmrSmppDestState               OBJECT-TYPE
+        SYNTAX                   INTEGER { active(1),
+                                           inactive(2),
+                                           open(3)
+                                 }
+        MAX-ACCESS               read-only
+        STATUS                   current
+        DESCRIPTION
+            "Current state of destination.
+             'active' - Destination is available.
+             'inactive' - Destination is unvailable.
+             'open' - Device is listening on port for 
+             destination to establish connection."
+    ::= { cdsmrSmppDestTableEntry  13 }
+
+cdsmrSmppDestSentRequests        OBJECT-TYPE
+        SYNTAX                   Counter32         
+        UNITS                    "requests"
+        MAX-ACCESS               read-only
+        STATUS                   current
+        DESCRIPTION
+            "Number of SMS requests sent to destination."
+    ::= { cdsmrSmppDestTableEntry  14 }
+
+cdsmrSmppDestRcvdRequests        OBJECT-TYPE
+        SYNTAX                   Counter32         
+        UNITS                    "requests"
+        MAX-ACCESS               read-only
+        STATUS                   current
+        DESCRIPTION
+            "Number of SMS requests received from destination."
+    ::= { cdsmrSmppDestTableEntry  15 }
+
+cdsmrSmppDestSentResponses       OBJECT-TYPE
+        SYNTAX                   Counter32         
+        UNITS                    "responses"
+        MAX-ACCESS               read-only
+        STATUS                   current
+        DESCRIPTION
+            "Number of SMS responses sent to destination."
+    ::= { cdsmrSmppDestTableEntry  16 }
+
+cdsmrSmppDestRcvdResponses       OBJECT-TYPE
+        SYNTAX                   Counter32         
+        UNITS                    "responses"
+        MAX-ACCESS               read-only
+        STATUS                   current
+        DESCRIPTION
+            "Number of SMS responses received from destination."
+    ::= { cdsmrSmppDestTableEntry  17 }
+
+cdsmrSmppDestRowStatus           OBJECT-TYPE
+    SYNTAX                       RowStatus
+    MAX-ACCESS                   read-create
+    STATUS                       current
+    DESCRIPTION
+       "The object is used by a management station to 
+        create or delete the row entry in cdsmrSmppDestTable
+        following the RowStatus textual convention."
+    ::= { cdsmrSmppDestTableEntry  18 }
+        
+-- *************************************************************
+-- *                                                           *
+-- * Notifications                                             *
+-- *                                                           *
+-- *************************************************************
+ciscoItpDsmrSmppSessionState NOTIFICATION-TYPE
+     OBJECTS {
+              cgspEventSequenceNumber,
+              cgspCLLICode,
+              cdsmrSmppDestState
+     }
+     STATUS  current 
+     DESCRIPTION
+        "This notification is generated whenever UCP destination
+        changes states. This notification provides information
+        on the availablity of the destination to receive and
+        process packets using the SMPP protocol."
+     ::= { ciscoItpDsmrSmppMIBNotifs 1 }
+     
+-- *************************************************************
+-- *                                                           *
+-- * Conformance Information                                   *
+-- *                                                           *
+-- *************************************************************
+ciscoItpDsmrSmppMIBCompliances OBJECT IDENTIFIER 
+                               ::= { ciscoItpDsmrSmppMIBConform 1 }
+ciscoItpDsmrSmppMIBGroups      OBJECT IDENTIFIER 
+                               ::= { ciscoItpDsmrSmppMIBConform 2 }
+
+-- Compliance
+
+ciscoItpDsmrSmppMIBCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+            "The compliance statement for entities which implement
+            the Cisco CISCO-ITP-MLR-MIB"
+    MODULE -- this module
+            MANDATORY-GROUPS { ciscoItpDsmrSmppGroup,
+                               ciscoItpDsmrSmppNotificationsGroup
+            }
+
+--       *** cdsmrSmppProfileTable *********************************
+
+         OBJECT           cdsmrSmppProfileBindType
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppProfileInactivityTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppProfileKeepaliveTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppProfileCallingParty
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppProfileResponseTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppProfileSendWindow
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppProfileSessionInitTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppProfileRowStatus
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+              
+--       *** cdsmrSmppSessionTable *********************************
+
+         OBJECT           cdsmrSmppSessionLocalIpAddrType
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppSessionLocalIpAddress
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppSessionDynamicDest
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppSessionRowStatus
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         
+
+--       *** cdsmrSmppDestTable *********************************
+
+         OBJECT           cdsmrSmppDestBindType
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppDestInactivityTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppDestKeepaliveTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppDestCallingParty
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppDestResponseTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppDestSendWindow
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppDestRemotePortNumber
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppDestSessionInitTimer
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppDestRemoteIpAddrType
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+
+         OBJECT           cdsmrSmppDestRemoteIpAddress
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+         
+         OBJECT           cdsmrSmppDestProfileName
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+         
+         OBJECT           cdsmrSmppDestRowStatus
+         MIN-ACCESS       read-only
+         DESCRIPTION      "Create/Write access is not required."
+                       
+::= { ciscoItpDsmrSmppMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoItpDsmrSmppGroup OBJECT-GROUP       
+    OBJECTS { cdsmrSmppSessionStateNotifEnable,
+              cdsmrSmppProfileBindType,           
+              cdsmrSmppProfileInactivityTimer,
+              cdsmrSmppProfileKeepaliveTimer,     
+              cdsmrSmppProfileCallingParty,       
+              cdsmrSmppProfileResponseTimer,      
+              cdsmrSmppProfileSendWindow,         
+              cdsmrSmppProfileSessionInitTimer,    
+              cdsmrSmppProfileRowStatus,
+              cdsmrSmppSessionLocalIpAddrType, 
+              cdsmrSmppSessionLocalIpAddress,  
+              cdsmrSmppSessionDynamicDest,     
+              cdsmrSmppSessionRowStatus,
+              cdsmrSmppDestBindType,           
+              cdsmrSmppDestInactivityTimer,
+              cdsmrSmppDestKeepaliveTimer,     
+              cdsmrSmppDestCallingParty,       
+              cdsmrSmppDestResponseTimer,      
+              cdsmrSmppDestSendWindow,         
+              cdsmrSmppDestRemotePortNumber,
+              cdsmrSmppDestSessionInitTimer,
+              cdsmrSmppDestRemoteIpAddrType, 
+              cdsmrSmppDestRemoteIpAddress,
+              cdsmrSmppDestProfileName,     
+              cdsmrSmppDestState,          
+              cdsmrSmppDestSentRequests,    
+              cdsmrSmppDestRcvdRequests,    
+              cdsmrSmppDestSentResponses,   
+              cdsmrSmppDestRcvdResponses,
+              cdsmrSmppDestRowStatus
+    }
+    STATUS current
+    DESCRIPTION
+       "A collection of objects providing information used to 
+        configure Short Message Peer-to-Peer Protocol."
+    ::= { ciscoItpDsmrSmppMIBGroups 1 }
+   
+ciscoItpDsmrSmppNotificationsGroup NOTIFICATION-GROUP
+        NOTIFICATIONS { ciscoItpDsmrSmppSessionState }
+        STATUS current
+        DESCRIPTION
+           "DSMR Short Message Peer-to-Peer Protocol notification
+            objects."
+        ::= { ciscoItpDsmrSmppMIBGroups 2 }
+END
+

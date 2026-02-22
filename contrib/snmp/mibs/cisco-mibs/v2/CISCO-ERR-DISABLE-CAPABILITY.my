@@ -1,0 +1,213 @@
+-- *****************************************************************
+-- CISCO-ERR-DISABLE-CAPABILITY.my:
+-- Cisco CISCO-ERR-DISABLE-MIB AGENT-CAPABILITIES
+--   
+-- March 2010, Lilian Jiang
+--   
+-- Copyright (c) 2010-2013 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-ERR-DISABLE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoErrDisableCapability MODULE-IDENTITY
+    LAST-UPDATED    "201309250000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-ERR-DISABLE-MIB."
+    REVISION        "201309250000Z"
+    DESCRIPTION
+        "Added agent capabilities statement
+        cErrDisableCapV15R0102SYPCat6K.
+        Added VARIATION clause for cErrDisableFeatureConfigurable
+        to capability statement cErrDisableCapV12R0250SYPCat6K."
+    REVISION        "201010290000Z"
+    DESCRIPTION
+        "Added agent capabilities statement
+        cErrDisableCapV12R0250SYPCat6K."
+    REVISION        "201005050000Z"
+    DESCRIPTION
+        "Added agent capabilities statement
+        cErrDisableCapV12R0254SGPCat4K."
+    REVISION        "201003110000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 589 }
+
+
+
+cErrDisableCapV12R0233SXI4PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ERR-DISABLE-MIB capabilities."
+
+    SUPPORTS        CISCO-ERR-DISABLE-MIB
+    INCLUDES        {
+                        ciscoErrDisableGlobalCfgGroup,
+                        ciscoErrDisableFeatureCfgGroup,
+                        ciscoErrDisableIfStatusGroup,
+                        ciscoErrDisableNotifCfgGroup,
+                        ciscoErrDisableNotifGroupRev1,
+                        ciscoErrDisableShutdownVlanGroup
+                    }
+    VARIATION       cErrDisableRecoveryInterval
+    SYNTAX          TimeIntervalSec (30..86400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cErrDisableNotifRate
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoErrDisableCapability 1 }
+
+cErrDisableCapV12R0254SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(54)SG on CAT4K family switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ERR-DISABLE-MIB capabilities."
+
+    SUPPORTS        CISCO-ERR-DISABLE-MIB
+    INCLUDES        {
+                        ciscoErrDisableGlobalCfgGroup,
+                        ciscoErrDisableFeatureCfgGroup,
+                        ciscoErrDisableIfStatusGroup,
+                        ciscoErrDisableNotifCfgGroup,
+                        ciscoErrDisableNotifGroupRev1,
+                        ciscoErrDisableShutdownVlanGroup
+                    }
+    VARIATION       cErrDisableRecoveryInterval
+    SYNTAX          TimeIntervalSec (30..86400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cErrDisableNotifRate
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoErrDisableCapability 2 }
+
+cErrDisableCapV12R0250SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ERR-DISABLE-MIB capabilities."
+
+    SUPPORTS        CISCO-ERR-DISABLE-MIB
+    INCLUDES        {
+                        ciscoErrDisableGlobalCfgGroup,
+                        ciscoErrDisableFeatureCfgGroup,
+                        ciscoErrDisableIfStatusGroup,
+                        ciscoErrDisableNotifCfgGroup,
+                        ciscoErrDisableNotifGroupRev1,
+                        ciscoErrDisableShutdownVlanGroup
+                    }
+    VARIATION       cErrDisableRecoveryInterval
+    SYNTAX          TimeIntervalSec (30..86400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cErrDisableNotifRate
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cErrDisableFeatureConfigurable
+    SYNTAX          BITS {
+                        detectionEnable(0),
+                        recoveryEnable(1),
+                        recoveryInterval(2),
+                        detectShutdownVlan(3)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    ::= { ciscoErrDisableCapability 3 }
+
+cErrDisableCapV15R0102SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(2)SY on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ERR-DISABLE-MIB capabilities."
+
+    SUPPORTS        CISCO-ERR-DISABLE-MIB
+    INCLUDES        {
+                        ciscoErrDisableGlobalCfgGroup,
+                        ciscoErrDisableFeatureCfgGroup,
+                        ciscoErrDisableIfStatusGroup,
+                        ciscoErrDisableNotifCfgGroup,
+                        ciscoErrDisableNotifGroupRev1,
+                        ciscoErrDisableShutdownVlanGroup,
+                        ciscoErrDisableFeatureFlapGroup
+                    }
+    VARIATION       cErrDisableRecoveryInterval
+    SYNTAX          TimeIntervalSec (30..86400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cErrDisableNotifRate
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cErrDisableFeatureConfigurable
+    SYNTAX          BITS {
+                        detectionEnable(0),
+                        recoveryEnable(1),
+                        recoveryInterval(2),
+                        detectShutdownVlan(3),
+                        flapControl(4)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    VARIATION       cErrDisableFeatureMaxFlapCount
+    SYNTAX          Unsigned32 (0..100)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cErrDisableFeatureFlapTimePeriod
+    SYNTAX          Unsigned32 (0..120)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoErrDisableCapability 4 }
+
+END
+
+
+
+
+

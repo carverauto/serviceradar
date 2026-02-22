@@ -1,0 +1,2590 @@
+-- CISCO ATM connection management MIB
+--
+-- Jan 1996, Yunsen Wang
+--
+-- Copyright (c) 1996-1999, 2001 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-ATM-CONN-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE,
+        Counter32,Integer32,Gauge32     FROM SNMPv2-SMI
+        TEXTUAL-CONVENTION,
+        TimeStamp, 
+        TruthValue, RowStatus           FROM SNMPv2-TC
+        ifIndex, InterfaceIndexOrZero   FROM IF-MIB
+        atmVplVpi, atmVclVpi, atmVclVci,
+        AtmTrafficDescrParamIndex       FROM ATM-MIB
+        NsapAtmAddr                     FROM CISCO-ATM-IF-MIB
+        ciscoExperiment                 FROM CISCO-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP FROM SNMPv2-CONF
+        LsPerVcqThresholdGroup          FROM CISCO-ATM-RM-MIB
+        SnmpAdminString                 FROM SNMP-FRAMEWORK-MIB;
+
+ciscoAtmConnMIB   MODULE-IDENTITY
+     LAST-UPDATED       "200207120000Z"
+     ORGANIZATION       "Cisco Systems, Inc."
+     CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-atm@cisco.com"
+     DESCRIPTION
+       "This MIB module is a cisco extension to VPL/VCL table defined 
+        in rfc1695 for ATM switch connection management."
+
+
+    REVISION        "200207120000Z"  
+    DESCRIPTION
+            "Added a new enumeration 'useTrafficDescr' to the syntax of 
+             ciscoAtmVclEpdEnable."
+    REVISION        "200110300000Z"  
+    DESCRIPTION
+            "Added ciscoAtmVplConnType and ciscoAtmVclConnType objects  
+             to the VPL and VCL tables."
+                       
+    REVISION        "200110100000Z"  
+    DESCRIPTION
+            "Added ciscoAtmVplConnName and ciscoAtmVclConnName objects  
+             to the VPL and VCL tables."
+                       
+    REVISION        "200108060000Z"  
+    DESCRIPTION
+            "Added a enumeration for ConfigType to enable configuration
+             of Passive Half leg for 2-ended Soft PVC/PVP"                       
+    REVISION        "200101290000Z"
+    DESCRIPTION
+            "Added objects that provide per-connection Transmit 
+             statistics for the switch fabric."
+
+    REVISION        "9810020000Z"
+    DESCRIPTION
+            "Added objects for reporting negotiated traffic parameters."
+
+    REVISION        "9705260000Z"
+    DESCRIPTION
+            "Added objects for management of new features made possible
+             on the LS1010 by the Feature Card Plus.  This includes
+             support for:
+                -  per-VC queueing hardware structures,
+                - enhanced UPC, 
+                - per-connection snooping,
+                - enhanced per-connection statistics."
+     REVISION        "9611010000Z"
+     DESCRIPTION
+            "Added 
+                - VPL/VCL violation counter, 
+                - SVC frame discard using AAL5IE, 
+                - default VPL/VCL tolerance 
+             objects." 
+     REVISION        "9807260000Z"
+     DESCRIPTION
+            "Added
+                - object to configure a VP leg as a 
+                  hierarchical VP."
+        ::= { ciscoExperiment 13 }    -- assigned by cana@cisco.com
+
+--
+-- Caution.  This MIB is temporary and experimental.
+-- In the future will be removed from products,
+-- perhaps with short notice, in favor of more standard
+-- or generic MIBs.  Application developers should not
+-- depend on long-term access to this MIB.
+--
+
+ciscoAtmConnMIBObjects OBJECT IDENTIFIER ::= { ciscoAtmConnMIB 1 }
+
+CastType ::= TEXTUAL-CONVENTION
+        STATUS    current
+        DESCRIPTION
+        "Specifies the type of the connection. It can be either a point 
+         to point connection or point to multipoint root or leaf."
+        SYNTAX    INTEGER  {
+                    pointToPoint(1),
+                    pointToMultiPointRoot(2),
+                    pointToMultiPointLeaf(3)
+                  }
+
+ConfigType ::= TEXTUAL-CONVENTION
+        STATUS    current
+        DESCRIPTION
+        "Specifies whether it's a permanent, switched, soft or 
+         soft passive config type."
+        SYNTAX     INTEGER { 
+                     other(1),
+                     permanent(2), 
+                     switch(3),
+                     soft(4),
+                     softPassive(5)                 
+                   }
+
+SpanType ::= TEXTUAL-CONVENTION
+        STATUS    current
+        DESCRIPTION
+        "The SpanType textual convention is used to specify different 
+         connection span types.
+         The connection span types are:
+
+         - 'unknown', which indicates that the connection entry is not 
+         cross-connected.
+
+         - 'transit', which indicates that the connection entry is 
+         cross-connected and is not a connection end point.
+
+         - 'terminate', which indicates that the connection entry is 
+         cross-connected and is a connection end point.
+
+         - 'both', which indicates that the connection is transit as 
+         well as terminating. This will be true only if the connection 
+         cast type is a pointToMultiPointRoot and has transit and 
+         terminating connection leaves.
+
+        None of the above values may be specified in a management 
+        protocol set operation."
+        SYNTAX    INTEGER  {
+                    unknown(1),         -- not installed
+                    transit(2),
+                    terminate(3),
+                    both(4)     -- p2mp root
+                  }
+
+EnableStatus ::= TEXTUAL-CONVENTION
+        STATUS    current
+        DESCRIPTION
+        "Enable or Disable operation."
+        SYNTAX     INTEGER { enable(1), disable(2) }
+
+UpcStatus ::= TEXTUAL-CONVENTION
+        STATUS    current
+        DESCRIPTION
+        "Define the Usage Parameter Control (UPC) operation as one of 
+         pass,tag or drop at this connection."
+        SYNTAX    INTEGER  {
+                passing(1),
+                tagging(2),
+                dropping(3),
+                localShaping(4)
+                }
+
+ConnState ::= TEXTUAL-CONVENTION
+        STATUS    current
+        DESCRIPTION
+        "The ConnState textual convention is used to specify different 
+         connection states. 
+         The connections states are:
+
+         - 'setup', which indicates that the connection entry is to be 
+         created and installed in the hardware and software connection 
+         tables. 
+
+         - 'release', which indicates that the connection entry is to 
+         be removed from the hardware and software connection tables.
+
+         - 'notInstalled', which indicates connection entry is created 
+         only in the software connection tables. The connection entry is 
+         not installed in the hardware connection table.
+
+         - 'down' which indicates that connection is down and is present 
+         in both software and hardware connection tables.
+
+         - 'up' which indicates that connection is up and is present 
+         in both software and hardware connection tables.
+
+        -  'setup' and 'release' are only two values may be specified 
+        in a management protocol set operation, only three values will 
+        be returned in response to a management protocol retrieval 
+        operation: 'notInstalled', 'down' or 'up'."
+
+        SYNTAX  INTEGER {
+                        setup(1),
+                        release(2),
+                        notInstalled(3),
+                        down(4),       
+                        up(5)         
+                        }
+
+Location ::= TEXTUAL-CONVENTION
+        STATUS    current
+        DESCRIPTION
+        "Location of calling or called or unknown."
+        SYNTAX  INTEGER {
+                        unknown(1),
+                        calling(2),
+                        called(3)
+                        }
+
+Direction ::= TEXTUAL-CONVENTION
+        STATUS    current
+        DESCRIPTION
+        "Calling or called side associated with address."
+        SYNTAX  INTEGER {
+                        unknown(1),
+                        p2pCallingSide(2),
+                        p2pCalledSide(3),
+                        p2mpRoot(4),
+                        p2mpLeaf(5)
+                        }
+
+SnoopDirType ::= TEXTUAL-CONVENTION
+        STATUS    current
+        DESCRIPTION
+        "Direction of Snooped Traffic"
+        SYNTAX  INTEGER {
+                        transmit(1),
+                        receive(2)
+                        }
+
+-- This group is an extension of VPL table 
+
+ciscoAtmVpl OBJECT IDENTIFIER ::= { ciscoAtmConnMIBObjects 1 }
+
+ciscoAtmVplTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CiscoAtmVplEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        "The Virtual Path Link extension Table."
+        ::= { ciscoAtmVpl 1 }
+
+ciscoAtmVplEntry OBJECT-TYPE
+        SYNTAX     CiscoAtmVplEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        " An entry in the Vpl table.This entry is used to model
+        a bi-directional Vpl. This table augments the atmVplTable 
+        defined in RFC 1695. However it uses ifIndex and atmVplVpi 
+        as an Index for historical reasons. The entries are 
+        created/deleted as a by-product of creating and deleting 
+        entries in the atmVplTable."
+        INDEX { ifIndex,atmVplVpi }
+        ::= { ciscoAtmVplTable 1 }
+
+CiscoAtmVplEntry ::=
+        SEQUENCE {
+        -- config info
+        ciscoAtmVplCastType             CastType,
+        ciscoAtmVplSpanType             SpanType,
+        ciscoAtmVplConfigType           ConfigType,
+        ciscoAtmVplRxUpcMode            UpcStatus,
+        -- connection state 
+        ciscoAtmVplConnState            ConnState,
+        -- oam config info
+        ciscoAtmVplOamLoopbkTxInterval  Integer32,
+        ciscoAtmVplOamSegmentLoopback       EnableStatus,
+        ciscoAtmVplOamEndLoopback       EnableStatus,
+        ciscoAtmVplOamAisEnable         EnableStatus,
+        ciscoAtmVplOamRdiEnable         EnableStatus,
+        -- per vc statistics
+        ciscoAtmVplInstallTime          TimeStamp,
+        ciscoAtmVplInCells              Counter32,
+        ciscoAtmVplOutCells             Counter32,
+        -- cross side connection info
+        ciscoAtmVplCrossIfIndex         InterfaceIndexOrZero,
+        ciscoAtmVplCrossVpi             Integer32,
+        ciscoAtmVplNextLeafIfIndex      InterfaceIndexOrZero,
+        ciscoAtmVplNextLeafVpi          Integer32,
+        -- soft PVP 
+        ciscoAtmVplRemoteAddr           NsapAtmAddr,
+        ciscoAtmVplRemoteVpi            Integer32,
+        ciscoAtmVplLocation             Location,
+        ciscoAtmVplSlowRetryIntv        Integer32,
+        ciscoAtmVplNumAttempts          Counter32,
+        ciscoAtmVplLastReleaseCause     Integer32,
+        -- logical port
+        ciscoAtmVplLogicalPortDef       INTEGER,
+        ciscoAtmVplLogicalPortIndex     InterfaceIndexOrZero,
+        -- per vc violation stats
+        ciscoAtmVplUpcViolations        Counter32,
+        ciscoAtmVplEpdTpdCellDrops      Counter32,
+        ciscoAtmVplEpdTpdPacketDrops    Counter32,
+        ciscoAtmVplEpdTpdPacketsIn      Counter32,
+        ciscoAtmVplClp1Drops            Counter32,
+        -- default tolerance
+        ciscoAtmVplDefaultRxUpcTolerance Integer32,
+        ciscoAtmVplDefaultRxUpcVbrCdvt   Integer32,
+
+        -- lightstream per-vc queueing 
+        --  switch chipset objects
+        ciscoAtmVplLsPerVcqWrrWeight       INTEGER,
+        ciscoAtmVplLsPerVcqTunnelIsShaped  TruthValue,
+        ciscoAtmVplLsPerVcqXmtQueuedCells  Gauge32,
+        ciscoAtmVplLsPerVcQThreshGrp       LsPerVcqThresholdGroup,
+ 
+        -- feature card per-flow queueing
+        --  (FC-PFQ) per-VPL statistics objects
+        ciscoAtmVplInClp0Cells             Counter32,
+        ciscoAtmVplInClp1Cells             Counter32,
+        ciscoAtmVplOutClp0Cells            Counter32,
+        ciscoAtmVplOutClp1Cells            Counter32,
+        ciscoAtmVplCellDrops               Counter32,
+        ciscoAtmVplClp0VcqFullCellDrops    Counter32,
+        ciscoAtmVplVcqClpThreshCellDrops   Counter32,
+
+        -- feature card per-flow queueing
+        -- Hierarchical VP-Tunnel
+        ciscoAtmVplLsPerVcqTunnelIsHierarchical  TruthValue,
+
+        -- Objects for negotiated traffic parameters
+        ciscoAtmVplRxNegTraffDescrIndex    AtmTrafficDescrParamIndex,
+        ciscoAtmVplTxNegTraffDescrIndex    AtmTrafficDescrParamIndex,
+
+        -- Switch Fabric Tx Statistics 
+        ciscoAtmVplSwFabOutCells           Counter32,
+        ciscoAtmVplSwFabOutClp0Cells       Counter32,
+        ciscoAtmVplSwFabOutClp1Cells       Counter32,
+
+        -- Connection info
+        ciscoAtmVplConnName                SnmpAdminString,
+        ciscoAtmVplConnType                INTEGER 
+ 
+    }
+
+
+ciscoAtmVplCastType    OBJECT-TYPE
+        SYNTAX         CastType
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        " Vpl type is either a point to point connection or point 
+        to multipoint root or leaf."
+        DEFVAL { pointToPoint }
+        ::= { ciscoAtmVplEntry 1 }
+
+ciscoAtmVplSpanType    OBJECT-TYPE
+        SYNTAX         SpanType
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        " Vpl span is either a transit one or a terminating one."
+        DEFVAL { transit }
+        ::= { ciscoAtmVplEntry 2 }
+
+ciscoAtmVplConfigType    OBJECT-TYPE
+        SYNTAX         ConfigType
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        " Vpl type is either a PVC, SVC, Soft PVC or Soft Passive half leg.
+          The half leg can be set to Passive through user configuration only."
+        DEFVAL { permanent }
+        ::= { ciscoAtmVplEntry 3 }
+
+ciscoAtmVplRxUpcMode    OBJECT-TYPE
+        SYNTAX         UpcStatus
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        " Usage Parameter Control opeartion is pass,tag,drop or 
+        local shaping at this connection."
+        DEFVAL { passing }
+        ::= { ciscoAtmVplEntry 4 }
+
+ciscoAtmVplConnState OBJECT-TYPE
+        SYNTAX       ConnState
+        MAX-ACCESS   read-write
+        STATUS       current
+        DESCRIPTION   
+        "The connection state of this VPL. "
+        ::= { ciscoAtmVplEntry 5 }
+
+ciscoAtmVplOamLoopbkTxInterval OBJECT-TYPE
+        SYNTAX        Integer32 (5..60)
+        UNITS         "seconds"
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION   
+        "Frequency of OAM loopback cells generated."
+        DEFVAL { 5 }
+        ::= { ciscoAtmVplEntry 6 }
+
+ciscoAtmVplOamSegmentLoopback OBJECT-TYPE
+        SYNTAX        EnableStatus
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION   
+        "Enable segment loopback on this virtual path."
+        DEFVAL { disable }
+        ::= { ciscoAtmVplEntry 7 }
+
+ciscoAtmVplOamEndLoopback OBJECT-TYPE
+        SYNTAX        EnableStatus
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION   
+        "Enable end to end loopback on this virtual path."
+        DEFVAL { disable }
+        ::= { ciscoAtmVplEntry 8 }
+
+ciscoAtmVplOamAisEnable OBJECT-TYPE
+        SYNTAX        EnableStatus
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION   
+        "Enable Alarm Indication Signal OAM cell generation
+         if the interafce goes down on a crossconnect virtual path."
+        DEFVAL { disable }
+        ::= { ciscoAtmVplEntry 9 }
+
+ciscoAtmVplOamRdiEnable OBJECT-TYPE
+        SYNTAX        EnableStatus
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION   
+        "Enable Remote Defect Indication OAM cell generation
+         if an Alarm Indication Signal OAM cell is received."
+        DEFVAL { disable }
+        ::= { ciscoAtmVplEntry 10 }
+
+ciscoAtmVplInstallTime OBJECT-TYPE
+        SYNTAX        TimeStamp
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+        "The time stamp derived from sysUpTime when this VPL gets 
+         created. The VPL entries are created/deleted as a by-product 
+         of creating and deleting entries in the atmVplTable defined 
+         in RFC1695."
+        ::= { ciscoAtmVplEntry 11 }
+
+ciscoAtmVplInCells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   "The total number of cells received on this 
+        VPL."
+        ::= { ciscoAtmVplEntry 12 }
+
+ciscoAtmVplOutCells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   "The total number of cells transmitted on 
+        this VPL."
+        ::= { ciscoAtmVplEntry 13 }
+
+ciscoAtmVplCrossIfIndex    OBJECT-TYPE
+        SYNTAX         InterfaceIndexOrZero
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "For point to point, this is the cross-connected VPL's 
+        ifIndex of this VPL. For point to multi-point connection, 
+        this will be the root VPL's ifIndex for a leaf VPL entry in 
+        the multicast chain, or it's the 1st leaf for a root VPL entry. 
+        If it's zero, it means it's not cross-connected yet. 
+        Atomically set ciscoAtmVplConnState, ciscoAtmVplCrossIfIndex 
+        and ciscoAtmVplCrossVpi will create or delete a cross 
+        connection to crossed half leg of this ciscoAtmVplCrossIfindex 
+        and ciscoAtmVplCrossVpi for p2p PVP, or add or drop a multicast 
+        connection of this ciscoAtmVplCrossIfindex and 
+        ciscoAtmVplCrossVpi to/from the root on the multicast chain 
+        for p2mp PVP."
+        DEFVAL { 0 }
+        ::= { ciscoAtmVplEntry 14 }
+
+ciscoAtmVplCrossVpi    OBJECT-TYPE
+        SYNTAX         Integer32  (0..4095)
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "This specifies the VPI value of the VPL to which this VPL is
+         cross-connected. For point to multi-point connection, this is
+         the root VPL's VPI for the leaf entry. Similarly it is the
+         1st leaf's VPI value for the root entry."
+        DEFVAL { 0 }
+        ::= { ciscoAtmVplEntry 15 }
+
+ciscoAtmVplNextLeafIfIndex    OBJECT-TYPE
+        SYNTAX         InterfaceIndexOrZero
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "For point to point, this is zero i.e. not used. 
+        For point to multi-point connection, this will be the next 
+        leaf VPL's ifIndex on the multicast chain. This will be 0 
+        if this is the root VPL entry. If it's zero for a leaf VPL,
+        it means this is the last leaf."
+        DEFVAL { 0 }
+        ::= { ciscoAtmVplEntry 16 }
+
+ciscoAtmVplNextLeafVpi    OBJECT-TYPE
+        SYNTAX         Integer32 (0..4095)
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "For point to point, this is zero i.e. not used. 
+        This apply only to point to multi-point connection, 
+        this will be the next leaf VPL's VPI on the multicast chain."
+        DEFVAL { 0 }
+        ::= { ciscoAtmVplEntry 17 }
+
+ciscoAtmVplRemoteAddr    OBJECT-TYPE
+        SYNTAX         NsapAtmAddr
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Soft PVP target address if this is the calling side
+        Soft PVP source address if this is called side. 
+        Atomically set ConnState, RemoteAddr
+        and RemoteVpi will create or delete a soft PVP. 
+        Atomically set ConnState, RemoteAddr without RemoteVpi will 
+        also create or delete a soft PVP but let target switch 
+        assign the vpi."
+        ::= { ciscoAtmVplEntry 18 }
+
+ciscoAtmVplRemoteVpi    OBJECT-TYPE
+        SYNTAX         Integer32 (0..4095)
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Soft PVP target VPI in calling side. 0 in called side."
+        ::= { ciscoAtmVplEntry 19 }
+
+ciscoAtmVplLocation OBJECT-TYPE
+        SYNTAX         Location
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "Indicate calling or called side of a soft PVP.
+         If ciscoAtmVplConfigType is not soft then 
+        ciscoAtmVplLocation value should be ignored."
+        ::= { ciscoAtmVplEntry 20 }
+
+ciscoAtmVplSlowRetryIntv OBJECT-TYPE
+        SYNTAX         Integer32 (0..65535)
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Soft PVP slow retry interval time in seconds."
+        ::= { ciscoAtmVplEntry 21 }
+
+ciscoAtmVplNumAttempts OBJECT-TYPE
+        SYNTAX         Counter32
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "Number of retries made to install this soft PVP 
+        connection. If ciscoAtmVplConfigType is not soft then 
+        ciscoAtmVplNumAttempts value should be ignored."
+        ::= { ciscoAtmVplEntry 22 }
+
+ciscoAtmVplLastReleaseCause  OBJECT-TYPE
+        SYNTAX        Integer32(1..127)
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "Value of the Cause field of the Cause
+        Information Element in the last Release
+        Signalling message received for this SPVP.
+        Indicates the reason for the Release.
+        ciscoAtmVplConfigType is not soft then 
+        ciscoAtmVplLastReleaseCause value should be ignored."
+        REFERENCE
+       "ATM Forum's UNI3.0/3.1 Speicifcation"
+        ::= { ciscoAtmVplEntry 23 }
+
+ciscoAtmVplLogicalPortDef   OBJECT-TYPE
+        SYNTAX  INTEGER {
+                         notLogicalIf(1),
+                         isLogicalIf(2)
+                         }
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+        "Indicates whether the VPC at this VPL interface
+        is an Atm Logical Port interface."
+        DEFVAL { notLogicalIf }
+        ::= { ciscoAtmVplEntry 24 }
+
+ciscoAtmVplLogicalPortIndex OBJECT-TYPE
+        SYNTAX  InterfaceIndexOrZero
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+        "The ifTable index of the Atm logical port
+        interface associated with this VPL. Only valid if
+        the value of atmVplLogicalPortDef is isLogicalIf,
+        and the VPL row is active."
+        ::= { ciscoAtmVplEntry 25 }
+
+ciscoAtmVplUpcViolations OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+        "The total number of nonconforming cells detected
+         by Usage Parameter Control (UPC) for cells received
+         on this VPL.
+         On LS1010 systems, this counter is valid only if
+         equipped with the Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVplEntry 26 }
+
+ciscoAtmVplEpdTpdCellDrops OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        obsolete
+        DESCRIPTION   "Never implemented." 
+        ::= { ciscoAtmVplEntry 27 }
+
+ciscoAtmVplEpdTpdPacketDrops OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        obsolete
+        DESCRIPTION   "Never implemented."
+        ::= { ciscoAtmVplEntry 28 }
+
+ciscoAtmVplEpdTpdPacketsIn OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        obsolete
+        DESCRIPTION   "Never implemented."
+        ::= { ciscoAtmVplEntry 29 }
+
+ciscoAtmVplClp1Drops OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        obsolete
+        DESCRIPTION   "Never implemented."
+        ::= { ciscoAtmVplEntry 30 }
+
+ciscoAtmVplDefaultRxUpcTolerance OBJECT-TYPE
+        SYNTAX         Integer32  
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "If the tolerance (CDVT for CBR, ABR, UBR connections, Maximum 
+         Burst Size for VBR connectons)  requested for Usage 
+         Parameter Control is not explicitly specified in VPL creation, 
+         this object contains the default that is used. If tolerance
+         is explicitly specified in VPL creation, it can be found in
+         the Traffic Table row specified by atmVplReceiveTrafficDescrIndex,
+         and the value of this object is -1."
+        ::= { ciscoAtmVplEntry 31 }
+
+ciscoAtmVplDefaultRxUpcVbrCdvt  OBJECT-TYPE
+        SYNTAX         Integer32
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "If the Cell Delay Variation Tolerance (CDVT) requested for 
+         Usage Parameter Control for a VBR connection is not explicitly 
+         specified in VPL creation, this object contains the default 
+         that is used. If CDVT is explicitly specified in VPL creation, 
+         it can be found in the Traffic Table row specified by 
+         atmVplReceiveTrafficDescrIndex, and the value of this object 
+         is -1."
+        ::= { ciscoAtmVplEntry 32 }
+
+ciscoAtmVplLsPerVcqWrrWeight OBJECT-TYPE
+        SYNTAX         INTEGER (1..15)
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Configure the weighting specified for a VP half-leg
+         within a service class to make the scheduling decision
+         among other active VPLs in the service class. This
+         is for transmit on the VPL on the interface. This
+         parameter only applies to transit VPs. This object
+         is defined only when the switch is equipped with 
+         the Lightstream per-VC queueing chipset."
+        ::= { ciscoAtmVplEntry 33 }
+ 
+ciscoAtmVplLsPerVcqTunnelIsShaped OBJECT-TYPE
+        SYNTAX         TruthValue
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Determines whether this is to be a -shaped- VP, per
+         the Lightstream per-VC queueing chipset. If the value 
+         specified is TRUE, the VP is to be a shaped VP Tunnel. 
+         Such a VP cannot be cross-connected. This object
+         is defined only when the switch is equipped with 
+         the Lightstream per-VC queueing chipset."
+        ::= { ciscoAtmVplEntry 34 }
+ 
+ciscoAtmVplLsPerVcqXmtQueuedCells OBJECT-TYPE
+        SYNTAX         Gauge32
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "Number of cells received on this VPL and
+         residing on the per-connection queue. Note that 
+         this value is not valid until the VPL is in an 
+         active cross-connect. This object
+         is defined only when the switch is equipped with 
+         the Lightstream per-VC queueing chipset."
+        ::= { ciscoAtmVplEntry 35 }
+ 
+ciscoAtmVplLsPerVcQThreshGrp OBJECT-TYPE
+        SYNTAX     LsPerVcqThresholdGroup
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+        "The Threshold Group to which the cell-queue for 
+         cells received by this VP are queued. This object
+         is defined only when the switch is equipped with 
+         the Lightstream per-VC queueing chipset."
+         ::= { ciscoAtmVplEntry 36 }
+
+ciscoAtmVplInClp0Cells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells with the CLP bit clear
+         received on this VPL. Note that these cells may
+         subsequently be discarded.
+         This counter is valid only:
+          - if the VPL is not a Logical Interface (tunnel).
+          - on LS1010 systems, only those equipped with 
+            Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVplEntry 37 }
+ 
+ciscoAtmVplInClp1Cells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells with the CLP bit set
+         received on this VPL. Note that these cells may
+         subsequently be discarded.
+         This counter is valid only:
+          - if the VPL is not a Logical Interface (tunnel).
+          - on LS1010 systems, only those equipped with 
+            Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVplEntry 38 }
+ 
+ciscoAtmVplOutClp0Cells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells with the CLP bit clear
+         transmitted on this VPL.
+         This counter is valid only:
+          - if the VPL is not a Logical Interface (tunnel).
+          - on LS1010 systems, only those equipped with 
+            the Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVplEntry 39 }
+ 
+ciscoAtmVplOutClp1Cells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells with the CLP bit set
+         transmitted on this VPL.
+         This counter is valid only:
+          - if the VPL is not a Logical Interface (tunnel).
+          - on LS1010 systems, only those equipped with 
+            the Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVplEntry 40 }
+ 
+ciscoAtmVplCellDrops OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells received on this
+         VPL, but discarded.
+         This counter is valid only:
+          - if the VPL is not a Logical Interface (tunnel).
+          - on LS1010 systems, only those equipped with 
+            Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVplEntry 41 }
+ 
+ciscoAtmVplClp0VcqFullCellDrops OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells received on this
+         VPL with the CLP bit clear, discarded because
+         the per-VC queue limit is exceeded.
+         This counter is valid only:
+          - if the VPL is not a Logical Interface (tunnel).
+          - on LS1010 systems, only those equipped with 
+            Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVplEntry 43 }
+ 
+ciscoAtmVplVcqClpThreshCellDrops OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells received on this
+         VPL, discarded because the discard threshold
+         (as opposed to the queue-limit) is exceeded
+         on the per-VC queue, and the CLP bit is set.
+         This counter is valid only:
+          - if the VPL is not a Logical Interface (tunnel).
+          - on LS1010 systems, only those equipped with 
+            Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVplEntry 44 }
+
+ciscoAtmVplLsPerVcqTunnelIsHierarchical OBJECT-TYPE
+        SYNTAX         TruthValue
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Determines whether this is to be a -Hierarchical- VP, per
+         the Lightstream per-VC queueing chipset. If the value
+         specified is TRUE, the VP is to be a Hierarchical VP Tunnel.
+         Such a VP cannot be cross-connected. This object
+         is defined on a LS1010 only when the switch is equipped with
+         the Lightstream per-VC queueing chipset."
+        ::= { ciscoAtmVplEntry 45 }
+
+ciscoAtmVplRxNegTraffDescrIndex   OBJECT-TYPE
+        SYNTAX             AtmTrafficDescrParamIndex
+        MAX-ACCESS         read-only
+        STATUS             current
+        DESCRIPTION
+        "Identifies the entry in the atmTrafficDescrParamTable which
+        contains negotiated traffic parameters applied to the receive
+        direction of this VPL.
+
+        This object is not instantiated if this VPL is not the calling
+        side of a soft VP, or if there was no traffic negotiation."
+        ::= { ciscoAtmVplEntry 46}
+ 
+ciscoAtmVplTxNegTraffDescrIndex    OBJECT-TYPE
+        SYNTAX             AtmTrafficDescrParamIndex
+        MAX-ACCESS         read-only
+        STATUS             current
+        DESCRIPTION
+        "Identifies the entry in the atmTrafficDescrParamTable which
+        contains negotiated traffic parameters applied to the transmit
+        direction of this VPL.
+
+        This object is not instantiated if this VPL is not the calling
+        side of a soft VP, or if there was no traffic negotiation."
+        ::= { ciscoAtmVplEntry 47}
+
+ciscoAtmVplSwFabOutCells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   "The total number of cells transmitted on
+        this VPL by the Switch Fabric. This object is not 
+        instantiated on systems that do not have support for 
+        collecting such statistics."
+        ::= { ciscoAtmVplEntry 48 }
+
+ciscoAtmVplSwFabOutClp0Cells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells with the CLP bit clear
+         transmitted on this VPL by the Switch Fabric.  This object
+         is not instantiated for a VPL that is a logical interface
+         (VP Tunnel).  This object is not instantiated on systems 
+         that do not have support for collecting such statistics."
+        ::= { ciscoAtmVplEntry 49 }
+ 
+ciscoAtmVplSwFabOutClp1Cells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells with the CLP bit set transmitted
+         on this VPL by the Switch Fabric. This object is not 
+         instantiated for a VPL that is a logical interface
+         (VP Tunnel).  This object is not instantiated on systems 
+         that do not have support for collecting such statistics."
+        ::= { ciscoAtmVplEntry 50 }
+ 
+ciscoAtmVplConnName OBJECT-TYPE
+        SYNTAX        SnmpAdminString
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION
+        "A human readable string that identifies this connection.
+         This object will return a zero-length string if value is
+         not set." 
+        ::= { ciscoAtmVplEntry 51 }
+ 
+ciscoAtmVplConnType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                         local (1),     -- within a node
+                         endToEnd (2)   -- across several nodes
+                      }
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION
+        "This object represent the PVP Type for this connection.
+         - local       connection within the node
+         - endToEnd    across several nodes
+         This object serves as an information object for a
+         management system and has no functional meaning to
+         the switch."
+        ::= { ciscoAtmVplEntry 52 }
+
+-- This group is an extension of VCL table 
+
+ciscoAtmVcl OBJECT IDENTIFIER ::= { ciscoAtmConnMIBObjects 2 }
+
+ciscoAtmVclTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CiscoAtmVclEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        "The Virtual Channel Link extension Table."
+        ::= { ciscoAtmVcl 1 }
+
+ciscoAtmVclEntry OBJECT-TYPE
+        SYNTAX     CiscoAtmVclEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        " An entry in the Vcl table.This entry is used to model
+        a bi-directional Vcl. This table augments the atmVclTable 
+        defined in RFC 1695. However it uses ifIndex, atmVclVpi 
+        and atmVclVci as an Index for historical reasons.
+        The entries are created/deleted as a by-product of 
+        creating and deleting entries in the atmVclTable."
+        INDEX { ifIndex,atmVclVpi,atmVclVci }
+        ::= { ciscoAtmVclTable 1 }
+
+CiscoAtmVclEntry ::=
+    SEQUENCE {
+        -- config info
+        ciscoAtmVclCastType             CastType,
+        ciscoAtmVclSpanType             SpanType,
+        ciscoAtmVclConfigType           ConfigType,
+        ciscoAtmVclRxUpcMode            UpcStatus,
+        ciscoAtmVclEpdEnable            INTEGER,
+        -- connection state 
+        ciscoAtmVclConnState            ConnState,
+        -- oam config info
+        ciscoAtmVclOamLoopbkTxInterval  Integer32,
+        ciscoAtmVclOamSegmentLoopback       EnableStatus,
+        ciscoAtmVclOamEndLoopback       EnableStatus,
+        ciscoAtmVclOamAisEnable         EnableStatus,
+        ciscoAtmVclOamRdiEnable         EnableStatus,
+        -- per vc statistics
+        ciscoAtmVclInstallTime          TimeStamp,
+        ciscoAtmVclInCells              Counter32,
+        ciscoAtmVclOutCells             Counter32,
+        -- cross side connection info
+        ciscoAtmVclCrossIfIndex         InterfaceIndexOrZero,
+        ciscoAtmVclCrossVpi             Integer32,
+        ciscoAtmVclCrossVci             Integer32,
+        ciscoAtmVclNextLeafIfIndex      InterfaceIndexOrZero,
+        ciscoAtmVclNextLeafVpi          Integer32,
+        ciscoAtmVclNextLeafVci          Integer32,
+        -- vc terminating info
+        ciscoAtmVclAalEncapFlag         INTEGER,
+        ciscoAtmVclAalEncapProtocol     INTEGER,
+        ciscoAtmVclAalUserVcType        INTEGER,
+        ciscoAtmVclAtmInArpInterval     Integer32,
+        -- soft PVC
+        ciscoAtmVclRemoteAddr           NsapAtmAddr,
+        ciscoAtmVclRemoteVpi            Integer32,
+        ciscoAtmVclRemoteVci            Integer32,
+        ciscoAtmVclLocation             Location,
+        ciscoAtmVclSlowRetryIntv        Integer32,
+        ciscoAtmVclNumAttempts          Counter32,
+        ciscoAtmVclLastReleaseCause     Integer32,
+        -- per vc violation stats
+        ciscoAtmVclUpcViolations        Counter32,
+        ciscoAtmVclEpdTpdCellDrops      Counter32,
+        ciscoAtmVclEpdTpdPacketDrops    Counter32,
+        ciscoAtmVclEpdTpdPacketsIn      Counter32,
+        ciscoAtmVclClp1Drops            Counter32,
+        -- default tolerance
+        ciscoAtmVclDefaultRxUpcTolerance Integer32,
+        ciscoAtmVclDefaultRxUpcVbrCdvt   Integer32,
+
+        -- lightstream per-vc queueing
+        --  switch chipset objects
+        ciscoAtmVclLsPerVcqWrrWeight       INTEGER,
+        ciscoAtmVclLsPerVcqXmtQueuedCells  Gauge32,
+        ciscoAtmVclLsPerVcQThreshGrp       LsPerVcqThresholdGroup,
+
+        -- feature card per-flow queueing
+        --  (FC-PFQ) per-VCL statistics objects
+        ciscoAtmVclInClp0Cells             Counter32,
+        ciscoAtmVclInClp1Cells             Counter32,
+        ciscoAtmVclOutClp0Cells            Counter32,
+        ciscoAtmVclOutClp1Cells            Counter32,
+        ciscoAtmVclCellDrops               Counter32,
+        ciscoAtmVclClp0VcqFullCellDrops    Counter32,
+        ciscoAtmVclVcqClpThreshCellDrops   Counter32,
+        
+        -- Objects for negotiated traffic parameters
+        ciscoAtmVclRxNegTraffDescrIndex   AtmTrafficDescrParamIndex,
+        ciscoAtmVclTxNegTraffDescrIndex   AtmTrafficDescrParamIndex,
+
+        -- Switch Fabric Tx Statistics 
+        ciscoAtmVclSwFabOutCells           Counter32,
+        ciscoAtmVclSwFabOutClp0Cells       Counter32,
+        ciscoAtmVclSwFabOutClp1Cells       Counter32,
+
+        -- Connection Info
+        ciscoAtmVclConnName                SnmpAdminString,
+        ciscoAtmVclConnType                INTEGER
+    }
+
+ciscoAtmVclCastType    OBJECT-TYPE
+        SYNTAX         CastType
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        " Vcl type is either a point to point connection or point 
+        to multipoint root or leaf."
+        DEFVAL {pointToPoint }
+        ::= { ciscoAtmVclEntry 1 }
+
+ciscoAtmVclSpanType    OBJECT-TYPE
+        SYNTAX         SpanType
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        " Vcl span is either a transit one or a terminating one."
+        DEFVAL { transit }
+        ::= { ciscoAtmVclEntry 2 }
+
+ciscoAtmVclConfigType  OBJECT-TYPE
+        SYNTAX         ConfigType
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        " Vcl type is either a PVC, SVC, Soft PVC or Soft Passive half leg.
+          The half leg can be set to Passive through user configuration only."
+        DEFVAL { permanent }
+        ::= { ciscoAtmVclEntry 3 }
+
+ciscoAtmVclRxUpcMode   OBJECT-TYPE
+        SYNTAX         UpcStatus
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        " Usage Parameter Control opeartion is pass,tag,drop or 
+        local shaping at this connection."
+        DEFVAL { passing }
+        ::= { ciscoAtmVclEntry 4 }
+
+ciscoAtmVclEpdEnable   OBJECT-TYPE
+        SYNTAX         INTEGER {
+                                enable(1),
+                                disable(2),
+                                useTrafficDescr(3)
+                               }
+
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        " Early Packet Discard option used for this VCL.
+          The use is as follows:
+          enable(1)
+             Packet-discard is enabled.
+          disable(2)
+             Packet-discard is disabled.
+          useTrafficDescr(3)
+             Packet-discard in the receive direction is as specified by
+             the atmTrafficFrameDiscard value in row corresponding to
+             atmVclReceiveTrafficDescrIndex.  For VCLs of type
+             spvcInitiator, the packet-discard in the reverse direction
+             is as specified by the atmTrafficFrameDiscard value in row
+             corresponding to atmVclTransmitTrafficDescrIndex. "
+        DEFVAL { useTrafficDescr }
+        ::= { ciscoAtmVclEntry 5 }
+
+ciscoAtmVclConnState  OBJECT-TYPE
+        SYNTAX        ConnState
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION   
+        "The connection state of this VCL."
+        ::= { ciscoAtmVclEntry 6 }
+
+ciscoAtmVclOamLoopbkTxInterval OBJECT-TYPE
+        SYNTAX        Integer32 (5..60)
+        UNITS         "seconds"
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION   
+        "Frequency of OAM loopback cell are generated on this 
+        virtual channel."
+        DEFVAL { 5 }
+        ::= { ciscoAtmVclEntry 7 }
+
+ciscoAtmVclOamSegmentLoopback OBJECT-TYPE
+        SYNTAX        EnableStatus
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION   
+        "Enable segment loopback on this virtual channel."
+        DEFVAL { disable }
+        ::= { ciscoAtmVclEntry 8 }
+
+ciscoAtmVclOamEndLoopback OBJECT-TYPE
+        SYNTAX        EnableStatus
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION   
+        "Enable end to end loopback on this virtual channel."
+        DEFVAL { disable }
+        ::= { ciscoAtmVclEntry 9 }
+
+ciscoAtmVclOamAisEnable OBJECT-TYPE
+        SYNTAX        EnableStatus
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION   
+        "Enable Alarm Indication Signal OAM cell generation
+         if the interafce goes down on a crossconnect virtual 
+         channel."
+        DEFVAL { disable }
+        ::= { ciscoAtmVclEntry 10 }
+
+ciscoAtmVclOamRdiEnable OBJECT-TYPE
+        SYNTAX        EnableStatus
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION   
+        "Enable Remote Defect Indication OAM cell generation
+         if an Alarm Indication Signal OAM cell is received."
+        DEFVAL { disable }
+        ::= { ciscoAtmVclEntry 11 }
+
+ciscoAtmVclInstallTime OBJECT-TYPE
+        SYNTAX        TimeStamp
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+        "The time stamp derived from sysUpTime when this VCL gets 
+         created. The VCL entries are created/deleted as a by-product 
+         of creating and deleting entries in the atmVclTable defined 
+         in RFC1695."
+        ::= { ciscoAtmVclEntry 12 }
+
+ciscoAtmVclInCells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   "The total number of cells received on 
+        this VCL."
+        ::= { ciscoAtmVclEntry 13 }
+
+ciscoAtmVclOutCells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   "The total number of cells transmitted on 
+        this VCL."
+        ::= { ciscoAtmVclEntry 14 }
+
+ciscoAtmVclCrossIfIndex    OBJECT-TYPE
+        SYNTAX         InterfaceIndexOrZero
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "For point to point, this is the cross-connected VCL's 
+        ifIndex of this VCL. For point to multi-point connection, 
+        this will be the root VCL's ifIndex for a leaf VCL entry in 
+        the multicast chain, or it's the 1st leaf VCL for a root 
+        VCL entry. If it's zero, it means it's not cross-connected 
+        yet. Atomically set ciscoAtmVclConnState, 
+        ciscoAtmVclCrossIfindex, ciscoAtmVclCrossVpi and 
+        ciscoAtmVclCrossVci will create or delete a cross 
+        connection to crossed half leg of this 
+        ciscoAtmVclCrossIfindex, ciscoAtmVclCrossVpi and 
+        ciscoAtmVclCrossVci for p2p PVC, or add or drop a multicast 
+        connection to/from the root of this ciscoAtmVclCrossIfindex, 
+        ciscoAtmVclCrossVpi and ciscoAtmVclCrossVci on the multicast 
+        chain for p2mp PVC."
+        DEFVAL { 0 }
+        ::= { ciscoAtmVclEntry 15 }
+
+ciscoAtmVclCrossVpi    OBJECT-TYPE
+        SYNTAX         Integer32 (0..4095)
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "This specifies the VPI value of the VCL to which this 
+        VCL is cross-connected. For point to multi-point 
+        connection, this is the root VCL's VPI for the leaf entry. 
+        Similarly it is the 1st leaf's VPI value for the root entry."
+        DEFVAL { 0 }
+        ::= { ciscoAtmVclEntry 16 }
+
+ciscoAtmVclCrossVci    OBJECT-TYPE
+        SYNTAX         Integer32 (0..65535)
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "This specifies the VCI value of the VCL to which this 
+        VCL is cross-connected. For point to multi-point 
+        connection, this is the root VCL's VCI for the leaf 
+        entry. Similarly it is the 1st leaf's VCI value for 
+        the root entry."
+        DEFVAL { 0 }
+        ::= { ciscoAtmVclEntry 17 }
+
+ciscoAtmVclNextLeafIfIndex    OBJECT-TYPE
+        SYNTAX         InterfaceIndexOrZero
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "For point to point, this is zero i.e. not used. 
+        For point to multi-point connection, this will be 
+        the next leaf VCL's ifIndex on the multicast chain. 
+        This will be 0 if this is the root VCL entry. 
+        If it's zero for a leaf VCL, it means this is the 
+        last leaf."
+        DEFVAL { 0 }
+        ::= { ciscoAtmVclEntry 18 }
+
+ciscoAtmVclNextLeafVpi    OBJECT-TYPE
+        SYNTAX         Integer32 (0..4095)
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "For point to point, this is zero i.e. not used. 
+        This apply only to point to multi-point connection, 
+        this will be the next leaf VCL's VPI on the multicast 
+        chain."
+        DEFVAL { 0 }
+        ::= { ciscoAtmVclEntry 19 }
+
+ciscoAtmVclNextLeafVci    OBJECT-TYPE
+        SYNTAX         Integer32 (0..65535)
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "For point to point, this is zero i.e. not used. 
+        This apply only to point to multi-point connection, 
+        this will be the next leaf VCL's VCI on the multicast 
+        chain."
+        DEFVAL { 0 }
+        ::= { ciscoAtmVclEntry 20 }
+
+ciscoAtmVclAalEncapFlag OBJECT-TYPE
+        SYNTAX    INTEGER {
+                        other(1),
+                        aal5Snap(2),
+                        aal5Nlpid(3),
+                        aal5FrNlpid(4),
+                        aal5Mux(5),
+                        aal34Smds(6),
+                        aalQsAal(7), -- Signalling AAL
+                        aal5Ilmi(8),
+                        aal5Lane(9),
+                        aal5Pnni(10)
+                        }
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Encapsulation type for terminating VC."
+        ::= { ciscoAtmVclEntry 21 }
+
+ciscoAtmVclAalEncapProtocol OBJECT-TYPE
+        SYNTAX    INTEGER {
+                        other(1),
+                        ip(2),
+                        xns(3),
+                        appletalk(4),
+                        clns(5),
+                        decnet(6),
+                        novell(7),
+                        apollo(8),
+                        vines(9)
+                        }
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Protocol for terminating VC if EncapFlag is aal5Mux."
+        ::= { ciscoAtmVclEntry 22 }
+
+ciscoAtmVclAalUserVcType OBJECT-TYPE
+        SYNTAX    INTEGER {
+                        other(1),
+                        boxConfigure(2),
+                        busForward(3),
+                        busSend(4), 
+                        clientConfigure(5),
+                        clientData(6),
+                        clientDirect(7),
+                        clientDistribute(8),
+                        clientForward(9),
+                        clientSend(10),
+                        configure(11),
+                        serverConfigure(12),
+                        serverDirect(13),
+                        serverDistribute(14)
+                  }
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Following is the list of user virtual circuit types in 
+         case aal5Lane encapusation on this virtual channel.
+         boxConfigure -- The shared Server/Client end of a 
+                         Configure VCC
+         busForward -- The BUS end of the Data Forward VCC
+         busSend -- The BUS end of the Data Send VCC
+         clientConfigure -- The LE Client end of the Configure 
+                            Direct VCC
+         clientData -- One end of the Data Direct VCC
+         clientDirect -- The LE Client end of the Control 
+                         Direct VCC
+         clientDistribute -- The LE Client end of the Control 
+                             Distribute VCC
+         clientForward -- The LE Client end of the Multicast 
+                          Forward VCC
+         clientSend -- The LE Client end of the Multicast 
+                       Send VCC
+         configure -- The Config Server end of any Configure VCC
+         serverConfigure -- The LE Server end of the Configure VCC
+         serverDirect -- The LE Server end of the Control 
+                         Direct VCC."
+
+        ::= { ciscoAtmVclEntry 23 }
+
+ciscoAtmVclAtmInArpInterval OBJECT-TYPE
+        SYNTAX         Integer32 (0..60)
+        UNITS          "minutes"
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Time interval in minutes to send InArp on a PVC for 
+        IP over ATM.  0 will disable the InArp for this pvc."
+        ::= { ciscoAtmVclEntry 24 }
+
+
+
+ciscoAtmVclRemoteAddr    OBJECT-TYPE
+        SYNTAX         NsapAtmAddr
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Soft PVC target address if this is the calling side
+        Soft PVC source address if this is called side. 
+        Atomically set ConnState, RemoteAddr, RemoteVpi
+        and RemoteVci will create or delete a soft PVC. 
+        Atomically set ConnState, RemoteAddr without RemoteVpi,
+        Remote Vci  will also create or delete a soft PVC but let 
+        target switch assign the vpi and vci."
+        ::= { ciscoAtmVclEntry 25 }
+
+ciscoAtmVclRemoteVpi   OBJECT-TYPE
+        SYNTAX         Integer32  (0..4095)
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Soft PVC target VPI in calling side. 0 in called side."
+        ::= { ciscoAtmVclEntry 26 }
+
+ciscoAtmVclRemoteVci    OBJECT-TYPE
+        SYNTAX         Integer32  (0..65535)
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Soft PVC target VCI in calling side. 0 in called side."
+        ::= { ciscoAtmVclEntry 27 }
+
+ciscoAtmVclLocation OBJECT-TYPE
+        SYNTAX         Location
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "Indicate calling or called side of a soft PVC.
+         If ciscoAtmVclConfigType is not soft then 
+         ciscoAtmVclLocation value should be ignored."
+        ::= { ciscoAtmVclEntry 28 }
+
+ciscoAtmVclSlowRetryIntv OBJECT-TYPE
+        SYNTAX         Integer32 (0..65535)
+        UNITS          "seconds"
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Soft PVC slow retry interval in seconds."
+        ::= { ciscoAtmVclEntry 29 }
+
+ciscoAtmVclNumAttempts OBJECT-TYPE
+        SYNTAX         Counter32
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "Number of retries made to install this soft PVC 
+        connection.  If ciscoAtmVclConfigType is not soft then 
+        ciscoAtmVclNumAttempts value should be ignored."
+        ::= { ciscoAtmVclEntry 30 }
+
+ciscoAtmVclLastReleaseCause  OBJECT-TYPE
+        SYNTAX        Integer32(1..127)
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "Value of the Cause field of the Cause
+        Information Element in the last Release
+        Signalling message received for this SPVC.
+        Indicates the reason for the Release.
+        ciscoAtmVclConfigType is not soft then 
+        ciscoAtmVclLastReleaseCause value should be 
+        ignored."
+        ::= { ciscoAtmVclEntry 31 }
+
+ciscoAtmVclUpcViolations OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of nonconforming cells detected
+         by Usage Parameter Control (UPC) for cells received
+         on this VCL.
+         On LS1010 systems, this counter is valid only on those
+         equipped with the Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVclEntry 32 }
+
+ciscoAtmVclEpdTpdCellDrops OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        obsolete
+        DESCRIPTION   "Never implemented."
+        ::= { ciscoAtmVclEntry 33 }
+
+ciscoAtmVclEpdTpdPacketDrops OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+        "The total number of EPD/TPD packet drops of
+         packets received on this VCL.
+         This counter is valid only:
+          - if EPD is enabled on this VCL.
+          - on LS1010 systems, only those equipped with 
+            the Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVclEntry 34 }
+
+ciscoAtmVclEpdTpdPacketsIn OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+        "The total number of packets received in their
+         entirety on this VPL.
+         This counter is valid only:
+          - if EPD is enabled on this VCL.
+          - on LS1010 systems, only those equipped with 
+            the Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVclEntry 35 }
+
+ciscoAtmVclClp1Drops OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        obsolete
+        DESCRIPTION   "Never implemented."
+        ::= { ciscoAtmVclEntry 37 }
+
+ciscoAtmVclDefaultRxUpcTolerance OBJECT-TYPE
+        SYNTAX         Integer32
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "If the tolerance (CDVT for CBR, ABR, UBR connections, Maximum 
+         Burst Size for VBR connectons) requested for Usage 
+         Parameter Control is not explicitly specified in VCL creation, 
+         this object contains the default that is used.If tolerance
+         is explicitly specified in VCL creation, it can be found in
+         the Traffic Table row specified by atmVclReceiveTrafficDescrIndex,
+         and the value of this object is -1."
+        ::= { ciscoAtmVclEntry 38 }
+
+ciscoAtmVclDefaultRxUpcVbrCdvt  OBJECT-TYPE
+        SYNTAX         Integer32
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "If the Cell Delay Variation Tolerance (CDVT) requested for 
+         Usage Parameter Control for a VBR connection is not explicitly 
+         specified in VCL creation, this object contains the default 
+         that is used. If CDVT is explicitly specified in VCL creation, 
+         it can be found in the Traffic Table row specified by 
+         atmVclReceiveTrafficDescrIndex, and the value of this object 
+         is -1."
+        ::= { ciscoAtmVclEntry 39 }
+
+ciscoAtmVclLsPerVcqWrrWeight OBJECT-TYPE
+        SYNTAX         INTEGER (1..15)
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Configure the weighting specified for a VC half-leg
+         within a service class to make the scheduling decision
+         among other active VCLs in the service class. This
+         is for transmit on the VCL on the interface. This object
+         is defined only when the switch is equipped with 
+         the Lightstream per-VC queueing chipset."
+        ::= { ciscoAtmVclEntry 40 }
+ 
+ciscoAtmVclLsPerVcqXmtQueuedCells OBJECT-TYPE
+        SYNTAX         Gauge32
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+        "Number of cells received on this VCL and
+         residing on the per-connection queue. Note that 
+         this value is not valid until the VCL is in an 
+         active cross-connect. This object
+         is defined only when the switch is equipped with 
+         the Lightstream per-VC queueing chipset."
+        ::= { ciscoAtmVclEntry 41 }
+ 
+ciscoAtmVclLsPerVcQThreshGrp OBJECT-TYPE
+        SYNTAX     LsPerVcqThresholdGroup
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+        "The Threshold Group to which the cell-queue 
+         for cells received by this VC are queued. 
+         Note that this value is not valid until the 
+         VCL is in an active cross-connect. This object
+         is defined only when the switch is equipped with 
+         the Lightstream per-VC queueing chipset."
+         ::= { ciscoAtmVclEntry 42 }
+
+ciscoAtmVclInClp0Cells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells with the CLP bit clear
+         received on this VCL. Note that these cells may
+         subsequently be discarded.
+         This counter is valid only:
+          - on LS1010 systems, only those equipped with 
+            Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVclEntry 43 }
+ 
+ciscoAtmVclInClp1Cells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells with the CLP bit set
+         received on this VCL. Note that these cells may
+         subsequently be discarded.
+         This counter is valid only:
+          - on LS1010 systems, only those equipped with 
+            Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVclEntry 44 }
+ 
+ciscoAtmVclOutClp0Cells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells with the CLP bit clear
+         transmitted on this VCL.
+         This counter is valid only:
+          - on LS1010 systems, only those equipped with 
+            Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVclEntry 45 }
+ 
+ciscoAtmVclOutClp1Cells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells with the CLP bit set
+         transmitted on this VCL.
+         This counter is valid only:
+          - on LS1010 systems, only those equipped with 
+            Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVclEntry 46 }
+ 
+ciscoAtmVclCellDrops OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells received on this
+         VCL, but discarded.
+         This counter is valid only:
+          - on LS1010 systems, only those equipped with 
+            Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVclEntry 47 }
+ 
+ciscoAtmVclClp0VcqFullCellDrops OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells received on this
+         VCL with the CLP bit clear, discarded because
+         the per-VC queue limit is exceeded.
+         This counter is valid only:
+          - if EPD is disabled on the VCL.
+          - on LS1010 systems, only those equipped with 
+            Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVclEntry 48 }
+ 
+ciscoAtmVclVcqClpThreshCellDrops OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells received on this
+         VCL, discarded because the discard threshold
+         (as opposed to the queue-limit) is exceeded
+         on the per-VC queue, and the CLP bit is set.
+         This counter is valid only:
+          - if EPD is disabled on the VCL.
+          - on LS1010 systems, only those equipped with 
+            Feature Card - Per Flow Queueing."
+        ::= { ciscoAtmVclEntry 49 }
+
+ciscoAtmVclRxNegTraffDescrIndex   OBJECT-TYPE
+        SYNTAX             AtmTrafficDescrParamIndex
+        MAX-ACCESS         read-only
+        STATUS             current
+        DESCRIPTION
+        "Identifies the entry in the atmTrafficDescrParamTable which
+        contains negotiated traffic parameters applied to the receive
+        direction of this VCL.
+
+        This object is not instantiated if this VCL is not the calling
+        side of a soft VC, or if there was no traffic negotiation."
+        ::= { ciscoAtmVclEntry 50}
+ 
+ciscoAtmVclTxNegTraffDescrIndex    OBJECT-TYPE
+        SYNTAX             AtmTrafficDescrParamIndex
+        MAX-ACCESS         read-only
+        STATUS             current
+        DESCRIPTION
+        "Identifies the entry in the atmTrafficDescrParamTable which
+        contains negotiated traffic parameters applied to the transmit
+        direction of this VCL.
+
+        This object is not instantiated if this VCL is not the calling
+        side of a soft VC, or if there was no traffic negotiation."
+        ::= { ciscoAtmVclEntry 51}
+
+ciscoAtmVclSwFabOutCells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   "The total number of cells transmitted on 
+        this VCL by the Switch Fabric.  This object is not 
+        instantiated on systems that do not have support for 
+        collecting such statistics."
+        ::= { ciscoAtmVclEntry 52 }
+
+ciscoAtmVclSwFabOutClp0Cells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells with the CLP bit clear
+         transmitted on this VCL by the Switch Fabric.
+         This object is not instantiated on systems 
+         that do not have support for collecting such 
+         statistics."
+        ::= { ciscoAtmVclEntry 53 }
+ 
+ciscoAtmVclSwFabOutClp1Cells OBJECT-TYPE
+        SYNTAX        Counter32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "The total number of cells with the CLP bit set
+         transmitted on this VCL by the Switch Fabric.
+         This object is not instantiated on systems that 
+         do not have support for collecting such statistics."
+        ::= { ciscoAtmVclEntry 54 }
+ 
+ciscoAtmVclConnName OBJECT-TYPE
+        SYNTAX        SnmpAdminString
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION
+        "A human readable string that identifies this connection.
+         This object will return a zero-length string if value is
+         not set." 
+        ::= { ciscoAtmVclEntry 55 }
+ 
+ciscoAtmVclConnType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                         local (1),     -- wthin a node
+                         endToEnd (2)   -- across several nodes
+                      }
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION
+        "This object represent the PVC Type for this connection.
+         - local     connection within the node
+         - endToEnd  across several nodes.
+         This object serves as an information object for a
+         management system and has no functional meaning to
+         the switch."
+        ::= { ciscoAtmVclEntry 56 }
+
+
+-- SVP address table
+
+ciscoAtmSvp OBJECT IDENTIFIER ::= { ciscoAtmConnMIBObjects 3 }
+
+ciscoAtmSvpAddrTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CiscoAtmSvpAddrEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        "Switched virtual path link address table."
+        ::= { ciscoAtmSvp 1 }
+
+ciscoAtmSvpAddrEntry OBJECT-TYPE
+        SYNTAX     CiscoAtmSvpAddrEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        " An entry in the Switched Vrtual Path address table."
+        INDEX { ifIndex,ciscoAtmSvpAddr, ciscoAtmSvpVpi }
+        ::= { ciscoAtmSvpAddrTable 1 }
+
+CiscoAtmSvpAddrEntry ::=
+        SEQUENCE {
+        ciscoAtmSvpAddr         OCTET STRING,
+        ciscoAtmSvpVpi          INTEGER,
+        ciscoAtmSvpDirection    Direction
+    }
+
+ciscoAtmSvpAddr OBJECT-TYPE
+        SYNTAX     OCTET STRING (SIZE(20)) 
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        "It depends on the direction.This could be p2pCallingSide 
+        address on a called side VPL, or p2pCalledSide address on a 
+        calling side VPL or p2mpRoot address on a p2mp leaf side 
+        VPL or p2mpLeaf address on a p2mp root side VPL."
+        ::= { ciscoAtmSvpAddrEntry 1 }
+
+ciscoAtmSvpVpi OBJECT-TYPE
+        SYNTAX    INTEGER  (1..4095)
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+        "This SVP's VPI value on this interface."
+        ::= { ciscoAtmSvpAddrEntry 2 }
+
+ciscoAtmSvpDirection OBJECT-TYPE
+        SYNTAX     Direction
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+        "Indicate whether this VPL is calling side, called side, 
+        root or leaf for this address."
+        ::= { ciscoAtmSvpAddrEntry 3 }
+
+
+-- SVC address table
+
+ciscoAtmSvc OBJECT IDENTIFIER ::= { ciscoAtmConnMIBObjects 4 }
+
+ciscoAtmSvcAddrTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CiscoAtmSvcAddrEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        "Switched virtual channel link address table."
+        ::= { ciscoAtmSvc 1 }
+
+ciscoAtmSvcAddrEntry OBJECT-TYPE
+        SYNTAX     CiscoAtmSvcAddrEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        " An entry in the SVC address table."
+        INDEX { ifIndex,ciscoAtmSvcAddr, ciscoAtmSvcVpi, ciscoAtmSvcVci }
+        ::= { ciscoAtmSvcAddrTable 1 }
+
+CiscoAtmSvcAddrEntry ::=
+        SEQUENCE {
+        ciscoAtmSvcAddr         OCTET STRING ,
+        ciscoAtmSvcVpi          Integer32,
+        ciscoAtmSvcVci          Integer32,
+        ciscoAtmSvcDirection    Direction
+    }
+
+ciscoAtmSvcAddr OBJECT-TYPE
+        SYNTAX     OCTET STRING (SIZE(20)) 
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        "It depends on the direction.This could be p2pCallingSide 
+        address on a called side VCL, or p2pCalledSide address on a 
+        calling side VCL or p2mpRoot address on a p2mp leaf side VCL 
+        or p2mpLeaf address on a p2mp root side VCL."
+        ::= { ciscoAtmSvcAddrEntry 1 }
+
+ciscoAtmSvcVpi OBJECT-TYPE
+        SYNTAX         Integer32 (0..4095)
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+        "This SVC's VPI value on this interface."
+        ::= { ciscoAtmSvcAddrEntry 2 }
+
+ciscoAtmSvcVci OBJECT-TYPE
+        SYNTAX         Integer32 (0..65535)
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+        "This SVC's VCI value on this interface."
+        ::= { ciscoAtmSvcAddrEntry 3 }
+
+ciscoAtmSvcDirection OBJECT-TYPE
+        SYNTAX     Direction
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+        "Indicate whether this VCL is calling side, called side, 
+        root or leaf for this address."
+        ::= { ciscoAtmSvcAddrEntry 4 }
+
+-- Snoop VC Table for per-VC snooping
+-- keeps the corresponding snooped interface,  snooped vpi, snooped vci 
+-- snooping direction
+
+ciscoAtmSnoopVc OBJECT IDENTIFIER ::= { ciscoAtmConnMIBObjects 5 }
+
+ciscoAtmSnoopVcTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CiscoAtmSnoopVcEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        "Snooping VC Table."
+        ::= { ciscoAtmSnoopVc 1 }
+
+ciscoAtmSnoopVcEntry OBJECT-TYPE
+        SYNTAX     CiscoAtmSnoopVcEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        "An entry in the Snoop VC table. This entry models a VC snooping 
+         connection. The  ifIndex indicates  the snooping interface, the
+         atmVclVpi and atmVclVci  specifies the VPI and VCI value of the 
+         snooping connection. To create or destroy a snooping connection 
+         at an ATM interface, the following procedures are used:
+        
+         Configure VC Snooping
+        
+         A snooping connection is configured in one step by a set-request 
+         with all necessary snoop parameter values and set-request to the 
+         object ciscoAtmSnoopVcRowStatus to createAndGo(4). This may fail 
+         for the following reasons:
+              - The selected snooping VPI/VCI values are unavailable,
+              - The selected snooping VPI/VCI values are in use.
+              - The selected snooping interface is CPU interface. 
+              - The selected snooped connection doesn't exist.
+              - There is no traffic in the selected snoop direction.
+              - Resource failure during configuration of snooping connection.
+
+         De-Configure VC Snooping
+
+         A snooping connection is deconfigured by a set-request to the 
+         object ciscoAtmSnoopVcRowStatus to destroy(6), and the agent 
+         releases all associated resources."
+        INDEX { ifIndex, atmVclVpi, atmVclVci }
+        ::= { ciscoAtmSnoopVcTable 1 }
+
+CiscoAtmSnoopVcEntry ::=
+        SEQUENCE {
+        ciscoAtmSnoopVcSnoopedIfIndex    InterfaceIndexOrZero,
+        ciscoAtmSnoopVcSnoopedVpi        Integer32,
+        ciscoAtmSnoopVcSnoopedVci        Integer32,
+        ciscoAtmSnoopVcDir               SnoopDirType, 
+        ciscoAtmSnoopVcState             ConnState,
+        ciscoAtmSnoopVcRowStatus         RowStatus
+        }
+
+ciscoAtmSnoopVcSnoopedIfIndex OBJECT-TYPE
+        SYNTAX         InterfaceIndexOrZero
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+        "This specifies the ifIndex of the snooped interface." 
+        DEFVAL { 0 }
+        ::= { ciscoAtmSnoopVcEntry 1 }
+ 
+ciscoAtmSnoopVcSnoopedVpi OBJECT-TYPE
+        SYNTAX         Integer32 (0..4095)
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+        "This specifies the VPI value of the snooped connection endpoint."
+        DEFVAL { 0 }
+        ::= { ciscoAtmSnoopVcEntry 2 }
+ 
+ciscoAtmSnoopVcSnoopedVci    OBJECT-TYPE
+        SYNTAX         Integer32 (0..65535)
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+        "This specifies the VCI value of the snooped connection endpoint."
+        DEFVAL { 0 }
+        ::= { ciscoAtmSnoopVcEntry 3}
+ 
+ciscoAtmSnoopVcDir    OBJECT-TYPE
+        SYNTAX         SnoopDirType
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+        "This specifies the traffic direction at the snooped connection 
+         endpoint."
+        DEFVAL { receive }
+        ::= { ciscoAtmSnoopVcEntry 4 }
+
+ciscoAtmSnoopVcState OBJECT-TYPE
+        SYNTAX       ConnState
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION   
+        "The connection state of this Snooping connetion."
+        ::= { ciscoAtmSnoopVcEntry 5 }
+
+ciscoAtmSnoopVcRowStatus       OBJECT-TYPE
+        SYNTAX       RowStatus
+        MAX-ACCESS   read-create
+        STATUS       current
+        DESCRIPTION
+        "This object is used to create a new row or delete an existing row 
+         in this table. This gives the way to configure one-shot per-vc
+         snooping connection"
+        DEFVAL  { active }
+        ::= { ciscoAtmSnoopVcEntry 6}
+
+-- Snoop VP Table, for per-VP snooping 
+-- keeps the corresponding snooped interface, snooped vpi 
+-- and snooping direction
+
+ciscoAtmSnoopVp OBJECT IDENTIFIER ::= { ciscoAtmConnMIBObjects 6 }
+
+ciscoAtmSnoopVpTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CiscoAtmSnoopVpEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        "Snooping VP Table."
+        ::= { ciscoAtmSnoopVp 1 }
+
+ciscoAtmSnoopVpEntry OBJECT-TYPE
+        SYNTAX     CiscoAtmSnoopVpEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+        "An entry in the Snoop VP table. This entry models a VP snooping 
+         connection. The  ifIndex indicates  the snooping interface, the
+         atmVclVpi specifies the VPI value of the snooping connection. To 
+         create or destroy a snooping connection at an ATM interface, the 
+         following procedures are used:
+        
+         Configure VP Snooping
+        
+         A snooping connection is configured in one step by a set-request 
+         with all necessary snoop parameter values and set-request to the 
+         object ciscoAtmSnoopVpRowStatus to createAndGo(4). This may fail 
+         for the following reasons:
+              - The selected snooping VPI values are unavailable,
+              - The selected snooping VPI values are in use.
+              - The selected snooping interface is CPU interface. 
+              - The selected snooped connection doesn't exist.
+              - There is no traffic in the selected snoop direction.
+              - Resource failure during configuration of snooping connection.
+
+         De-Configure VP Snooping
+
+         A snooping connection is deconfigured by a set-request to the 
+         object ciscoAtmSnoopVpRowStatus to destroy(6), and the agent 
+         releases all associated resources."
+        INDEX { ifIndex, atmVplVpi }
+        ::= { ciscoAtmSnoopVpTable 1 }
+
+CiscoAtmSnoopVpEntry ::=
+        SEQUENCE {
+        ciscoAtmSnoopVpSnoopedIfIndex    InterfaceIndexOrZero,
+        ciscoAtmSnoopVpSnoopedVpi        Integer32,
+        ciscoAtmSnoopVpDir               SnoopDirType, 
+        ciscoAtmSnoopVpState             ConnState,
+        ciscoAtmSnoopVpRowStatus         RowStatus
+        }
+
+ciscoAtmSnoopVpSnoopedIfIndex OBJECT-TYPE
+        SYNTAX         InterfaceIndexOrZero
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+        "This specifies the ifIndex of the snooped interface." 
+        DEFVAL { 0 }
+        ::= { ciscoAtmSnoopVpEntry 1 }
+ 
+ciscoAtmSnoopVpSnoopedVpi OBJECT-TYPE
+        SYNTAX         Integer32 (0..4095)
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+        "This specifies the VPI value of the snooped connection endpoint."
+        DEFVAL { 0 }
+        ::= { ciscoAtmSnoopVpEntry 2 }
+ 
+ciscoAtmSnoopVpDir    OBJECT-TYPE
+        SYNTAX         SnoopDirType
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+        "This specifies the traffic direction at the snooped connection 
+         endpoint."
+        DEFVAL { receive }
+        ::= { ciscoAtmSnoopVpEntry 3 }
+
+ciscoAtmSnoopVpState OBJECT-TYPE
+        SYNTAX       ConnState
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION   
+        "The connection state of this Snooping connection ."
+        ::= { ciscoAtmSnoopVpEntry 4 }
+
+ciscoAtmSnoopVpRowStatus       OBJECT-TYPE
+        SYNTAX       RowStatus
+        MAX-ACCESS   read-create
+        STATUS       current
+        DESCRIPTION
+        "This object is used to create a new row or delete an existing row 
+         in this table. This gives the way to configure one-shot per-vp
+         snooping connection"
+        DEFVAL  { active }
+        ::= { ciscoAtmSnoopVpEntry 5}
+
+
+-- global config of frame discard SVC usage 
+
+ciscoAtmSvcFrameDiscardUsesAal5Ie OBJECT-TYPE
+        SYNTAX         TruthValue
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+        "Determines mechanism to use on interfaces
+         to specify frame discard.
+ 
+         Specifying a value of true causes the presence
+         of the AAL5 IE to influence whether frame discard
+         is used on an SVC. If AAL5 IE is present in a received
+         SETUP, frame discard is used.
+ 
+         Specifying a value of false results in no influence on
+         presence of the frame discard by the AAL5 IE."
+        DEFVAL { true }
+        ::= { ciscoAtmSvc 2 }
+
+-- conformance information
+
+ciscoAtmConnMIBConformance
+              OBJECT IDENTIFIER ::= { ciscoAtmConnMIB 3 }
+ciscoAtmConnMIBCompliances
+              OBJECT IDENTIFIER ::= { ciscoAtmConnMIBConformance 1 }
+ciscoAtmConnMIBGroups
+              OBJECT IDENTIFIER ::= { ciscoAtmConnMIBConformance 2 }
+
+
+-- compliance statements
+
+ciscoAtmConnMIBCompliance MODULE-COMPLIANCE
+        STATUS  obsolete -- susperseded by ciscoAtmConnMIBCompliances2
+        DESCRIPTION
+        "The compliance statement for the Cisco ATM connection 
+        management group."
+        MODULE  -- this module
+                MANDATORY-GROUPS { ciscoAtmConnMIBGroup }
+
+        ::= { ciscoAtmConnMIBCompliances 1 }
+
+ciscoAtmConnMIBCompliance2 MODULE-COMPLIANCE
+        STATUS  obsolete -- susperseded by ciscoAtmConnMIBCompliances3
+        DESCRIPTION
+        "The compliance statement for the Cisco ATM connection 
+        management group."
+        MODULE  -- this module
+                MANDATORY-GROUPS { ciscoAtmConnMIBGroup,
+                                   ciscoAtmConnMIBGroup2
+                                 }
+
+        ::= { ciscoAtmConnMIBCompliances 2 }
+
+ciscoAtmConnMIBCompliance3 MODULE-COMPLIANCE
+        STATUS  obsolete -- susperseded by ciscoAtmConnMIBCompliances4
+        DESCRIPTION
+        "The compliance statement for the Cisco ATM connection
+        management group."
+        MODULE  -- this module
+                MANDATORY-GROUPS { ciscoAtmConnMIBGroup,
+                                   ciscoAtmConnMIBGroup3,
+                                   ciscoAtmConnMIBlsPerVcqGroup,
+                                   ciscoAtmConnMIBlsFcPfqGroup 
+                                 }
+        ::= { ciscoAtmConnMIBCompliances 3 }
+
+ciscoAtmConnMIBCompliance4 MODULE-COMPLIANCE
+        STATUS  obsolete -- susperseded by ciscoAtmConnMIBCompliances5 
+        DESCRIPTION
+        "The compliance statement for the Cisco ATM connection
+        management group."
+        MODULE  -- this module
+                MANDATORY-GROUPS { ciscoAtmConnMIBGroup,
+                                   ciscoAtmConnMIBGroup3,
+                                   ciscoAtmConnMIBlsPerVcqGroup2,
+                                   ciscoAtmConnMIBlsFcPfqGroup
+                                 }
+        ::= { ciscoAtmConnMIBCompliances 4 }
+
+ciscoAtmConnMIBCompliance5 MODULE-COMPLIANCE
+        STATUS  deprecated -- superseded by ciscoAtmConnMIBCompliances6 
+        DESCRIPTION
+        "The compliance statement for the Cisco ATM connection
+        management group."
+        MODULE  -- this module
+                MANDATORY-GROUPS { ciscoAtmConnMIBGroup,
+                                   ciscoAtmConnMIBGroup3,
+                                   ciscoAtmConnMIBlsPerVcqGroup2,
+                                   ciscoAtmConnMIBlsFcPfqGroup,
+                                   ciscoAtmConnMIBNegTraffGroup
+                                 }
+        ::= { ciscoAtmConnMIBCompliances 5 }
+
+ciscoAtmConnMIBCompliance6 MODULE-COMPLIANCE
+        STATUS  deprecated 
+        DESCRIPTION
+        "The compliance statement for the Cisco ATM connection
+        management group."
+        MODULE  -- this module
+                MANDATORY-GROUPS { ciscoAtmConnMIBGroup,
+                                   ciscoAtmConnMIBGroup3,
+                                   ciscoAtmConnMIBlsPerVcqGroup2,
+                                   ciscoAtmConnMIBlsFcPfqGroup1,
+                                   ciscoAtmConnMIBNegTraffGroup
+                                 }
+        ::= { ciscoAtmConnMIBCompliances 6 }
+
+ciscoAtmConnMIBCompliance7 MODULE-COMPLIANCE
+        STATUS  deprecated 
+        DESCRIPTION
+        "The compliance statement for the Cisco ATM connection
+        management group."
+        MODULE  -- this module
+                MANDATORY-GROUPS { ciscoAtmConnMIBGroup1,
+                                   ciscoAtmConnMIBGroup3,
+                                   ciscoAtmConnMIBlsPerVcqGroup2,
+                                   ciscoAtmConnMIBlsFcPfqGroup1,
+                                   ciscoAtmConnMIBNegTraffGroup
+                                 }
+        ::= { ciscoAtmConnMIBCompliances 7 }
+
+ciscoAtmConnMIBCompliance8 MODULE-COMPLIANCE
+        STATUS  current 
+        DESCRIPTION
+        "The compliance statement for the Cisco ATM connection
+        management group."
+        MODULE  -- this module
+                MANDATORY-GROUPS { ciscoAtmConnMIBGroup4,
+                                   ciscoAtmConnMIBGroup3,
+                                   ciscoAtmConnMIBlsPerVcqGroup2,
+                                   ciscoAtmConnMIBlsFcPfqGroup1,
+                                   ciscoAtmConnMIBNegTraffGroup
+                                 }
+        GROUP ciscoAtmConnNmsGroup
+        DESCRIPTION
+           "This is an optional group"
+        ::= { ciscoAtmConnMIBCompliances 8 }
+
+-- units of conformance
+
+ciscoAtmConnMIBGroup  OBJECT-GROUP
+        OBJECTS { 
+        ciscoAtmVplCastType,
+        ciscoAtmVplSpanType,
+        ciscoAtmVplConfigType,
+        ciscoAtmVplRxUpcMode,
+        ciscoAtmVplConnState,
+        ciscoAtmVplOamLoopbkTxInterval,
+        ciscoAtmVplOamSegmentLoopback,
+        ciscoAtmVplOamEndLoopback,       
+        ciscoAtmVplOamAisEnable,      
+        ciscoAtmVplOamRdiEnable,         
+        ciscoAtmVplInstallTime,         
+        ciscoAtmVplInCells,             
+        ciscoAtmVplOutCells,            
+        ciscoAtmVplCrossIfIndex,  
+        ciscoAtmVplCrossVpi,            
+        ciscoAtmVplNextLeafIfIndex,
+        ciscoAtmVplNextLeafVpi,
+        ciscoAtmVplRemoteAddr,
+        ciscoAtmVplRemoteVpi,
+        ciscoAtmVplLocation,
+        ciscoAtmVplSlowRetryIntv,
+        ciscoAtmVplNumAttempts,
+        ciscoAtmVplLastReleaseCause,
+        ciscoAtmVplLogicalPortDef,
+        ciscoAtmVplLogicalPortIndex,
+        ciscoAtmVclCastType,
+        ciscoAtmVclSpanType,
+        ciscoAtmVclConfigType,
+        ciscoAtmVclRxUpcMode,
+        ciscoAtmVclEpdEnable,
+        ciscoAtmVclConnState,
+        ciscoAtmVclOamLoopbkTxInterval,
+        ciscoAtmVclOamSegmentLoopback,
+        ciscoAtmVclOamEndLoopback,
+        ciscoAtmVclOamAisEnable,
+        ciscoAtmVclOamRdiEnable,
+        ciscoAtmVclInstallTime,
+        ciscoAtmVclInCells,
+        ciscoAtmVclOutCells,
+        ciscoAtmVclCrossIfIndex,
+        ciscoAtmVclCrossVpi,
+        ciscoAtmVclCrossVci,
+        ciscoAtmVclNextLeafIfIndex,
+        ciscoAtmVclNextLeafVpi,
+        ciscoAtmVclNextLeafVci,
+        ciscoAtmVclAalEncapFlag,
+        ciscoAtmVclAalEncapProtocol,
+        ciscoAtmVclAalUserVcType,
+        ciscoAtmVclAtmInArpInterval,
+        ciscoAtmVclRemoteAddr,
+        ciscoAtmVclRemoteVpi,
+        ciscoAtmVclRemoteVci,
+        ciscoAtmVclLocation,
+        ciscoAtmVclSlowRetryIntv,
+        ciscoAtmVclNumAttempts,
+        ciscoAtmVclLastReleaseCause,
+        ciscoAtmSvpDirection,
+        ciscoAtmSvcDirection
+    }
+    STATUS    deprecated
+    DESCRIPTION
+    ""
+    ::= { ciscoAtmConnMIBGroups 1 }
+
+ciscoAtmConnMIBGroup2  OBJECT-GROUP
+    OBJECTS {
+        ciscoAtmVplUpcViolations,
+        ciscoAtmVplEpdTpdCellDrops,
+        ciscoAtmVplEpdTpdPacketDrops,
+        ciscoAtmVplEpdTpdPacketsIn,
+        ciscoAtmVplClp1Drops,
+        ciscoAtmVplDefaultRxUpcTolerance,
+        ciscoAtmVclUpcViolations,
+        ciscoAtmVclEpdTpdCellDrops,
+        ciscoAtmVclEpdTpdPacketDrops,
+        ciscoAtmVclEpdTpdPacketsIn,
+        ciscoAtmVclClp1Drops,
+        ciscoAtmVclDefaultRxUpcTolerance,
+        ciscoAtmSvcFrameDiscardUsesAal5Ie
+    }
+    STATUS    obsolete 
+    DESCRIPTION
+    ""
+    ::= { ciscoAtmConnMIBGroups 2 }
+
+ciscoAtmConnMIBGroup3  OBJECT-GROUP
+    OBJECTS {
+        ciscoAtmVplDefaultRxUpcTolerance,
+        ciscoAtmVclDefaultRxUpcTolerance,
+        ciscoAtmVplDefaultRxUpcVbrCdvt,
+        ciscoAtmVclDefaultRxUpcVbrCdvt,
+        ciscoAtmSvcFrameDiscardUsesAal5Ie
+    }
+    STATUS    current
+    DESCRIPTION
+    ""
+    ::= { ciscoAtmConnMIBGroups 3 }
+
+ciscoAtmConnMIBlsPerVcqGroup  OBJECT-GROUP
+    OBJECTS {
+        ciscoAtmVplLsPerVcqWrrWeight,
+        ciscoAtmVplLsPerVcqTunnelIsShaped,
+        ciscoAtmVplLsPerVcqXmtQueuedCells,
+        ciscoAtmVplLsPerVcQThreshGrp,
+        ciscoAtmVclLsPerVcqWrrWeight,
+        ciscoAtmVclLsPerVcqXmtQueuedCells,
+        ciscoAtmVclLsPerVcQThreshGrp,
+        ciscoAtmSnoopVcSnoopedIfIndex,
+        ciscoAtmSnoopVcSnoopedVpi,
+        ciscoAtmSnoopVcSnoopedVci,
+        ciscoAtmSnoopVcDir,
+        ciscoAtmSnoopVcState,
+        ciscoAtmSnoopVcRowStatus,
+        ciscoAtmSnoopVpSnoopedIfIndex,
+        ciscoAtmSnoopVpSnoopedVpi,
+        ciscoAtmSnoopVpDir,
+        ciscoAtmSnoopVpState,
+        ciscoAtmSnoopVpRowStatus
+    }
+    STATUS    obsolete
+    DESCRIPTION
+    "A collection of objects which are supported on platforms
+     using the Lightstream per-VC queueing chipset."
+    ::= { ciscoAtmConnMIBGroups 4 }
+
+ciscoAtmConnMIBlsFcPfqGroup OBJECT-GROUP
+    OBJECTS {
+        ciscoAtmVplUpcViolations,
+        ciscoAtmVclUpcViolations,
+        ciscoAtmVclEpdTpdPacketDrops,
+        ciscoAtmVclEpdTpdPacketsIn,
+        ciscoAtmVplInClp0Cells,
+        ciscoAtmVplInClp1Cells,
+        ciscoAtmVplOutClp0Cells,
+        ciscoAtmVplOutClp1Cells,
+        ciscoAtmVplCellDrops,
+        ciscoAtmVplClp0VcqFullCellDrops,
+        ciscoAtmVplVcqClpThreshCellDrops,
+        ciscoAtmVclInClp0Cells,
+        ciscoAtmVclInClp1Cells,
+        ciscoAtmVclOutClp0Cells,
+        ciscoAtmVclOutClp1Cells,
+        ciscoAtmVclCellDrops,
+        ciscoAtmVclClp0VcqFullCellDrops,
+        ciscoAtmVclVcqClpThreshCellDrops
+    }
+    STATUS    deprecated -- susperseded by ciscoAtmConnMIBlsFcPfqGroup1
+    DESCRIPTION
+    "A collection of objects which are supported on LS1010 systems
+     equipped with the FC-PFQ feature card."
+    ::= { ciscoAtmConnMIBGroups 5 }
+
+ciscoAtmConnMIBlsPerVcqGroup2   OBJECT-GROUP
+    OBJECTS {
+        ciscoAtmVplLsPerVcqWrrWeight,
+        ciscoAtmVplLsPerVcqTunnelIsShaped,
+        ciscoAtmVplLsPerVcqTunnelIsHierarchical,
+        ciscoAtmVplLsPerVcqXmtQueuedCells,
+        ciscoAtmVplLsPerVcQThreshGrp,
+        ciscoAtmVclLsPerVcqWrrWeight,
+        ciscoAtmVclLsPerVcqXmtQueuedCells,
+        ciscoAtmVclLsPerVcQThreshGrp,
+        ciscoAtmSnoopVcSnoopedIfIndex,
+        ciscoAtmSnoopVcSnoopedVpi,
+        ciscoAtmSnoopVcSnoopedVci,
+        ciscoAtmSnoopVcDir,
+        ciscoAtmSnoopVcState,
+        ciscoAtmSnoopVcRowStatus,
+        ciscoAtmSnoopVpSnoopedIfIndex,
+        ciscoAtmSnoopVpSnoopedVpi,
+        ciscoAtmSnoopVpDir,
+        ciscoAtmSnoopVpState,
+        ciscoAtmSnoopVpRowStatus
+    }
+    STATUS    current
+    DESCRIPTION
+    "A collection of objects which are supported on platforms
+     using the Lightstream per-VC queueing chipset."
+    ::= { ciscoAtmConnMIBGroups 6 }
+ 
+ciscoAtmConnMIBNegTraffGroup OBJECT-GROUP
+    OBJECTS {
+        ciscoAtmVplRxNegTraffDescrIndex,    
+        ciscoAtmVplTxNegTraffDescrIndex,    
+        ciscoAtmVclRxNegTraffDescrIndex,    
+        ciscoAtmVclTxNegTraffDescrIndex    
+    }
+    STATUS    current
+    DESCRIPTION
+    "A collection of objects to report negotiated traffic parameters
+     on a Cisco ATM switch."
+    ::= { ciscoAtmConnMIBGroups 7 }
+
+ciscoAtmConnMIBlsFcPfqGroup1 OBJECT-GROUP
+    OBJECTS {
+        ciscoAtmVplUpcViolations,
+        ciscoAtmVclUpcViolations,
+        ciscoAtmVclEpdTpdPacketDrops,
+        ciscoAtmVclEpdTpdPacketsIn,
+        ciscoAtmVplInClp0Cells,
+        ciscoAtmVplInClp1Cells,
+        ciscoAtmVplOutClp0Cells,
+        ciscoAtmVplOutClp1Cells,
+        ciscoAtmVplCellDrops,
+        ciscoAtmVplClp0VcqFullCellDrops,
+        ciscoAtmVplVcqClpThreshCellDrops,
+        ciscoAtmVplSwFabOutCells,
+        ciscoAtmVplSwFabOutClp0Cells,
+        ciscoAtmVplSwFabOutClp1Cells,
+        ciscoAtmVclInClp0Cells,
+        ciscoAtmVclInClp1Cells,
+        ciscoAtmVclOutClp0Cells,
+        ciscoAtmVclOutClp1Cells,
+        ciscoAtmVclCellDrops,
+        ciscoAtmVclClp0VcqFullCellDrops,
+        ciscoAtmVclVcqClpThreshCellDrops,
+        ciscoAtmVclSwFabOutCells,
+        ciscoAtmVclSwFabOutClp0Cells,
+        ciscoAtmVclSwFabOutClp1Cells 
+    }
+    STATUS    current
+    DESCRIPTION
+    "A collection of objects which are supported on LS1010 systems
+     equipped with the FC-PFQ feature card."
+    ::= { ciscoAtmConnMIBGroups 8 }
+
+
+ciscoAtmConnMIBGroup1  OBJECT-GROUP
+        OBJECTS { 
+        ciscoAtmVplCastType,
+        ciscoAtmVplSpanType,
+        ciscoAtmVplConfigType,
+        ciscoAtmVplRxUpcMode,
+        ciscoAtmVplConnState,
+        ciscoAtmVplOamLoopbkTxInterval,
+        ciscoAtmVplOamSegmentLoopback,
+        ciscoAtmVplOamEndLoopback,       
+        ciscoAtmVplOamAisEnable,      
+        ciscoAtmVplOamRdiEnable,         
+        ciscoAtmVplInstallTime,         
+        ciscoAtmVplInCells,             
+        ciscoAtmVplOutCells,            
+        ciscoAtmVplCrossIfIndex,  
+        ciscoAtmVplCrossVpi,            
+        ciscoAtmVplNextLeafIfIndex,
+        ciscoAtmVplNextLeafVpi,
+        ciscoAtmVplRemoteAddr,
+        ciscoAtmVplRemoteVpi,
+        ciscoAtmVplLocation,
+        ciscoAtmVplSlowRetryIntv,
+        ciscoAtmVplNumAttempts,
+        ciscoAtmVplLastReleaseCause,
+        ciscoAtmVplLogicalPortDef,
+        ciscoAtmVplLogicalPortIndex,
+        ciscoAtmVplConnName,
+        ciscoAtmVclCastType,
+        ciscoAtmVclSpanType,
+        ciscoAtmVclConfigType,
+        ciscoAtmVclRxUpcMode,
+        ciscoAtmVclEpdEnable,
+        ciscoAtmVclConnState,
+        ciscoAtmVclOamLoopbkTxInterval,
+        ciscoAtmVclOamSegmentLoopback,
+        ciscoAtmVclOamEndLoopback,
+        ciscoAtmVclOamAisEnable,
+        ciscoAtmVclOamRdiEnable,
+        ciscoAtmVclInstallTime,
+        ciscoAtmVclInCells,
+        ciscoAtmVclOutCells,
+        ciscoAtmVclCrossIfIndex,
+        ciscoAtmVclCrossVpi,
+        ciscoAtmVclCrossVci,
+        ciscoAtmVclNextLeafIfIndex,
+        ciscoAtmVclNextLeafVpi,
+        ciscoAtmVclNextLeafVci,
+        ciscoAtmVclAalEncapFlag,
+        ciscoAtmVclAalEncapProtocol,
+        ciscoAtmVclAalUserVcType,
+        ciscoAtmVclAtmInArpInterval,
+        ciscoAtmVclRemoteAddr,
+        ciscoAtmVclRemoteVpi,
+        ciscoAtmVclRemoteVci,
+        ciscoAtmVclLocation,
+        ciscoAtmVclSlowRetryIntv,
+        ciscoAtmVclNumAttempts,
+        ciscoAtmVclLastReleaseCause,
+        ciscoAtmVclConnName,
+        ciscoAtmSvpDirection,
+        ciscoAtmSvcDirection
+    }
+    STATUS    deprecated
+    DESCRIPTION
+    ""
+    ::= { ciscoAtmConnMIBGroups 9 }
+
+
+ciscoAtmConnMIBGroup4  OBJECT-GROUP
+        OBJECTS { 
+        ciscoAtmVplCastType,
+        ciscoAtmVplSpanType,
+        ciscoAtmVplConfigType,
+        ciscoAtmVplRxUpcMode,
+        ciscoAtmVplConnState,
+        ciscoAtmVplOamLoopbkTxInterval,
+        ciscoAtmVplOamSegmentLoopback,
+        ciscoAtmVplOamEndLoopback,       
+        ciscoAtmVplOamAisEnable,      
+        ciscoAtmVplOamRdiEnable,         
+        ciscoAtmVplInstallTime,         
+        ciscoAtmVplInCells,             
+        ciscoAtmVplOutCells,            
+        ciscoAtmVplCrossIfIndex,  
+        ciscoAtmVplCrossVpi,            
+        ciscoAtmVplNextLeafIfIndex,
+        ciscoAtmVplNextLeafVpi,
+        ciscoAtmVplRemoteAddr,
+        ciscoAtmVplRemoteVpi,
+        ciscoAtmVplLocation,
+        ciscoAtmVplSlowRetryIntv,
+        ciscoAtmVplNumAttempts,
+        ciscoAtmVplLastReleaseCause,
+        ciscoAtmVplLogicalPortDef,
+        ciscoAtmVplLogicalPortIndex,
+        ciscoAtmVclCastType,
+        ciscoAtmVclSpanType,
+        ciscoAtmVclConfigType,
+        ciscoAtmVclRxUpcMode,
+        ciscoAtmVclEpdEnable,
+        ciscoAtmVclConnState,
+        ciscoAtmVclOamLoopbkTxInterval,
+        ciscoAtmVclOamSegmentLoopback,
+        ciscoAtmVclOamEndLoopback,
+        ciscoAtmVclOamAisEnable,
+        ciscoAtmVclOamRdiEnable,
+        ciscoAtmVclInstallTime,
+        ciscoAtmVclInCells,
+        ciscoAtmVclOutCells,
+        ciscoAtmVclCrossIfIndex,
+        ciscoAtmVclCrossVpi,
+        ciscoAtmVclCrossVci,
+        ciscoAtmVclNextLeafIfIndex,
+        ciscoAtmVclNextLeafVpi,
+        ciscoAtmVclNextLeafVci,
+        ciscoAtmVclAalEncapFlag,
+        ciscoAtmVclAalEncapProtocol,
+        ciscoAtmVclAalUserVcType,
+        ciscoAtmVclAtmInArpInterval,
+        ciscoAtmVclRemoteAddr,
+        ciscoAtmVclRemoteVpi,
+        ciscoAtmVclRemoteVci,
+        ciscoAtmVclLocation,
+        ciscoAtmVclSlowRetryIntv,
+        ciscoAtmVclNumAttempts,
+        ciscoAtmVclLastReleaseCause,
+        ciscoAtmSvpDirection,
+        ciscoAtmSvcDirection
+    }
+    STATUS    current
+    DESCRIPTION
+    ""
+    ::= { ciscoAtmConnMIBGroups 10 }
+
+ciscoAtmConnNmsGroup  OBJECT-GROUP
+     OBJECTS { 
+        ciscoAtmVplConnName,   
+        ciscoAtmVplConnType,
+        ciscoAtmVclConnName,   
+        ciscoAtmVclConnType
+    } 
+    STATUS    current
+    DESCRIPTION
+    "A group of objects that provides additional information
+     for a management system"
+    ::= { ciscoAtmConnMIBGroups 11 }
+END

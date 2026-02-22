@@ -1,0 +1,1861 @@
+-- *******************************************************************
+-- CISCO-LWAPP-TUNNEL-MIB.my
+-- 2014, Ramachandra Murthy
+-- Copyright (c) 2014, 2016-2019 by Cisco Systems Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-TUNNEL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    MacAddress,
+    RowStatus,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    Unsigned64
+        FROM CISCO-TC
+    cLApIfMacAddress
+        FROM CISCO-LWAPP-AP-MIB
+    cLWlanIndex
+        FROM CISCO-LWAPP-WLAN-MIB
+    cLWlanWlanPolicyName
+        FROM CISCO-LWAPP-WLAN-POLICY-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappTunnelMIB MODULE-IDENTITY
+    LAST-UPDATED    "201906030000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            Email: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central Controllers (CC) that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Light-weight LWAPP Access Points.
+
+        This MIB provides configuration and status information
+        about local mobility anchor to which the controller has
+        the joined.
+
+        The relationship between CC and the LWAPP APs
+        can be depicted as follows:
+
+        +......+     +......+     +......+           +......+
+        +      +     +      +     +      +           +      +
+        +  LMA +     + LMA  +     + LMA  +           + LMA  +
+        +      +     +      +     +      +           +      +
+        +......+     +......+     +......+           +......+
+        ..            .             .                 .
+        ..            .             .                 .
+        .  .            .             .                 .
+        .    .            .             .                 .
+        .      .            .             .                 .
+        .        .            .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  WLC + + WLC  +     + WLC  +      + WLC  +          + WLC  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+        .              .             .                 .
+        .  .              .             .                 .
+        .    .              .             .                 .
+        .      .              .             .                 .
+        .        .              .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+        .              .             .                 .
+        .  .              .             .                 .
+        .    .              .             .                 .
+        .      .              .             .                 .
+        .        .              .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+
+
+        The LWAPP tunnel exists between the controller and
+        the APs.  The MNs communicate with the APs through
+        the protocol defined by the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the
+        controllers and the controller pushes the configuration,
+        that includes the WLAN parameters, to the LWAPP APs.
+        The APs then encapsulate all the 802.11 frames from
+        wireless clients inside LWAPP frames and forward
+        the LWAPP frames to the controller.
+
+                           GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends it to the controller to which
+        it is logically connected.
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity also referred to as 'controller'.
+
+        Light Weight Access Point Protocol ( LWAPP )
+
+        This is a generic protocol that defines the
+        communication between the Access Points and the
+        Central Controller.
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point.
+
+        Gateway
+
+        Service provider node which assigns IP and maintains the
+        tunneled clients.
+
+        Tunnel
+
+        Connection from Wireless LAN controller to the Gateway.
+        Tunnel establishment from WLC and TGW(Tunnel Gateway),
+        in case of Flex-AP, tunnel establishment between
+        AP and TGW.
+
+
+        REFERENCE
+
+        [1] Part 11 Wireless LAN Medium Access Control ( MAC )
+        and Physical Layer ( PHY ) Specifications.
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light
+        Weight Access Point Protocol."
+    REVISION        "201906030000Z"
+    DESCRIPTION
+        "Created:
+        - ciscoLwappTunnelMIBComplianceRev5
+        - cLTunnelConfigGroupRev3
+        - cLGatewayTunnelSourceInterface
+        - clGatewayDomainAdminStatus
+        - clGatewayDomainRedundancyModel
+        - clGatewayProfileAdminStatus
+        - clGatewayProfileAAAOverride
+        Added to clGatewayTunnelEntry and cLTunnelConfigGroupRev3:
+        - cLGatewayTunnelSourceInterface
+        - clGatewayDomainAdminStatus
+        - clGatewayDomainRedundancyModel
+        - clGatewayProfileAdminStatus
+        - clGatewayProfileAAAOverride
+        Added cLTunnelConfigGroupRev3 to
+        ciscoLwappTunnelMIBComplianceRev5"
+    REVISION        "201809060000Z"
+    DESCRIPTION
+        "Added a new module-compliance ciscoLwappTunnelMIBComplianceRev4,
+        new object groups cLGatewayAAAProxyConfigGroup,
+        a new table cLGatewayAAAProxyConfigTable with
+        cLGatewayAAAProxyKey, cLGatewayAAAProxyKeyType,
+        cLGatewayAAAProxyPort, cLGatewayAAAProxyRowStatus to
+        allow for new configuration model of
+        AAA Proxy on gateways.
+        Added a new field clGatewayRuleRealm in CLGatewayRuleTable."
+    REVISION        "201807010000Z"
+    DESCRIPTION
+        "Added a new module-compliance ciscoLwappTunnelMIBComplianceRev3,
+        new object groups clApGatewayTunnelStatsGroup,
+        clGatewayWlanProfileConfigGroup and cLTunnelConfigGroupRev2,
+        a new table cLGatewayWlanProfileConfigTable with
+        cLGatewayWlanProfileTunnelProfile to match new configuration
+        model and clApGatewayTunnelStatsTunnelRxBytes64,
+        clApGatewayTunnelStatsTunnelTxBytes64,
+        clApGatewayTunnelStatsTunnelRxPkts64,
+        clApGatewayTunnelStatsTunnelTxPkts64 in
+        clApGatewayTunnelStatsTable"
+    REVISION        "201802050000Z"
+    DESCRIPTION
+        "Added a new table
+        -cLGatewayWlanConfigTable"
+    REVISION        "201709200000Z"
+    DESCRIPTION
+        "Added clApGatewayTunnelMtu and clApGatewayTunnelFlapCount in
+        ClApGatewayTunnelTable and clGatewayTunnelAdminStatus,
+        clGatewayTunnelMtu and clGatewayTunnelFlapCount
+        clGatewayTunnelTable."
+    REVISION        "201705260000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 848 }
+
+
+ciscoLwappTunnelMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappTunnelMIB 0 }
+
+ciscoLwappTunnelMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappTunnelMIB 1 }
+
+ciscoLwappTunnelMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappTunnelMIB 2 }
+
+ciscoLwappGatewayTunnel  OBJECT IDENTIFIER
+    ::= { ciscoLwappTunnelMIB 3 }
+
+clGatewayGlobalInterface  OBJECT IDENTIFIER
+    ::= { ciscoLwappTunnelMIB 4 }
+
+clGatewayGlobalHeartbeatInterval  OBJECT IDENTIFIER
+    ::= { ciscoLwappTunnelMIB 5 }
+
+clGatewayGlobalHeartbeatMaxSkipCount  OBJECT IDENTIFIER
+    ::= { ciscoLwappTunnelMIB 6 }
+
+clGatewayWlanConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappTunnelMIB 7 }
+
+clGatewayWlanProfileConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappTunnelMIB 8 }
+
+clGatewayAAAProxyConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappTunnelMIB 9 }
+
+
+-- ********************************************************************
+-- * Global configurations
+-- ********************************************************************
+
+cLGatewayInterface OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the source interface to tunnel."
+    DEFVAL          { "management" } 
+    ::= { clGatewayGlobalInterface 1 }
+
+cLGatewayHeartbeatInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the time interval to send
+        echo message."
+    DEFVAL          { 60 } 
+    ::= { clGatewayGlobalHeartbeatInterval 1 }
+
+cLGatewayHeartbeatMaxSkipCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum skip count to send echo
+        message."
+    DEFVAL          { 3 } 
+    ::= { clGatewayGlobalHeartbeatMaxSkipCount 1 }
+-- ********************************************************************
+-- * EoGRE Vlan Override Table
+-- ********************************************************************
+
+cLGatewayWlanConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLGatewayWlanConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the information about Gateway related
+        config on a WLAN."
+    ::= { clGatewayWlanConfig 1 }
+
+cLGatewayWlanConfigEntry OBJECT-TYPE
+    SYNTAX          CLGatewayWlanConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents the configuration
+        attributes of Gateway on a WLAN."
+    INDEX           { cLWlanIndex } 
+    ::= { cLGatewayWlanConfigTable 1 }
+
+CLGatewayWlanConfigEntry ::= SEQUENCE {
+        cLGatewayWlanVlanOverrideEnable TruthValue,
+        cLGatewayWlanVlanId             Unsigned32
+}
+
+cLGatewayWlanVlanOverrideEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the EoGRE Vlan Override status of a
+        WLAN.
+        A value of 'true' indicates that EoGRE Vlan Override is
+        enabled on a WLAN.
+        A value of 'false' indicates that EoGRE Vlan Override is
+        disabled on a WLAN."
+    DEFVAL          { false } 
+    ::= { cLGatewayWlanConfigEntry 1 }
+
+cLGatewayWlanVlanId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Vlan ID of the Vlan in which client
+        traffic needs to be carried."
+    DEFVAL          { 0 } 
+    ::= { cLGatewayWlanConfigEntry 2 }
+ 
+
+-- ********************************************************************
+-- * EoGRE WLAN Profile mapping
+-- ********************************************************************
+
+cLGatewayWlanProfileConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLGatewayWlanProfileConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the information about Gateway Tunnel
+        profile mapping config on a WLAN policy profile. A row will
+        exist in this table for each WLAN policy profile that has a
+        tunnel profile configured"
+    ::= { clGatewayWlanProfileConfig 1 }
+
+cLGatewayWlanProfileConfigEntry OBJECT-TYPE
+    SYNTAX          CLGatewayWlanProfileConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents the configuration
+        attributes of Gateway Tunnel Profile on a WLAN policy
+        profile."
+    INDEX           { cLWlanWlanPolicyName } 
+    ::= { cLGatewayWlanProfileConfigTable 1 }
+
+CLGatewayWlanProfileConfigEntry ::= SEQUENCE {
+        cLGatewayWlanProfileTunnelProfile OCTET STRING
+}
+
+cLGatewayWlanProfileTunnelProfile OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Tunnel Profile to enable on the
+        WLAN policy profile." 
+    ::= { cLGatewayWlanProfileConfigEntry 1 }
+ 
+
+-- ********************************************************************
+-- * EoGRE AAA Proxy Config
+-- ********************************************************************
+
+cLGatewayAAAProxyConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLGatewayAAAProxyConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the configuration details for AAA
+        proxy server on Tunnel Gateway. A row will exist in this
+        table for each Tunnel Gateway that behaves as AAA proxy."
+    ::= { clGatewayAAAProxyConfig 1 }
+
+cLGatewayAAAProxyConfigEntry OBJECT-TYPE
+    SYNTAX          CLGatewayAAAProxyConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents the configuration
+        attributes of Tunnel Gateway AAA Proxy."
+    INDEX           { clGatewayTunnelName } 
+    ::= { cLGatewayAAAProxyConfigTable 1 }
+
+CLGatewayAAAProxyConfigEntry ::= SEQUENCE {
+        cLGatewayAAAProxyKey       SnmpAdminString,
+        cLGatewayAAAProxyRowStatus RowStatus,
+        cLGatewayAAAProxyKeyType   INTEGER,
+        cLGatewayAAAProxyPort      Unsigned32
+}
+
+cLGatewayAAAProxyKey OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the AAA Key for the server on the
+        Tunnel Gateway." 
+    ::= { cLGatewayAAAProxyConfigEntry 1 }
+
+cLGatewayAAAProxyRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to create
+        and delete specific instances of rows in this table." 
+    ::= { cLGatewayAAAProxyConfigEntry 2 }
+
+cLGatewayAAAProxyKeyType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        clear(1),
+                        aes(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the AAA Key Type for the server on the
+        Tunnel Gateway." 
+    ::= { cLGatewayAAAProxyConfigEntry 3 }
+
+cLGatewayAAAProxyPort OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the TCP/UDP port number for the AAA server
+        on the Tunnel Gateway." 
+    ::= { cLGatewayAAAProxyConfigEntry 4 }
+ 
+
+-- ********************************************************************
+-- * Tunnel Gateway Tables
+-- ********************************************************************
+
+clGatewayTunnelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClGatewayTunnelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the list of tunnel gateways configured
+        on WLC."
+    ::= { ciscoLwappGatewayTunnel 1 }
+
+clGatewayTunnelEntry OBJECT-TYPE
+    SYNTAX          ClGatewayTunnelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table. For
+        each tunnel created to the gateway, there will be a row."
+    INDEX           {
+                        clGatewayTunnelName,
+                        clGatewayTunnelType
+                    } 
+    ::= { clGatewayTunnelTable 1 }
+
+ClGatewayTunnelEntry ::= SEQUENCE {
+        clGatewayTunnelName        OCTET STRING,
+        clGatewayTunnelType        INTEGER,
+        clGatewayTunnelAddressType InetAddressType,
+        clGatewayTunnelAddress     InetAddress,
+        clGatewayTunnelStatus      TruthValue,
+        clGatewayTunnelRowStatus   RowStatus,
+        clGatewayTunnelAdminStatus TruthValue,
+        clGatewayTunnelMtu         Unsigned32,
+        clGatewayTunnelFlapCount       Unsigned32,
+        cLGatewayTunnelSourceInterface SnmpAdminString
+}
+
+clGatewayTunnelName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..128))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the name of tunnel gateway." 
+    ::= { clGatewayTunnelEntry 1 }
+
+clGatewayTunnelType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        pmipv6(2),
+                        gtpv2(3),
+                        eogre(4)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of the tunnel gateway.
+        none   - The tunnel is of type unknown.
+        pmipv6 - The tunnel is of type PMIPV6.
+        gtpv2  - The tunnel is of type GTPV2.
+        eogre  - The tunnel is of type EoGRE." 
+    ::= { clGatewayTunnelEntry 2 }
+
+clGatewayTunnelAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address type for tunnel." 
+    ::= { clGatewayTunnelEntry 3 }
+
+clGatewayTunnelAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address of the tunnel gateway." 
+    ::= { clGatewayTunnelEntry 4 }
+
+clGatewayTunnelStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the tunnel status.
+        A value of 'true' indicates that the tunnel is up.
+        A value of 'false' indicates that the tunnel is down."
+    DEFVAL          { false } 
+    ::= { clGatewayTunnelEntry 5 }
+
+clGatewayTunnelRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to create
+        and delete specific instances of rows in this table." 
+    ::= { clGatewayTunnelEntry 6 }
+
+clGatewayTunnelAdminStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents whether the tunnel is enabled to pass
+        WLAN traffic or not. The traffic can reach gateway based on the
+        reachability of gateway.
+        A value of 'true' indicates that the tunnel mapped to WLAN via
+        the profile can  pass WLAN traffic.
+        A value of 'false' indicates that the tunnel mapped to WLAN via
+        the profile cannot pass WLAN traffic."
+    DEFVAL          { false } 
+    ::= { clGatewayTunnelEntry 7 }
+
+clGatewayTunnelMtu OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the MTU of the tunnel between WLC and
+        gateway."
+    DEFVAL          { 1476 } 
+    ::= { clGatewayTunnelEntry 8 }
+
+clGatewayTunnelFlapCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of times the tunnel between
+        WLC and gateway is flapped."
+    DEFVAL          { 0 } 
+    ::= { clGatewayTunnelEntry 9 }
+ 
+cLGatewayTunnelSourceInterface OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the source interface to tunnel.
+        If not set value of cLGatewayInterface will be used."
+    DEFVAL          { "" }
+    ::= { clGatewayTunnelEntry 10 }
+
+
+
+clGatewayDomainTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClGatewayDomainEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the list of domains created, each domain
+        contains maximum of two gateways. At any given time only one
+        gateway is active in a domain."
+    ::= { ciscoLwappGatewayTunnel 2 }
+
+clGatewayDomainEntry OBJECT-TYPE
+    SYNTAX          ClGatewayDomainEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents an entry of domain configuration
+        details."
+    INDEX           {
+                        clGatewayDomainName,
+                        clGatewayDomainTunnelType
+                    } 
+    ::= { clGatewayDomainTable 1 }
+
+ClGatewayDomainEntry ::= SEQUENCE {
+        clGatewayDomainName             OCTET STRING,
+        clGatewayDomainTunnelType       INTEGER,
+        clGatewayDomainActiveGateway    OCTET STRING,
+        clGatewayDomainPrimaryGateway   OCTET STRING,
+        clGatewayDomainSecondaryGateway OCTET STRING,
+        clGatewayDomainRowStatus        RowStatus,
+        clGatewayDomainAdminStatus      INTEGER,
+        clGatewayDomainRedundancyModel  INTEGER
+}
+
+clGatewayDomainName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..128))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents name of the domain." 
+    ::= { clGatewayDomainEntry 1 }
+
+clGatewayDomainTunnelType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        pmipv6(2),
+                        gtpv2(3),
+                        eogre(4)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents type of the gateway tunnel that
+        domain contains.
+        none   - The tunnel is of type unknown.
+        pmipv6 - The tunnel is of type PMIPV6.
+        gtpv2  - The tunnel is of type GTPV2.
+        eogre  - The tunnel is of type EoGRE." 
+    ::= { clGatewayDomainEntry 2 }
+
+clGatewayDomainActiveGateway OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents name of the active gateway
+        in the domain." 
+    ::= { clGatewayDomainEntry 3 }
+
+clGatewayDomainPrimaryGateway OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the primary gateway of the domain." 
+    ::= { clGatewayDomainEntry 4 }
+
+clGatewayDomainSecondaryGateway OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the secondary gateway of the domain." 
+    ::= { clGatewayDomainEntry 5 }
+
+clGatewayDomainRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to create
+        and delete specific instances of rows in this table." 
+    ::= { clGatewayDomainEntry 6 }
+ 
+clGatewayDomainAdminStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        up(1),
+                        down(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the admin status of tunnel domain."
+    ::= { clGatewayDomainEntry 7 }
+
+clGatewayDomainRedundancyModel OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        nonrevertive(0),
+                        revertive(1)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the tunnel redundancy mode for this domain.
+        nonrevertive - Active tunnel will not switch back on primary
+                       tunnel until next tunnel switchover.
+        revertive    - Active tunnel will switch back on primary
+                       tunnel as soon as it comes up again."
+    ::= { clGatewayDomainEntry 8 }
+
+
+
+clGatewayDomainGatewayListTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClGatewayDomainGatewayListEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the list of gateways attached to
+        the domain. At maximum there will be 2 gateways in domain."
+    ::= { ciscoLwappGatewayTunnel 3 }
+
+clGatewayDomainGatewayListEntry OBJECT-TYPE
+    SYNTAX          ClGatewayDomainGatewayListEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table.
+        For each gateway added to the domain will be a row."
+    INDEX           {
+                        clGatewayDomainName,
+                        clGatewayDomainTunnelType,
+                        clGatewayTunnelName
+                    } 
+    ::= { clGatewayDomainGatewayListTable 1 }
+
+ClGatewayDomainGatewayListEntry ::= SEQUENCE {
+        clGatewayDomainGatewayListRowStatus RowStatus
+}
+
+clGatewayDomainGatewayListRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to create
+        and delete specific instances of rows in this table." 
+    ::= { clGatewayDomainGatewayListEntry 1 }
+ 
+
+
+clGatewayProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClGatewayProfileEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the list of profiles created. Rules are
+        attached to the profile. Maximum rules attached to per
+        profile is 32."
+    ::= { ciscoLwappGatewayTunnel 4 }
+
+clGatewayProfileEntry OBJECT-TYPE
+    SYNTAX          ClGatewayProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table.
+        For each profile there will be a row."
+    INDEX           { clGatewayProfileName } 
+    ::= { clGatewayProfileTable 1 }
+
+ClGatewayProfileEntry ::= SEQUENCE {
+        clGatewayProfileName                  OCTET STRING,
+        clGatewayProfileDhcpOpt82Status       TruthValue,
+        clGatewayProfileDhcpOpt82Format       Unsigned32,
+        clGatewayProfileDhcpOpt82Delimiter    OCTET STRING,
+        clGatewayProfileCircuitId             OCTET STRING,
+        clGatewayProfileRemoteId              OCTET STRING,
+        clGatewayProfileRadiusProxyStatus     TruthValue,
+        clGatewayProfileRadiusProxyAccounting TruthValue,
+        clGatewayProfileRowStatus             RowStatus,
+        clGatewayProfileAdminStatus           INTEGER,
+        clGatewayProfileAAAOverride           TruthValue
+}
+
+clGatewayProfileName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..128))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents name of the gateway profile." 
+    ::= { clGatewayProfileEntry 1 }
+
+clGatewayProfileDhcpOpt82Status OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies status of DHCP option 82
+        of the profile.
+        A value of 'true' indicates that DHCP option 82 is enabled.
+        A value of 'false' indicates that DHCP option 82 is disabled."
+    DEFVAL          { false } 
+    ::= { clGatewayProfileEntry 2 }
+
+clGatewayProfileDhcpOpt82Format OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies binary or ASCII format
+        of the DHCP data." 
+    ::= { clGatewayProfileEntry 3 }
+
+clGatewayProfileDhcpOpt82Delimiter OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies delimiter between the attributes
+        of DHCP option." 
+    ::= { clGatewayProfileEntry 4 }
+
+clGatewayProfileCircuitId OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies of circuit-id attributes per profile.
+        Maximum circuit-id per profile supported is 5." 
+    ::= { clGatewayProfileEntry 5 }
+
+clGatewayProfileRemoteId OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies of remote-id attributes per profile.
+        Maximum remote-id per profile supported is 5." 
+    ::= { clGatewayProfileEntry 6 }
+
+clGatewayProfileRadiusProxyStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies status of gateway radius proxy
+        of the profile.
+        A value of 'true' indicates that radius proxy is enabled.
+        A value of 'false' indicates that radius proxy is disabled."
+    DEFVAL          { false } 
+    ::= { clGatewayProfileEntry 7 }
+
+clGatewayProfileRadiusProxyAccounting OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies status of gateway radius proxy
+        accounting of the profile.
+        A value of 'true' indicates that accounting is enabled
+        on radius proxy.
+        A value of 'false' indicates that accounting is disabled
+        on radius proxy."
+    DEFVAL          { false } 
+    ::= { clGatewayProfileEntry 8 }
+
+clGatewayProfileRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to create
+        and delete specific instances of rows in this table." 
+    ::= { clGatewayProfileEntry 9 }
+ 
+clGatewayProfileAdminStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        up(1),
+                        down(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the admin status of tunnel profile."
+    ::= { clGatewayProfileEntry 10 }
+
+clGatewayProfileAAAOverride OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of AAA-override.
+        A value of 'true' indicates that AAA-override is enabled.
+        A value of 'false' indicates that AAA-override is disabled."
+    DEFVAL          { false }
+    ::= { clGatewayProfileEntry 11 }
+
+
+
+clGatewayRuleTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClGatewayRuleEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the list of rules created. Rules are
+        attached to the profile."
+    ::= { ciscoLwappGatewayTunnel 5 }
+
+clGatewayRuleEntry OBJECT-TYPE
+    SYNTAX          ClGatewayRuleEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table.
+        For each rule a row will be created."
+    INDEX           {
+                        clGatewayProfileName,
+                        clGatewayRuleName
+                    } 
+    ::= { clGatewayRuleTable 1 }
+
+ClGatewayRuleEntry ::= SEQUENCE {
+        clGatewayRuleName       OCTET STRING,
+        clGatewayRuleTunnelType INTEGER,
+        clGatewayRuleVlanId     Unsigned32,
+        clGatewayRuleDomainName OCTET STRING,
+        clGatewayRuleRowStatus  RowStatus,
+        clGatewayRuleRealm      SnmpAdminString
+}
+
+clGatewayRuleName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..128))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents name of the gateway rule, which is
+        applied to profile." 
+    ::= { clGatewayRuleEntry 1 }
+
+clGatewayRuleTunnelType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        pmipv6(2),
+                        gtpv2(3),
+                        eogre(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies type of the gateway tunnel.
+        none   - The tunnel is of type unknown.
+        pmipv6 - The tunnel is of type PMIPV6.
+        gtpv2  - The tunnel is of type GTPV2.
+        eogre  - The tunnel is of type EoGRE." 
+    ::= { clGatewayRuleEntry 2 }
+
+clGatewayRuleVlanId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies vlan attached to rule." 
+    ::= { clGatewayRuleEntry 3 }
+
+clGatewayRuleDomainName OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies domain attached to the rule." 
+    ::= { clGatewayRuleEntry 4 }
+
+clGatewayRuleRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to create
+        and delete specific instances of rows in this table." 
+    ::= { clGatewayRuleEntry 5 }
+
+clGatewayRuleRealm OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This objects represents the pattern used to match client reams,
+        in order to classify them." 
+    ::= { clGatewayRuleEntry 6 }
+ 
+
+-- *********************************************************************
+-- * AP Tunnel Gateway Table
+-- *********************************************************************
+
+clApGatewayTunnelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClApGatewayTunnelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the list of tunnel gateways on flexconnect
+        AP."
+    ::= { ciscoLwappGatewayTunnel 6 }
+
+clApGatewayTunnelEntry OBJECT-TYPE
+    SYNTAX          ClApGatewayTunnelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table.
+        For each tunnel created to the gateway per flexconnect AP,
+        there will be a row."
+    INDEX           {
+                        cLApIfMacAddress,
+                        clGatewayTunnelName
+                    } 
+    ::= { clApGatewayTunnelTable 1 }
+
+ClApGatewayTunnelEntry ::= SEQUENCE {
+        clApGatewayTunnelStatus      TruthValue,
+        clApGatewayTunnelClientCount Unsigned32,
+        clApGatewayTunnelMtu         Unsigned32,
+        clApGatewayTunnelFlapCount   Unsigned32
+}
+
+clApGatewayTunnelStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the tunnel status of the flexconnect AP.
+        A value of 'true' indicates that tunnel is enabled.
+        A value of 'false' indicates that tunnel is disabled."
+    DEFVAL          { false } 
+    ::= { clApGatewayTunnelEntry 1 }
+
+clApGatewayTunnelClientCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total client count per gateway
+        in flexconnect AP."
+    DEFVAL          { 0 } 
+    ::= { clApGatewayTunnelEntry 2 }
+
+clApGatewayTunnelMtu OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the MTU of the gateway
+        in flexconnect AP."
+    DEFVAL          { 1476 } 
+    ::= { clApGatewayTunnelEntry 3 }
+
+clApGatewayTunnelFlapCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of time the gateway tunnel
+        is flapped in flexconnect AP."
+    DEFVAL          { 0 } 
+    ::= { clApGatewayTunnelEntry 4 }
+ 
+
+-- *********************************************************************
+-- * AP Tunnel Domain Table
+-- *********************************************************************
+
+clApGatewayDomainTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClApGatewayDomainEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the list of domains created on AP which
+        contains gateways. Maximum gateways in domain is 2. At anytime
+        only one gateway is active in the domain."
+    ::= { ciscoLwappGatewayTunnel 7 }
+
+clApGatewayDomainEntry OBJECT-TYPE
+    SYNTAX          ClApGatewayDomainEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table.
+        For each domain created will be a row."
+    INDEX           {
+                        cLApIfMacAddress,
+                        clGatewayDomainName
+                    } 
+    ::= { clApGatewayDomainTable 1 }
+
+ClApGatewayDomainEntry ::= SEQUENCE {
+        clApGatewayDomainActiveGateway OCTET STRING
+}
+
+clApGatewayDomainActiveGateway OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents name of the active gateway
+        in the domain." 
+    ::= { clApGatewayDomainEntry 1 }
+ 
+
+
+clGatewayTunnelStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClGatewayTunnelStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the list of tunnel gateways statistics.
+        Statistics include per gateway informations like gateway
+        up time, gateway heartbeat information and total number of
+        clients connected to the gateway."
+    ::= { ciscoLwappGatewayTunnel 8 }
+
+clGatewayTunnelStatsEntry OBJECT-TYPE
+    SYNTAX          ClGatewayTunnelStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table.
+        For each tunnel created to the gateway, there will be a row."
+    INDEX           {
+                        clGatewayTunnelName,
+                        clGatewayTunnelType
+                    } 
+    ::= { clGatewayTunnelStatsTable 1 }
+
+ClGatewayTunnelStatsEntry ::= SEQUENCE {
+        clGatewayTunnelStatsClientCount   Unsigned32,
+        clGatewayTunnelStatsTunnelUpTime  Unsigned32,
+        clGatewayTunnelStatsKeepaliveLoss Unsigned32,
+        clGatewayTunnelStatsTunnelRxBytes Unsigned64,
+        clGatewayTunnelStatsTunnelTxBytes Unsigned64,
+        clGatewayTunnelStatsTunnelRxPkts  Unsigned64,
+        clGatewayTunnelStatsTunnelTxPkts  Unsigned64
+}
+
+clGatewayTunnelStatsClientCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents total number of clients connected
+        to the gateway tunnel." 
+    ::= { clGatewayTunnelStatsEntry 1 }
+
+clGatewayTunnelStatsTunnelUpTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents up time of gateway in seconds." 
+    ::= { clGatewayTunnelStatsEntry 2 }
+
+clGatewayTunnelStatsKeepaliveLoss OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of keep alive message
+        lost per gateway." 
+    ::= { clGatewayTunnelStatsEntry 3 }
+
+clGatewayTunnelStatsTunnelRxBytes OBJECT-TYPE
+    SYNTAX          Unsigned64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of bytes
+        received per gateway." 
+    ::= { clGatewayTunnelStatsEntry 4 }
+
+clGatewayTunnelStatsTunnelTxBytes OBJECT-TYPE
+    SYNTAX          Unsigned64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of bytes
+        transmitted per gateway." 
+    ::= { clGatewayTunnelStatsEntry 5 }
+
+clGatewayTunnelStatsTunnelRxPkts OBJECT-TYPE
+    SYNTAX          Unsigned64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of packets
+        received per gateway." 
+    ::= { clGatewayTunnelStatsEntry 6 }
+
+clGatewayTunnelStatsTunnelTxPkts OBJECT-TYPE
+    SYNTAX          Unsigned64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of packets
+        transmitted per gateway." 
+    ::= { clGatewayTunnelStatsEntry 7 }
+ 
+
+
+clApGatewayTunnelStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClApGatewayTunnelStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the list of AP tunnel gateways
+        statistics."
+    ::= { ciscoLwappGatewayTunnel 9 }
+
+clApGatewayTunnelStatsEntry OBJECT-TYPE
+    SYNTAX          ClApGatewayTunnelStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table.
+        For each tunnel created to the gateway,
+        there will be a row."
+    INDEX           {
+                        cLApIfMacAddress,
+                        clGatewayTunnelName
+                    } 
+    ::= { clApGatewayTunnelStatsTable 1 }
+
+ClApGatewayTunnelStatsEntry ::= SEQUENCE {
+        clApGatewayTunnelStatsTunnelUpTime    Unsigned32,
+        clApGatewayTunnelStatsKeepaliveLoss   Unsigned32,
+        clApGatewayTunnelStatsTunnelRxBytes   Unsigned32,
+        clApGatewayTunnelStatsTunnelTxBytes   Unsigned32,
+        clApGatewayTunnelStatsTunnelRxPkts    Unsigned32,
+        clApGatewayTunnelStatsTunnelTxPkts    Unsigned32,
+        clApGatewayTunnelStatsTunnelRxBytes64 Unsigned64,
+        clApGatewayTunnelStatsTunnelTxBytes64 Unsigned64,
+        clApGatewayTunnelStatsTunnelRxPkts64  Unsigned64,
+        clApGatewayTunnelStatsTunnelTxPkts64  Unsigned64
+}
+
+clApGatewayTunnelStatsTunnelUpTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents up time of gateway in seconds
+        of flexconnect AP." 
+    ::= { clApGatewayTunnelStatsEntry 1 }
+
+clApGatewayTunnelStatsKeepaliveLoss OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of keep alive message
+        lost per gateway in flexconnect AP." 
+    ::= { clApGatewayTunnelStatsEntry 2 }
+
+clApGatewayTunnelStatsTunnelRxBytes OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the total number of bytes
+        received per gateway in flexconnect AP.
+        clApGatewayTunnelStatsTunnelRxBytes object is superseded by clApGatewayTunnelStatsTunnelRxBytes64."
+    ::= { clApGatewayTunnelStatsEntry 3 }
+
+clApGatewayTunnelStatsTunnelTxBytes OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the total number of bytes
+        transmitted per gateway in flexconnect AP.
+        clApGatewayTunnelStatsTunnelTxBytes object is superseded by clApGatewayTunnelStatsTunnelTxBytes64."
+    ::= { clApGatewayTunnelStatsEntry 4 }
+
+clApGatewayTunnelStatsTunnelRxPkts OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the total number of packets
+        received per gateway in flexconnect AP.
+        clApGatewayTunnelStatsTunnelRxPkts object is superseded by clApGatewayTunnelStatsTunnelRxPkts64."
+    ::= { clApGatewayTunnelStatsEntry 5 }
+
+clApGatewayTunnelStatsTunnelTxPkts OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the total number of packets
+        transmitted per gateway in flexconnect AP.
+        clApGatewayTunnelStatsTunnelTxPkts object is superseded by clApGatewayTunnelStatsTunnelTxPkts64."
+    ::= { clApGatewayTunnelStatsEntry 6 }
+
+clApGatewayTunnelStatsTunnelRxBytes64 OBJECT-TYPE
+    SYNTAX          Unsigned64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of bytes
+        received per gateway in flexconnect AP." 
+    ::= { clApGatewayTunnelStatsEntry 7 }
+
+clApGatewayTunnelStatsTunnelTxBytes64 OBJECT-TYPE
+    SYNTAX          Unsigned64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of bytes
+        transmitted per gateway in flexconnect AP." 
+    ::= { clApGatewayTunnelStatsEntry 8 }
+
+clApGatewayTunnelStatsTunnelRxPkts64 OBJECT-TYPE
+    SYNTAX          Unsigned64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of packets
+        received per gateway in flexconnect AP." 
+    ::= { clApGatewayTunnelStatsEntry 9 }
+
+clApGatewayTunnelStatsTunnelTxPkts64 OBJECT-TYPE
+    SYNTAX          Unsigned64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of packets
+        transmitted per gateway in flexconnect AP." 
+    ::= { clApGatewayTunnelStatsEntry 10 }
+ 
+
+
+-- ********************************************************************
+-- *    Notification Objects
+-- ********************************************************************
+
+cLWATunnelStatusChangeReasonCode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        down(1),
+                        up(2),
+                        progress(3)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents tunnel status reason code
+        down        - Tunnel is down
+        up          - Tunnel is up
+        progress    - Client deletion for that tunnel in progress." 
+    ::= { ciscoLwappTunnelMIBObjects 1 }
+
+cLWATunnelGwIPType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the IP address type of tunnel
+        gateway IP." 
+    ::= { ciscoLwappTunnelMIBObjects 2 }
+
+cLWATunnelGwIP OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents tunnel gateway IP." 
+    ::= { ciscoLwappTunnelMIBObjects 3 }
+
+cLWATunnelGwName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents tunnel gateway name." 
+    ::= { ciscoLwappTunnelMIBObjects 4 }
+
+cLWATunnelType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        pmipv6(2),
+                        gtpv2(3),
+                        eogre(4)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents tunnel type.
+        none     - unknown tunnel.
+        pmipv6   - pmipv6 tunnel type .
+        gtpv2    - gtpv2 tunnel type .
+        eogre    - eogre tunnel type." 
+    ::= { ciscoLwappTunnelMIBObjects 5 }
+
+cLWATunnelDomainName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents tunnel domain name." 
+    ::= { ciscoLwappTunnelMIBObjects 6 }
+
+cLWATunnelActiveGwIPType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the IP address type of the
+        active tunnel gateway IP in domain." 
+    ::= { ciscoLwappTunnelMIBObjects 7 }
+
+cLWATunnelActiveGwIP OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents active gateway IP  in domain." 
+    ::= { ciscoLwappTunnelMIBObjects 8 }
+
+cLWATunnelActiveGwName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents active gateway name in domain." 
+    ::= { ciscoLwappTunnelMIBObjects 9 }
+
+cLWATunnelProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents tunnel profile name." 
+    ::= { ciscoLwappTunnelMIBObjects 10 }
+
+cLWATunnelRealm OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents realm of the user.
+        eg. In airtel@a.com username, a.com is realm of the user" 
+    ::= { ciscoLwappTunnelMIBObjects 11 }
+
+cLWATunnelVlanId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents tunnel vlan Id." 
+    ::= { ciscoLwappTunnelMIBObjects 12 }
+
+cLWATunnelClientMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the MAC address of the
+        client for this entry." 
+    ::= { ciscoLwappTunnelMIBObjects 13 }
+
+cLWATunnelClientTypeChangeReasonCode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        staticProfile(1),
+                        aaaOveride(2),
+                        dot1xAuthentication(3),
+                        mobilityHandoff(4)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents client type change from simple to EoGRE.
+        staticProfile       - This indicates WLAN static profile is
+                              applied.
+        AAAOveride          - This indicates that AAA override
+                              parameters are applied.
+        dot1xAuthentication - This indicates that dot1x authentication
+                              is completed.
+        mobilityHandoff     - This indicates that mobility handoff
+                              has happened." 
+    ::= { ciscoLwappTunnelMIBObjects 14 }
+
+-- ********************************************************************
+-- *    Notifications
+-- ********************************************************************
+
+cLWATunnelStatusChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        cLWATunnelGwName,
+                        cLWATunnelGwIPType,
+                        cLWATunnelGwIP,
+                        cLWATunnelType,
+                        cLWATunnelStatusChangeReasonCode
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when Tunnel status Changes."
+   ::= { ciscoLwappTunnelMIBNotifs 1 }
+
+cLWATunnelDomainStatusChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        cLWATunnelDomainName,
+                        cLWATunnelType,
+                        cLWATunnelActiveGwIPType,
+                        cLWATunnelActiveGwIP,
+                        cLWATunnelActiveGwName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when Active Gateway
+        is changed in a Domain."
+   ::= { ciscoLwappTunnelMIBNotifs 2 }
+
+cLWATunnelClientTypeChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        cLWATunnelClientMacAddress,
+                        cLWATunnelProfileName,
+                        cLWATunnelRealm,
+                        cLWATunnelVlanId,
+                        cLWATunnelDomainName,
+                        cLWATunnelType,
+                        cLWATunnelActiveGwIPType,
+                        cLWATunnelActiveGwIP,
+                        cLWATunnelActiveGwName,
+                        cLWATunnelClientTypeChangeReasonCode
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when client type is
+        marked as eogre tunnel user."
+   ::= { ciscoLwappTunnelMIBNotifs 3 }
+-- *******************************************************************
+-- *    Compliance statements
+-- *******************************************************************
+
+ciscoLwappTunnelMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappTunnelMIBConform 1 }
+
+ciscoLwappTunnelMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappTunnelMIBConform 2 }
+
+
+ciscoLwappTunnelMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappTunnelMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cLTunnelConfigGroup,
+                        cLTunnelNotificationObjectsGroup,
+                        cLTunnelNotificationGroup
+                    }
+    ::= { ciscoLwappTunnelMIBCompliances 1 }
+
+ciscoLwappTunnelMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappTunnelMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cLTunnelConfigGroup,
+                        cLTunnelNotificationObjectsGroup,
+                        cLTunnelNotificationGroup,
+                        cLTunnelConfigGroupRev1
+                    }
+    ::= { ciscoLwappTunnelMIBCompliances 2 }
+
+ciscoLwappTunnelMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappTunnelMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cLTunnelConfigGroup,
+                        cLTunnelNotificationObjectsGroup,
+                        cLTunnelNotificationGroup,
+                        cLTunnelConfigGroupRev1,
+                        clGatewayWlanConfigGroup
+                    }
+    ::= { ciscoLwappTunnelMIBCompliances 3 }
+
+ciscoLwappTunnelMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappTunnelMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cLTunnelConfigGroupRev2,
+                        cLTunnelNotificationObjectsGroup,
+                        cLTunnelNotificationGroup,
+                        clGatewayWlanProfileConfigGroup,
+                        cLTunnelConfigGroupRev1
+                    }
+    ::= { ciscoLwappTunnelMIBCompliances 4 }
+
+ciscoLwappTunnelMIBComplianceRev4 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappTunnelMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cLTunnelConfigGroupRev2,
+                        cLTunnelNotificationObjectsGroup,
+                        cLTunnelNotificationGroup,
+                        clGatewayWlanProfileConfigGroup,
+                        cLGatewayAAAProxyConfigGroup,
+                        cLTunnelConfigGroupRev1
+                    }
+    ::= { ciscoLwappTunnelMIBCompliances 5 }
+
+ciscoLwappTunnelMIBComplianceRev5 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappTunnelMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cLTunnelConfigGroupRev3,
+                        cLTunnelNotificationObjectsGroup,
+                        cLTunnelNotificationGroup,
+                        clGatewayWlanProfileConfigGroup,
+                        cLGatewayAAAProxyConfigGroup,
+                        cLTunnelConfigGroupRev1
+                    }
+    ::= { ciscoLwappTunnelMIBCompliances 6 }
+
+-- *******************************************************************
+-- *    Units of conformance
+-- *******************************************************************
+
+cLTunnelConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        clGatewayTunnelAddressType,
+                        clGatewayTunnelAddress,
+                        clGatewayTunnelStatus,
+                        clGatewayTunnelRowStatus,
+                        clGatewayDomainActiveGateway,
+                        clGatewayDomainRowStatus,
+                        clGatewayDomainGatewayListRowStatus,
+                        clGatewayProfileDhcpOpt82Status,
+                        clGatewayProfileDhcpOpt82Format,
+                        clGatewayProfileDhcpOpt82Delimiter,
+                        clGatewayProfileCircuitId,
+                        clGatewayProfileRemoteId,
+                        clGatewayProfileRadiusProxyStatus,
+                        clGatewayProfileRadiusProxyAccounting,
+                        clGatewayProfileRowStatus,
+                        clGatewayRuleTunnelType,
+                        clGatewayRuleVlanId,
+                        clGatewayRuleDomainName,
+                        clGatewayRuleRowStatus,
+                        clApGatewayTunnelStatus,
+                        clApGatewayTunnelClientCount,
+                        clApGatewayDomainActiveGateway,
+                        cLGatewayInterface,
+                        cLGatewayHeartbeatInterval,
+                        cLGatewayHeartbeatMaxSkipCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which can
+        be configured to control Tunnel parameters."
+    ::= { ciscoLwappTunnelMIBGroups 1 }
+
+cLTunnelNotificationObjectsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLWATunnelStatusChangeReasonCode,
+                        cLWATunnelGwName,
+                        cLWATunnelGwIPType,
+                        cLWATunnelGwIP,
+                        cLWATunnelType,
+                        cLWATunnelDomainName,
+                        cLWATunnelActiveGwIPType,
+                        cLWATunnelActiveGwIP,
+                        cLWATunnelActiveGwName,
+                        cLWATunnelProfileName,
+                        cLWATunnelClientMacAddress,
+                        cLWATunnelRealm,
+                        cLWATunnelVlanId,
+                        cLWATunnelClientTypeChangeReasonCode,
+                        clGatewayTunnelStatsClientCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of notifications about the
+        Tunnels behavior on controller"
+    ::= { ciscoLwappTunnelMIBGroups 2 }
+
+cLTunnelNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cLWATunnelStatusChange,
+                        cLWATunnelDomainStatusChange,
+                        cLWATunnelClientTypeChange
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of notifications groups thats
+        about tunnels behaviors on controller"
+    ::= { ciscoLwappTunnelMIBGroups 3 }
+
+cLTunnelConfigGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        clGatewayTunnelAdminStatus,
+                        clGatewayTunnelMtu,
+                        clGatewayTunnelFlapCount,
+                        clApGatewayTunnelMtu,
+                        clApGatewayTunnelFlapCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which can
+        be configured to control Tunnel parameters."
+    ::= { ciscoLwappTunnelMIBGroups 4 }
+
+clGatewayWlanConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLGatewayWlanVlanOverrideEnable,
+                        cLGatewayWlanVlanId
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which can
+        be configured to control WLAN parameters of a gateway."
+    ::= { ciscoLwappTunnelMIBGroups 5 }
+
+cLTunnelConfigGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        clGatewayTunnelAddressType,
+                        clGatewayTunnelAddress,
+                        clGatewayTunnelStatus,
+                        clGatewayTunnelRowStatus,
+                        clGatewayDomainActiveGateway,
+                        clGatewayDomainPrimaryGateway,
+                        clGatewayDomainSecondaryGateway,
+                        clGatewayDomainRowStatus,
+                        clGatewayProfileDhcpOpt82Status,
+                        clGatewayProfileDhcpOpt82Format,
+                        clGatewayProfileDhcpOpt82Delimiter,
+                        clGatewayProfileCircuitId,
+                        clGatewayProfileRemoteId,
+                        clGatewayProfileRadiusProxyStatus,
+                        clGatewayProfileRadiusProxyAccounting,
+                        clGatewayProfileRowStatus,
+                        clGatewayRuleTunnelType,
+                        clGatewayRuleVlanId,
+                        clGatewayRuleDomainName,
+                        clGatewayRuleRowStatus,
+                        clApGatewayTunnelStatus,
+                        clApGatewayTunnelClientCount,
+                        clApGatewayDomainActiveGateway,
+                        cLGatewayInterface,
+                        cLGatewayHeartbeatInterval,
+                        cLGatewayHeartbeatMaxSkipCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which can
+        be configured to control Tunnel parameters."
+    ::= { ciscoLwappTunnelMIBGroups 6 }
+
+clGatewayWlanProfileConfigGroup OBJECT-GROUP
+    OBJECTS         { cLGatewayWlanProfileTunnelProfile }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which can be
+        configured to control WLAN policy parameters
+        of a gateway."
+    ::= { ciscoLwappTunnelMIBGroups 7 }
+
+clApGatewayTunnelStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        clApGatewayTunnelStatsTunnelRxBytes64,
+                        clApGatewayTunnelStatsTunnelTxBytes64,
+                        clApGatewayTunnelStatsTunnelRxPkts64,
+                        clApGatewayTunnelStatsTunnelTxPkts64
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which can be read
+        to obtain statistics of a gateway on an access point."
+    ::= { ciscoLwappTunnelMIBGroups 8 }
+
+cLGatewayAAAProxyConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLGatewayAAAProxyKey,
+                        cLGatewayAAAProxyKeyType,
+                        cLGatewayAAAProxyRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which can be
+        defined to control AAA proxy configuration
+        of a gateway."
+    ::= { ciscoLwappTunnelMIBGroups 9 }
+
+cLTunnelConfigGroupRev3 OBJECT-GROUP
+    OBJECTS         {
+                        clGatewayTunnelAddressType,
+                        clGatewayTunnelAddress,
+                        clGatewayTunnelStatus,
+                        clGatewayTunnelAdminStatus,
+                        cLGatewayTunnelSourceInterface,
+                        clGatewayTunnelRowStatus,
+                        clGatewayDomainActiveGateway,
+                        clGatewayDomainPrimaryGateway,
+                        clGatewayDomainSecondaryGateway,
+                        clGatewayDomainAdminStatus,
+                        clGatewayDomainRedundancyModel,
+                        clGatewayDomainRowStatus,
+                        clGatewayProfileDhcpOpt82Status,
+                        clGatewayProfileDhcpOpt82Format,
+                        clGatewayProfileDhcpOpt82Delimiter,
+                        clGatewayProfileCircuitId,
+                        clGatewayProfileRemoteId,
+                        clGatewayProfileRadiusProxyStatus,
+                        clGatewayProfileRadiusProxyAccounting,
+                        clGatewayProfileRowStatus,
+                        clGatewayProfileAdminStatus,
+                        clGatewayProfileAAAOverride,
+                        clGatewayRuleTunnelType,
+                        clGatewayRuleVlanId,
+                        clGatewayRuleDomainName,
+                        clGatewayRuleRowStatus,
+                        clApGatewayTunnelStatus,
+                        clApGatewayTunnelClientCount,
+                        clApGatewayDomainActiveGateway,
+                        cLGatewayInterface,
+                        cLGatewayHeartbeatInterval,
+                        cLGatewayHeartbeatMaxSkipCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which can
+        be configured to control Tunnel parameters."
+    ::= { ciscoLwappTunnelMIBGroups 10 }
+
+END
+
+

@@ -1,0 +1,477 @@
+-- MIB file created 20-Apr-2005 14:54:23, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-ADDRESS-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-ADDRESS-STATS-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    alStatsAddress, alAddressGroup
+            FROM ALTIGA-MIB
+    alAddressMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Gauge, IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaAddressStatsMibModule OBJECT IDENTIFIER ::= { alAddressMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200501250000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga Address Statistics MIB models counters and objects 
+--     that are of management interest for address assignment. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       MIB:        Management Information Base 
+--    
+--  RevDate
+--    200501250000Z
+--  RevDescr
+--    Added tables alAddressStatsPoolTable, 
+--     alAddressStatsPoolGroupTable. 
+--     Added object alAddressStatsHeldAddresses, 
+--     alAddressStatsGrpHeldAddresses, 
+--     alAddressStatsHeldPoolId, 
+--     alAddressStatsHeldAddrIndex, 
+--     alAddressStatsHeldAddress, 
+--     alAddressStatsHeldTimeLeft, 
+--     alAddressStatsHeldReason, 
+--     alAddressStatsGrpHeldId, 
+--     alAddressStatsGrpHeldPoolId, 
+--     alAddressStatsGrpHeldAddrIndex, 
+--     alAddressStatsGrpHeldAddress, 
+--     alAddressStatsGrpHeldTimeLeft, 
+--     alAddressStatsGrpHeldReason.
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alAddressStatsGlobal OBJECT IDENTIFIER ::= { alStatsAddress 1 }
+altigaAddressStatsMibConformance OBJECT IDENTIFIER ::= { altigaAddressStatsMibModule 1 }
+altigaAddressStatsMibCompliances OBJECT IDENTIFIER ::= { altigaAddressStatsMibConformance 1 }
+
+IPAddressHeldReason ::= INTEGER {
+        delayReuse(1),
+        foundInUse(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Definition of reason an IP Address is held for. 
+--       delayReuse - held due to address re-use delay feature 
+--       foundInUse - held because the address is found to 
+--                    be used
+
+alAddressStatsPoolTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlAddressStatsPoolEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The list of trap destinations."
+    ::= { alStatsAddress 2 }
+
+alAddressStatsPoolEntry OBJECT-TYPE
+    SYNTAX AlAddressStatsPoolEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alAddressStatsPoolTable."
+    INDEX { alAddressStatsPoolId }
+    ::= { alAddressStatsPoolTable 1 }
+
+AlAddressStatsPoolEntry ::= SEQUENCE {
+    alAddressStatsPoolId INTEGER,
+    alAddressStatsTotalPoolAddresses INTEGER,
+    alAddressStatsCurrAllocAddresses Gauge,
+    alAddressStatsCurrAvailAddresses Gauge,
+    alAddressStatsMaxAddressesAssigned Gauge,
+    alAddressStatsHeldAddresses Gauge
+    }
+
+alAddressStatsPoolId OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Global Address Pool ID for this entry."
+    ::= { alAddressStatsPoolEntry 1 }
+
+alAddressStatsTotalPoolAddresses OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of legal addresses defined in pool. 
+         This does not include Network and Broadcast addresses."
+    ::= { alAddressStatsPoolEntry 2 }
+
+alAddressStatsCurrAllocAddresses OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of addresses currently assigned."
+    ::= { alAddressStatsPoolEntry 3 }
+
+alAddressStatsCurrAvailAddresses OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of addresses currently available."
+    ::= { alAddressStatsPoolEntry 4 }
+
+alAddressStatsMaxAddressesAssigned OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of addresses currently available."
+    ::= { alAddressStatsPoolEntry 5 }
+
+alAddressStatsHeldAddresses OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of addresses currently held. This reflects 
+         the number of entries in alAddressStatsHeldTable."
+    ::= { alAddressStatsPoolEntry 6 }
+
+alAddressStatsPoolGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlAddressStatsPoolGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The list of trap destinations."
+    ::= { alStatsAddress 3 }
+
+alAddressStatsPoolGroupEntry OBJECT-TYPE
+    SYNTAX AlAddressStatsPoolGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alAddressStatsPoolGroupTable."
+    INDEX { alAddressStatsGrpId, alAddressStatsGrpPoolId }
+    ::= { alAddressStatsPoolGroupTable 1 }
+
+AlAddressStatsPoolGroupEntry ::= SEQUENCE {
+    alAddressStatsGrpId INTEGER,
+    alAddressStatsGrpPoolId INTEGER,
+    alAddressStatsGrpTotalPoolAddresses INTEGER,
+    alAddressStatsGrpCurrAllocAddresses Gauge,
+    alAddressStatsGrpCurrAvailAddresses Gauge,
+    alAddressStatsGrpMaxAddressesAssigned Gauge,
+    alAddressStatsGrpHeldAddresses Gauge
+    }
+
+alAddressStatsGrpId OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Group ID for this entry."
+    ::= { alAddressStatsPoolGroupEntry 1 }
+
+alAddressStatsGrpPoolId OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Group Pool ID for this entry."
+    ::= { alAddressStatsPoolGroupEntry 2 }
+
+alAddressStatsGrpTotalPoolAddresses OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of legal addresses defined in pool. 
+         This does not include Network and Broadcast addresses."
+    ::= { alAddressStatsPoolGroupEntry 3 }
+
+alAddressStatsGrpCurrAllocAddresses OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of addresses currently assigned."
+    ::= { alAddressStatsPoolGroupEntry 4 }
+
+alAddressStatsGrpCurrAvailAddresses OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of addresses currently available."
+    ::= { alAddressStatsPoolGroupEntry 5 }
+
+alAddressStatsGrpMaxAddressesAssigned OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of addresses currently available."
+    ::= { alAddressStatsPoolGroupEntry 6 }
+
+alAddressStatsGrpHeldAddresses OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of addresses currently held. This reflects 
+         the number of entries in alAddressStatsGrpHeldTable."
+    ::= { alAddressStatsPoolGroupEntry 7 }
+
+alAddressStatsHeldTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlAddressStatsHeldEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The list of held IP addresses in the Base group. 
+         The IP addresses in this table are not available 
+         for use. 
+         When an IP address is released from use and if 
+         the re-use delay feature is enabled, the IP address is added 
+         into this table for a configured time period before it can 
+         be used again. An IP address that was discovered to be used 
+         by an external device is also added into this table 
+         for configured time period also. When the timer 
+         expires, the IP address is removed from this table."
+    ::= { alStatsAddress 4 }
+
+alAddressStatsHeldEntry OBJECT-TYPE
+    SYNTAX AlAddressStatsHeldEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alAddressStatsHeldTable."
+    INDEX { alAddressStatsHeldPoolId, alAddressStatsHeldAddrIndex }
+    ::= { alAddressStatsHeldTable 1 }
+
+AlAddressStatsHeldEntry ::= SEQUENCE {
+    alAddressStatsHeldPoolId INTEGER,
+    alAddressStatsHeldAddrIndex INTEGER,
+    alAddressStatsHeldAddress IpAddress,
+    alAddressStatsHeldTimeLeft INTEGER,
+    alAddressStatsHeldReason IPAddressHeldReason
+    }
+
+alAddressStatsHeldPoolId OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Global Address Pool ID for this entry."
+    ::= { alAddressStatsHeldEntry 1 }
+
+alAddressStatsHeldAddrIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The address index for this entry."
+    ::= { alAddressStatsHeldEntry 2 }
+
+alAddressStatsHeldAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address currently being held; not available for assignment."
+    ::= { alAddressStatsHeldEntry 3 }
+
+alAddressStatsHeldTimeLeft OBJECT-TYPE
+    SYNTAX INTEGER(1..65535)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Amount of time left, in second, before the address  
+         can be assigned."
+    ::= { alAddressStatsHeldEntry 4 }
+
+alAddressStatsHeldReason OBJECT-TYPE
+    SYNTAX IPAddressHeldReason
+--    Rsyntax INTEGER {
+--        delayReuse(1),
+--        foundInUse(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object reflects the reason for being held."
+    ::= { alAddressStatsHeldEntry 5 }
+
+alAddressStatsGrpHeldTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlAddressStatsGrpHeldEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The list of held IP addresses in the user group. 
+         The IP addresses in this table are not available 
+         for use. 
+         When an IP address is released from use and if 
+         the re-use delay feature is enabled, the IP address is added 
+         into this table for a configured time period before it can 
+         be used again. An IP address that was discovered to be used 
+         by an external device is also added into this table 
+         for configured time period also. When the timer 
+         expires, the IP address is removed from this table."
+    ::= { alStatsAddress 5 }
+
+alAddressStatsGrpHeldEntry OBJECT-TYPE
+    SYNTAX AlAddressStatsGrpHeldEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alAddressStatsGrpHeldTable."
+    INDEX { alAddressStatsGrpHeldId, alAddressStatsGrpHeldPoolId, alAddressStatsGrpHeldAddrIndex }
+    ::= { alAddressStatsGrpHeldTable 1 }
+
+AlAddressStatsGrpHeldEntry ::= SEQUENCE {
+    alAddressStatsGrpHeldId INTEGER,
+    alAddressStatsGrpHeldPoolId INTEGER,
+    alAddressStatsGrpHeldAddrIndex INTEGER,
+    alAddressStatsGrpHeldAddress IpAddress,
+    alAddressStatsGrpHeldTimeLeft INTEGER,
+    alAddressStatsGrpHeldReason IPAddressHeldReason
+    }
+
+alAddressStatsGrpHeldId OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Group ID for this entry."
+    ::= { alAddressStatsGrpHeldEntry 1 }
+
+alAddressStatsGrpHeldPoolId OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Global Address Pool ID for this entry."
+    ::= { alAddressStatsGrpHeldEntry 2 }
+
+alAddressStatsGrpHeldAddrIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The address index for this entry."
+    ::= { alAddressStatsGrpHeldEntry 3 }
+
+alAddressStatsGrpHeldAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address currently being held; not available for assignment."
+    ::= { alAddressStatsGrpHeldEntry 4 }
+
+alAddressStatsGrpHeldTimeLeft OBJECT-TYPE
+    SYNTAX INTEGER(1..65535)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Amount of time left, in second, before the address  
+         can be assigned."
+    ::= { alAddressStatsGrpHeldEntry 5 }
+
+alAddressStatsGrpHeldReason OBJECT-TYPE
+    SYNTAX IPAddressHeldReason
+--    Rsyntax INTEGER {
+--        delayReuse(1),
+--        foundInUse(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object reflects the reason for being held."
+    ::= { alAddressStatsGrpHeldEntry 6 }
+
+altigaAddressStatsGroup OBJECT IDENTIFIER ::= { alAddressGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for address statistics.
+--  objects
+--    alAddressStatsPoolId, alAddressStatsTotalPoolAddresses, 
+--    alAddressStatsCurrAllocAddresses, 
+--    alAddressStatsCurrAvailAddresses, 
+--    alAddressStatsMaxAddressesAssigned, alAddressStatsGrpId, 
+--    alAddressStatsGrpPoolId, alAddressStatsGrpTotalPoolAddresses, 
+--    alAddressStatsGrpCurrAllocAddresses, 
+--    alAddressStatsGrpCurrAvailAddresses, 
+--    alAddressStatsGrpMaxAddressesAssigned
+
+altigaAddressStatsGroupSup1 OBJECT IDENTIFIER ::= { alAddressGroup 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for address statistics.
+--  objects
+--    alAddressStatsHeldAddresses, alAddressStatsGrpHeldAddresses, 
+--    alAddressStatsHeldPoolId, alAddressStatsHeldAddrIndex, 
+--    alAddressStatsHeldAddress, alAddressStatsHeldTimeLeft, 
+--    alAddressStatsHeldReason, alAddressStatsGrpHeldId, 
+--    alAddressStatsGrpHeldPoolId, alAddressStatsGrpHeldAddrIndex, 
+--    alAddressStatsGrpHeldAddress, alAddressStatsGrpHeldTimeLeft, 
+--    alAddressStatsGrpHeldReason
+
+altigaAddressStatsMibCompliance OBJECT IDENTIFIER ::= { altigaAddressStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga Address Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaAddressStatsGroup
+
+altigaAddressStatsMibComplianceRev1 OBJECT IDENTIFIER ::= { altigaAddressStatsMibCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga Address Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaAddressStatsGroup
+--   MandGroup
+--    altigaAddressStatsGroupSup1
+
+
+END
+

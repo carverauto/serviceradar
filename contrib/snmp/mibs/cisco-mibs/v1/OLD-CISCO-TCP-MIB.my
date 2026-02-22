@@ -1,0 +1,126 @@
+-- *****************************************************************
+-- OLD-CISCO-TCP-MIB.my:  Old Local TCP MIB file
+--
+-- May 1994, Nick Thille
+--
+-- Copyright (c) 1994 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- NOTE WELL
+-- Starting with IOS 10.2, all objects defined in this mib have been
+-- deprecated.  They have been replaced with the objects defined in the
+-- CISCO-TCP-MIB.my document.  Management applications should no longer
+-- be examining the objects defined in this document
+-- NOTE WELL
+-- 
+-- *****************************************************************
+
+            OLD-CISCO-TCP-MIB DEFINITIONS ::= BEGIN
+
+               IMPORTS
+			TimeTicks
+				FROM RFC1155-SMI
+			OBJECT-TYPE
+				FROM RFC-1212
+			tcpConnLocalAddress,
+			tcpConnLocalPort,
+			tcpConnRemAddress,
+			tcpConnRemPort
+				FROM RFC1213-MIB
+			local
+				FROM CISCO-SMI;
+          
+               ltcp                OBJECT IDENTIFIER ::= { local 6 }
+
+               -- Local TCP Group
+
+          -- This group is present in all products which are using the
+          -- TCP protocol.
+
+          -- Local TCP Connection Table
+
+          -- This group provides additional objects to the table defined
+          -- by RFC 1213
+
+               ltcpConnTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LtcpConnEntry
+                   ACCESS  not-accessible
+                   STATUS  deprecated
+                   DESCRIPTION
+                            "A list of TCP connection entries."
+                   ::= { ltcp 1 }
+
+               ltcpConnEntry OBJECT-TYPE
+                   SYNTAX LtcpConnEntry
+                   ACCESS  not-accessible
+                   STATUS  deprecated
+                   DESCRIPTION
+                            "A collection of additional objects in the
+                            cisco TCP implementation."
+                   INDEX { tcpConnLocalAddress, tcpConnLocalPort,
+                   tcpConnRemAddress, tcpConnRemPort }
+               ::= { ltcpConnTable 1 }
+
+               LtcpConnEntry ::=
+                   SEQUENCE {
+                       loctcpConnInBytes
+                           INTEGER,
+                       loctcpConnOutBytes
+                           INTEGER,
+                       loctcpConnInPkts
+                           INTEGER,
+                       loctcpConnOutPkts
+                           INTEGER,
+                       loctcpConnElapsed
+                           TimeTicks
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               loctcpConnInBytes OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  deprecated
+                   DESCRIPTION
+                           "Bytes input for this TCP connection."
+                   ::= { ltcpConnEntry 1 }
+
+               loctcpConnOutBytes OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  deprecated
+                   DESCRIPTION
+                           "Bytes output for this TCP connection."
+                   ::= { ltcpConnEntry 2 }
+
+               loctcpConnInPkts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  deprecated
+                   DESCRIPTION
+                           "Packets input for this TCP connection."
+                   ::= { ltcpConnEntry 3 }
+
+               loctcpConnOutPkts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  deprecated
+                   DESCRIPTION
+                           "Packets output for this TCP connection."
+                   ::= { ltcpConnEntry 4 }
+
+               loctcpConnElapsed OBJECT-TYPE
+                   SYNTAX  TimeTicks
+                   ACCESS  read-only
+                   STATUS  deprecated
+                   DESCRIPTION
+                           "How long this TCP connection has been
+                           established."
+                   ::= { ltcpConnEntry 5 }
+
+               -- End of table
+
+
+END

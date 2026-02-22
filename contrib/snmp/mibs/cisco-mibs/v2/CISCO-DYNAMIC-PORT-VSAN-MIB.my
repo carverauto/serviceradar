@@ -1,0 +1,736 @@
+-- *********************************************************************
+-- CISCO-DYNAMIC-PORT-VSAN-MIB.my: Dynamic Port VSAN Membership MIB
+--
+-- January 2004, H K Vivek
+--
+-- Copyright (c) 2004 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-DYNAMIC-PORT-VSAN-MIB  DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE,
+        Unsigned32                        FROM    SNMPv2-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP   FROM    SNMPv2-CONF
+        TEXTUAL-CONVENTION, RowStatus,
+        TruthValue                        FROM    SNMPv2-TC
+        ciscoMgmt                         FROM    CISCO-SMI
+        FcNameId, FcNameIdOrZero,
+        VsanIndex                         FROM    CISCO-ST-TC
+        CpsmDbActivate, 
+        CpsmActivateResult,
+        CpsmDiffDb, CpsmDiffReason        FROM    CISCO-PSM-MIB
+        ifIndex                           FROM    IF-MIB;
+
+
+ciscoDpvmMIB  MODULE-IDENTITY
+        LAST-UPDATED  "200406220000Z"
+        ORGANIZATION  "Cisco Systems Inc."
+        CONTACT-INFO
+                "     Cisco Systems
+                      Customer Service
+                Postal: 170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel: +1 800 553-NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+                "The MIB module for the management of the
+                 Dynamic Port Vsan Membership (DPVM) module.
+                 DPVM provides the ability to assign (virtual
+                 storage area network) VSAN IDs dynamically
+                 to switch ports based on the device logging
+                 in on the port. The logging-in device can
+                 be identified by its port World Wide Name (pWWN)
+                 and/or its node World Wide Name (nWWN)."
+        REVISION  "200406220000Z"
+        DESCRIPTION
+                "Initial version of this MIB."
+        ::= { ciscoMgmt 421 }
+
+ciscoDpvmMIBNotifs  OBJECT IDENTIFIER ::= { ciscoDpvmMIB 0 }
+ciscoDpvmMIBObjects OBJECT IDENTIFIER ::= { ciscoDpvmMIB 1 }
+ciscoDpvmMIBConform OBJECT IDENTIFIER ::= { ciscoDpvmMIB 2 }
+cdpvmConfiguration  OBJECT IDENTIFIER
+                         ::= { ciscoDpvmMIBObjects 1 }
+
+-- Textual-Conventions
+
+CdpvmDevType ::= TEXTUAL-CONVENTION
+        STATUS  current
+        DESCRIPTION
+                "Represents the type of device.
+                 pwwn(1) - Represents the port WWN of the device.
+                 nwwn(2) - Represents the node WWN of the device."
+        SYNTAX INTEGER {
+                  pwwn(1),
+                  nwwn(2)
+               }
+
+-- Configuration table
+
+cdpvmNextAvailIndex OBJECT-TYPE
+        SYNTAX       Unsigned32 (0..16384)
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+                "This object contains an appropriate value
+                 to be used for cdpvmIndex when creating entries
+                 in the cdpvmTable. The value 0 indicates that all 
+                 entries are assigned.
+                 A management application should read
+                 this object, get the (non-zero) value and use
+                 same for creating an entry in the cdpvmTable.
+                 After each retrieval and use, the agent should modify
+                 the value to the next unassigned index.
+                 After a manager retrieves a value the agent will
+                 determine through its local policy when this
+                 index value will be made available for reuse. A
+                 suggested mechanism is to make an index available
+                 when the corresponding entry is deleted."
+        ::= { cdpvmConfiguration 1 }
+
+cdpvmTable OBJECT-TYPE
+        SYNTAX       SEQUENCE OF CdpvmEntry
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+                "This table contains the set of all valid
+                 bindings of devices to VSANs configured on
+                 the local device. A valid binding consists
+                 of a pWWN/nWWN bound to a VSAN. If a device
+                 is bound to a VSAN, then when that device
+                 logs in through a port on the local device,
+                 that port is assigned the configured VSAN.
+                 Such a VSAN is called a 'dynamic' VSAN.
+
+                 The set of valid bindings configured in this
+                 table should be activated by means of the
+                 cdpvmActivate object. When activated, these
+                 bindings are enforced and all subsequent logins
+                 will be subject to these bindings."
+        ::= { cdpvmConfiguration 2 }
+
+cdpvmEntry OBJECT-TYPE
+        SYNTAX       CdpvmEntry
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+                "An entry (conceptual row) in this table. Each
+                 entry contains the mapping between a device
+                 and its dynamic VSAN."
+        INDEX { cdpvmIndex }
+        ::= { cdpvmTable 1 }
+
+CdpvmEntry ::= SEQUENCE {
+        cdpvmIndex                 Unsigned32,
+        cdpvmLoginDevType          CdpvmDevType,
+        cdpvmLoginDev              FcNameId,
+        cdpvmLoginDevVsan          VsanIndex,
+        cdpvmRowStatus             RowStatus
+}
+
+cdpvmIndex OBJECT-TYPE
+        SYNTAX       Unsigned32 (1..16384)
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+                "Identifies a binding between a device and its
+                 dynamic VSAN."
+        ::= { cdpvmEntry 1 }
+
+cdpvmLoginDevType OBJECT-TYPE
+        SYNTAX       CdpvmDevType
+        MAX-ACCESS   read-create
+        STATUS       current
+        DESCRIPTION
+                "Specifies the type of the corresponding
+                 instance of cdpvmLoginDev object."
+        DEFVAL { pwwn }
+        ::= { cdpvmEntry 2 }
+
+cdpvmLoginDev OBJECT-TYPE
+        SYNTAX       FcNameId
+        MAX-ACCESS   read-create
+        STATUS       current
+        DESCRIPTION
+                "Represents the logging-in device.
+
+                 If the value of the corresponding instance of
+                 cdpvmLoginDevType is 'pwwn', then this object
+                 contains a pWWN.
+
+                 If the value of the corresponding instance of
+                 cdpvmLoginDevType is 'nwwn', then this object
+                 contains a nWWN.
+
+                 This object MUST be set to a valid value
+                 before or concurrently with setting the
+                 corresponding instance of cdpvmRowStatus to
+                 'active'.
+
+                 The agent should not allow creation of 2 entries
+                 in this table with same values for cdpvmLoginDev
+                 and cdpvmLoginDevVsan."
+        ::= { cdpvmEntry 3 }
+
+cdpvmLoginDevVsan OBJECT-TYPE
+        SYNTAX       VsanIndex
+        MAX-ACCESS   read-create
+        STATUS       current
+        DESCRIPTION
+                "Represents the VSAN to be associated to the
+                 port on the local device on which the device
+                 represented by cdpvmLoginDev logs in."
+        DEFVAL { 1 }
+        ::= { cdpvmEntry 4 }
+
+cdpvmRowStatus OBJECT-TYPE
+        SYNTAX       RowStatus
+        MAX-ACCESS   read-create
+        STATUS       current
+        DESCRIPTION
+                "The status of this conceptual row.
+                 Before setting this object to 'active', the
+                 cdpvmLoginDev object MUST be set to a valid
+                 value.
+                 Only cdpvmLoginDevVsan object can be modified
+                 when the value of this object is 'active'."
+        ::= { cdpvmEntry 5 }
+
+
+cdpvmActivate OBJECT-TYPE
+        SYNTAX       CpsmDbActivate
+        MAX-ACCESS   read-write
+        STATUS       current
+        DESCRIPTION
+                "This object helps in activating the set
+                 of bindings in the cdpvmTable.
+
+                 Setting this object to 'activate(1)' will
+                 result in the valid bindings present in
+                 cdpvmTable being activated and copied
+                 to the cpdvmEnfTable.
+
+                 By default auto learn will be turned 'on'
+                 after activation. Before activation is
+                 attempted, it should be turned 'off'.
+
+                 Setting this object to 'forceActivate(3)', will
+                 result in forced activation, even if there are
+                 errors during activation and the activated
+                 bindings will be copied to the cdpvmEnfTable.
+
+                 Setting this object to 'deactivate(5)', will
+                 result in deactivation of currently activated
+                 valid bindings (if any).
+                 Currently active entries (if any), which
+                 would have been present in the 
+                 cdpvmEnfTable, will be removed.
+
+                 Setting this object to 'activateWithAutoLearnOff(2)'
+                 and 'forceActivateWithAutoLearnOff(4)' is not
+                 allowed.
+
+                 Setting this object to 'noop(6)', results in 
+                 no action.
+
+                 The value of this object when read is always
+                 'noop(6)'.
+
+                 Activation will not be allowed if auto-learn is 
+                 enabled."
+        ::= { cdpvmConfiguration 3 }
+
+cdpvmActivateResult OBJECT-TYPE
+        SYNTAX       CpsmActivateResult
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+                "This object indicates the outcome of the
+                 activation."
+        ::= { cdpvmConfiguration 4 }
+
+cdpvmAutoLearn OBJECT-TYPE
+        SYNTAX       TruthValue 
+        MAX-ACCESS   read-write
+        STATUS       current
+        DESCRIPTION
+                "This object helps to 'learn' the configuration 
+                 of devices logged into the local device on all 
+                 its ports and the VSANs to which they are
+                 associated. This information will be
+                 populated in the the enforced binding 
+                 table (cdpvmEnfTable). 
+
+                 This mechanism of 'learning' the configuration of
+                 devices and their VSAN association over a period of 
+                 time and populating the configuration 
+                 is a convenience mechanism for users. 
+
+                 If this object is set to 'true(1)' all subsequent 
+                 logins and their VSAN association will be populated 
+                 in the enforced binding database, provided it is 
+                 not in conflict with existing enforced bindings. 
+
+                 When this object is set to 'false(2)', the 
+                 mechanism of learning is stopped. The learned 
+                 entries will however be in the enforced 
+                 binding database."
+        ::= { cdpvmConfiguration 5 }
+
+cdpvmCopyEnfToConfig OBJECT-TYPE
+        SYNTAX       INTEGER {
+                       copy(1),
+                       noop(2)
+                     }
+        MAX-ACCESS   read-write
+        STATUS       current
+        DESCRIPTION
+                "This object when set to 'copy(1)', results
+                 in the active (enforced) binding database 
+                 to be copied on to the configuration  
+                 binding database. Note that 
+                 the learned entries are also copied.
+
+                 No action is taken if this object is set to
+                 'noop(2)'.
+
+                 The value of this object when read is
+                 always 'noop'."
+        ::= { cdpvmConfiguration 6 }
+
+-- Enforced Table
+
+cdpvmEnfTable OBJECT-TYPE
+        SYNTAX       SEQUENCE OF CdpvmEnfEntry
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+                "This table contains information on all
+                 currently enforced bindings on the local 
+                 device. The enforced set of bindings is the
+                 set of valid bindings copied from the 
+                 configuration binding database 
+                 (cdpvmTable) at the time they were 
+                 activated. These entries cannot be modified. 
+                 The learnt entries are also a part of this 
+                 table. Entries can get into this table or be 
+                 deleted from this table only by means of 
+                 explicit activation/deactivation.
+
+                 Note that this table will be empty when no
+                 valid bindings have been activated."
+        ::= { cdpvmConfiguration 7 }
+
+cdpvmEnfEntry OBJECT-TYPE
+        SYNTAX       CdpvmEnfEntry
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+                "An entry (conceptual row) in this table."
+        INDEX { cdpvmEnfIndex }
+        ::= { cdpvmEnfTable 1 }
+
+CdpvmEnfEntry ::= SEQUENCE {
+        cdpvmEnfIndex           Unsigned32,
+        cdpvmEnfLoginDevType    CdpvmDevType,
+        cdpvmEnfLoginDev        FcNameId,
+        cdpvmEnfLoginDevVsan    VsanIndex,
+        cdpvmEnfIsLearnt        TruthValue
+}
+
+cdpvmEnfIndex OBJECT-TYPE
+        SYNTAX        Unsigned32 (1..16384)
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "The index of this entry."
+        ::= { cdpvmEnfEntry 1 }
+
+cdpvmEnfLoginDevType OBJECT-TYPE
+        SYNTAX        CdpvmDevType
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "Specifies the type of the corresponding
+                 instance of cdpvmEnfLoginDev."
+        ::= { cdpvmEnfEntry 2 }
+
+cdpvmEnfLoginDev OBJECT-TYPE
+        SYNTAX        FcNameId
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "This object represents the logging in
+                 device address. This object was copied
+                 from the cdpvmLoginDev object in the
+                 cdpvmTable at the time when the
+                 currently active bindings were activated."
+        ::= { cdpvmEnfEntry 3 }
+
+cdpvmEnfLoginDevVsan OBJECT-TYPE
+        SYNTAX        VsanIndex
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "This object represents the VSAN of the
+                 port on the local device thru' which the
+                 device represented by cdpvmEnfLoginDev
+                 logs in. This object was copied
+                 from the cdpvmLoginDevVsan object in the
+                 cdpvmTable at the time when the
+                 currently active bindings were activated"
+        ::= { cdpvmEnfEntry 4 }
+
+cdpvmEnfIsLearnt OBJECT-TYPE
+        SYNTAX        TruthValue
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "This object indicates if this is a learnt entry
+                 or not.
+
+                 If the value of this object is 'true', then it is 
+                 a learnt entry.
+
+                 If the value of this object is 'false', then it
+                 is not."
+        ::= { cdpvmEnfEntry 5 }
+
+
+-- Dynamic Ports Table
+
+cdpvmDynPortsTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CdpvmDynPortsEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table contains the set of all ports
+                 that are operating with a dynamic VSAN on
+                 the local device."
+        ::= { cdpvmConfiguration 8 }
+
+cdpvmDynPortsEntry OBJECT-TYPE
+        SYNTAX        CdpvmDynPortsEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An entry (conceptual row) in this table."
+        INDEX { ifIndex }
+        ::= { cdpvmDynPortsTable 1 }
+
+CdpvmDynPortsEntry ::= SEQUENCE {
+        cdpvmDynPortVsan       VsanIndex,
+        cdpvmDynPortDevPwwn    FcNameId,
+        cdpvmDynPortDevNwwn    FcNameId
+}
+
+cdpvmDynPortVsan OBJECT-TYPE
+        SYNTAX        VsanIndex
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The 'dynamic' VSAN of this port on the local
+                 device."
+        ::= { cdpvmDynPortsEntry 1 }
+
+cdpvmDynPortDevPwwn OBJECT-TYPE
+        SYNTAX        FcNameId
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The pWWN of the device currently logged-in 
+                 through this port on the local device."
+        ::= { cdpvmDynPortsEntry 2 }
+
+cdpvmDynPortDevNwwn OBJECT-TYPE
+        SYNTAX        FcNameId
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The nWWN of the device currently logged-in thru'
+                 this port on the local device."
+        ::= { cdpvmDynPortsEntry 3 }
+
+-- Diff Table
+
+cdpvmDiffConfig OBJECT-TYPE
+        SYNTAX        CpsmDiffDb
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION
+                "The config database represented by cdpvmTable
+                 and the enforced database represented by
+                 cdpvmEnfTable can be compared to list out the
+                 differences. 
+
+                 This object specifies the reference database
+                 for the comparison.
+
+                 This object when set to 'configDb(1)', compares
+                 the configuration database (cdpvmTable) with
+                 respect to the enforced database (cdpvmEnfTable).
+                 So, the enforced database will be the reference
+                 database and the results of comparison operation
+                 will be with respect to the enforced database.
+
+                 This object when set to 'activeDb(2)', compares
+                 the enforced database with respect to the
+                 configuration database. So, the configured database 
+                 will be the reference database and the results of 
+                 comparison operation will be with respect to the 
+                 configuration database.
+
+                 No action will be taken if this object is set
+                 to 'noop(3)'.
+
+                 The value of this object when read is always
+                 'noop(3)'."
+        ::= { cdpvmConfiguration 9 }
+
+cdpvmDiffTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CdpvmDiffEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table contains the result of the compare
+                 operation configured by means of the
+                 cdpvmDiffConfig object."
+        ::= { cdpvmConfiguration 10 }
+
+cdpvmDiffEntry OBJECT-TYPE
+        SYNTAX        CdpvmDiffEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An entry (conceptual row) in this table."
+        INDEX { cdpvmDiffIndex }
+        ::= { cdpvmDiffTable 1 }
+
+CdpvmDiffEntry ::= SEQUENCE {
+        cdpvmDiffIndex          Unsigned32,
+        cdpvmDiffReason         CpsmDiffReason,
+        cdpvmDiffLoginDevType   CdpvmDevType,
+        cdpvmDiffLoginDev       FcNameId,
+        cdpvmDiffLoginDevVsan   VsanIndex
+}
+
+cdpvmDiffIndex OBJECT-TYPE
+        SYNTAX         Unsigned32 (1..16384)
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+                "The index of this entry."
+        ::= { cdpvmDiffEntry 1 }
+
+cdpvmDiffReason OBJECT-TYPE
+        SYNTAX         CpsmDiffReason
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+                "This object indicates the reason for the
+                 difference between the databases being
+                 compared, for this entry."
+        ::= { cdpvmDiffEntry 2 }
+
+cdpvmDiffLoginDevType OBJECT-TYPE
+        SYNTAX         CdpvmDevType
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+                "Specifies the type of the corresponding
+                 instance of cdpvmDiffLoginDev object."
+        ::= { cdpvmDiffEntry 3 }
+
+cdpvmDiffLoginDev OBJECT-TYPE
+        SYNTAX         FcNameId
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+                "This object represents the logging-in
+                 device address. This object was copied
+                 from either the cdpvmLoginDev object in
+                 the cdpvmTable or from cdpvmEnfLoginDev
+                 object in the cdpvmEnfTable at the time
+                 when the comparison was done."
+        ::= { cdpvmDiffEntry 4 }
+
+cdpvmDiffLoginDevVsan OBJECT-TYPE
+        SYNTAX         VsanIndex
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+                "This object represents the VSAN of the port
+                 on the local device thru' which the device
+                 represented by the corresponding instance of
+                 cdpvmDiffLoginDev object, logged-in. It was
+                 copied from either the cdpvmLoginDevVsan
+                 object in the cdpvmTable or from
+                 cdpvmEnfLoginDevVsan object in the
+                 cdpvmEnfTable at the time when the comparison
+                 was done."
+        ::= { cdpvmDiffEntry 5 }
+
+cdpvmClearAutoLearn OBJECT-TYPE
+        SYNTAX         INTEGER {
+                          clear(1),
+                          clearOnWwn(2),
+                          noop(3)
+                       }
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+                "This object assists in clearing the
+                 auto-learnt entries.
+
+                 Setting this object to 'clear(1)' will result
+                 in all auto-learnt entries being cleared.
+
+                 Setting this object to 'clearOnWwn(2)' will
+                 result in a particular entry represented by
+                 cdpvmClearAutoLearnWwn object being cleared.
+                 Before setting this object to 'clearOnWwn(2)',
+                 the cpdvmClearAutoLearnWwn object should be
+                 set to the pWWN that is to be cleared.
+
+                 Setting this object to 'noop(3)', will result
+                 in no action being taken.
+
+                 The value of this object when read is always
+                 'noop'."
+        ::= { cdpvmConfiguration 11 }
+
+cdpvmClearAutoLearnWwn OBJECT-TYPE
+        SYNTAX         FcNameIdOrZero
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+                "Represents the port WWN (pWWN) to be used for
+                 clearing its corresponding auto-learnt entry."
+        DEFVAL { ''H }
+        ::= { cdpvmConfiguration 12 }
+
+cdpvmActivationState OBJECT-TYPE
+        SYNTAX         TruthValue
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+                "This object indicates the state of activation.
+
+                 If the value of this object is 'true', then
+                 an activation has been attempted as the most
+                 recent operation.
+
+                 If the value of this object is 'false', then
+                 an activation has not been attempted as the
+                 most recent operation."
+        ::= { cdpvmConfiguration 13 }
+
+-- Conformance
+
+ciscoDpvmMIBCompliances OBJECT IDENTIFIER
+                       ::= { ciscoDpvmMIBConform 1 }
+
+ciscoDpvmMIBGroups      OBJECT IDENTIFIER
+                       ::= { ciscoDpvmMIBConform 2 }
+
+ciscoDpvmMIBCompliance MODULE-COMPLIANCE
+        STATUS   current
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the Dynamic Port VSAN Membership
+                 Manager."
+        MODULE   MANDATORY-GROUPS {
+                       ciscoDpvmConfigGroup,
+                       ciscoDpvmEnforcedGroup
+                 }
+
+        GROUP    ciscoDpvmAutoLearnGroup
+        DESCRIPTION
+                "This group is mandatory only for implementations
+                 that support Auto Learning of bindings."
+
+        GROUP    ciscoDpvmDiffGroup
+        DESCRIPTION
+                "This group is mandatory only for implementations
+                 that support difference (compare) operations
+                 between the config and enforced databases."
+
+        OBJECT   cdpvmRowStatus
+        SYNTAX   INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)
+                 }
+        MIN-ACCESS read-create
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+
+        ::= { ciscoDpvmMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoDpvmConfigGroup OBJECT-GROUP
+        OBJECTS  {
+             cdpvmNextAvailIndex,
+             cdpvmLoginDevType,
+             cdpvmLoginDev,
+             cdpvmLoginDevVsan,
+             cdpvmRowStatus,
+             cdpvmActivate,
+             cdpvmActivateResult,
+             cdpvmCopyEnfToConfig,
+             cdpvmDynPortVsan,
+             cdpvmDynPortDevPwwn,
+             cdpvmDynPortDevNwwn,
+             cdpvmActivationState
+        }
+        STATUS  current
+        DESCRIPTION
+                "A set of objects for configuration of
+                 DPVM bindings."
+        ::= { ciscoDpvmMIBGroups 1 }
+
+ciscoDpvmEnforcedGroup OBJECT-GROUP
+        OBJECTS  {
+             cdpvmEnfLoginDevType,
+             cdpvmEnfLoginDev,
+             cdpvmEnfLoginDevVsan,
+             cdpvmEnfIsLearnt
+        }
+        STATUS  current
+        DESCRIPTION
+                "A set of objects for displaying enforced
+                 DPVM bindings."
+        ::= { ciscoDpvmMIBGroups 2 }
+
+ciscoDpvmAutoLearnGroup OBJECT-GROUP
+        OBJECTS  {
+             cdpvmAutoLearn,
+             cdpvmClearAutoLearn,
+             cdpvmClearAutoLearnWwn
+        }
+        STATUS  current
+        DESCRIPTION
+                "A set of object(s) for configuring auto-learn
+                 of DPVM bindings."
+        ::= { ciscoDpvmMIBGroups 3 }
+
+ciscoDpvmDiffGroup OBJECT-GROUP
+        OBJECTS  {
+              cdpvmDiffConfig,
+              cdpvmDiffReason,
+              cdpvmDiffLoginDevType,
+              cdpvmDiffLoginDev,
+              cdpvmDiffLoginDevVsan
+        }
+        STATUS  current
+        DESCRIPTION
+                "A set of objects for configuring and displaying
+                 database compare operations."
+        ::= { ciscoDpvmMIBGroups 4 }
+END

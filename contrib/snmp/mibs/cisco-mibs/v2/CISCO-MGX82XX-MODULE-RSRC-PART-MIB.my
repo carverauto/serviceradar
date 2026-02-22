@@ -1,0 +1,239 @@
+-- *****************************************************************
+-- ciscoMgx82xxModuleRsrcPartMIB
+--
+-- April 2003, Subra Hegde
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-MGX82XX-MODULE-RSRC-PART-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32
+                               FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP               FROM SNMPv2-CONF
+    cardGeneric                FROM BASIS-MIB
+    ciscoWan                   FROM CISCOWAN-SMI;
+
+ciscoMgx82xxModuleRsrcPartMIB MODULE-IDENTITY
+    LAST-UPDATED    "200304180000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB module to configure the resource partition
+        on service modules(cards) supported in MGX82xx and
+        MGX88xx products.
+
+        This MIB is supported in following Service Modules:
+          AUSM (ATM UNI Service Module)
+          CESM (Circuit Emulation Service Module)
+          FRSM (Frame Relay Service Module)
+          VISM (Voice Interworking Service Module)
+          PXM1 (Processor Switch Module)
+
+        Terminlogies used:
+
+        LCN  : Logical Connection Number.
+        GLCN : Global LCN.
+
+        Controller - Software ( and possibly hardware) which manages
+                     topology and network resources.
+		     This performs source routing for ent-to-end SVCs,
+                     including general call acceptance GCAC, setup calls
+                     with other controllers.
+                  PNNI and MPLS are examples for the Controller."
+
+    REVISION    "200304180000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in CISCO-WAN-AXIPOP-MIB defined using SMIv1.
+        The applicable objects from CISCO-WAN-AXIPOP-MIB
+        are defined using SMIv2 in this MIB. Also the
+        descriptions of some of the objects have been 
+        modified."
+    ::= { ciscoWan 73 }
+
+
+cardResourcePartition	OBJECT IDENTIFIER ::= {cardGeneric 9}
+
+--
+--  Service Module Card Resource Partition Related tables
+--
+
+cardLcnPartitionType	OBJECT-TYPE
+    SYNTAX INTEGER{
+	  noPartition         (1),
+	  controllerBased     (2),
+	  portControllerBased (3)
+         }
+    MAX-ACCESS 	read-write
+    STATUS 	current
+    DESCRIPTION
+        "This object specifies the type of partition on LCN:
+
+         The possible values are:
+
+          noPartition(1): all controllers compete for the totoal
+                         (G)LCNs limited by the card
+
+         controllerBased(2): the total number of (G)LCNs available
+                   to each controller is fixed but no reservation on
+                   each port. The number for each controller is 
+                   specified in the cardResPartGrpTable.
+
+         portControllerBased(3): a certain number of (G)LCNs available
+                   on each port for each controller is reserved, it is 
+                   specified in the port resouce partition table.
+
+         NOTE: This object has to be configured before adding any 
+               connections. Once a connection is added, this object
+               cannot be changed until all of the connections 
+               are deleted."
+    DEFVAL {noPartition}
+    ::= {cardResourcePartition 1}
+
+cardResPartGrpTable	OBJECT-TYPE
+	SYNTAX	   SEQUENCE OF CardResPartGrpEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+            "This table contains the configuration of all 
+            the resource partition(s) that are on the card level, 
+            such as (G)LCN (if the object cardLcnPartitionType is 
+            configured as controller-based, if not, there is no
+            need to configure this table since it'll be useless)."
+    ::= {cardResourcePartition 2}
+
+cardResPartGrpEntry	OBJECT-TYPE
+	SYNTAX      CardResPartGrpEntry
+	MAX-ACCESS  not-accessible
+	STATUS	    current
+	DESCRIPTION
+          "An entry in the table. Each entry contains
+          number of LCNs available."
+	INDEX { cardResPartCtrlrNum }
+	::= {cardResPartGrpTable 1}
+
+CardResPartGrpEntry ::=
+	SEQUENCE {
+		cardResPartCtrlrNum		INTEGER,
+		cardResPartRowStatus		INTEGER,
+		cardResPartNumOfLcnAvail	Integer32
+	}
+
+cardResPartCtrlrNum	OBJECT-TYPE
+    SYNTAX	INTEGER{
+		par  (1),
+		pnni (2),
+		tag  (3)
+		}
+    MAX-ACCESS	read-only
+    STATUS	current
+    DESCRIPTION
+        "This object identifies the controller
+        managing the partition.
+
+	 par(1) -  Portable Auto Route(PAR). This is a VSI Master controller
+	           implementing Cisco Proprietary protocol for network
+	           routing and topology in a Network containing only 
+		   Cisco Switches.
+
+	 pnni(2) - Private Network-to-Network Interface (PNNI) controller.
+		   The PNNI protocol is used between private ATM Switches
+		   and between groups of ATM switches. This protocol is 
+		   defined for distributing topology information between
+		   switches and clusters of switches.
+
+	 tag(3)  - Label(tag) Switch Controller(TSC).The LSC Implements MPLS
+	           (Multi Protocol Label Switching) protocol. The LSC is 
+		   a router which is capable of controlling the operation
+		   of a separate ATM switch so that the two of them 
+                   together function as a single ATM-LSR
+                   (ATM Label Switch Router).
+		   The LSC controls the operation of the ATM Switch
+		   using a 'Switch Control Protocol', which allows the
+		   LSC to setup and remove cross-connects on the ATM
+		   switch, to discover the configuration and capabilities
+		   of the controlled switch, and to gather statistics from
+		   the controlled switch."
+    ::= { cardResPartGrpEntry 1 }
+
+cardResPartRowStatus	OBJECT-TYPE
+    SYNTAX	INTEGER
+		{
+		add (1),
+		del (2),
+		mod (3)
+		}
+    MAX-ACCESS  read-write
+    STATUS	    current
+    DESCRIPTION
+        "This object is used for adding/modifying the
+       entries in the table."
+    ::= {cardResPartGrpEntry 2 }
+
+cardResPartNumOfLcnAvail	OBJECT-TYPE
+    SYNTAX     Integer32(0..2147483647)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object is configured to reserve the number of 
+        (G)LCNs for one controller on a SM card, it can be used
+        on any port but the total number of connections added
+        on all of the ports for that particular controller
+        cannot exceed this number."
+    ::= {cardResPartGrpEntry 3 }
+
+
+-- conformance information
+
+cmmRsrcPartMIBConformance OBJECT IDENTIFIER ::=
+         { ciscoMgx82xxModuleRsrcPartMIB 2 }
+
+cmmRsrcPartMIBCompliances OBJECT IDENTIFIER ::= 
+         { cmmRsrcPartMIBConformance 1 }
+
+cmmRsrcPartMIBGroups OBJECT IDENTIFIER ::=
+         { cmmRsrcPartMIBConformance 2 }
+
+
+-- compliance statements
+
+cmmRsrcPartCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the Frame Relay Resource Partition MIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS { cmmRsrcPartGroup }
+    ::= { cmmRsrcPartMIBCompliances 1 }
+
+cmmRsrcPartGroup OBJECT-GROUP
+    OBJECTS {
+        cardLcnPartitionType,
+        cardResPartCtrlrNum,
+	cardResPartRowStatus,
+        cardResPartNumOfLcnAvail
+    }
+    STATUS current
+    DESCRIPTION 
+        "A collection of objects providing the
+        resource partition configuration information
+        in service modules."
+    ::= { cmmRsrcPartMIBGroups 1 }
+END

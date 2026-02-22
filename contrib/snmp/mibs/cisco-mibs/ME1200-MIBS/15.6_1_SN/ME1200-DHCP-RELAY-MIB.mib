@@ -1,0 +1,312 @@
+ME1200-DHCP-RELAY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    TruthValue FROM SNMPv2-TC
+    IpAddress FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    ;
+
+me1200DhcpRelayMIB MODULE-IDENTITY
+    LAST-UPDATED "201404280000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the DHCP Relay MIB"
+    REVISION    "201404280000Z"
+    DESCRIPTION
+        "change naming MIB to Mib"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201310290000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 55 }
+
+
+ME1200DhcpRelayInformationPolicyType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration indicates the DHCP relay information policy type."
+    SYNTAX      INTEGER { replace(0), keep(1), drop(2) }
+
+me1200DhcpRelayMIBObjects OBJECT IDENTIFIER
+    ::= { me1200DhcpRelayMIB 1 }
+
+me1200DhcpRelayConfig OBJECT IDENTIFIER
+    ::= { me1200DhcpRelayMIBObjects 2 }
+
+me1200DhcpRelayGlobals OBJECT IDENTIFIER
+    ::= { me1200DhcpRelayConfig 1 }
+
+me1200DhcpRelayGlobalsMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global mode of DHCP relay. true(1) is to enable DHCP relay and false(2)
+         is to disable it."
+    ::= { me1200DhcpRelayGlobals 1 }
+
+me1200DhcpRelayGlobalsServerIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Server IP address. This IP address is for DHCP server where the DHCP
+         relay will relay DHCP packets to."
+    ::= { me1200DhcpRelayGlobals 2 }
+
+me1200DhcpRelayGlobalsInformationMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the DHCP relay information mode option operation. Possible
+         modes are - Enabled: Enable DHCP relay information mode operation. When
+         DHCP relay information mode operation is enabled, the agent inserts
+         specific information (option 82) into a DHCP message when forwarding to
+         DHCP server and removes it from a DHCP message when transferring to
+         DHCP client. It only works when DHCP relay operation mode is enabled.
+         Disabled: Disable DHCP relay information mode operation."
+    ::= { me1200DhcpRelayGlobals 3 }
+
+me1200DhcpRelayGlobalsInformationPolicy OBJECT-TYPE
+    SYNTAX      ME1200DhcpRelayInformationPolicyType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates the DHCP relay information option policy. When DHCP relay
+         information mode operation is enabled, if the agent receives a DHCP
+         message that already contains relay agent information it will enforce
+         the policy. The 'Replace' policy is invalid when relay information mode
+         is disabled."
+    ::= { me1200DhcpRelayGlobals 4 }
+
+me1200DhcpRelayStatus OBJECT IDENTIFIER
+    ::= { me1200DhcpRelayMIBObjects 3 }
+
+me1200DhcpRelayStatistics OBJECT IDENTIFIER
+    ::= { me1200DhcpRelayStatus 1 }
+
+me1200DhcpRelayStatisticsServerPacketsRelayed OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Packets relayed from server to client."
+    ::= { me1200DhcpRelayStatistics 1 }
+
+me1200DhcpRelayStatisticsServerPacketErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Errors sending packets to servers."
+    ::= { me1200DhcpRelayStatistics 2 }
+
+me1200DhcpRelayStatisticsClientPacketsRelayed OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Packets relayed from client to server."
+    ::= { me1200DhcpRelayStatistics 3 }
+
+me1200DhcpRelayStatisticsClientPacketErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Errors sending packets to clients."
+    ::= { me1200DhcpRelayStatistics 4 }
+
+me1200DhcpRelayStatisticsAgentOptionErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of packets forwarded without agent options because there was no
+         room."
+    ::= { me1200DhcpRelayStatistics 5 }
+
+me1200DhcpRelayStatisticsMissingAgentOption OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of packets dropped because no RAI option matching our ID was
+         found."
+    ::= { me1200DhcpRelayStatistics 6 }
+
+me1200DhcpRelayStatisticsBadCircuitId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Circuit ID option in matching RAI option did not match any known
+         circuit ID."
+    ::= { me1200DhcpRelayStatistics 7 }
+
+me1200DhcpRelayStatisticsMissingCircuitId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Circuit ID option in matching RAI option was missing."
+    ::= { me1200DhcpRelayStatistics 8 }
+
+me1200DhcpRelayStatisticsBadRemoteId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Remote ID option in matching RAI option did not match any known remote
+         ID."
+    ::= { me1200DhcpRelayStatistics 9 }
+
+me1200DhcpRelayStatisticsMissingRemoteId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Remote ID option in matching RAI option was missing."
+    ::= { me1200DhcpRelayStatistics 10 }
+
+me1200DhcpRelayStatisticsReceiveServerPackets OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Receive DHCP message from server."
+    ::= { me1200DhcpRelayStatistics 11 }
+
+me1200DhcpRelayStatisticsReceiveClientPackets OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Receive DHCP message from client."
+    ::= { me1200DhcpRelayStatistics 12 }
+
+me1200DhcpRelayStatisticsReceiveClientAgentOption OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Receive relay agent information option from client."
+    ::= { me1200DhcpRelayStatistics 13 }
+
+me1200DhcpRelayStatisticsReplaceAgentOption OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Replace relay agent information option."
+    ::= { me1200DhcpRelayStatistics 14 }
+
+me1200DhcpRelayStatisticsKeepAgentOption OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Keep relay agent information option."
+    ::= { me1200DhcpRelayStatistics 15 }
+
+me1200DhcpRelayStatisticsDropAgentOption OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Drop relay agent information option."
+    ::= { me1200DhcpRelayStatistics 16 }
+
+me1200DhcpRelayControl OBJECT IDENTIFIER
+    ::= { me1200DhcpRelayMIBObjects 4 }
+
+me1200DhcpRelayControlClearStatistics OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The action to clear statistics. true(1) is to clear the statistics
+         data. false(2), then, does nothing."
+    ::= { me1200DhcpRelayControl 1 }
+
+me1200DhcpRelayMIBConformance OBJECT IDENTIFIER
+    ::= { me1200DhcpRelayMIB 2 }
+
+me1200DhcpRelayMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200DhcpRelayMIBConformance 1 }
+
+me1200DhcpRelayMIBGroups OBJECT IDENTIFIER
+    ::= { me1200DhcpRelayMIBConformance 2 }
+
+me1200DhcpRelayGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpRelayGlobalsMode, me1200DhcpRelayGlobalsServerIpAddress, 
+                  me1200DhcpRelayGlobalsInformationMode, 
+                  me1200DhcpRelayGlobalsInformationPolicy }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpRelayMIBGroups 1 }
+
+me1200DhcpRelayStatisticsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpRelayStatisticsServerPacketsRelayed, 
+                  me1200DhcpRelayStatisticsServerPacketErrors, 
+                  me1200DhcpRelayStatisticsClientPacketsRelayed, 
+                  me1200DhcpRelayStatisticsClientPacketErrors, 
+                  me1200DhcpRelayStatisticsAgentOptionErrors, 
+                  me1200DhcpRelayStatisticsMissingAgentOption, 
+                  me1200DhcpRelayStatisticsBadCircuitId, 
+                  me1200DhcpRelayStatisticsMissingCircuitId, 
+                  me1200DhcpRelayStatisticsBadRemoteId, 
+                  me1200DhcpRelayStatisticsMissingRemoteId, 
+                  me1200DhcpRelayStatisticsReceiveServerPackets, 
+                  me1200DhcpRelayStatisticsReceiveClientPackets, 
+                  me1200DhcpRelayStatisticsReceiveClientAgentOption, 
+                  me1200DhcpRelayStatisticsReplaceAgentOption, 
+                  me1200DhcpRelayStatisticsKeepAgentOption, 
+                  me1200DhcpRelayStatisticsDropAgentOption }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpRelayMIBGroups 2 }
+
+me1200DhcpRelayControlInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpRelayControlClearStatistics }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpRelayMIBGroups 3 }
+
+me1200DhcpRelayMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200DhcpRelayGlobalsInfoGroup, 
+                  me1200DhcpRelayStatisticsInfoGroup, 
+                  me1200DhcpRelayControlInfoGroup }
+
+    ::= { me1200DhcpRelayMIBCompliances 1 }
+
+END

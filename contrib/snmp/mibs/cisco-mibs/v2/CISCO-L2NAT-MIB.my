@@ -1,0 +1,1316 @@
+CISCO-L2NAT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Counter32,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    RowStatus,
+    StorageType
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CiscoInetAddressMask
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoL2natMIB MODULE-IDENTITY
+    LAST-UPDATED    "201304160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "Network Address Translation (NAT) involves translating the
+        source and or destination IP addresses of packets as they
+        traverse from one IP domain to another. NAT is usually
+        performed on packets that are routed, and there is a MIB
+        already defined for that, but the application addressed
+        here is for performing NAT for Layer 2 switched packets.
+        This MIB module defines objects and tables for Network
+        Address Translation (NAT) performed at layer 2. This
+        application is planned currently for Industrial Ethernet
+        switches, but this could be used for other applications.
+        This platform implements NAT using an FPGA which connects
+        to uplinks, so NAT is only applicable for packets
+        coming in from uplinks, and going out of uplinks.
+        There are 3 main logical modules that are referred in this MIB.
+        Global parameters : These provide statistics for the
+        entire platform.
+        L2NAT Instance Table : This table contains multiple
+        Layer 2 NAT instances. A Layer 2 NAT instance referred 
+        throughout this MIB is an entity that is defined with respect 
+        to the Layer 2 NAT feature, and is different from the concept 
+        of instance as used in SNMP. Each Layer 2 NAT instance has a 
+        unique number.
+        Each Layer 2 NAT instance consists of packets that are to be 
+        permitted or denied, as well as packets that are supposed to be 
+        fixed up. Fixup is a NAT concept which applies to certain 
+        applications which embed IP addresses in the payload. For these 
+        applications to work across NAT, the embedded IP addresses need 
+        to be translated along with the header IP addresses.
+        Each Layer 2 NAT instance also contains a list of source and/or 
+        destination IP address translations
+        An instance only becomes effective on traffic after being 
+        applied to an interface vlan combination. This table actually 
+        consists of these 2 MIB tables in order for indexing to work, 
+        cl2natInstanceTable and cl2natInstanceIpTable
+        L2NAT Interface Config Table : This table contains multiple
+        entries, where each entry contains configuration
+        for the instance applied to an interface vlan combination.
+        This table actually consists of these 2 MIB tables in order for 
+        indexing to work cl2natInterfaceConfigTable and 
+        cl2natInterfaceIpConfigTable.
+        L2NAT Interface Statistics Table : This table contains multiple
+        entries, where each entry contains stats for the instance 
+        applied to an interface vlan combination.
+        This table actually consists of these 2 MIB tables in order for 
+        indexing to work , cl2natInterfaceStatisticsTable and 
+        cl2natInterfaceIpStatisticsTable."
+    REVISION        "201304160000Z"
+    DESCRIPTION
+        "Initial Version"
+    ::= { ciscoMgmt 806 }
+
+
+ciscoL2natMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoL2natMIB 1 }
+
+
+-- Global Objects
+
+cl2natTotalInstances OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of Instances
+        defined by the user on this device. Each instance is an 
+        independent module of configuration including IP address 
+        translations that only becomes active after being applied to an
+
+        interface/vlan combination." 
+    ::= { ciscoL2natMIBObjects 1 }
+
+cl2natTotalMatched OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of times a packet matches with
+        user configured IP translation entries. It should be noted that
+        the same packet can be counted twice if it matches both the
+        outside and inside entries, one for the source address
+        translation, and the other for the destination address
+        translation." 
+    ::= { ciscoL2natMIBObjects 2 }
+
+cl2natTotalUnmatched OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of packets that did not
+        match any of the configured NAT entries." 
+    ::= { ciscoL2natMIBObjects 3 }
+
+cl2natTotalFixups OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of packets that
+        required fixups." 
+    ::= { ciscoL2natMIBObjects 4 }
+
+cl2natTotalTranslationEntryConfigured OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number IP translation entries
+        currently configured in the system." 
+    ::= { ciscoL2natMIBObjects 5 }
+
+cl2natTotalPacketTranslated OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of packets that got
+        translated per rules defined in the cl2natinstanceIpTable" 
+    ::= { ciscoL2natMIBObjects 6 }
+-- The L2NAT Instance Table
+
+cl2natInstConfigInstanceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF Cl2natInstConfigInstanceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains multiple Layer 2 NAT instances. Each
+        Layer 2 NAT instance has a unique name and consists of 
+        configurations other than the list of IP NAT translations for 
+        which there is a separate table. An instance only becomes 
+        effective on traffic after being applied to an interface/vlan 
+        combination, which is done through the 
+        cl2natInterfaceConfigTable."
+    ::= { ciscoL2natMIBObjects 7 }
+
+cl2natInstConfigInstanceEntry OBJECT-TYPE
+    SYNTAX          Cl2natInstConfigInstanceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry is created as a row in the
+        cl2natInstConfigInstanceTable
+        table when a user configures a new instance. Each entry 
+        consists of the configuration parameters described below, and 
+        is indexed by the Layer 2 NAT instance name."
+    INDEX           { cl2natInstConfigInstanceName } 
+    ::= { cl2natInstConfigInstanceTable 1 }
+
+Cl2natInstConfigInstanceEntry ::= SEQUENCE {
+        cl2natInstConfigInstanceName      SnmpAdminString,
+        cl2natInstConfigPermitIn          BITS,
+        cl2natInstConfigPermitOut         BITS,
+        cl2natInstConfigFixup             BITS,
+        cl2natInstConfigStorageType       StorageType,
+        cl2natInstConfigInstanceRowStatus RowStatus
+}
+
+cl2natInstConfigInstanceName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Name assigned by user to a created
+        Layer 2 NAT instance." 
+    ::= { cl2natInstConfigInstanceEntry 1 }
+
+cl2natInstConfigPermitIn OBJECT-TYPE
+    SYNTAX          BITS {
+                        unmatched(0),
+                        igmp(1),
+                        multicast(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies user configured options for permitting
+        or denying packets coming in from uplinks that do not match any
+
+        NAT entry (unmatched), IGMP packets, multicast packets. A bit 
+        value of 0 denotes drop and a value of 1 indicates permit 
+        for that type. Default is 'drop' for all 3 types."
+    DEFVAL          { {  } } 
+    ::= { cl2natInstConfigInstanceEntry 2 }
+
+cl2natInstConfigPermitOut OBJECT-TYPE
+    SYNTAX          BITS {
+                        unmatched(0),
+                        igmp(1),
+                        multicast(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies user configured options for permitting
+        or denying packets going out of uplinks that do not match any 
+        NAT entry (unmatched), IGMP packets, multicast packets. A bit 
+        value of 0 denotes drop and a value of 1 indicates permit 
+        for that type. Default is drop for all 3 types."
+    DEFVAL          { {  } } 
+    ::= { cl2natInstConfigInstanceEntry 3 }
+
+cl2natInstConfigFixup OBJECT-TYPE
+    SYNTAX          BITS {
+                        arp(0),
+                        icmp(1),
+                        profinet(2),
+                        cip(3),
+                        snmp(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies user configured options for fixing
+        up ARP, ICMP, Profinet, CIP and SNMP protocols. A fixup is 
+        required for protocols which embed IP addresses to work across 
+        NAT boundaries, and involves translating any IP address 
+        embedded in the protocol payload to the corresponding  
+        configured translated address. A bit value of 1 denotes fixup 
+        is enabled for that protocol, and a value of 0 indicates fixup 
+        is disabled. By default, fixup is enabled for ARP, ICMP, 
+        Profinet and CIP (if required)."
+    DEFVAL          { { arp , icmp , profinet , cip } } 
+    ::= { cl2natInstConfigInstanceEntry 4 }
+
+cl2natInstConfigStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual row.
+        The following columnar objects are allowed to be writable 
+        when the storageType of this conceptual row is permanent(4):
+        (replace with list of columns)" 
+    ::= { cl2natInstConfigInstanceEntry 5 }
+
+cl2natInstConfigInstanceRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object will follow RowStatus Textual convention
+        to create/destroy entries.
+        The following columnar objects are mandatory to make the entry 
+        'active': cl2natInstIpInstanceName
+        Once the entry status has been set to active(1), the entry
+        cannot be modified.  The only operation possible after this is
+        to delete the entry." 
+    ::= { cl2natInstConfigInstanceEntry 6 }
+ 
+
+-- The L2NAT Instance IP Table
+
+cl2natInstIpInstanceIpTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF Cl2natInstIpInstanceIpEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table consists of multiple IP entries for each Layer2 NAT
+        instances. This table is a logical extension of the 
+        cl2natInstInstanceTable because it is linked to the 
+        same Layer 2 
+        NAT instance. This table is required because there can be 
+        multiple address translation entries for the same Layer 2 NAT 
+        instance."
+    ::= { ciscoL2natMIBObjects 8 }
+
+cl2natInstIpInstanceIpEntry OBJECT-TYPE
+    SYNTAX          Cl2natInstIpInstanceIpEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This Entry is created when a new IP translation entry is
+        added for a particular instance."
+    INDEX           {
+                        cl2natInstConfigInstanceName,
+                        cl2natInstIpDirection,
+                        cl2natInstIpFromIpAddressType,
+                        cl2natInstIpFromIpAddress,
+                        cl2natInstIpAddressType
+                    } 
+    ::= { cl2natInstIpInstanceIpTable 1 }
+
+Cl2natInstIpInstanceIpEntry ::= SEQUENCE {
+        cl2natInstIpDirection          INTEGER,
+        cl2natInstIpAddressType        INTEGER,
+        cl2natInstIpFromIpAddressType  InetAddressType,
+        cl2natInstIpFromIpAddress      InetAddress,
+        cl2natInstIpToIpAddressType    InetAddressType,
+        cl2natInstIpToIpAddress        InetAddress,
+        cl2natInstIpAddressMask        CiscoInetAddressMask,
+        cl2natInstIpRange              Integer32,
+        cl2natInstStorageIpStorageType StorageType,
+        cl2natInstIpRowStatus          RowStatus
+}
+
+cl2natInstIpDirection OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        inside(1),
+                        outside(2)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the direction in which an address is to
+        be translated. A value of 1 denotes that this entry is for   
+        translating source IP address of packets going out of uplinks, 
+        or destination IP address of packets coming in. A value of 2
+        denotes that this entry is for translating destination
+        IP address of packets going out of uplinks, or source IP
+        address of packets coming in." 
+    ::= { cl2natInstIpInstanceIpEntry 1 }
+
+cl2natInstIpAddressType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        host(1),
+                        range(2),
+                        network(3)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of address that is used to
+        configure this translation. 'host' implies that this is a 
+        single IP address translation for one host. 'range' implies 
+        that the cl2natFromAddress and cl2natToAddress are the starting
+
+        addresses of the range, and the cl2natIpRange is the number of 
+        addresses that are translated with this single config. 
+        'network' implies that an entire class C network of original IP
+
+        addresses is translated to the corresponding 254 address 
+        starting from the cl2natToAddress." 
+    ::= { cl2natInstIpInstanceIpEntry 2 }
+
+cl2natInstIpFromIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The address type of cl2natFromIpAddress.  This object specifies
+        whether this translation is for for IPv4 or IPv6." 
+    ::= { cl2natInstIpInstanceIpEntry 3 }
+
+cl2natInstIpFromIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the source IP address of packets going
+        out of the uplink before translation if the
+        cl2natInstIpDirection value for this entry is inside(1).
+
+        This objects indicate the destination IP address of packets
+        coming in from the uplinks after translation if the
+        cl2natInstIpDirection value for this entry is outside(2)" 
+    ::= { cl2natInstIpInstanceIpEntry 4 }
+
+cl2natInstIpToIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The address type of cl2natInstIpToIpAddress.  This object
+        specifies whether this translation is for for IPv4 or IPv6." 
+    ::= { cl2natInstIpInstanceIpEntry 5 }
+
+cl2natInstIpToIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Source IP address of packets going
+        out of the uplink after translation, and destination IP address
+        of packets coming in from the uplinks before translation if the
+        cl2natInstIpDirection value for this entry is inside(1), or the
+        Destination IP address of packets going out of the
+        uplink after translation, and source IP address of
+        packets coming in from the uplinks before translation if
+        the cl2natInstIpDirection value for this entry is outside(2)." 
+    ::= { cl2natInstIpInstanceIpEntry 6 }
+
+cl2natInstIpAddressMask OBJECT-TYPE
+    SYNTAX          CiscoInetAddressMask
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the subnet address mask when
+        the value of cl2natInstIpAddressType is 'network'. This is not
+        used for any other option." 
+    ::= { cl2natInstIpInstanceIpEntry 7 }
+
+cl2natInstIpRange OBJECT-TYPE
+    SYNTAX          Integer32 (1..128)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of addresses to be translated
+        in case the value of cl2natIpAddressType is 'range'. This is not
+        used for any other 
+        option." 
+    ::= { cl2natInstIpInstanceIpEntry 8 }
+
+cl2natInstStorageIpStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual row.
+        The following columnar objects are allowed to be writable 
+        when the storageType of this conceptual row is permanent(4):
+        (replace with list of columns)" 
+    ::= { cl2natInstIpInstanceIpEntry 9 }
+
+cl2natInstIpRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object will follow RowStatus Textual convention
+        to create/destroy entries.
+        The following columnar objects are
+        mandatory to make the entry 'active':
+                cl2natInstIpDirection
+                cl2natInstIpFromIpAddress
+                cl2natInstIpToIpAddress
+
+        Once the entry status has been set to active(1), the entry
+        cannot be modified.  The only operation possible after this is
+        to delete the entry." 
+    ::= { cl2natInstIpInstanceIpEntry 10 }
+ 
+
+-- The L2NAT Interface Config Table
+
+cl2natInterfaceConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF Cl2natInterfaceConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains multiple entries, where each entry
+        contains configuration of the instance applied to an 
+        interface/vlan combination."
+    ::= { ciscoL2natMIBObjects 9 }
+
+cl2natInterfaceConfigEntry OBJECT-TYPE
+    SYNTAX          Cl2natInterfaceConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each Entry is created as a row in the
+        cl2natInterfaceConfigTable table when a user applies an 
+        instance to an interface/vlan combination, and removed when
+        that instance is removed. A value of 0 in
+        cl2natInterfaceVlanIndex 
+        indicates that this attachment is for untagged traffic. The 
+        result of this lookup is actually an index that is used to 
+        lookup the cl2natInstanceTable which gives the actual config 
+        of the instance attached."
+    INDEX           {
+                        cl2natInterfaceConfigIfIndex,
+                        cl2natInterfaceConfigVlanIndex
+                    } 
+    ::= { cl2natInterfaceConfigTable 1 }
+
+Cl2natInterfaceConfigEntry ::= SEQUENCE {
+        cl2natInterfaceConfigIfIndex      Unsigned32,
+        cl2natInterfaceConfigVlanIndex    Unsigned32,
+        cl2natInterfaceConfigInstanceName SnmpAdminString,
+        cl2natInterfaceConfigStorageType  StorageType,
+        cl2natInterfaceConfigRowStatus    RowStatus
+}
+
+cl2natInterfaceConfigIfIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The index value that uniquely identifies the interface to
+        which this entry is applicable.  The interface identified by
+        a particular value of this index is the same interface as
+        identified by the same value of the IF-MIB's ifIndex." 
+    ::= { cl2natInterfaceConfigEntry 1 }
+
+cl2natInterfaceConfigVlanIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the vlan ID the L2NAT instance is
+        attached to.  A value of 0 indicates the instance is attached to
+        untagged traffic of the interface." 
+    ::= { cl2natInterfaceConfigEntry 2 }
+
+cl2natInterfaceConfigInstanceName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Layer 2 NAT Instance Name  to be
+        looked up to retrieve its configuration details.  This name
+        corresponds to what's in cl2natInstConfigInstanceName" 
+    ::= { cl2natInterfaceConfigEntry 3 }
+
+cl2natInterfaceConfigStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual row.
+        The following columnar objects are allowed to be writable 
+        when the storageType of this conceptual row is permanent(4):
+        (replace with list of columns)" 
+    ::= { cl2natInterfaceConfigEntry 4 }
+
+cl2natInterfaceConfigRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object will follow RowStatus Textual convention
+        to create/destroy entries.
+
+        The following columnar objects are mandatory to make the entry 
+        'active':
+                    ifIndex
+
+        Once the entry status has been set to active(1), the entry
+        cannot be modified.  The only operation possible after this is
+        to delete the entry." 
+    ::= { cl2natInterfaceConfigEntry 5 }
+ 
+
+-- The L2NAT Interface Statistics Table
+
+cl2natInterfaceStatisticsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF Cl2natInterfaceStatisticsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the Layer 2 NAT instance level statistics.
+        The IP address translation statistics are contained in the 
+        cl2natInterfaceIpStatisticsTable."
+    ::= { ciscoL2natMIBObjects 10 }
+
+cl2natInterfaceStatisticsEntry OBJECT-TYPE
+    SYNTAX          Cl2natInterfaceStatisticsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This Entry is created as a row in the
+        cl2natInterfaceStatisticsTable table when a user applies an 
+        instance to an interface/vlan combination, and removed when 
+        that instance is removed."
+    INDEX           {
+                        cl2natInterfaceConfigIfIndex,
+                        cl2natInterfaceConfigVlanIndex
+                    } 
+    ::= { cl2natInterfaceStatisticsTable 1 }
+
+Cl2natInterfaceStatisticsEntry ::= SEQUENCE {
+        cl2natFixupArpIn           Counter64,
+        cl2natFixupIcmpIn          Counter64,
+        cl2natFixupCipIn           Counter64,
+        cl2natFixupProfinetIn      Counter64,
+        cl2natFixupFtpIn           Counter64,
+        cl2natFixupSnmpIn          Counter64,
+        cl2natFixupSipIn           Counter64,
+        cl2natFixupSccpIn          Counter64,
+        cl2natUnmatchedIn          Counter64,
+        cl2natTranslatedUnicastIn  Counter64,
+        cl2natDroppedUnicastIn     Counter64,
+        cl2natDroppedMulticastIn   Counter64,
+        cl2natPassThruUnicastIn    Counter64,
+        cl2natPassThruMulticastIn  Counter64,
+        cl2natPassThruIgmpIn       Counter64,
+        cl2natDroppedIgmpIn        Counter64,
+        cl2natFixupArpOut          Counter64,
+        cl2natFixupIcmpOut         Counter64,
+        cl2natFixupCipOut          Counter64,
+        cl2natFixupProfinetOut     Counter64,
+        cl2natFixupFtpOut          Counter64,
+        cl2natFixupSnmpOut         Counter64,
+        cl2natFixupSipOut          Counter64,
+        cl2natFixupSccpOut         Counter64,
+        cl2natUnmatchedOut         Counter64,
+        cl2natDroppedUnicastOut    Counter64,
+        cl2natTranslatedUnicastOut Counter64,
+        cl2natPassThruUnicastOut   Counter64,
+        cl2natDroppedMulticastOut  Counter64,
+        cl2natPassThruMulticastOut Counter64,
+        cl2natDroppedIgmpOut       Counter64,
+        cl2natPassThruIgmpOut      Counter64
+}
+
+cl2natFixupArpIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up ARP packets for
+        this Layer 2 NAT Instance coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 1 }
+
+cl2natFixupIcmpIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up ICMP packets for
+        this Layer 2 NAT Instance coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 2 }
+
+cl2natFixupCipIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up CIP packets for
+        this Layer 2 NAT Instance coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 3 }
+
+cl2natFixupProfinetIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up Profinet packets
+        for this Layer 2 NAT Instance coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 4 }
+
+cl2natFixupFtpIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up FTP packets
+        for this Layer 2 NAT Instance coming into the uplinksk." 
+    ::= { cl2natInterfaceStatisticsEntry 5 }
+
+cl2natFixupSnmpIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up SNMP packets for
+        this Layer 2 NAT Instance coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 6 }
+
+cl2natFixupSipIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up Sip packets for
+        this Layer 2 NAT Instance coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 7 }
+
+cl2natFixupSccpIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up Sccp packets for
+        this Layer 2 NAT Instance coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 8 }
+
+cl2natUnmatchedIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of unmatched packets for this
+        Layer 2 NAT Instance coming into the uplinks. 
+        'Unmatched' packets are those that do not 
+        match any IP address translation configured for this layer 
+        2 NAT instance." 
+    ::= { cl2natInterfaceStatisticsEntry 9 }
+
+cl2natTranslatedUnicastIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of translated unicast packets
+        for this Layer 2  NAT coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 10 }
+
+cl2natDroppedUnicastIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of Dropped unicast packets for
+        this Layer 2  NAT instance coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 11 }
+
+cl2natDroppedMulticastIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of dropped multicast packets
+        for this Layer 2  NAT coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 12 }
+
+cl2natPassThruUnicastIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of passed through unicast
+        packets for this Layer 2  NAT coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 13 }
+
+cl2natPassThruMulticastIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of passed through multicast
+        packets for this Layer 2  NAT coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 14 }
+
+cl2natPassThruIgmpIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of passed through IGMP packets
+        for this Layer 2  NAT coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 15 }
+
+cl2natDroppedIgmpIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of dropped IGMP packets for
+        this Layer 2  NAT coming into the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 16 }
+
+cl2natFixupArpOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up ARP packets for
+        this Layer 2 NAT Instance going out of the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 17 }
+
+cl2natFixupIcmpOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up ICMP packets for
+        this Layer 2 NAT Instance going out of the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 18 }
+
+cl2natFixupCipOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up CIP packets for
+        this Layer 2 NAT Instance going out of the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 19 }
+
+cl2natFixupProfinetOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up Profinet packets
+        for this Layer 2 NAT Instance going out of the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 20 }
+
+cl2natFixupFtpOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up FTP packets
+        for this Layer 2 NAT Instance going out of the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 21 }
+
+cl2natFixupSnmpOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up SNMP packets for
+        this Layer 2 NAT Instance going out of the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 22 }
+
+cl2natFixupSipOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up Sip packets for
+        this Layer 2 NAT Instance going out of the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 23 }
+
+cl2natFixupSccpOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of fixed up Sccp packets for
+        this Layer 2 NAT Instance going out of the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 24 }
+
+cl2natUnmatchedOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of unmatched packets for
+        this Layer 2 NAT Instance going out of the uplinks. 
+        'Unmatched' packets are those that do not 
+        match any IP address translation configured for this layer 
+        2 NAT instance." 
+    ::= { cl2natInterfaceStatisticsEntry 25 }
+
+cl2natDroppedUnicastOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of Dropped unicast packets for
+        this Layer 2  NAT instance going out of the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 26 }
+
+cl2natTranslatedUnicastOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of translated unicast packets
+        for
+        this Layer 2  NAT going out of the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 27 }
+
+cl2natPassThruUnicastOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of passed through
+        unicast packets for this Layer 2  NAT instance going 
+        out of the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 28 }
+
+cl2natDroppedMulticastOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of dropped multicast
+        packets for this Layer 2  NAT instance going out of 
+        the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 29 }
+
+cl2natPassThruMulticastOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of passed through multicast
+        packets for this Layer 2  NAT coming out  the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 30 }
+
+cl2natDroppedIgmpOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of dropped IGMP packets for
+        this Layer 2  NAT coming out of the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 31 }
+
+cl2natPassThruIgmpOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Number of passed through IGMP packets
+        for this Layer 2  NAT coming out of the uplinks." 
+    ::= { cl2natInterfaceStatisticsEntry 32 }
+ 
+
+-- -L2NAT interface IP Statistics Table
+
+cl2natInterfaceIpStatisticsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF Cl2natInterfaceIpStatisticsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains statistics for IP translations of an L2
+        NAT instance that is applied to interface/vlan combination. 
+        This table is a logical extension of the 
+        cl2natInterfaceStatisticsTable, because these translations 
+        belong to the same instance referred to in that table."
+    ::= { ciscoL2natMIBObjects 11 }
+
+cl2natInterfaceIpStatisticsEntry OBJECT-TYPE
+    SYNTAX          Cl2natInterfaceIpStatisticsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This Entry is created in the
+        cl2natInterfaceIpStatisticsTable 
+        for each IP translation of a Layer 2 NAT instance when it is 
+        attached to an interface/vlan."
+    INDEX           {
+                        cl2natInterfaceConfigIfIndex,
+                        cl2natInterfaceConfigVlanIndex,
+                        cl2natInstIpDirection,
+                        cl2natInstIpFromIpAddressType,
+                        cl2natInstIpFromIpAddress
+                    } 
+    ::= { cl2natInterfaceIpStatisticsTable 1 }
+
+Cl2natInterfaceIpStatisticsEntry ::= SEQUENCE {
+        cl2natTranslatesIn  Counter64,
+        cl2natTranslatesOut Counter64
+}
+
+cl2natTranslatesIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This entry specifies the number of times this entry was
+        matched for packets going from inside to outside of uplinks." 
+    ::= { cl2natInterfaceIpStatisticsEntry 1 }
+
+cl2natTranslatesOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This entry specifies the number of times this entry was
+        matched for packets coming in from outside of uplinks to 
+        inside." 
+    ::= { cl2natInterfaceIpStatisticsEntry 2 }
+ 
+
+-- Conformance
+
+ciscoL2natMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoL2natMIB 3 }
+
+ciscoL2natMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoL2natMIBConformance 1 }
+
+ciscoL2natMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoL2natMIBConformance 2 }
+
+
+-- Compliance
+
+ciscoL2natMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "cisco L2NAT mib compliance object"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cl2natGlobalStatisticsGroup,
+                        cl2natInstanceConfigGroup,
+                        cl2natInstanceStatisticsGroup,
+                        cl2natInstanceTranslationStatisticsGroup
+                    }
+
+    OBJECT          cl2natInstConfigInstanceRowStatus
+    SYNTAX          RowStatus
+    DESCRIPTION
+        "Support for createAndWait and notInService is not required."
+
+    OBJECT          cl2natInstIpRowStatus
+    SYNTAX          RowStatus
+    DESCRIPTION
+        "Support for createAndWait and notInService is not required."
+
+    OBJECT          cl2natInterfaceConfigRowStatus
+    SYNTAX          RowStatus
+    DESCRIPTION
+        "Support for createAndWait and notInService is not required."
+    ::= { ciscoL2natMIBCompliances 1 }
+
+-- Units of Conformance
+
+cl2natGlobalStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cl2natTotalInstances,
+                        cl2natTotalMatched,
+                        cl2natTotalUnmatched,
+                        cl2natTotalFixups,
+                        cl2natTotalTranslationEntryConfigured,
+                        cl2natTotalPacketTranslated
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Global Statistics for NAT at
+        layer 2"
+    ::= { ciscoL2natMIBGroups 1 }
+
+cl2natInstanceConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cl2natInstConfigPermitIn,
+                        cl2natInstConfigPermitOut,
+                        cl2natInstConfigFixup,
+                        cl2natInstIpRange,
+                        cl2natInstIpToIpAddress,
+                        cl2natInstIpToIpAddressType,
+                        cl2natInstConfigInstanceRowStatus,
+                        cl2natInterfaceConfigRowStatus,
+                        cl2natInstIpAddressMask,
+                        cl2natInterfaceConfigInstanceName,
+                        cl2natInstIpRowStatus,
+                        cl2natInstConfigStorageType,
+                        cl2natInstStorageIpStorageType,
+                        cl2natInterfaceConfigStorageType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Instance and interface
+        Config for NAT at layer 2"
+    ::= { ciscoL2natMIBGroups 2 }
+
+cl2natInstanceStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cl2natUnmatchedIn,
+                        cl2natDroppedUnicastIn,
+                        cl2natTranslatedUnicastIn,
+                        cl2natFixupArpIn,
+                        cl2natFixupIcmpIn,
+                        cl2natFixupCipIn,
+                        cl2natFixupProfinetIn,
+                        cl2natFixupFtpIn,
+                        cl2natFixupSnmpIn,
+                        cl2natFixupSipIn,
+                        cl2natFixupSccpIn,
+                        cl2natUnmatchedOut,
+                        cl2natDroppedUnicastOut,
+                        cl2natTranslatedUnicastOut,
+                        cl2natFixupArpOut,
+                        cl2natFixupIcmpOut,
+                        cl2natFixupCipOut,
+                        cl2natFixupProfinetOut,
+                        cl2natFixupFtpOut,
+                        cl2natFixupSnmpOut,
+                        cl2natFixupSipOut,
+                        cl2natFixupSccpOut,
+                        cl2natPassThruUnicastIn,
+                        cl2natPassThruUnicastOut,
+                        cl2natDroppedMulticastIn,
+                        cl2natDroppedMulticastOut,
+                        cl2natPassThruMulticastIn,
+                        cl2natPassThruMulticastOut,
+                        cl2natDroppedIgmpIn,
+                        cl2natDroppedIgmpOut,
+                        cl2natPassThruIgmpIn,
+                        cl2natPassThruIgmpOut
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing per Instance
+        Statistics for NAT at layer 2"
+    ::= { ciscoL2natMIBGroups 3 }
+
+cl2natInstanceTranslationStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cl2natTranslatesIn,
+                        cl2natTranslatesOut
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing per Instance per translation
+        statistics at layer 2"
+    ::= { ciscoL2natMIBGroups 4 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

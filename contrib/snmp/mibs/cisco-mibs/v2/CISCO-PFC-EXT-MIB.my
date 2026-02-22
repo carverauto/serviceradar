@@ -1,0 +1,498 @@
+-- *****************************************************************
+-- CISCO-PFC-EXT-MIB.my
+--   
+-- September 2013, Liang Mei
+--   
+-- Copyright (c) 2013, 2016, 2017 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-PFC-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter64,
+    Integer32
+        FROM SNMPv2-SMI
+    CounterBasedGauge64
+        FROM HCNUM-TC
+    QosQueueNumber
+        FROM CISCO-QOS-TC-MIB
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    ciscoMgmt
+        FROM CISCO-SMI
+    ifIndex
+        FROM IF-MIB
+    Unsigned64
+        FROM CISCO-TC;
+
+
+ciscoPfcExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "201705260000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines management objects for
+        monitoring information of Priority-based Flow 
+        Control.
+        Deprecated ciscoPfcExtMIBCompliance2, 
+        which is replaced by ciscoPfcExtMIBCompliance3.
+
+        The following terms are used throughout the MIB:
+            PFC:  Priority Flow Control"
+    REVISION        "201705260000Z"
+    DESCRIPTION
+         "Added support for:
+           - ciscoPfcExtIfPriorityWaitGroup"
+    REVISION        "201611300000Z"
+    DESCRIPTION
+        "Added support for:
+         - ciscoPfcExtWatchdogIfQueueDropInPktGroup"
+    REVISION        "201604280000Z"
+    DESCRIPTION
+        "Added support for:
+         - ciscoPfcExtWatchdogIfQueueGroup"
+    REVISION        "201309260000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 813 }
+
+ciscoPfcExtMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoPfcExtMIB 0 }
+
+ciscoPfcExtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoPfcExtMIB 1 }
+
+ciscoPfcExtMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoPfcExtMIB 2 }
+
+-- --------------------------------------------------------------
+-- Objects to manage PFC Information
+-- --------------------------------------------------------------
+
+cpfcIfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpfcIfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of PFC informaton for each interface in
+        the system capable of providing such information."
+    ::= { ciscoPfcExtMIBObjects 1 }
+
+cpfcIfEntry OBJECT-TYPE
+    SYNTAX          CpfcIfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the PFC statistics information
+        of the interface."
+    REFERENCE       "802.1Qbb clause 12.18"
+    INDEX           { ifIndex } 
+    ::= { cpfcIfTable 1 }
+
+CpfcIfEntry ::= SEQUENCE {
+        cpfcIfRequests    Counter64,
+        cpfcIfIndications Counter64
+}
+
+cpfcIfRequests OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A count of the invoked PFC M_CONTROL.request primitives
+        for a particular interface." 
+    ::= { cpfcIfEntry 1 }
+
+cpfcIfIndications OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A count of the received PFC M_CONTROL.indication primitives
+        for a particular interface." 
+    ::= { cpfcIfEntry 2 }
+ 
+
+
+cpfcIfPriorityTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpfcIfPriorityEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of PFC informaton for each PFC priority of each
+        interface in the system capable of providing such information."
+    ::= { ciscoPfcExtMIBObjects 2 }
+
+cpfcIfPriorityEntry OBJECT-TYPE
+    SYNTAX          CpfcIfPriorityEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the PFC statistics information for
+        a PFC priority of the interface."
+    INDEX           {
+                        ifIndex,
+                        cpfcIfPriorityValue
+                    } 
+    ::= { cpfcIfPriorityTable 1 }
+
+CpfcIfPriorityEntry ::= SEQUENCE {
+        cpfcIfPriorityValue       Integer32,
+        cpfcIfPriorityRequests    Counter64,
+        cpfcIfPriorityIndications Counter64
+}
+
+cpfcIfPriorityValue OBJECT-TYPE
+    SYNTAX          Integer32 (0..7)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the priority value of the PFC
+        capable interface." 
+    ::= { cpfcIfPriorityEntry 1 }
+
+cpfcIfPriorityRequests OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A count of invoked request premitives for a specific
+        PFC priority of a particular interface." 
+    ::= { cpfcIfPriorityEntry 2 }
+
+cpfcIfPriorityIndications OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A count of the received indication primitives for a specific
+        PFC priority of a particular interface." 
+    ::= { cpfcIfPriorityEntry 3 }
+
+---
+--- PFC watchdog timer informational objects
+---
+cpfcWatchdogIfQueueInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpfcWatchdogIfQueueInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides PFC Watchdog Timer related information 
+        for each queue of each watchdog timer capable interface."
+    ::= { ciscoPfcExtMIBObjects 3 }
+
+cpfcWatchdogIfQueueInfoEntry OBJECT-TYPE
+    SYNTAX          CpfcWatchdogIfQueueInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the PFC Watchdog Time information,
+        which are per interface and per queue."
+    INDEX           {
+                        ifIndex,
+                        cpfcWatchdogIfQueueNumber
+                    }
+    ::= { cpfcWatchdogIfQueueInfoTable 1 }
+
+CpfcWatchdogIfQueueInfoEntry ::= SEQUENCE {
+        cpfcWatchdogIfQueueNumber             QosQueueNumber,
+        cpfcWatchdogIfQueueState              INTEGER,
+        cpfcWatchdogIfQueueShutdowns          Counter64,
+        cpfcWatchdogIfQueueRestores           Counter64,
+        cpfcWatchdogIfQueueTotalDropPkts      Counter64,
+        cpfcWatchdogIfQueueDropPkts           CounterBasedGauge64,
+        cpfcWatchdogIfQueueDropInPkts         CounterBasedGauge64,
+        cpfcWatchdogIfQueueTotalDropInPkts    CounterBasedGauge64
+}
+
+cpfcWatchdogIfQueueNumber OBJECT-TYPE
+    SYNTAX          QosQueueNumber 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the queue number of the interface." 
+    ::= { cpfcWatchdogIfQueueInfoEntry 1 }
+
+cpfcWatchdogIfQueueState OBJECT-TYPE
+    SYNTAX          INTEGER {
+                      active(1),
+                      shutdown(2),
+                      notApplicable(3) -- when watchdog timer is disabled
+                    } 
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the state of the PFC queue for the interface."
+    ::= { cpfcWatchdogIfQueueInfoEntry 2 }
+
+cpfcWatchdogIfQueueShutdowns OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current 
+    DESCRIPTION
+        "This object indicates the number of times a given PFC queue was 
+        shutdown for the interface."
+    ::= { cpfcWatchdogIfQueueInfoEntry 3 }
+
+cpfcWatchdogIfQueueRestores OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of times a given Priority Flow Control queue was 
+        restored for the interface."
+    ::= { cpfcWatchdogIfQueueInfoEntry 4 }
+
+cpfcWatchdogIfQueueTotalDropPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates total number of packets that were dropped
+        due to corrective action for a given PFC queue of the interface."
+    ::= { cpfcWatchdogIfQueueInfoEntry 5 }
+
+cpfcWatchdogIfQueueDropPkts OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates total number of packets that have been
+        dropped due to corrective action since last shutdown action 
+        for a given PFC queue of the interface."
+    ::= { cpfcWatchdogIfQueueInfoEntry 6 }
+
+cpfcWatchdogIfQueueDropInPkts OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates total number of ingress packets that have been
+        dropped due to corrective action since last shutdown action
+        for a given PFC queue of the interface."
+    ::= { cpfcWatchdogIfQueueInfoEntry 7 }
+    
+cpfcWatchdogIfQueueTotalDropInPkts OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates total number of ingress packets that have been
+        dropped due to corrective action for a given PFC queue of the
+        interface."
+    ::= { cpfcWatchdogIfQueueInfoEntry 8 }
+        
+cpfcIfPriorityWaitTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpfcIfPriorityWaitEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provides the time value 
+        of the CoS which are paused for each interface."
+    ::= { ciscoPfcExtMIBObjects 4 }
+
+cpfcIfPriorityWaitEntry OBJECT-TYPE
+    SYNTAX          CpfcIfPriorityWaitEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the PFC pause time information 
+         of each interface per CoS value."
+    INDEX           {
+                        ifIndex,
+                        cpfcIfPriorityWaitCoS
+                    } 
+    ::= { cpfcIfPriorityWaitTable 1 }
+
+CpfcIfPriorityWaitEntry ::= SEQUENCE {
+        cpfcIfPriorityWaitCoS       Integer32,
+        cpfcIfPriorityWaitRx        Unsigned64,
+        cpfcIfPriorityWaitTx        Unsigned64
+}
+
+cpfcIfPriorityWaitCoS OBJECT-TYPE
+    SYNTAX          Integer32 (0..7)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the priority value of the PFC
+        capable interface." 
+    ::= { cpfcIfPriorityWaitEntry 1 }
+
+cpfcIfPriorityWaitRx OBJECT-TYPE
+    SYNTAX          Unsigned64
+    UNITS           "micro-seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time in microseconds for which 
+         a link is not transmitting data which indicates the port 
+         is in conitnuous pause receiving state."
+    ::= { cpfcIfPriorityWaitEntry 2 }
+
+cpfcIfPriorityWaitTx OBJECT-TYPE
+    SYNTAX          Unsigned64
+    UNITS           "micro-seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time in microseconds for which 
+         a link is not receiving data which indicates the port 
+         is in continuous pause transmitting state." 
+    ::= { cpfcIfPriorityWaitEntry 3 }
+
+-- Conformance Information
+
+ciscoPfcExtMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoPfcExtMIBConform 1 }
+
+ciscoPfcExtMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoPfcExtMIBConform 2 }
+
+
+-- Compliance statements
+
+ciscoPfcExtMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the
+        CISCO-PFC-EXT-MIB."
+    MODULE          -- this module
+    GROUP           ciscoPfcExtIfGroup
+    DESCRIPTION
+        "This group is mandatory for devices in which interfaces
+        are capable of providing such information."
+
+    GROUP           ciscoPfcExtIfPriorityGroup
+    DESCRIPTION
+        "This group is mandatory for devices in which interfaces
+        are capable of providing such information."
+    ::= { ciscoPfcExtMIBCompliances 1 }
+
+ciscoPfcExtMIBCompliance2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the
+        CISCO-PFC-EXT-MIB."
+    MODULE          -- this module
+    GROUP           ciscoPfcExtIfGroup
+    DESCRIPTION
+        "This group is mandatory for devices in which interfaces
+        are capable of providing such information."
+
+    GROUP           ciscoPfcExtIfPriorityGroup
+    DESCRIPTION
+        "This group is mandatory for devices in which interfaces
+        are capable of providing such information."
+
+    GROUP           ciscoPfcExtWatchdogIfQueueGroup
+    DESCRIPTION
+        "This group is mandatory for devices in which interfaces
+        are capable of providing such information."
+    ::= { ciscoPfcExtMIBCompliances 2 }
+ 
+ciscoPfcExtMIBCompliance3 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the
+        CISCO-PFC-EXT-MIB."
+    MODULE          -- this module
+    GROUP           ciscoPfcExtIfGroup
+    DESCRIPTION
+        "This group is mandatory for devices in which interfaces
+        are capable of providing such information."
+
+    GROUP           ciscoPfcExtIfPriorityGroup
+    DESCRIPTION
+        "This group is mandatory for devices in which interfaces
+        are capable of providing such information."
+
+    GROUP           ciscoPfcExtWatchdogIfQueueGroup
+    DESCRIPTION
+        "This group is mandatory for devices in which interfaces
+        are capable of providing such information."
+    
+    GROUP           ciscoPfcExtIfPriorityWaitGroup
+    DESCRIPTION
+        "This group is mandatory for devices in which interfaces
+        are capable of providing such information."
+        
+    ::= { ciscoPfcExtMIBCompliances 3 }
+
+-- Units of Conformance
+
+ciscoPfcExtIfGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpfcIfRequests,
+                        cpfcIfIndications
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provides PFC information of
+        each interface capable of providing such information."
+    ::= { ciscoPfcExtMIBGroups 1 }
+
+ciscoPfcExtIfPriorityGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpfcIfPriorityRequests,
+                        cpfcIfPriorityIndications
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provides PFC information of
+        each PFC priority of an interface capable of providing
+        such information."
+    ::= { ciscoPfcExtMIBGroups 2 }
+
+ciscoPfcExtWatchdogIfQueueGroup OBJECT-GROUP
+     OBJECTS          { 
+                        cpfcWatchdogIfQueueState,
+                        cpfcWatchdogIfQueueShutdowns,
+                        cpfcWatchdogIfQueueRestores,
+                        cpfcWatchdogIfQueueTotalDropPkts,
+                        cpfcWatchdogIfQueueDropPkts
+                       }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) for PFC watchdog timer information of
+         each queue of an interface capable of providing such information."
+    ::= { ciscoPfcExtMIBGroups 3 }
+
+ciscoPfcExtWatchdogIfQueueDropInPktGroup OBJECT-GROUP
+     OBJECTS          {
+                        cpfcWatchdogIfQueueDropInPkts,
+                        cpfcWatchdogIfQueueTotalDropInPkts
+                       }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) for PFC watchdog Ingress Drop packets of 
+         each queue of an interface capable of providing such information."
+    ::= { ciscoPfcExtMIBGroups 4 }
+    
+ciscoPfcExtIfPriorityWaitGroup OBJECT-GROUP
+      OBJECTS          {       
+                         cpfcIfPriorityWaitRx,   
+                         cpfcIfPriorityWaitTx   
+                       } 
+      STATUS           current
+      DESCRIPTION
+         "A collection of object(s) for PFC pause timer value for 
+          each CoS of an interface capable of providing such information."
+      ::= { ciscoPfcExtMIBGroups 5 }
+END
+
+

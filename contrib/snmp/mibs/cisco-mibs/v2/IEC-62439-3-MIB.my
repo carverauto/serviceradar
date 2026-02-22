@@ -1,0 +1,1023 @@
+-- ****************************************************************************
+
+IEC-62439-3-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    TimeTicks,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    OBJECT-GROUP,
+    MODULE-COMPLIANCE
+        FROM SNMPv2-CONF
+    TruthValue,
+    RowStatus,
+    MacAddress,
+    DisplayString,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC;
+
+
+-- ****************************************************************************
+-- Root OID
+-- ****************************************************************************
+
+iec62439 MODULE-IDENTITY
+    LAST-UPDATED    "201405220000Z"
+    ORGANIZATION    "IEC/SC 65C"
+    CONTACT-INFO
+            "International Electrotechnical Commission IEC Central Office
+            3, rue de Varembe
+            P.O. Box 131
+            1211 GENEVA 20 Switzerland
+            Phone: +41 22 919 02 11 
+            Fax: +41 22 919 03 00
+            email: info@iec.ch"
+    DESCRIPTION
+        "This MIB module defines the Network Management interfaces for the redundancy protocols defined by the IEC 62439 suite. This MIB exposes the IEC62439-3 objects (PRP + HSR)"
+    REVISION        "201405220000Z"
+    DESCRIPTION
+        "added reference to ptp MIB and lreDupListResideMaxTime and type SecondFraction"
+    REVISION        "201202170000Z"
+    DESCRIPTION
+        "Consistency brought into line to mrp, crp, brp MIBs"
+    REVISION        "201108260000Z"
+    DESCRIPTION
+        "This MIB is aligned with the changes to PRP and HSR as defined in the Amendment to IEC 62439-3"
+    REVISION        "200811100000Z"
+    DESCRIPTION
+        "Separation of IEC 62439 into a suite of documents.
+        This MIB applies to IEC 62439-3, added HSR functionality"
+    REVISION        "200612160000Z"
+    DESCRIPTION
+        "Initial version of the Network Management interface for the Parallel Redundancy Protocol"
+    ::= { iso std(0) 62439 }
+
+
+-- ****************************************************************************
+-- Redundancy Protocols
+-- ****************************************************************************
+
+mrp  OBJECT IDENTIFIER
+    ::= { iec62439 1 }
+
+prp  OBJECT IDENTIFIER
+    ::= { iec62439 2 }
+
+crp  OBJECT IDENTIFIER
+    ::= { iec62439 3 }
+
+brp  OBJECT IDENTIFIER
+    ::= { iec62439 4 }
+
+drp  OBJECT IDENTIFIER
+    ::= { iec62439 5 }
+
+rrp  OBJECT IDENTIFIER
+    ::= { iec62439 6 }
+
+ptp  OBJECT IDENTIFIER
+    ::= { iec62439 7 }
+
+
+-- ****************************************************************************
+-- Textual conventions
+-- ****************************************************************************
+
+SecondFraction ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "time interval expressed in multiple of 2**-16 = 15,7 microseconds
+        this corresponds to the fraction of seconds in the NTP time representation 
+        the minimum time is 0 microseconds, the maximum 18 hours"
+    REFERENCE       "IEC 62439-3"
+    SYNTAX          Integer32
+-- ****************************************************************************
+-- Objects of the PRP Network Management
+-- ****************************************************************************
+
+linkRedundancyEntityNotifications  OBJECT IDENTIFIER
+    ::= { prp 20 }
+
+linkRedundancyEntityObjects  OBJECT IDENTIFIER
+    ::= { prp 21 }
+
+linkRedundancyEntityConformance  OBJECT IDENTIFIER
+    ::= { prp 22 }
+
+-- **********************************************************************
+
+lreConfiguration  OBJECT IDENTIFIER
+    ::= { linkRedundancyEntityObjects 0 }
+
+lreStatistics  OBJECT IDENTIFIER
+    ::= { linkRedundancyEntityObjects 1 }
+
+lreConfigurationGeneralGroup  OBJECT IDENTIFIER
+    ::= { lreConfiguration 0 }
+
+lreConfigurationInterfaceGroup  OBJECT IDENTIFIER
+    ::= { lreConfiguration 1 }
+
+lreStatisticsInterfaceGroup  OBJECT IDENTIFIER
+    ::= { lreStatistics 1 }
+
+
+-- ***********************************************************************
+-- Objects for lreConfigurationGeneralGroup
+-- ***********************************************************************
+
+lreManufacturerName OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "specifies the name of the LRE device manufacturer" 
+    ::= { lreConfigurationGeneralGroup 1 }
+
+lreInterfaceCount OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "total number of LREs present in this system." 
+    ::= { lreConfigurationGeneralGroup 2 }
+-- ********************************************************************
+-- Objects for lreConfigurationInterfacesGroup
+-- ********************************************************************
+
+lreConfigurationInterfaces  OBJECT IDENTIFIER
+    ::= { lreConfigurationInterfaceGroup 0 }
+
+-- *************************************
+-- ***Begin LRE InterfacesConfigTable***
+-- *************************************
+
+lreInterfaceConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF LREInterfaceConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "list of PRP/HSR LREs. Each entry corresponds to one PRP/HSR Link Redundancy 
+         Entity (LRE), each representing a pair of LAN ports A and B. Basic devices 
+         supporting PRP/HSR may have only one LRE and thus one entry in the table, 
+         while more complex
+        devices may have several entries for multiple LREs."
+    ::= { lreConfigurationInterfaces 1 }
+
+lreInterfaceConfigEntry OBJECT-TYPE
+    SYNTAX          LREInterfaceConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "each entry contains management information applicable to a particular LRE."
+    INDEX           { lreInterfaceConfigIndex } 
+    ::= { lreInterfaceConfigTable 1 }
+
+LREInterfaceConfigEntry ::= SEQUENCE {
+        lreInterfaceConfigIndex Unsigned32,
+        lreRowStatus            RowStatus,
+        lreNodeType             INTEGER,
+        lreNodeName             DisplayString,
+        lreVersionName          OCTET STRING,
+        lreMacAddress           MacAddress,
+        lrePortAdminStateA      INTEGER,
+        lrePortAdminStateB      INTEGER,
+        lreLinkStatusA          INTEGER,
+        lreLinkStatusB          INTEGER,
+        lreDuplicateDiscard     INTEGER,
+        lreTransparentReception INTEGER,
+        lreHsrLREMode           INTEGER,
+        lreSwitchingEndNode     INTEGER,
+        lreRedBoxIdentity       INTEGER,
+        lreEvaluateSupervision  TruthValue,
+        lreNodesTableClear      INTEGER,
+        lreProxyNodeTableClear  INTEGER,
+        lreDupListResideMaxTime SecondFraction
+}
+
+lreInterfaceConfigIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique value for each LRE." 
+    ::= { lreInterfaceConfigEntry 1 }
+
+lreRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "indicates the status of the LRE table entry" 
+    ::= { lreInterfaceConfigEntry 2 }
+
+lreNodeType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        prpmode1(1),
+                        hsr(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "specifies the operation mode of the LRE:PRP mode 1(1), HSR mode(2)
+        Note: PRP mode 0 is considered deprecated and is not supported by this revision 
+        of the MIB" 
+    ::= { lreInterfaceConfigEntry 3 }
+
+lreNodeName OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "specifies this LRE's node name" 
+    ::= { lreInterfaceConfigEntry 4 }
+
+lreVersionName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "specifies the version of this LRE's software" 
+    ::= { lreInterfaceConfigEntry 5 }
+
+lreMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specified the MAC address to be used by this LRE, MAC addresses are
+        identical for all ports of a single LRE" 
+    ::= { lreInterfaceConfigEntry 6 }
+
+lrePortAdminStateA OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        notActive(1),
+                        active(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether the port A shall be active or not Active
+        through administrative action (Default: active)." 
+    ::= { lreInterfaceConfigEntry 7 }
+
+lrePortAdminStateB OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        notActive(1),
+                        active(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether the port B shall be active or not Active  
+        through administrative action (Default: active)." 
+    ::= { lreInterfaceConfigEntry 8 }
+
+lreLinkStatusA OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        up(1),
+                        down(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "shows the actual link status of the LRE's port A" 
+    ::= { lreInterfaceConfigEntry 9 }
+
+lreLinkStatusB OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        up(1),
+                        down(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "shows the actual link status of the LRE's port B" 
+    ::= { lreInterfaceConfigEntry 10 }
+
+lreDuplicateDiscard OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        doNotDiscard(1),
+                        discard(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "specifies whether a duplicate discard algorithm is used at 
+         reception (Default: discard)." 
+    ::= { lreInterfaceConfigEntry 11 }
+
+lreTransparentReception OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        removeRCT(1),
+                        passRCT(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "if removeRCT is configured, the RCT is removed when 
+        forwarding to the upper 
+        layers, only applicable for PRP LRE (Default: removeRCT)." 
+    ::= { lreInterfaceConfigEntry 12 }
+
+lreHsrLREMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        modeh(1),
+                        moden(2),
+                        modet(3),
+                        modeu(4),
+                        modem(5)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This enumeration is only applicable if the LRE is an HSR bridging node or RedBox.
+        It shows the mode of the HSR LRE:
+        (1) Default mode: The HSR LRE is in mode h and bridges tagged HSR traffic
+        (2) Optional mode: The HSR LRE is in mode n and bridging between its HSR ports
+        Is disabled.
+        Traffic is HSR tagged.
+        (3) Optional mode: The HSR LRE is in mode t and bridges non-tagged HSR traffic between its HSR ports
+        (4) Optional mode: The HSR LRE is in mode u and behaves like in mode h, except it does not remove unicast messages
+        (5) Optional mode: The HSR LRE is configured in mixed mode. HSR frames are handled
+        according to mode h. Non-HSR frames are handled according to
+        802.1D bridging rules." 
+    ::= { lreInterfaceConfigEntry 13 }
+
+lreSwitchingEndNode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        nonbridgingnode(1),
+                        bridgingunspecified(2),
+                        prpnode(3),
+                        hsrredboxsan(4),
+                        hsrnode(5),
+                        hsrredboxhsr(6),
+                        hsrredboxprpa(7),
+                        hsrredboxprpb(8)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This enumeration shows which feature is enabled in this
+        particular LRE:
+        (1): an unspecified non-bridging node, e.g. SRP.
+        (2): an unspecified bridging node, e.g. RSTP.
+        (3): a PRP node/RedBox.
+        (4): an HSR RedBox with regular Ethernet traffic on its interlink. 
+        (5): an HSR switching node.
+        (6): an HSR RedBox with HSR tagged traffic on its interlink.
+        (7): an HSR RedBox with PRP traffic for LAN A on its interlink. 
+        (8): an HSR RedBox with PRP traffic for LAN B on its interlink." 
+    ::= { lreInterfaceConfigEntry 14 }
+
+lreRedBoxIdentity OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        id1a(2),
+                        id1b(3),
+                        id2a(4),
+                        id2b(5),
+                        id3a(6),
+                        id3b(7),
+                        id4a(8),
+                        id4b(9),
+                        id5a(10),
+                        id5b(11),
+                        id6a(12),
+                        id6b(13),
+                        id7a(14),
+                        id7b(15)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Applicable to RedBox HSR-PRP A and RedBox HSR-PRP B. One ID
+        is used by
+        one pair of RedBoxes (one configured to A and one configured to B) 
+        coupling an HSR ring to a PRP network. The integer value states the value 
+        of the path field a RedBox inserts into each frame it receives from its 
+        interlink and injects into the HSR ring. When interpreted as binary values, 
+        the LSB denotes the configuration of the RedBox (A or B), and the following 
+        3 bits denote the identifier of a RedBox pair." 
+    ::= { lreInterfaceConfigEntry 15 }
+
+lreEvaluateSupervision OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "True if the LRE evaluates received supervision frames. False if it
+        drops the supervision frames without evaluating. Note: LREs are required
+        to send supervision frames, but reception is optional. 
+        Default value is dependent on implementation." 
+    ::= { lreInterfaceConfigEntry 16 }
+
+lreNodesTableClear OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        noOp(0),
+                        clearNodeTable(1)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "specifies that the Node Table is to be cleared" 
+    ::= { lreInterfaceConfigEntry 17 }
+
+lreProxyNodeTableClear OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        noOp(0),
+                        clearProxyNodeTable(1)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "specifies that the Proxy Node Table is to be cleared" 
+    ::= { lreInterfaceConfigEntry 18 }
+
+lreDupListResideMaxTime OBJECT-TYPE
+    SYNTAX          SecondFraction
+    UNITS           "binaryFractionOfSecond"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "the longest time an entry may reside in the duplicates list, 
+         expressed as the number of seconds multiplied by 65536;
+         the default value is 26214 x 15 us, or 400 ms; too low a value can 
+         cause broadcast storms"
+    DEFVAL          { 26214 } 
+    ::= { lreInterfaceConfigEntry 19 }
+ 
+
+-- *************************************
+-- *** End lreInterfaceConfigTable ***
+-- *************************************
+--   
+-- ****************************************************************************
+-- Objects for lreStatisticsInterfacesGroup
+-- ****************************************************************************
+
+lreStatisticsInterfaces  OBJECT IDENTIFIER
+    ::= { lreStatisticsInterfaceGroup 0 }
+
+-- *************************************
+-- ***Begin LRE InterfacesStatsTable ***
+-- *************************************
+
+lreInterfaceStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF LREInterfaceStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "list of PRP/HSR LREs. Each entry corresponds
+        to one PRP/HSR Link Redundancy Entity (LRE), each representing a
+        pair of LAN ports A and B and a port C towards the application/interlink. Basic devices supporting PRP/HSR may have only one LRE and thus one entry in
+        the table, while more complex devices may have several entries for multiple LREs."
+    ::= { lreStatisticsInterfaces 1 }
+
+lreInterfaceStatsEntry OBJECT-TYPE
+    SYNTAX          LREInterfaceStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information applicable to a particular LRE."
+    INDEX           { lreInterfaceStatsIndex } 
+    ::= { lreInterfaceStatsTable 1 }
+
+LREInterfaceStatsEntry ::= SEQUENCE {
+        lreInterfaceStatsIndex Unsigned32,
+        lreCntTxA              Counter32,
+        lreCntTxB              Counter32,
+        lreCntTxC              Counter32,
+        lreCntErrWrongLanA     Counter32,
+        lreCntErrWrongLanB     Counter32,
+        lreCntErrWrongLanC     Counter32,
+        lreCntRxA              Counter32,
+        lreCntRxB              Counter32,
+        lreCntRxC              Counter32,
+        lreCntErrorsA          Counter32,
+        lreCntErrorsB          Counter32,
+        lreCntErrorsC          Counter32,
+        lreCntNodes            Integer32,
+        lreCntProxyNodes       Integer32,
+        lreCntUniqueA          Counter32,
+        lreCntUniqueB          Counter32,
+        lreCntUniqueC          Counter32,
+        lreCntDuplicateA       Counter32,
+        lreCntDuplicateB       Counter32,
+        lreCntDuplicateC       Counter32,
+        lreCntMultiA           Counter32,
+        lreCntMultiB           Counter32,
+        lreCntMultiC           Counter32,
+        lreCntOwnRxA           Counter32,
+        lreCntOwnRxB           Counter32
+}
+
+lreInterfaceStatsIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique value for each LRE." 
+    ::= { lreInterfaceStatsEntry 1 }
+
+lreCntTxA OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of frames sent over port A that are HSR tagged or
+        fitted with a PRP
+        Redundancy Control Trailer.
+        Only frames that are HSR tagged or do have a PRP RCT are counted. 
+        A frame aborted during the transmission is not counted.
+        Initial value = 0." 
+    ::= { lreInterfaceStatsEntry 2 }
+
+lreCntTxB OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of frames sent over port B that are HSR tagged or
+        fitted with a PRP
+        Redundancy Control Trailer.
+        Only frames that are HSR tagged or do have a PRP RCT are counted. 
+        A frame aborted during the transmission is not counted.
+        Initial value = 0." 
+    ::= { lreInterfaceStatsEntry 3 }
+
+lreCntTxC OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of frames sent towards the application interface of
+        the DANP or DANH
+        or over the interlink of the RedBox. Frames with and without PRP RCT or HSR 
+        tag are counted, but not link-local frames.
+        A frame aborted during the transmission is not counted.
+        Initial value = 0." 
+    ::= { lreInterfaceStatsEntry 4 }
+
+lreCntErrWrongLanA OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of frames with the wrong LAN identifier received on LRE port A.
+        Initial value = 0. Only applicable to PRP ports." 
+    ::= { lreInterfaceStatsEntry 5 }
+
+lreCntErrWrongLanB OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of frames with the wrong LAN identifier received on LRE port B.
+        Initial value = 0. Only applicable to PRP ports." 
+    ::= { lreInterfaceStatsEntry 6 }
+
+lreCntErrWrongLanC OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of frames with the wrong LAN identifier received on the interlink of
+        a RedBox. Only applicable to HSR RedBoxes in HSR-PRP configuration 
+        (hsrredboxprpa and hsrredboxprpb)." 
+    ::= { lreInterfaceStatsEntry 7 }
+
+lreCntRxA OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of frames received on a LRE port A. Only frames that
+        are HSR tagged
+        or fitted with a PRP Redundancy Control Trailer are counted. 
+        Frames that are not forwarded anywhere (e.g. because the sender of the frame 
+        is in the proxy node table) are counted, too. Only frames received completely 
+        and without error are counted.
+        Initial value = 0." 
+    ::= { lreInterfaceStatsEntry 8 }
+
+lreCntRxB OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of frames received on a LRE port B. Only frames that
+        are HSR tagged
+        or fitted with a PRP Redundancy Control Trailer are counted. Frames that are 
+        not forwarded anywhere (e.g. because the sender of the frame is in the proxy 
+        node table) are counted, too. Only frames received completely and without 
+        error are counted.
+        Initial value = 0." 
+    ::= { lreInterfaceStatsEntry 9 }
+
+lreCntRxC OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of frames received from the application interface of a
+        DANP or DANH or
+        the number of number of frames received on the interlink of a RedBox. Frames 
+        with and without PRP RCT or HSR tag are counted, but not link-local frames. 
+        Only frames received completely and without error are counted.
+        Initial value = 0." 
+    ::= { lreInterfaceStatsEntry 10 }
+
+lreCntErrorsA OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of frames with errors received on this LRE port A. Initial value 0." 
+    ::= { lreInterfaceStatsEntry 11 }
+
+lreCntErrorsB OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of frames with errors received on this LRE port B. Initial value = 0." 
+    ::= { lreInterfaceStatsEntry 12 }
+
+lreCntErrorsC OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of frames with errors received on the application interface of a DANP
+        or DANH or on the interlink of a RedBox. Initial value = 0." 
+    ::= { lreInterfaceStatsEntry 13 }
+
+lreCntNodes OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of nodes in the Nodes Table." 
+    ::= { lreInterfaceStatsEntry 14 }
+
+lreCntProxyNodes OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of nodes in the Proxy Node Table. Only applicable to 
+         RedBox. Initial value = 0." 
+    ::= { lreInterfaceStatsEntry 15 }
+
+lreCntUniqueA OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of entries in the duplicate detection mechanism on
+        port A for which no duplicate was received.
+        Initial value = 0." 
+    ::= { lreInterfaceStatsEntry 16 }
+
+lreCntUniqueB OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of entries in the duplicate detection mechanism on port B for which
+        no duplicate was received.
+        Initial value = 0." 
+    ::= { lreInterfaceStatsEntry 17 }
+
+lreCntUniqueC OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of entries in the duplicate detection mechanism on the 
+        application interface 
+        of the DAN or the interlink of the RedBox for which no duplicate was received.
+        Initial value = 0." 
+    ::= { lreInterfaceStatsEntry 18 }
+
+lreCntDuplicateA OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of entries in the duplicate detection mechanism on port A for which
+        one single duplicate was received. Initial value 0." 
+    ::= { lreInterfaceStatsEntry 19 }
+
+lreCntDuplicateB OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of entries in the duplicate detection mechanism on port B for which
+        one single duplicate was received. Initial value 0." 
+    ::= { lreInterfaceStatsEntry 20 }
+
+lreCntDuplicateC OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of entries in the duplicate detection mechanism on the application interface 
+         of the DAN or the interlink of the RedBox for which one single duplicate was received. 
+         Initial value 0." 
+    ::= { lreInterfaceStatsEntry 21 }
+
+lreCntMultiA OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of entries in the duplicate detection mechanism on port A for which
+        more than one duplicate was received. Initial value 0." 
+    ::= { lreInterfaceStatsEntry 22 }
+
+lreCntMultiB OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of entries in the duplicate detection mechanism on port B for which
+        more than one duplicate was received. Initial value 0." 
+    ::= { lreInterfaceStatsEntry 23 }
+
+lreCntMultiC OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of entries in the duplicate detection mechanism on the application interface
+        of the DAN or the interlink of the RedBox for which more than one duplicate was received.
+        Initial value = 0." 
+    ::= { lreInterfaceStatsEntry 24 }
+
+lreCntOwnRxA OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of HSR tagged frames received on Port A that originated from this
+        device. Frames originate from this device if the source MAC matches the 
+        MAC of the LRE, or if the source MAC appears in the proxy node table (if 
+        implemented). Applicable only to HSR.
+        Initial value 0." 
+    ::= { lreInterfaceStatsEntry 25 }
+
+lreCntOwnRxB OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "number of HSR tagged frames received on Port B that originated from this
+        device. Frames originate from this device if the source MAC matches the 
+        MAC of the LRE, or if the source MAC appears in the proxy node table (if 
+        implemented). Applicable only to HSR.
+        Initial value 0." 
+    ::= { lreInterfaceStatsEntry 26 }
+ 
+
+-- *************************************
+-- *** End LRE InterfacesStatsTable ***
+-- *************************************
+--   
+-- ***************************
+-- ***Begin LRE NodesTable ***
+-- ***************************
+
+lreNodesTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF LRENodesEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The node table (if it exists on that node) contains information about 
+         all remote LRE, which advertised themselves through supervision frames"
+    ::= { lreStatisticsInterfaces 2 }
+
+lreNodesEntry OBJECT-TYPE
+    SYNTAX          LRENodesEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the node table (if it exists) contains information about
+        a particular remote LRE registered in the node table, which advertised itself 
+        through supervision frames."
+    INDEX           {
+                        lreInterfaceStatsIndex,
+                        lreNodesIndex
+                    } 
+    ::= { lreNodesTable 1 }
+
+LRENodesEntry ::= SEQUENCE {
+        lreNodesIndex      Unsigned32,
+        lreNodesMacAddress MacAddress,
+        lreTimeLastSeenA   TimeTicks,
+        lreTimeLastSeenB   TimeTicks,
+        lreRemNodeType     INTEGER
+}
+
+lreNodesIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Unique value for each node in the LRE node table." 
+    ::= { lreNodesEntry 1 }
+
+lreNodesMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Each MAC address corresponds to a single Doubly Attached Node" 
+    ::= { lreNodesEntry 2 }
+
+lreTimeLastSeenA OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Time in TimeTicks (1/100s) since the last frame from this remote LRE was
+         received over LAN A. Initialized with a value of 0 upon node registration 
+         in the node table." 
+    ::= { lreNodesEntry 3 }
+
+lreTimeLastSeenB OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Time in TimeTicks (1/100s) since the last frame from this remote LRE was
+        received over LAN B. Initialized with a value of 0 upon node registration 
+        in the node table." 
+    ::= { lreNodesEntry 4 }
+
+lreRemNodeType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        danp(0),
+                        redboxp(1),
+                        vdanp(2),
+                        danh(3),
+                        redboxh(4),
+                        vdanh(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "DAN type, as indicated in the received supervision frame." 
+    ::= { lreNodesEntry 5 }
+ 
+
+-- ***************************
+-- *** End LRE NodesTable ***
+-- ***************************
+--   
+-- *********************************
+-- *** Begin LRE ProxyNodeTable ***
+-- *********************************
+
+lreProxyNodeTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF LREProxyNodeEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The proxy node table (if implemented) contains information about all 
+         nodes, for which the LRE acts as a connection to the HSR/PRP network."
+    ::= { lreStatisticsInterfaces 3 }
+
+lreProxyNodeEntry OBJECT-TYPE
+    SYNTAX          LREProxyNodeEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the proxy node table contains information about
+        a particular node for which the LRE acts as a connection to the HSR or PRP network."
+    INDEX           {
+                        lreInterfaceStatsIndex,
+                        lreProxyNodeIndex
+                    } 
+    ::= { lreProxyNodeTable 1 }
+
+LREProxyNodeEntry ::= SEQUENCE {
+        lreProxyNodeIndex      Unsigned32,
+        lreProxyNodeMacAddress MacAddress
+}
+
+lreProxyNodeIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique value for each node in the LRE proxy node table." 
+    ::= { lreProxyNodeEntry 1 }
+
+lreProxyNodeMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains information about a particular node 
+         for which the LRE acts as a proxy for the HSR PRP network." 
+    ::= { lreProxyNodeEntry 2 }
+ 
+
+-- *********************************
+-- *** End LRE ProxyNodeTable ***
+-- *********************************
+--   
+-- =====================================================================
+-- Conformance Information
+-- =====================================================================
+
+linkRedundancyConformance  OBJECT IDENTIFIER
+    ::= { linkRedundancyEntityConformance 1 }
+
+lreGroups  OBJECT IDENTIFIER
+    ::= { linkRedundancyConformance 1 }
+
+
+lreDefaultGrp OBJECT-GROUP
+    OBJECTS         {
+                        lreManufacturerName,
+                        lreInterfaceCount,
+                        lreRowStatus,
+                        lreNodeType,
+                        lreNodeName,
+                        lreVersionName,
+                        lreMacAddress,
+                        lrePortAdminStateA,
+                        lrePortAdminStateB,
+                        lreLinkStatusA,
+                        lreLinkStatusB,
+                        lreDuplicateDiscard,
+                        lreTransparentReception,
+                        lreHsrLREMode,
+                        lreSwitchingEndNode,
+                        lreRedBoxIdentity,
+                        lreEvaluateSupervision,
+                        lreNodesTableClear,
+                        lreProxyNodeTableClear,
+                        lreDupListResideMaxTime,
+                        lreCntTxA,
+                        lreCntTxB,
+                        lreCntTxC,
+                        lreCntErrWrongLanA,
+                        lreCntErrWrongLanB,
+                        lreCntErrWrongLanC,
+                        lreCntRxA,
+                        lreCntRxB,
+                        lreCntRxC,
+                        lreCntErrorsA,
+                        lreCntErrorsB,
+                        lreCntErrorsC,
+                        lreCntNodes,
+                        lreCntProxyNodes,
+                        lreCntUniqueA,
+                        lreCntUniqueB,
+                        lreCntUniqueC,
+                        lreCntDuplicateA,
+                        lreCntDuplicateB,
+                        lreCntDuplicateC,
+                        lreCntMultiA,
+                        lreCntMultiB,
+                        lreCntMultiC,
+                        lreCntOwnRxA,
+                        lreCntOwnRxB,
+                        lreNodesMacAddress,
+                        lreTimeLastSeenA,
+                        lreTimeLastSeenB,
+                        lreRemNodeType,
+                        lreProxyNodeMacAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Objects in the default group"
+    ::= { lreGroups 1 }
+-- ***********************************************************************
+-- =====================================================================
+-- MIB module Compliance statements
+-- =====================================================================
+
+linkRedundancyCompliances  OBJECT IDENTIFIER
+    ::= { linkRedundancyEntityConformance 2 }
+
+
+linkRedundancyCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Compliance for support by IEC 62439-3 module"
+    MODULE          -- this module
+    MANDATORY-GROUPS { lreDefaultGrp }
+    ::= { linkRedundancyCompliances 1 }
+
+END
+

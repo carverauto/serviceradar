@@ -1,0 +1,356 @@
+-- *****************************************************************
+-- CISCO-CDSTV-AUTHMGR-MIB: Cisco CDS-TV Authentication Manager
+-- Management Information Base
+--   
+-- June 2010, Rajat Ahuja.
+--   
+-- Copyright (c) 2010 by Cisco Systems, Inc.
+--   
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-CDSTV-AUTHMGR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    InetPortNumber,
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    CiscoURLStringOrEmpty
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCdstvAuthmgrMIB MODULE-IDENTITY
+    LAST-UPDATED    "201007200000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-cds@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects that describe the configuration
+        of the authentication manager for the Cisco Content Delivery
+        System for TV (CDS-TV).
+
+        CDS-TV is a suite of products and software applications
+        providing ingest, storage, caching, streaming, playout and
+        on-demand delivery of video to television or set-top-box
+        clients.
+
+        Authentication Manager is an optional feature of CDS-TV and is
+        only for specific RTSP environments (EventIS). The
+        Authentication Manager communicates with the back-office to
+        validate a request received from a set-top box before setting up
+        a session. 
+
+        Abbreviations:
+
+        CCP     Cache Control Protocol
+        CDS     Content Delivery System
+        CORBA   Common Object Request Broker Architecture 
+        ISA     Interactive Services Architecture
+        ISV     Integrated Streamer-Vault
+        FSI     File Service Interface
+        FTP     File Transfer Protocol
+        MPEG    Motion Picture Experts Group
+        MSA     Managed Services Architecture
+        QAM      Quadrature Amplitude Modulation
+        RTSP    Real-Time Streaming Protocol
+        SOAP    Simple Object Access Protocol
+        STB     Set-Top Box
+        VOD     Video On-Demand
+
+        Common terms:
+
+        Catcher: Device responsible for receiving content (typically
+        via
+        satellite dishes and antennae) from content providers or from a
+        Headend-In-The-Sky. 
+
+        Content Ingest: Acquisition of content from a source such as a
+        catcher or an FTP server for storing it locally and making it
+        available to streamers as needed.
+
+        TRAXIS: A part of the proprietary EventIS VOD back-office
+        solution for transaction, session and resource management that
+        communicates with VOD client applications, edge QAM devices,
+        video servers and conditional access systems.
+
+        Device Roles:
+
+        Vault: Content delivery application responsible for ingesting
+        and storing video content and making it available to streamers
+        and/or caching nodes.
+
+        Caching Nodes: Content delivery application responsible for
+        caching content from vault (using CCP) and then streaming
+        content out to streamers over HTTP or CCP.
+
+        Streamer: Content delivery application responsible for
+        streaming
+        video out to STB's.
+
+        ISV: Content delivery application capable of acting as both a
+        vault and as a streamer in a single device."
+    REVISION        "201007200000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 751 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+ciscoCdstvAuthMgrMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCdstvAuthmgrMIB 0 }
+
+ciscoCdstvAuthMgrMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCdstvAuthmgrMIB 1 }
+
+ciscoCdstvAuthMgrMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoCdstvAuthmgrMIB 2 }
+
+ciscoCdstvAuthMgrMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCdstvAuthMgrMIBConform 1 }
+
+
+cdstvAuthMgrAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of Authentication Manager IP
+        address, specified by cdstvAuthMgrAddress." 
+    ::= { ciscoCdstvAuthMgrMIBObjects 1 }
+
+cdstvAuthMgrAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Authentication Manager IP address,
+        typically the same as that of the master streamer, since the
+        Authentication Manager resides on the master streamer. The type
+        of the address is specified by  cdstvAuthMgrAddressType." 
+    ::= { ciscoCdstvAuthMgrMIBObjects 2 }
+
+cdstvAuthMgrPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Authentication Manager port number."
+    DEFVAL          { 7792 } 
+    ::= { ciscoCdstvAuthMgrMIBObjects 3 }
+
+cdstvAuthMgrEventIsAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of the IP address (specified by
+        cdstvAuthMgrEventIsAddressType) of the EventIS server." 
+    ::= { ciscoCdstvAuthMgrMIBObjects 4 }
+
+cdstvAuthMgrEventIsAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the address or domain name of the EventIS
+        server. The type of the address is specified by
+        cdstvAuthMgrEventIsAddressType." 
+    ::= { ciscoCdstvAuthMgrMIBObjects 5 }
+
+cdstvAuthMgrEventIsPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the port number on the EventIS server
+        used to receive authentication requests." 
+    ::= { ciscoCdstvAuthMgrMIBObjects 6 }
+
+cdstvAuthMgrTraxisSoapInterface OBJECT-TYPE
+    SYNTAX          CiscoURLStringOrEmpty
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the URL (including the address, port, and
+        logical partition) on the Streamer used to receive messages
+        about session tear-downs from TRAXIS." 
+    ::= { ciscoCdstvAuthMgrMIBObjects 7 }
+
+cdstvAuthMgrServerThreadPool OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of threads in the
+        Authentication Manager server pool that are used to process
+        authentication requests for the duration of the connection."
+    DEFVAL          { 5 } 
+    ::= { ciscoCdstvAuthMgrMIBObjects 8 }
+
+cdstvAuthMgrDebugLevel OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        off(1),
+                        low(2),
+                        high(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the amount of debugging information
+        logged.
+        off(1) - Logging is disabled.
+        low(2) - Errors and minimal information are logged.
+        high(3) - Errors, warnings, and full information is logged." 
+    ::= { ciscoCdstvAuthMgrMIBObjects 9 }
+ciscoCdstvAuthMgrMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCdstvAuthMgrMIBConform 2 }
+
+
+ciscoCdstvAuthMgrMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the entities which
+        implement the Cisco CDS TV Authentication Manager MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoCdstvAuthMgrMIBMainObjectGroup }
+
+    OBJECT          cdstvAuthMgrAddressType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cdstvAuthMgrAddress
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required"
+
+    OBJECT          cdstvAuthMgrPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required"
+
+    OBJECT          cdstvAuthMgrEventIsAddressType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required"
+
+    OBJECT          cdstvAuthMgrEventIsAddress
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required"
+
+    OBJECT          cdstvAuthMgrEventIsPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required"
+
+    OBJECT          cdstvAuthMgrTraxisSoapInterface
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required"
+
+    OBJECT          cdstvAuthMgrServerThreadPool
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required"
+
+    OBJECT          cdstvAuthMgrDebugLevel
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required"
+    ::= { ciscoCdstvAuthMgrMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoCdstvAuthMgrMIBMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvAuthMgrAddress,
+                        cdstvAuthMgrPort,
+                        cdstvAuthMgrEventIsPort,
+                        cdstvAuthMgrTraxisSoapInterface,
+                        cdstvAuthMgrServerThreadPool,
+                        cdstvAuthMgrDebugLevel,
+                        cdstvAuthMgrAddressType,
+                        cdstvAuthMgrEventIsAddressType,
+                        cdstvAuthMgrEventIsAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide status of authentication
+        manager configuration."
+    ::= { ciscoCdstvAuthMgrMIBGroups 1 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

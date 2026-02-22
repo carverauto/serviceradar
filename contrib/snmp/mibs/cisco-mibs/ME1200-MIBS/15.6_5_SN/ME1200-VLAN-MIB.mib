@@ -1,0 +1,822 @@
+-- *****************************************************************
+-- VLAN-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-VLAN-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200EtherType FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200PortListStackable FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    ME1200Unsigned16 FROM ME1200-TC
+    ME1200Vlan FROM ME1200-TC
+    ME1200VlanListQuarter FROM ME1200-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200VlanMIB MODULE-IDENTITY
+    LAST-UPDATED "201501160000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "Private MIB for VLAN."
+    REVISION    "201501160000Z"
+    DESCRIPTION
+        "Added Shared VLAN Learning table"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402120000Z"
+    DESCRIPTION
+        "Fixed typo in description of VlanUser"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201401230000Z"
+    DESCRIPTION
+        "Removed ztp from ME1200VlanUserType."
+    REVISION    "201401220000Z"
+    DESCRIPTION
+        "Added ztp to ME1200VlanUserType."
+    REVISION    "201312200000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 13 }
+
+
+ME1200VlanEgressTagging ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "An integer that indicates how egress tagging occurs."
+    SYNTAX      INTEGER { untagThis(0), tagThis(1), tagAll(2), untagAll(3) }
+
+ME1200VlanIngressAcceptance ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "An integer that indicates the type of frames that are not discarded on
+         ingress w.r.t. VLAN tagging."
+    SYNTAX      INTEGER { all(0), tagged(1), untagged(2) }
+
+ME1200VlanPortMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Determines the underlying port mode.
+         
+         Access ports are only members of one VLAN, the AccessVlan.
+         
+         Trunk ports are by default members of all VLANs, which can be limited
+         with TrunkVlans.
+         
+         Hybrid ports allow for changing all port VLAN parameters. As trunk
+         ports, hybrid ports are by default members of all VLANs, which can be
+         limited with HybridVlans."
+    SYNTAX      INTEGER { access(0), trunk(1), hybrid(2) }
+
+ME1200VlanPortType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "An integer that indicates if a port is VLAN aware, and if so, to which
+         EtherType it is sensitive."
+    SYNTAX      INTEGER { unaware(0), c(1), s(2), sCustom(3) }
+
+ME1200VlanUserType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "An integer that indicates the VLAN user type. A value of 'combined'
+         indicates the VLAN settings as programmed to hardware. A value of
+         'admin' indicates the VLAN settings as programmed by the administrative
+         user, and any other value indicates a software module that changes VLAN
+         settings 'behind the scenes'."
+    SYNTAX      INTEGER { combined(0), admin(1), dot1x(3), mvrp(4), gvrp(5), mvr(6), voiceVlan(7), mstp(8), erps(9), mep(10), evc(11), vcl(12), rmirror(13) }
+
+me1200VlanMIBObjects OBJECT IDENTIFIER
+    ::= { me1200VlanMIB 1 }
+
+me1200VlanCapabilities OBJECT IDENTIFIER
+    ::= { me1200VlanMIBObjects 1 }
+
+me1200VlanCapabilitiesVlanIdMin OBJECT-TYPE
+    SYNTAX      ME1200Vlan
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The minimum VLAN ID that can be configured on the device."
+    ::= { me1200VlanCapabilities 1 }
+
+me1200VlanCapabilitiesVlanIdMax OBJECT-TYPE
+    SYNTAX      ME1200Vlan
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The maximum VLAN ID that can be configured on the device."
+    ::= { me1200VlanCapabilities 2 }
+
+me1200VlanCapabilitiesFidCnt OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of Shared VLAN Learning (SVL) Filter IDs (FIDs) supported by
+         this device. 0 if SVL is not supported."
+    ::= { me1200VlanCapabilities 3 }
+
+me1200VlanConfig OBJECT IDENTIFIER
+    ::= { me1200VlanMIBObjects 2 }
+
+me1200VlanConfigGlobals OBJECT IDENTIFIER
+    ::= { me1200VlanConfig 1 }
+
+me1200VlanConfigGlobalsMain OBJECT IDENTIFIER
+    ::= { me1200VlanConfigGlobals 1 }
+
+me1200VlanConfigGlobalsMainCustomSPortEtherType OBJECT-TYPE
+    SYNTAX      ME1200EtherType (1536..65535)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "TPID (EtherType) for ports marked as Custom-S tag aware."
+    ::= { me1200VlanConfigGlobalsMain 1 }
+
+me1200VlanConfigGlobalsMainAccessVlans0To1K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "First quarter of bit-array indicating the enabled access VLANs."
+    ::= { me1200VlanConfigGlobalsMain 2 }
+
+me1200VlanConfigGlobalsMainAccessVlans1KTo2K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Second quarter of bit-array indicating the enabled access VLANs."
+    ::= { me1200VlanConfigGlobalsMain 3 }
+
+me1200VlanConfigGlobalsMainAccessVlans2KTo3K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Third quarter of bit-array indicating the enabled access VLANs."
+    ::= { me1200VlanConfigGlobalsMain 4 }
+
+me1200VlanConfigGlobalsMainAccessVlans3KTo4K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Last quarter of bit-array indicating the enabled access VLANs."
+    ::= { me1200VlanConfigGlobalsMain 5 }
+
+me1200VlanConfigGlobalsNameTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200VlanConfigGlobalsNameEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Table of VLAN names."
+    ::= { me1200VlanConfigGlobals 2 }
+
+me1200VlanConfigGlobalsNameEntry OBJECT-TYPE
+    SYNTAX      ME1200VlanConfigGlobalsNameEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the name of a given VLAN."
+    INDEX       { me1200VlanConfigGlobalsNameVlanId }
+    ::= { me1200VlanConfigGlobalsNameTable 1 }
+
+ME1200VlanConfigGlobalsNameEntry ::= SEQUENCE {
+    me1200VlanConfigGlobalsNameVlanId     ME1200Vlan,
+    me1200VlanConfigGlobalsNameName   ME1200DisplayString
+}
+
+me1200VlanConfigGlobalsNameVlanId OBJECT-TYPE
+    SYNTAX      ME1200Vlan
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "VLAN ID. Valid range is 1 - 4095."
+    ::= { me1200VlanConfigGlobalsNameEntry 1 }
+
+me1200VlanConfigGlobalsNameName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "VLAN Name. Default for VLAN 1 is 'default'. Default for any other VLAN
+         is 'VLANxxxx', where 'xxxx' is a decimal representation of the VLAN ID
+         with leading zeroes."
+    ::= { me1200VlanConfigGlobalsNameEntry 2 }
+
+me1200VlanConfigInterfaces OBJECT IDENTIFIER
+    ::= { me1200VlanConfig 2 }
+
+me1200VlanConfigInterfaceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200VlanConfigInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Table of per-port configuration."
+    ::= { me1200VlanConfigInterfaces 1 }
+
+me1200VlanConfigInterfaceEntry OBJECT-TYPE
+    SYNTAX      ME1200VlanConfigInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the VLAN configuration for a port interface."
+    INDEX       { me1200VlanConfigInterfaceIfIndex }
+    ::= { me1200VlanConfigInterfaceTable 1 }
+
+ME1200VlanConfigInterfaceEntry ::= SEQUENCE {
+    me1200VlanConfigInterfaceIfIndex      ME1200InterfaceIndex,
+    me1200VlanConfigInterfaceMode     ME1200VlanPortMode,
+    me1200VlanConfigInterfaceAccessVlan   ME1200Vlan,
+    me1200VlanConfigInterfaceTrunkNativeVlan      ME1200Vlan,
+    me1200VlanConfigInterfaceTrunkTagNativeVlan   TruthValue,
+    me1200VlanConfigInterfaceTrunkVlans0KTo1K     ME1200VlanListQuarter,
+    me1200VlanConfigInterfaceTrunkVlans1KTo2K     ME1200VlanListQuarter,
+    me1200VlanConfigInterfaceTrunkVlans2KTo3K     ME1200VlanListQuarter,
+    me1200VlanConfigInterfaceTrunkVlans3KTo4K     ME1200VlanListQuarter,
+    me1200VlanConfigInterfaceHybridNativeVlan     ME1200Vlan,
+    me1200VlanConfigInterfaceHybridPortType   ME1200VlanPortType,
+    me1200VlanConfigInterfaceHybridIngressFiltering   TruthValue,
+    me1200VlanConfigInterfaceHybridIngressAcceptance      ME1200VlanIngressAcceptance,
+    me1200VlanConfigInterfaceHybridEgressTagging      ME1200VlanEgressTagging,
+    me1200VlanConfigInterfaceHybridVlans0KTo1K    ME1200VlanListQuarter,
+    me1200VlanConfigInterfaceHybridVlans1KTo2K    ME1200VlanListQuarter,
+    me1200VlanConfigInterfaceHybridVlans2KTo3K    ME1200VlanListQuarter,
+    me1200VlanConfigInterfaceHybridVlans3KTo4K    ME1200VlanListQuarter,
+    me1200VlanConfigInterfaceForbiddenVlans0KTo1K     ME1200VlanListQuarter,
+    me1200VlanConfigInterfaceForbiddenVlans1KTo2K     ME1200VlanListQuarter,
+    me1200VlanConfigInterfaceForbiddenVlans2KTo3K     ME1200VlanListQuarter,
+    me1200VlanConfigInterfaceForbiddenVlans3KTo4K     ME1200VlanListQuarter
+}
+
+me1200VlanConfigInterfaceIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200VlanConfigInterfaceEntry 1 }
+
+me1200VlanConfigInterfaceMode OBJECT-TYPE
+    SYNTAX      ME1200VlanPortMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "VLAN mode of the port."
+    ::= { me1200VlanConfigInterfaceEntry 2 }
+
+me1200VlanConfigInterfaceAccessVlan OBJECT-TYPE
+    SYNTAX      ME1200Vlan
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The port VLAN ID the port will be assigned when Mode is Access."
+    ::= { me1200VlanConfigInterfaceEntry 3 }
+
+me1200VlanConfigInterfaceTrunkNativeVlan OBJECT-TYPE
+    SYNTAX      ME1200Vlan
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The port VLAN ID the port will be assigned when Mode is trunk."
+    ::= { me1200VlanConfigInterfaceEntry 4 }
+
+me1200VlanConfigInterfaceTrunkTagNativeVlan OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Controls whether frames classified to TrunkNativeVlan get tagged on
+         egress. Used when Mode is trunk."
+    ::= { me1200VlanConfigInterfaceEntry 5 }
+
+me1200VlanConfigInterfaceTrunkVlans0KTo1K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "First quarter of bit-array indicating whether the port is member of a
+         VLAN ('1') or not ('0'). Used when Mode is trunk."
+    ::= { me1200VlanConfigInterfaceEntry 6 }
+
+me1200VlanConfigInterfaceTrunkVlans1KTo2K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Second quarter of bit-array indicating whether the port is member of a
+         VLAN ('1') or not ('0'). Used when Mode is trunk."
+    ::= { me1200VlanConfigInterfaceEntry 7 }
+
+me1200VlanConfigInterfaceTrunkVlans2KTo3K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Third quarter of bit-array indicating whether the port is member of a
+         VLAN ('1') or not ('0'). Used when Mode is trunk."
+    ::= { me1200VlanConfigInterfaceEntry 8 }
+
+me1200VlanConfigInterfaceTrunkVlans3KTo4K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Last quarter of bit-array indicating whether the port is member of a
+         VLAN ('1') or not ('0'). Used when Mode is trunk."
+    ::= { me1200VlanConfigInterfaceEntry 9 }
+
+me1200VlanConfigInterfaceHybridNativeVlan OBJECT-TYPE
+    SYNTAX      ME1200Vlan
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The port VLAN ID the port will be assigned when Mode is hybrid."
+    ::= { me1200VlanConfigInterfaceEntry 10 }
+
+me1200VlanConfigInterfaceHybridPortType OBJECT-TYPE
+    SYNTAX      ME1200VlanPortType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Controls awareness and whether it reacts to C-tags, S-tags,
+         Custom-S-tags. Used when Mode is hybrid."
+    ::= { me1200VlanConfigInterfaceEntry 11 }
+
+me1200VlanConfigInterfaceHybridIngressFiltering OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Controls whether frames classified to a certain VLAN ID get discarded
+         (true) or not (false) if the port is not member of the VLAN ID. Used
+         when Mode is hybrid."
+    ::= { me1200VlanConfigInterfaceEntry 12 }
+
+me1200VlanConfigInterfaceHybridIngressAcceptance OBJECT-TYPE
+    SYNTAX      ME1200VlanIngressAcceptance
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Controls whether frames are accepted on ingress depending on VLAN tag
+         in frame. Used when Mode is hybrid."
+    ::= { me1200VlanConfigInterfaceEntry 13 }
+
+me1200VlanConfigInterfaceHybridEgressTagging OBJECT-TYPE
+    SYNTAX      ME1200VlanEgressTagging
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Controls tagging of frames on egress. tagThis(1) is not allowed. Used
+         when Mode is hybrid."
+    ::= { me1200VlanConfigInterfaceEntry 14 }
+
+me1200VlanConfigInterfaceHybridVlans0KTo1K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "First quarter of bit-array indicating whether the port is member of a
+         VLAN ('1') or not ('0'). Used when Mode is hybrid."
+    ::= { me1200VlanConfigInterfaceEntry 15 }
+
+me1200VlanConfigInterfaceHybridVlans1KTo2K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Second quarter of bit-array indicating whether the port is member of a
+         VLAN ('1') or not ('0'). Used when Mode is hybrid."
+    ::= { me1200VlanConfigInterfaceEntry 16 }
+
+me1200VlanConfigInterfaceHybridVlans2KTo3K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Third quarter of bit-array indicating whether the port is member of a
+         VLAN ('1') or not ('0'). Used when Mode is hybrid."
+    ::= { me1200VlanConfigInterfaceEntry 17 }
+
+me1200VlanConfigInterfaceHybridVlans3KTo4K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Last quarter of bit-array indicating whether the port is member of a
+         VLAN ('1') or not ('0'). Used when Mode is hybrid."
+    ::= { me1200VlanConfigInterfaceEntry 18 }
+
+me1200VlanConfigInterfaceForbiddenVlans0KTo1K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "First quarter of bit-array indicating whether the port can ever become
+         a member of a VLAN ('0') or not ('1'). Used in all modes."
+    ::= { me1200VlanConfigInterfaceEntry 19 }
+
+me1200VlanConfigInterfaceForbiddenVlans1KTo2K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Second quarter of bit-array indicating whether the port can ever become
+         a member of a VLAN ('0') or not ('1'). Used in all modes."
+    ::= { me1200VlanConfigInterfaceEntry 20 }
+
+me1200VlanConfigInterfaceForbiddenVlans2KTo3K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Third quarter of bit-array indicating whether the port can ever become
+         a member of a VLAN ('0') or not ('1'). Used in all modes."
+    ::= { me1200VlanConfigInterfaceEntry 21 }
+
+me1200VlanConfigInterfaceForbiddenVlans3KTo4K OBJECT-TYPE
+    SYNTAX      ME1200VlanListQuarter
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Last quarter of bit-array indicating whether the port can ever become a
+         member of a VLAN ('0') or not ('1'). Used in all modes."
+    ::= { me1200VlanConfigInterfaceEntry 22 }
+
+me1200VlanConfigInterfacesSvlTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200VlanConfigInterfacesSvlEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Shared VLAN Learning (SVL) allows for having one or more VLAN IDs map
+         to the same Filter ID (FID). For a given set of VLANs, if an individual
+         MAC address is learned in one VLAN, that learned information is used in
+         forwarding decisions taken for that address relative to all other VLANs
+         in the given set.
+         
+         fidCnt, which can be found in the capabilities section, indicates the
+         number of FIDs available on this platform. The feature is not available
+         if this number is 0."
+    ::= { me1200VlanConfigInterfaces 2 }
+
+me1200VlanConfigInterfacesSvlEntry OBJECT-TYPE
+    SYNTAX      ME1200VlanConfigInterfacesSvlEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The table is indexed by VLAN ID"
+    INDEX       { me1200VlanConfigInterfacesSvlVlanId }
+    ::= { me1200VlanConfigInterfacesSvlTable 1 }
+
+ME1200VlanConfigInterfacesSvlEntry ::= SEQUENCE {
+    me1200VlanConfigInterfacesSvlVlanId   ME1200Vlan,
+    me1200VlanConfigInterfacesSvlFilterId     ME1200Unsigned16,
+    me1200VlanConfigInterfacesSvlAction   ME1200RowEditorState
+}
+
+me1200VlanConfigInterfacesSvlVlanId OBJECT-TYPE
+    SYNTAX      ME1200Vlan
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "VLAN ID. Valid range is 1 - 4095."
+    ::= { me1200VlanConfigInterfacesSvlEntry 1 }
+
+me1200VlanConfigInterfacesSvlFilterId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Filter ID (FID) used in Shared VLAN Learning. Zero or more VLANs may
+         map into the same FID."
+    ::= { me1200VlanConfigInterfacesSvlEntry 2 }
+
+me1200VlanConfigInterfacesSvlAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200VlanConfigInterfacesSvlEntry 100 }
+
+me1200VlanConfigInterfacesSvlTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200VlanConfigInterfaces 3 }
+
+me1200VlanConfigInterfacesSvlTableRowEditorVlanId OBJECT-TYPE
+    SYNTAX      ME1200Vlan
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "VLAN ID. Valid range is 1 - 4095."
+    ::= { me1200VlanConfigInterfacesSvlTableRowEditor 1 }
+
+me1200VlanConfigInterfacesSvlTableRowEditorFilterId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Filter ID (FID) used in Shared VLAN Learning. Zero or more VLANs may
+         map into the same FID."
+    ::= { me1200VlanConfigInterfacesSvlTableRowEditor 2 }
+
+me1200VlanConfigInterfacesSvlTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200VlanConfigInterfacesSvlTableRowEditor 100 }
+
+me1200VlanStatus OBJECT IDENTIFIER
+    ::= { me1200VlanMIBObjects 3 }
+
+me1200VlanStatusInterfaces OBJECT IDENTIFIER
+    ::= { me1200VlanStatus 1 }
+
+me1200VlanStatusInterfaceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200VlanStatusInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Table of per-interface (port) status."
+    ::= { me1200VlanStatusInterfaces 1 }
+
+me1200VlanStatusInterfaceEntry OBJECT-TYPE
+    SYNTAX      ME1200VlanStatusInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the VLAN configuration for a port interface for a
+         given VLAN user."
+    INDEX       { me1200VlanStatusInterfaceIfIndex, me1200VlanStatusInterfaceVlanUser }
+    ::= { me1200VlanStatusInterfaceTable 1 }
+
+ME1200VlanStatusInterfaceEntry ::= SEQUENCE {
+    me1200VlanStatusInterfaceIfIndex      ME1200InterfaceIndex,
+    me1200VlanStatusInterfaceVlanUser     ME1200VlanUserType,
+    me1200VlanStatusInterfacePvid     ME1200Vlan,
+    me1200VlanStatusInterfaceUvid     ME1200Vlan,
+    me1200VlanStatusInterfacePortType     ME1200VlanPortType,
+    me1200VlanStatusInterfaceIngressFiltering     TruthValue,
+    me1200VlanStatusInterfaceIngressAcceptance    ME1200VlanIngressAcceptance,
+    me1200VlanStatusInterfaceEgressTagging    ME1200VlanEgressTagging
+}
+
+me1200VlanStatusInterfaceIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200VlanStatusInterfaceEntry 1 }
+
+me1200VlanStatusInterfaceVlanUser OBJECT-TYPE
+    SYNTAX      ME1200VlanUserType
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "VLAN user."
+    ::= { me1200VlanStatusInterfaceEntry 2 }
+
+me1200VlanStatusInterfacePvid OBJECT-TYPE
+    SYNTAX      ME1200Vlan
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Port VLAN ID set by this user."
+    ::= { me1200VlanStatusInterfaceEntry 3 }
+
+me1200VlanStatusInterfaceUvid OBJECT-TYPE
+    SYNTAX      ME1200Vlan
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Untagged VLAN ID set by a user. This may only be populated by non-admin
+         users."
+    ::= { me1200VlanStatusInterfaceEntry 4 }
+
+me1200VlanStatusInterfacePortType OBJECT-TYPE
+    SYNTAX      ME1200VlanPortType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "VLAN Awareness and tag reaction set by this user."
+    ::= { me1200VlanStatusInterfaceEntry 5 }
+
+me1200VlanStatusInterfaceIngressFiltering OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Ingress filtering enabled or disabled by this user."
+    ::= { me1200VlanStatusInterfaceEntry 6 }
+
+me1200VlanStatusInterfaceIngressAcceptance OBJECT-TYPE
+    SYNTAX      ME1200VlanIngressAcceptance
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "VLAN tagging accepted upon ingress configured by this user."
+    ::= { me1200VlanStatusInterfaceEntry 7 }
+
+me1200VlanStatusInterfaceEgressTagging OBJECT-TYPE
+    SYNTAX      ME1200VlanEgressTagging
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Egress tagging configured by this user."
+    ::= { me1200VlanStatusInterfaceEntry 8 }
+
+me1200VlanStatusMemberships OBJECT IDENTIFIER
+    ::= { me1200VlanStatus 2 }
+
+me1200VlanStatusMembershipVlanTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200VlanStatusMembershipVlanEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Table of per-VLAN, per-VLAN user port memberships."
+    ::= { me1200VlanStatusMemberships 1 }
+
+me1200VlanStatusMembershipVlanEntry OBJECT-TYPE
+    SYNTAX      ME1200VlanStatusMembershipVlanEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains a port list of VLAN memberships for a given VLAN and
+         VLAN user.The table is sparsely populated, so if a VLAN user doesn't
+         contribute, the row is non-existent."
+    INDEX       { me1200VlanStatusMembershipVlanVlanId, me1200VlanStatusMembershipVlanVlanUser }
+    ::= { me1200VlanStatusMembershipVlanTable 1 }
+
+ME1200VlanStatusMembershipVlanEntry ::= SEQUENCE {
+    me1200VlanStatusMembershipVlanVlanId      ME1200Vlan,
+    me1200VlanStatusMembershipVlanVlanUser    ME1200VlanUserType,
+    me1200VlanStatusMembershipVlanPortList    ME1200PortListStackable
+}
+
+me1200VlanStatusMembershipVlanVlanId OBJECT-TYPE
+    SYNTAX      ME1200Vlan
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "VLAN ID. Valid range is 1 - 4095."
+    ::= { me1200VlanStatusMembershipVlanEntry 1 }
+
+me1200VlanStatusMembershipVlanVlanUser OBJECT-TYPE
+    SYNTAX      ME1200VlanUserType
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "VLAN user."
+    ::= { me1200VlanStatusMembershipVlanEntry 2 }
+
+me1200VlanStatusMembershipVlanPortList OBJECT-TYPE
+    SYNTAX      ME1200PortListStackable
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Port list."
+    ::= { me1200VlanStatusMembershipVlanEntry 3 }
+
+me1200VlanMIBConformance OBJECT IDENTIFIER
+    ::= { me1200VlanMIB 3 }
+
+me1200VlanMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200VlanMIBConformance 1 }
+
+me1200VlanMIBGroups OBJECT IDENTIFIER
+    ::= { me1200VlanMIBConformance 2 }
+
+me1200VlanCapabilitiesInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200VlanCapabilitiesVlanIdMin, me1200VlanCapabilitiesVlanIdMax, 
+                  me1200VlanCapabilitiesFidCnt }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200VlanMIBGroups 1 }
+
+me1200VlanConfigGlobalsMainInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200VlanConfigGlobalsMainCustomSPortEtherType, 
+                  me1200VlanConfigGlobalsMainAccessVlans0To1K, 
+                  me1200VlanConfigGlobalsMainAccessVlans1KTo2K, 
+                  me1200VlanConfigGlobalsMainAccessVlans2KTo3K, 
+                  me1200VlanConfigGlobalsMainAccessVlans3KTo4K }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200VlanMIBGroups 2 }
+
+me1200VlanConfigGlobalsNameTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200VlanConfigGlobalsNameName }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200VlanMIBGroups 3 }
+
+me1200VlanConfigInterfaceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200VlanConfigInterfaceMode, me1200VlanConfigInterfaceAccessVlan, 
+                  me1200VlanConfigInterfaceTrunkNativeVlan, 
+                  me1200VlanConfigInterfaceTrunkTagNativeVlan, 
+                  me1200VlanConfigInterfaceTrunkVlans0KTo1K, 
+                  me1200VlanConfigInterfaceTrunkVlans1KTo2K, 
+                  me1200VlanConfigInterfaceTrunkVlans2KTo3K, 
+                  me1200VlanConfigInterfaceTrunkVlans3KTo4K, 
+                  me1200VlanConfigInterfaceHybridNativeVlan, 
+                  me1200VlanConfigInterfaceHybridPortType, 
+                  me1200VlanConfigInterfaceHybridIngressFiltering, 
+                  me1200VlanConfigInterfaceHybridIngressAcceptance, 
+                  me1200VlanConfigInterfaceHybridEgressTagging, 
+                  me1200VlanConfigInterfaceHybridVlans0KTo1K, 
+                  me1200VlanConfigInterfaceHybridVlans1KTo2K, 
+                  me1200VlanConfigInterfaceHybridVlans2KTo3K, 
+                  me1200VlanConfigInterfaceHybridVlans3KTo4K, 
+                  me1200VlanConfigInterfaceForbiddenVlans0KTo1K, 
+                  me1200VlanConfigInterfaceForbiddenVlans1KTo2K, 
+                  me1200VlanConfigInterfaceForbiddenVlans2KTo3K, 
+                  me1200VlanConfigInterfaceForbiddenVlans3KTo4K }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200VlanMIBGroups 4 }
+
+me1200VlanConfigInterfacesSvlTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200VlanConfigInterfacesSvlFilterId, 
+                  me1200VlanConfigInterfacesSvlAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200VlanMIBGroups 5 }
+
+me1200VlanConfigInterfacesSvlTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200VlanConfigInterfacesSvlTableRowEditorVlanId, 
+                  me1200VlanConfigInterfacesSvlTableRowEditorFilterId, 
+                  me1200VlanConfigInterfacesSvlTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200VlanMIBGroups 6 }
+
+me1200VlanStatusInterfaceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200VlanStatusInterfacePvid, me1200VlanStatusInterfaceUvid, 
+                  me1200VlanStatusInterfacePortType, 
+                  me1200VlanStatusInterfaceIngressFiltering, 
+                  me1200VlanStatusInterfaceIngressAcceptance, 
+                  me1200VlanStatusInterfaceEgressTagging }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200VlanMIBGroups 7 }
+
+me1200VlanStatusMembershipVlanTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200VlanStatusMembershipVlanPortList }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200VlanMIBGroups 8 }
+
+me1200VlanMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200VlanCapabilitiesInfoGroup, 
+                  me1200VlanConfigGlobalsMainInfoGroup, 
+                  me1200VlanConfigGlobalsNameTableInfoGroup, 
+                  me1200VlanConfigInterfaceTableInfoGroup, 
+                  me1200VlanConfigInterfacesSvlTableInfoGroup, 
+                  me1200VlanConfigInterfacesSvlTableRowEditorInfoGroup, 
+                  me1200VlanStatusInterfaceTableInfoGroup, 
+                  me1200VlanStatusMembershipVlanTableInfoGroup }
+
+    ::= { me1200VlanMIBCompliances 1 }
+
+END

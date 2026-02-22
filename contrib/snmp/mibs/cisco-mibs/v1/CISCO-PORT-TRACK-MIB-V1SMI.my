@@ -1,0 +1,249 @@
+-- MIB file created 24-Jun-2005 10:45:35, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-PORT-TRACK-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-PORT-TRACK-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowStatus
+            FROM SNMPv2-TC-v1
+    InterfaceIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    VsanIndex
+            FROM CISCO-ST-TC
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoPortTrackMIB OBJECT IDENTIFIER ::= { ciscoMgmt 437 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200504270000Z
+--  OrgName
+--    Cisco Systems Inc. 
+--  ContactInfo
+--         Cisco Systems
+--          Customer Service
+--    Postal: 170 W Tasman Drive
+--          San Jose, CA  95134
+--          USA
+--    Tel: +1 800 553 -NETS
+--    E-mail: cs-san@cisco.com
+--  Descr
+--    A MIB to configure the Port-Track feature.
+--    
+--     When a link goes down, all the services which depend 
+--     on the link are notified of the outage. The loss of
+--     this link may be an indirect failure to the end devices 
+--     attached to the switch. The concept behind the Port-Track  
+--     feature is to create a direct failure on the ports  
+--     connected to end devices on event of such indirect 
+--     failures.
+--    
+--     One more ports can be 'tracked' in terms of their 
+--     operational status. The cptPortTrackTable lets the user
+--     associate which port(s) need to be tracked to the ports 
+--     that will be tracking them. 
+--    
+--     cptPortForceShutTable, lets the user configure the 
+--     forced-shut mode of the linked-port.
+--  RevDate
+--    200504270000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoPortTrackObjects OBJECT IDENTIFIER ::= { ciscoPortTrackMIB 1 }
+cptMIBConformance OBJECT IDENTIFIER ::= { ciscoPortTrackMIB 2 }
+cptConfig       OBJECT IDENTIFIER ::= { ciscoPortTrackObjects 1 }
+cptMIBCompliances OBJECT IDENTIFIER ::= { cptMIBConformance 1 }
+cptMIBGroups    OBJECT IDENTIFIER ::= { cptMIBConformance 2 }
+
+cptPortTrackTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CptPortTrackEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table listing the linked ports and the configurations
+         of their associated tracked ports. The configuration of  
+         each tracked port includes its interface index as well 
+         as a VSAN index if only one VSAN is to be tracked."
+    ::= { cptConfig 1 }
+
+cptPortTrackEntry OBJECT-TYPE
+    SYNTAX CptPortTrackEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cptPortTrack Table."
+    INDEX { cptPortTrackLinkedPort, cptPortTrackTrackedPort }
+    ::= { cptPortTrackTable 1 }
+
+CptPortTrackEntry ::= SEQUENCE {
+    cptPortTrackLinkedPort InterfaceIndex,
+    cptPortTrackTrackedPort InterfaceIndex,
+    cptPortTrackVsanType INTEGER,
+    cptPortTrackVsanIndex VsanIndex,
+    cptPortTrackRowStatus RowStatus
+    }
+
+cptPortTrackLinkedPort OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex of the port that will be tracking the 
+         cptPortTrackTrackedPort."
+    ::= { cptPortTrackEntry 1 }
+
+cptPortTrackTrackedPort OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex of the port that needs to be tracked."
+    ::= { cptPortTrackEntry 2 }
+
+cptPortTrackVsanType OBJECT-TYPE
+    SYNTAX INTEGER {
+        singleVsan(1),
+        allVsans(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects denotes whether a single VSAN is 
+         being tracked on cptPortTrackTrackedPort or
+         all the VSANs on that port are tracked.
+        
+         If the set to 'singleVsan', then the VSAN
+         that will be tracked will be denoted by the 
+         instance of cptPortTrackVsanIndex."
+    ::= { cptPortTrackEntry 3 }
+
+cptPortTrackVsanIndex OBJECT-TYPE
+    SYNTAX VsanIndex
+--    Rsyntax INTEGER(1..4094)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Valid only if the instance of cptPortTrackVsanType 
+         is 'singleVsan'. If cptPortTrackVsanType is 
+         'allVsans', the instance of this object is
+         irrelevant. "
+    ::= { cptPortTrackEntry 4 }
+
+cptPortTrackRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create or delete the row.
+        
+         When creating a row, the object cptPortTrackVsanType
+         must be specified. If the value of 
+         cptPortTrackVsanType is 'singleVsan' then the
+         object cptPortTrackVsanIndex also must be 
+         specified. If the value of cptPortTrackVsanType
+         is 'allVsans', then cptPortTrackVsanIndex should 
+         not be specified in the create request."
+    ::= { cptPortTrackEntry 5 }
+
+cptPortForceShutTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CptPortForceShutEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table to configure the forced-shut state
+         for each linked port."
+    ::= { cptConfig 2 }
+
+cptPortForceShutEntry OBJECT-TYPE
+    SYNTAX CptPortForceShutEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cptPortForceShutTable."
+    INDEX { cptPortTrackLinkedPort }
+    ::= { cptPortForceShutTable 1 }
+
+CptPortForceShutEntry ::= SEQUENCE {
+    cptPortForceState TruthValue
+    }
+
+cptPortForceState OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The forced-shut state of the linked port.
+        
+         When all the tracked ports corresponding to
+         cptPortTrackLinkedPort, go down, cptPortTrackLinkedPort
+         is brought down. The cptPortForceState, determines
+         the manner in which this operation is performed.
+        
+         If 'false', cptPortTrackLinkedPort is brought down
+         operationally only and is brought up again as
+         soon as any one of the tracked ports comes up.
+        
+         If 'true', cptPortTrackLinkedPort is brought down
+         administratively as well and the user has to
+         manually bring the port up. i.e. the ifAdminStatus
+         cptPortTrackLinkedPort needs to be set to 'up'
+         by the user."
+    DEFVAL { false }
+    ::= { cptPortForceShutEntry 1 }
+
+cptTrackGroup OBJECT IDENTIFIER ::= { cptMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Object group for the porttrack feature.
+--  objects
+--    cptPortTrackVsanType, cptPortTrackVsanIndex, 
+--    cptPortTrackRowStatus
+
+cptShutGroup OBJECT IDENTIFIER ::= { cptMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Object group for the forced-shut feature.
+--  objects
+--    cptPortForceState
+
+cptMIBCompliance OBJECT IDENTIFIER ::= { cptMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which 
+--     implement the portrack management mib.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cptTrackGroup
+--   MandGroup
+--    cptShutGroup
+
+
+END
+

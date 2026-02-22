@@ -1,0 +1,1793 @@
+-- *****************************************************************
+-- C I S C O - V I N E S - M I B . M Y  
+--
+-- Cisco Vines MIB file.
+--
+-- September 1994, Bob Stewart
+--
+-- Copyright (c) 1994-1996 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+-- Cisco VINES MIB - Sixth Draft
+
+-- This MIB incorporates objects from the Cisco VINES command line
+-- interface, and was influenced by Banyan VINES MIB.
+
+-- It now subsumes the obsolescent, temporary Cisco VINES MIB.
+
+-- Its initial purpose was to provide VINES routing information.
+
+
+
+CISCO-VINES-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+	MODULE-IDENTITY,
+	OBJECT-TYPE,
+	Integer32,
+	Gauge32,
+	Counter32
+		FROM SNMPv2-SMI
+	MODULE-COMPLIANCE,
+	OBJECT-GROUP
+		FROM SNMPv2-CONF
+	PhysAddress, TruthValue,
+	TEXTUAL-CONVENTION
+		FROM SNMPv2-TC
+	ifIndex
+		FROM IF-MIB
+	ciscoMgmt
+		FROM CISCO-SMI;
+
+ciscoVinesMIB MODULE-IDENTITY
+	LAST-UPDATED	"9506070000Z"
+	ORGANIZATION	"Cisco Systems, Inc."
+	CONTACT-INFO
+		"	Cisco Systems
+			Customer Service
+
+		Postal:	170 W. Tasman Drive
+			San Jose, CA  95134-1706
+			USA
+
+		   Tel: +1 800 553-NETS
+
+		E-mail: cs-snmp@cisco.com"
+	DESCRIPTION
+		""
+	REVISION	"9506070000Z"
+	DESCRIPTION
+		"Miscellaneous updates/corrections, including making
+		CiscoNetworkProtocol enumerations contiguous."
+	REVISION	"9412210000Z"
+	DESCRIPTION
+		"Minor update/cleanup.  Incorporate review comments."
+	REVISION	"9411300000Z"
+	DESCRIPTION
+		"Initial version of this MIB module."
+	::= { ciscoMgmt 17 }
+
+ciscoVinesMIBObjects OBJECT IDENTIFIER ::= { ciscoVinesMIB 1 }
+
+-- Subgroups
+
+-- First position reserved for up-front objects
+cvBasic		OBJECT IDENTIFIER ::= { ciscoVinesMIBObjects 1 }
+cvForwarding	OBJECT IDENTIFIER ::= { ciscoVinesMIBObjects 2 }
+cvTotal		OBJECT IDENTIFIER ::= { ciscoVinesMIBObjects 3 }
+cvInterface	OBJECT IDENTIFIER ::= { ciscoVinesMIBObjects 4 }
+
+
+-- Textual Conventions
+
+VinesNetworkNumber ::= TEXTUAL-CONVENTION
+	STATUS       current
+	DESCRIPTION
+	"A VINES network number, that is, the first four bytes of a
+	VINES internetwork address."
+	SYNTAX       Integer32 (0..2147483647)
+
+VinesHostNumber ::= TEXTUAL-CONVENTION
+	STATUS       current
+	DESCRIPTION
+	"A VINES host number, that is, the last two bytes of a
+	VINES internetwork address."
+	SYNTAX       Integer32 (0..65535)
+
+VinesMetric ::= TEXTUAL-CONVENTION
+	STATUS       current
+	DESCRIPTION
+	"A VINES routing metric.  Due to internal storage format,
+	some values are not possible.  Once a metric is set, the
+	agent will automatically adjust to the nearest possible 
+	value.
+
+	Implementor's note:  internally the high order 12 bits are
+	each 200ms.  The low order 4 bits represent 0-15 increments
+	of 12.5ms each."
+	SYNTAX       Integer32 (0..819200)
+
+
+-- Basic VINES Objects
+
+cvBasicNetwork OBJECT-TYPE
+	SYNTAX     VinesNetworkNumber
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES network number of this router."
+	::= { cvBasic 1 }
+
+cvBasicHost OBJECT-TYPE
+	SYNTAX     VinesHostNumber
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES host (subnetwork) number of this router."
+	::= { cvBasic 2 }
+
+cvBasicNextClient OBJECT-TYPE
+	SYNTAX     VinesHostNumber
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Next VINES client host (subnetwork) number to be
+		assigned by this router."
+	::= { cvBasic 3 }
+
+
+-- Forwarding Data Base
+
+-- Neighbor Table
+
+cvForwNeighborNeighborCount OBJECT-TYPE
+	SYNTAX     Gauge32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The number of neighbors in the neighbor table,
+		cvForwNeighborTable."
+	::= { cvForwarding 1 }
+
+cvForwNeighborPathCount OBJECT-TYPE
+	SYNTAX     Gauge32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The number of paths in the neighbor table,
+		cvForwNeighborTable."
+	::= { cvForwarding 2 }
+
+cvForwNeighborVersion OBJECT-TYPE
+	SYNTAX     Integer32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The version number of the neighbor table,
+		cvForwNeighborTable, incremented each time a route
+		or path is added or deleted."
+	::= { cvForwarding 3 }
+
+cvForwNeighborTable OBJECT-TYPE
+	SYNTAX     SEQUENCE OF CvForwNeighborEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"A table of information about neighbors of this router."
+	::= { cvForwarding 4 }
+
+cvForwNeighborEntry OBJECT-TYPE
+	SYNTAX     CvForwNeighborEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"Information about a neighbor of this router.  Entries
+		are indexed by network interface (ifIndex) as there may
+		be more than one path to a given neighbor."
+	INDEX	{ cvForwNeighborNetwork,
+		  cvForwNeighborHost,
+		  ifIndex,
+		  cvForwNeighborPhysAddress }
+	::= { cvForwNeighborTable 1 }
+
+CvForwNeighborEntry ::=
+    SEQUENCE {
+	cvForwNeighborNetwork
+		VinesNetworkNumber,
+	cvForwNeighborHost
+		VinesHostNumber,
+	cvForwNeighborPhysAddress
+		PhysAddress,
+	cvForwNeighborSource
+		INTEGER,
+	cvForwNeighborRtpVersion
+		Integer32,
+	cvForwNeighborUsageType
+		INTEGER,
+	cvForwNeighborAge
+		Integer32,
+	cvForwNeighborMetric
+		VinesMetric,
+	cvForwNeighborUses
+		Counter32
+    }
+
+cvForwNeighborNetwork OBJECT-TYPE
+	SYNTAX     VinesNetworkNumber
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"The network part of the neighbor's VINES internet address."
+	::= { cvForwNeighborEntry 1 }
+
+cvForwNeighborHost OBJECT-TYPE
+	SYNTAX     VinesHostNumber
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"The host part of the neighbor's VINES internet address."
+	::= { cvForwNeighborEntry 2 }
+
+cvForwNeighborPhysAddress OBJECT-TYPE
+	SYNTAX     PhysAddress
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"The neighbor's physical address on the network interface
+		indicated by this entry's ifIndex, interpreted according
+		to ifType at ifIndex in ifTable."
+	::= { cvForwNeighborEntry 3 }
+
+cvForwNeighborSource OBJECT-TYPE
+	SYNTAX     INTEGER { unrecognized(1), self(2), rtpRedirect(3),
+			     rtpUpdate(4), manualRoute(5), igrp(6),
+			     test(7), manualNeighbor(8) }
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The source of this entry."
+	::= { cvForwNeighborEntry 4 }
+
+cvForwNeighborRtpVersion OBJECT-TYPE
+	SYNTAX     Integer32 (0..255)
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The version of RTP through which the entry was learned."
+	::= { cvForwNeighborEntry 5 }
+
+cvForwNeighborUsageType OBJECT-TYPE
+	SYNTAX INTEGER { next(1), roundRobin(2), backup(3) }
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"The way in which this path will be used to forward a
+		message."
+	::= { cvForwNeighborEntry 6 }
+
+cvForwNeighborAge OBJECT-TYPE
+	SYNTAX     Integer32 (-1..65535)
+	UNITS      "seconds"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The age of the entry, in seconds.  The value -1 indicates
+		not applicable, for RTP Version 0 neighbors on WAN
+		interfaces, when the interface is configured for
+		delta-only updates."
+	::= { cvForwNeighborEntry 7 }
+
+cvForwNeighborMetric OBJECT-TYPE
+	SYNTAX     VinesMetric
+	UNITS        "milleseconds"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The expected one-way delay to send a message to this
+		neighbor."
+	::= { cvForwNeighborEntry 8 }
+
+cvForwNeighborUses OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"For all cvForwNeighborSource values but 'manualRoute',
+		the number of times the path has been used to forward
+		a message.  For a 'manualRoute', the number of static
+		routes that use this neighbor as their first hop."
+	::= { cvForwNeighborEntry 9 }
+
+
+-- VINES Route Table
+
+cvForwRouteRouterCount OBJECT-TYPE
+	SYNTAX     Gauge32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The number of routers (servers) in the route table,
+		cvForwRouteTable."
+	::= { cvForwarding 5 }
+
+cvForwRouteRouteCount OBJECT-TYPE
+	SYNTAX     Gauge32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The number of routes in the route table,
+		cvForwRouteTable."
+	::= { cvForwarding 6 }
+
+cvForwRouteVersion OBJECT-TYPE
+	SYNTAX     Integer32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The version number of the route table,
+		cvForwRouteTable, incremented each time a route
+		or server (router) is added or deleted."
+	::= { cvForwarding 7 }
+
+cvForwRouteUpdateCountdown OBJECT-TYPE
+	SYNTAX     Gauge32
+	UNITS      "seconds"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The number of seconds until the next routing update."
+	::= { cvForwarding 8 }
+
+cvForwRouteTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CvForwRouteEntry
+	MAX-ACCESS not-accessible
+	STATUS	current
+	DESCRIPTION
+		"A table of information about routes from this router
+		to other VINES networks."
+	::= { cvForwarding 9 }
+
+cvForwRouteEntry OBJECT-TYPE
+	SYNTAX CvForwRouteEntry
+	MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"Information about a route from this router to a remote
+		VINES network."
+	INDEX	{ cvForwRouteNetworkNumber,
+		  cvForwRouteNeighborNetwork }
+	::= { cvForwRouteTable 1 }
+
+CvForwRouteEntry ::=
+    SEQUENCE {
+	cvForwRouteNetworkNumber
+		VinesNetworkNumber,
+	cvForwRouteNeighborNetwork
+		VinesNetworkNumber,
+	cvForwRouteSource
+		INTEGER,
+	cvForwRouteRtpVersion
+		Integer32,
+	cvForwRouteUseNext
+		TruthValue,
+	cvForwRouteForwardBroadcast
+		TruthValue,
+	cvForwRouteSuppress
+		TruthValue,
+	cvForwRouteLoadShareEligible
+		TruthValue,
+	cvForwRouteAge
+		Integer32,
+	cvForwRouteMetric
+		VinesMetric,
+	cvForwRouteUses
+		Counter32
+    }
+
+cvForwRouteNetworkNumber OBJECT-TYPE
+	SYNTAX     VinesNetworkNumber
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"The remote network's VINES network number."
+	::= { cvForwRouteEntry 1 }
+
+cvForwRouteNeighborNetwork OBJECT-TYPE
+	SYNTAX     VinesNetworkNumber
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"The network part of the VINES internetwork address of
+		the neighbor that is the next hop to the remote network.
+		Since the neighbor is a router by definition, its host
+		number is 1."
+	::= { cvForwRouteEntry 2 }
+
+cvForwRouteSource OBJECT-TYPE
+	SYNTAX     INTEGER { unrecognized(1), self(2), rtpRedirect(3),
+			     rtpUpdate(4), manualRoute(5), igrp(6),
+			     test(7) }
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The source of this entry."
+	::= { cvForwRouteEntry 3 }
+
+cvForwRouteRtpVersion OBJECT-TYPE
+	SYNTAX     Integer32 (0..255)
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The version of RTP through which the entry was learned."
+	::= { cvForwRouteEntry 4 }
+
+cvForwRouteUseNext OBJECT-TYPE
+	SYNTAX TruthValue
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Whether this route is the one to use next to get to the
+		remote network."
+	::= { cvForwRouteEntry 5 }
+
+cvForwRouteForwardBroadcast OBJECT-TYPE
+	SYNTAX TruthValue
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Whether this route will be used to forward a broadcast
+		from a serverless network."
+	::= { cvForwRouteEntry 6 }
+
+cvForwRouteSuppress OBJECT-TYPE
+	SYNTAX TruthValue
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Whether this route is temporarily being suppressed as
+		normal operation before eventually advertising it."
+	::= { cvForwRouteEntry 7 }
+
+cvForwRouteLoadShareEligible OBJECT-TYPE
+	SYNTAX TruthValue
+	MAX-ACCESS read-only
+	STATUS current
+	DESCRIPTION
+		"Whether this route is eligible for load sharing because
+		its metric is equal to the best metric for the same
+		neighbor."
+	::= { cvForwRouteEntry 8 }
+
+cvForwRouteAge OBJECT-TYPE
+	SYNTAX     Integer32 (-1..65535)
+	UNITS      "seconds"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The age of the entry, in seconds.  The value -1 indicates
+		not applicable, for RTP Version 0 neighbors on WAN
+		interfaces, when the interface is configured for
+		delta-only updates."
+	::= { cvForwRouteEntry 9 }
+
+cvForwRouteMetric OBJECT-TYPE
+	SYNTAX     VinesMetric
+	UNITS        "milleseconds"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The expected one-way delay to send a message on this
+		route."
+	::= { cvForwRouteEntry 10 }
+
+cvForwRouteUses OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"The number of times the route has been used to forward
+		a message."
+	::= { cvForwRouteEntry 11 }
+
+
+-- Global Total Counters
+
+cvTotalInputPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES input packets."
+	::= { cvTotal 1 }
+
+cvTotalOutputPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES output packets."
+	::= { cvTotal 2 }
+
+cvTotalLocalDestPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of VINES input packets for this host."
+	::= { cvTotal 3 }
+
+cvTotalForwardedPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES packets forwarded."
+	::= { cvTotal 4 }
+
+cvTotalBroadcastInPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES input
+		broadcast packets."
+	::= { cvTotal 5 }
+
+cvTotalBroadcastOutPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES output
+		broadcast packets."
+	::= { cvTotal 6 }
+
+cvTotalBroadcastForwardPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES broadcast
+		packets forwarded."
+	::= { cvTotal 7 }
+
+cvTotalLanOnlyPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES broadcast
+		packets not forwarded to all interfaces
+		because the LAN ONLY bit was set."
+	::= { cvTotal 8 }
+
+cvTotalNotOver4800Packets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES broadcast
+		packets not forwarded to all interfaces
+		because the OVER 4800 BPS bit was set."
+	::= { cvTotal 9 }
+
+cvTotalNoChargesPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES broadcast
+		packets not forwarded to all interfaces
+		because the NO CHARGES only bit was set."
+	::= { cvTotal 10 }
+
+cvTotalFormatErrors OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES input packets
+		with header errors."
+	::= { cvTotal 11 }
+
+cvTotalChecksumErrors OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES input packets
+		with checksum errors."
+	::= { cvTotal 12 }
+
+cvTotalHopCountsExceeded OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES input packets
+		that have exceeded the maximum hop count."
+	::= { cvTotal 13 }
+
+cvTotalNoRouteDrops OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES packets
+		dropped due to no route."
+	::= { cvTotal 14 }
+
+cvTotalEncapsFailedDrops OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES packets
+		dropped due to output encapsulation failed."
+	::= { cvTotal 15 }
+
+cvTotalUnknownPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of unknown VINES input
+		packets."
+	::= { cvTotal 16 }
+
+cvTotalIcpInPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES ICP packets
+		received."
+	::= { cvTotal 17 }
+
+cvTotalIcpOutPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES ICP packets
+		generated."
+	::= { cvTotal 18 }
+
+cvTotalMetricOutPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES ICP Metric
+		Notification packets generated."
+	::= { cvTotal 19 }
+
+cvTotalMacEchoInPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES MAC level
+		Echo packets received."
+	::= { cvTotal 20 }
+
+cvTotalMacEchoOutPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES MAC level
+		Echo packets generated."
+	::= { cvTotal 21 }
+
+cvTotalEchoInPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES Echo packets
+		received."
+	::= { cvTotal 22 }
+
+cvTotalEchoOutPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of number of VINES Echo packets
+		generated."
+	::= { cvTotal 23 }
+
+cvTotalProxyOutPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of proxy packets sent."
+	::= { cvTotal 24 }
+
+cvTotalProxyReplyOutPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total count of responses to proxy packets."
+	::= { cvTotal 25 }
+
+
+-- Interface Information
+
+-- Interface Configuration Table
+
+cvIfConfigTable OBJECT-TYPE
+	SYNTAX     SEQUENCE OF CvIfConfigEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"VINES interface configuration table."
+	::= { cvInterface 1 }
+
+cvIfConfigEntry OBJECT-TYPE
+	SYNTAX CvIfConfigEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		 "VINES interface configuration table entry."
+	INDEX { ifIndex }
+	::= { cvIfConfigTable 1 }
+
+CvIfConfigEntry ::=
+	SEQUENCE {
+	    cvIfConfigMetric
+		VinesMetric,
+	    cvIfConfigEncapsulation
+		INTEGER,
+	    cvIfConfigAccesslist
+		Integer32,
+	    cvIfConfigPropagate
+		INTEGER,
+	    cvIfConfigArpEnabled
+		INTEGER,
+	    cvIfConfigServerless
+		INTEGER,
+	    cvIfConfigRedirectInterval
+		Integer32,
+	    cvIfConfigSplitDisabled
+		TruthValue,
+	    cvIfConfigLineup
+		TruthValue,
+	    cvIfConfigFastokay
+		TruthValue,
+	    cvIfConfigRouteCache
+		TruthValue,
+	    cvIfConfigInputRouterFilter
+		Integer32,
+	    cvIfConfigInputNetworkFilter
+		Integer32,
+	    cvIfConfigOutputNetworkFilter
+		Integer32
+	}
+
+cvIfConfigMetric OBJECT-TYPE
+	SYNTAX     VinesMetric
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol metric value."
+	::= { cvIfConfigEntry 1 }
+
+cvIfConfigEncapsulation OBJECT-TYPE
+	SYNTAX     INTEGER { arpa(1), tokenRing(2), snap(3) }
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol default encapsulation"
+	::= { cvIfConfigEntry 2 }
+
+cvIfConfigAccesslist OBJECT-TYPE
+	SYNTAX     Integer32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol outgoing access list number."
+	::= { cvIfConfigEntry 3 }
+
+cvIfConfigPropagate OBJECT-TYPE
+	SYNTAX     INTEGER { never(1), always(2), dynamic(3) }
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol propagation control."
+	::= { cvIfConfigEntry 4 }
+
+cvIfConfigArpEnabled OBJECT-TYPE
+	SYNTAX     INTEGER { never(1), always(2), dynamic(3) }
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol arp replies enabled."
+	::= { cvIfConfigEntry 5 }
+
+cvIfConfigServerless OBJECT-TYPE
+	SYNTAX     INTEGER { never(1), dynamic(2), always(3),
+			     alwaysBroadcast(4) }
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol serverless support enabled."
+	::= { cvIfConfigEntry 6 }
+
+cvIfConfigRedirectInterval OBJECT-TYPE
+	SYNTAX     Integer32
+	UNITS "milleseconds"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol redirect interval (in ms)."
+	::= { cvIfConfigEntry 7 }
+
+cvIfConfigSplitDisabled OBJECT-TYPE
+	SYNTAX     TruthValue
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol split horizon disabled"
+	::= { cvIfConfigEntry 8 }
+
+cvIfConfigLineup OBJECT-TYPE
+	SYNTAX     TruthValue
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol line up/down."
+	::= { cvIfConfigEntry 9 }
+
+cvIfConfigFastokay OBJECT-TYPE
+	SYNTAX     TruthValue
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol fast switching supported."
+	::= { cvIfConfigEntry 10 }
+
+cvIfConfigRouteCache OBJECT-TYPE
+	SYNTAX     TruthValue
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol fast switching requested"
+	::= { cvIfConfigEntry 11 }
+
+cvIfConfigInputRouterFilter OBJECT-TYPE
+	SYNTAX     Integer32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol filter on received routing
+		information source address."
+	::= { cvIfConfigEntry 12 }
+
+cvIfConfigInputNetworkFilter OBJECT-TYPE
+	SYNTAX     Integer32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol filter on received routing
+		information content."
+	::= { cvIfConfigEntry 13 }
+
+cvIfConfigOutputNetworkFilter OBJECT-TYPE
+	SYNTAX     Integer32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol filter on transmitted routing
+		information content."
+	::= { cvIfConfigEntry 14 }
+
+
+-- Interface Input Counter Table
+
+cvIfCountInTable OBJECT-TYPE
+	SYNTAX     SEQUENCE OF CvIfCountInEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"VINES interface input counter table."
+	::= { cvInterface 2 }
+
+cvIfCountInEntry OBJECT-TYPE
+	SYNTAX     CvIfCountInEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		 "VINES interface input counter table entry."
+	INDEX { ifIndex }
+	::= { cvIfCountInTable 1 }
+
+CvIfCountInEntry ::=
+	SEQUENCE {
+	    cvIfCountInNotEnabledDrops
+		Counter32,
+	    cvIfCountInFormatErrors
+		Counter32,
+	    cvIfCountInLocalDestPackets
+		Counter32,
+	    cvIfCountInBroadcastPackets
+		Counter32,
+	    cvIfCountInForwardedPackets
+		Counter32,
+	    cvIfCountInNoRouteDrops
+		Counter32,
+	    cvIfCountInZeroHopCountDrops
+		Counter32,
+	    cvIfCountInChecksumErrors
+		Counter32,
+	    cvIfCountInArpQueryRequests
+		Counter32,
+	    cvIfCountInArpQueryResponses
+		Counter32,
+	    cvIfCountInArpAssignmentRequests
+		Counter32,
+	    cvIfCountInArpAssignmentResponses
+		Counter32,
+	    cvIfCountInArpIllegalMessages
+		Counter32,
+	    cvIfCountInIcpErrorMessages
+		Counter32,
+	    cvIfCountInIcpMetricMessages
+		Counter32,
+	    cvIfCountInIcpIllegalMessages
+		Counter32,
+	    cvIfCountInIpcMessages
+		Counter32,
+	    cvIfCountInRtp0Messages
+		Counter32,
+	    cvIfCountInRtp1Messages
+		Counter32,
+	    cvIfCountInRtp2Messages
+		Counter32,
+	    cvIfCountInRtp3Messages
+		Counter32,
+	    cvIfCountInRtpUpdateMessages
+		Counter32,
+	    cvIfCountInRtpResponseMessages
+		Counter32,
+	    cvIfCountInRtpRedirectMessages
+		Counter32,
+	    cvIfCountInRtpIllegalMessages
+		Counter32,
+	    cvIfCountInSppMessages
+		Counter32,
+	    cvIfCountInIpUnknownProtocols
+		Counter32,
+	    cvIfCountInIpcUnknownPorts
+		Counter32,
+	    cvIfCountInBroadcastsHelpered
+		Counter32,
+	    cvIfCountInBroadcastsForwarded
+		Counter32,
+	    cvIfCountInBroadcastDuplicates
+		Counter32,
+	    cvIfCountInEchoPackets
+		Counter32,
+	    cvIfCountInMacEchoPackets
+		Counter32,
+	    cvIfCountInProxyReplyPackets
+		Counter32
+	}
+
+cvIfCountInNotEnabledDrops OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input packets
+		discarded because interface not configured."
+	::= { cvIfCountInEntry 1 }
+
+cvIfCountInFormatErrors OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input packets with
+		format errors."
+	::= { cvIfCountInEntry 2 }
+
+cvIfCountInLocalDestPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input packets
+		destined for this router."
+	::= { cvIfCountInEntry 3 }
+
+cvIfCountInBroadcastPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol input broadcast count."
+	::= { cvIfCountInEntry 4 }
+
+cvIfCountInForwardedPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input packets
+		forwarded to another interface."
+	::= { cvIfCountInEntry 5 }
+
+cvIfCountInNoRouteDrops OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input packets
+		dropped because there was no route to the
+		destination."
+	::= { cvIfCountInEntry 6 }
+
+cvIfCountInZeroHopCountDrops OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input packets
+		dropped due to a zero hop count."
+	::= { cvIfCountInEntry 7 }
+
+cvIfCountInChecksumErrors OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input packets with
+		checksum errors."
+	::= { cvIfCountInEntry 8 }
+
+cvIfCountInArpQueryRequests OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input ARP Query
+		Request messages."
+	::= { cvIfCountInEntry 9 }
+
+cvIfCountInArpQueryResponses OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input ARP Query
+		Response messages."
+	::= { cvIfCountInEntry 10 }
+
+cvIfCountInArpAssignmentRequests OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input ARP Assignment
+		Request messages."
+	::= { cvIfCountInEntry 11 }
+
+cvIfCountInArpAssignmentResponses OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input ARP Assignment
+		Response messages."
+	::= { cvIfCountInEntry 12 }
+
+cvIfCountInArpIllegalMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input illegal ARP
+		messages."
+	::= { cvIfCountInEntry 13 }
+
+cvIfCountInIcpErrorMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input ICP error
+		messages."
+	::= { cvIfCountInEntry 14 }
+
+cvIfCountInIcpMetricMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input ICP metric
+		messages."
+	::= { cvIfCountInEntry 15 }
+
+cvIfCountInIcpIllegalMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input illegal ICP
+		messages."
+	::= { cvIfCountInEntry 16 }
+
+cvIfCountInIpcMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input IPC messages."
+	::= { cvIfCountInEntry 17 }
+
+cvIfCountInRtp0Messages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input RTP type 0
+		messages."
+	::= { cvIfCountInEntry 18 }
+
+cvIfCountInRtp1Messages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input RTP Request
+		messages."
+	::= { cvIfCountInEntry 19 }
+
+cvIfCountInRtp2Messages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input RTP type 2
+		messages."
+	::= { cvIfCountInEntry 20 }
+
+cvIfCountInRtp3Messages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input RTP type 3
+		messages."
+	::= { cvIfCountInEntry 21 }
+
+cvIfCountInRtpUpdateMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only 
+		   STATUS     current 
+		   DESCRIPTION
+		"VINES protocol count of input RTP Update
+		messages."
+	::= { cvIfCountInEntry 22 }
+
+cvIfCountInRtpResponseMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input RTP Response
+		messages."
+	::= { cvIfCountInEntry 23 }
+
+cvIfCountInRtpRedirectMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input RTP Redirect
+		messages."
+	::= { cvIfCountInEntry 24 }
+
+cvIfCountInRtpIllegalMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input illegal RTP
+		messages."
+	::= { cvIfCountInEntry 25 }
+
+cvIfCountInSppMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input SPP messages."
+	::= { cvIfCountInEntry 26 }
+
+cvIfCountInIpUnknownProtocols OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input packets of
+		unknown VINES protocols."
+	::= { cvIfCountInEntry 27 }
+
+cvIfCountInIpcUnknownPorts OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input packets of
+		unknown VINES IPC ports."
+	::= { cvIfCountInEntry 28 }
+
+cvIfCountInBroadcastsHelpered OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input packets
+		helpered to another server."
+	::= { cvIfCountInEntry 29 }
+
+cvIfCountInBroadcastsForwarded OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol input broadcast forwarded to
+		other interface(s)."
+	::= { cvIfCountInEntry 30 }
+
+cvIfCountInBroadcastDuplicates OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol input duplicate broadcast
+		count."
+	::= { cvIfCountInEntry 31 }
+
+cvIfCountInEchoPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input IPC echo
+		messages."
+	::= { cvIfCountInEntry 32 }
+
+cvIfCountInMacEchoPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input MAC layer echo
+		frames."
+	::= { cvIfCountInEntry 33 }
+
+cvIfCountInProxyReplyPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of responses to proxy
+		packets."
+	::= { cvIfCountInEntry 34 }
+
+
+-- Interface Output Counter Table
+
+cvIfCountOutTable OBJECT-TYPE
+	SYNTAX     SEQUENCE OF CvIfCountOutEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"VINES interface output counter table."
+	::= { cvInterface 3 }
+
+cvIfCountOutEntry OBJECT-TYPE
+	SYNTAX     CvIfCountOutEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		 "VINES interface output counter table entry."
+	INDEX { ifIndex }
+	::= { cvIfCountOutTable 1 }
+
+CvIfCountOutEntry ::=
+	SEQUENCE {
+	    cvIfCountOutUnicastPackets
+		Counter32,
+	    cvIfCountOutBroadcastPackets
+		Counter32,
+	    cvIfCountOutForwardedPackets
+		Counter32,
+	    cvIfCountOutEncapsulationFailures
+		Counter32,
+	    cvIfCountOutAccessFailures
+		Counter32,
+	    cvIfCountOutDownFailures
+		Counter32,
+	    cvIfCountOutPacketsNotBroadcastToSource
+		Counter32,
+	    cvIfCountOutPacketsNotBroadcastLanOnly
+		Counter32,
+	    cvIfCountOutPacketsNotBroadcastNotOver4800
+		Counter32,
+	    cvIfCountOutPacketsNotBroadcastNoCharge
+		Counter32,
+	    cvIfCountOutBroadcastsForwarded
+		Counter32,
+	    cvIfCountOutBroadcastsHelpered
+		Counter32,
+	    cvIfCountOutArpQueryRequests
+		Counter32,
+	    cvIfCountOutArpQueryResponses
+		Counter32,
+	    cvIfCountOutArpAssignmentRequests
+		Counter32,
+	    cvIfCountOutArpAssignmentResponses
+		Counter32,
+	    cvIfCountOutIcpErrorMessages
+		Counter32,
+	    cvIfCountOutIcpMetricMessages
+		Counter32,
+	    cvIfCountOutIpcMessages
+		Counter32,
+	    cvIfCountOutRtp0Messages
+		Counter32,
+	    cvIfCountOutRtpRequestMessages
+		Counter32,
+	    cvIfCountOutRtp2Messages
+		Counter32,
+	    cvIfCountOutRtp3Messages
+		Counter32,
+	    cvIfCountOutRtpUpdateMessages
+		Counter32,
+	    cvIfCountOutRtpResponseMessages
+		Counter32,
+	    cvIfCountOutRtpRedirectMessages
+		Counter32,
+	    cvIfCountOutSppMessages
+		Counter32,
+	    cvIfCountOutEchoPackets
+		Counter32,
+	    cvIfCountOutMacEchoPackets
+		Counter32,
+	    cvIfCountOutProxyPackets
+		Counter32
+	}
+
+cvIfCountOutUnicastPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol unicast packets generated."
+	::= { cvIfCountOutEntry 1 }
+
+cvIfCountOutBroadcastPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol broadcast packets
+		generated."
+	::= { cvIfCountOutEntry 2 }
+
+cvIfCountOutForwardedPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of forwarded packets."
+	::= { cvIfCountOutEntry 3 }
+
+cvIfCountOutEncapsulationFailures OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol output encapsulation
+		failures."
+	::= { cvIfCountOutEntry 4 }
+
+cvIfCountOutAccessFailures OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol output access list failures."
+	::= { cvIfCountOutEntry 5 }
+
+cvIfCountOutDownFailures OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol output interface down count."
+	::= { cvIfCountOutEntry 6 }
+
+cvIfCountOutPacketsNotBroadcastToSource OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol output broadcast not sent
+		because interface leads back to the source."
+	::= { cvIfCountOutEntry 7 }
+
+cvIfCountOutPacketsNotBroadcastLanOnly OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol output broadcast not sent due
+		to 'Lan Only' class."
+	::= { cvIfCountOutEntry 8 }
+
+cvIfCountOutPacketsNotBroadcastNotOver4800 OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol output broadcast not sent due
+		to 'High Speed' class."
+	::= { cvIfCountOutEntry 9 }
+
+cvIfCountOutPacketsNotBroadcastNoCharge OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol output broadcast not sent due
+		to 'No Charges' class."
+	::= { cvIfCountOutEntry 10 }
+
+cvIfCountOutBroadcastsForwarded OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol output broadcast forwarded
+		from another interface."
+	::= { cvIfCountOutEntry 11 }
+
+cvIfCountOutBroadcastsHelpered OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol output broadcast helpered to
+		a VINES server."
+	::= { cvIfCountOutEntry 12 }
+
+cvIfCountOutArpQueryRequests OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output ARP Query
+		Request messages."
+	::= { cvIfCountOutEntry 13 }
+
+cvIfCountOutArpQueryResponses OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output ARP Query
+		Response messages."
+	::= { cvIfCountOutEntry 14 }
+
+cvIfCountOutArpAssignmentRequests OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output ARP
+		Assignment Request messages."
+	::= { cvIfCountOutEntry 15 }
+
+cvIfCountOutArpAssignmentResponses OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of input ARP Assignment
+		Response messages."
+	::= { cvIfCountOutEntry 16 }
+
+cvIfCountOutIcpErrorMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output IPC Error
+		messages."
+	::= { cvIfCountOutEntry 17 }
+
+cvIfCountOutIcpMetricMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output IPC metric
+		messages."
+	::= { cvIfCountOutEntry 18 }
+
+cvIfCountOutIpcMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output ICP
+		messages."
+	::= { cvIfCountOutEntry 19 }
+
+cvIfCountOutRtp0Messages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output RTP type 0
+		messages."
+	::= { cvIfCountOutEntry 20 }
+
+cvIfCountOutRtpRequestMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output RTP Request
+		messages."
+	::= { cvIfCountOutEntry 21 }
+
+cvIfCountOutRtp2Messages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output RTP type 2
+		messages."
+	::= { cvIfCountOutEntry 22 }
+
+cvIfCountOutRtp3Messages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output RTP type 3
+		messages."
+	::= { cvIfCountOutEntry 23 }
+
+cvIfCountOutRtpUpdateMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output RTP Update
+		messages."
+	::= { cvIfCountOutEntry 24 }
+
+cvIfCountOutRtpResponseMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output RTP Response
+		messages."
+	::= { cvIfCountOutEntry 25 }
+
+cvIfCountOutRtpRedirectMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output RTP Redirect
+		messages."
+	::= { cvIfCountOutEntry 26 }
+
+cvIfCountOutSppMessages OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output SPP
+		messages."
+	::= { cvIfCountOutEntry 27 }
+
+cvIfCountOutEchoPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output IPC echo
+		messages."
+	::= { cvIfCountOutEntry 28 }
+
+cvIfCountOutMacEchoPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of output IPCMAC layer
+		echo frames."
+	::= { cvIfCountOutEntry 29 }
+
+cvIfCountOutProxyPackets OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"VINES protocol count of proxy packets sent."
+	::= { cvIfCountOutEntry 30 }
+
+
+-- conformance information
+
+ciscoVinesMIBConformance OBJECT IDENTIFIER ::= { ciscoVinesMIB 3 }
+ciscoVinesMIBCompliances OBJECT IDENTIFIER ::= { ciscoVinesMIBConformance 1 }
+ciscoVinesMIBGroups      OBJECT IDENTIFIER ::= { ciscoVinesMIBConformance 2 }
+
+
+-- compliance statement
+
+ciscoVinesMIBCompliance MODULE-COMPLIANCE
+	STATUS	current
+	DESCRIPTION
+		"The compliance statement for entities which implement
+		the Cisco VINES MIB"
+	MODULE	-- this module
+		MANDATORY-GROUPS { ciscoVinesMIBGroup }
+	::= { ciscoVinesMIBCompliances 1 }
+
+
+-- units of conformance
+
+ciscoVinesMIBGroup OBJECT-GROUP
+	OBJECTS {
+		cvBasicNetwork,
+		cvBasicHost,
+		cvBasicNextClient,
+		cvForwNeighborNeighborCount,
+		cvForwNeighborPathCount,
+		cvForwNeighborVersion,
+		cvForwNeighborSource,
+		cvForwNeighborRtpVersion,
+		cvForwNeighborUsageType,
+		cvForwNeighborAge,
+		cvForwNeighborMetric,
+		cvForwNeighborUses,
+		cvForwRouteRouterCount,
+		cvForwRouteRouteCount,
+		cvForwRouteVersion,
+		cvForwRouteUpdateCountdown,
+		cvForwRouteSource,
+		cvForwRouteRtpVersion,
+		cvForwRouteUseNext,
+		cvForwRouteForwardBroadcast,
+		cvForwRouteSuppress,
+		cvForwRouteLoadShareEligible,
+		cvForwRouteAge,
+		cvForwRouteMetric,
+		cvForwRouteUses,
+		cvTotalInputPackets,
+		cvTotalOutputPackets,
+		cvTotalLocalDestPackets,
+		cvTotalForwardedPackets,
+		cvTotalBroadcastInPackets,
+		cvTotalBroadcastOutPackets,
+		cvTotalBroadcastForwardPackets,
+		cvTotalLanOnlyPackets,
+		cvTotalNotOver4800Packets,
+		cvTotalNoChargesPackets,
+		cvTotalFormatErrors,
+		cvTotalChecksumErrors,
+		cvTotalHopCountsExceeded,
+		cvTotalNoRouteDrops,
+		cvTotalEncapsFailedDrops,
+		cvTotalUnknownPackets,
+		cvTotalIcpInPackets,
+		cvTotalIcpOutPackets,
+		cvTotalMetricOutPackets,
+		cvTotalMacEchoInPackets,
+		cvTotalMacEchoOutPackets,
+		cvTotalEchoInPackets,
+		cvTotalEchoOutPackets,
+		cvTotalProxyOutPackets,
+		cvTotalProxyReplyOutPackets,
+		cvIfConfigMetric,
+		cvIfConfigEncapsulation,
+		cvIfConfigAccesslist,
+		cvIfConfigPropagate,
+		cvIfConfigArpEnabled,
+		cvIfConfigServerless,
+		cvIfConfigRedirectInterval,
+		cvIfConfigSplitDisabled,
+		cvIfConfigLineup,
+		cvIfConfigFastokay,
+		cvIfConfigRouteCache,
+		cvIfConfigInputRouterFilter,
+		cvIfConfigInputNetworkFilter,
+		cvIfConfigOutputNetworkFilter,
+		cvIfCountInNotEnabledDrops,
+		cvIfCountInFormatErrors,
+		cvIfCountInLocalDestPackets,
+		cvIfCountInBroadcastPackets,
+		cvIfCountInForwardedPackets,
+		cvIfCountInNoRouteDrops,
+		cvIfCountInZeroHopCountDrops,
+		cvIfCountInChecksumErrors,
+		cvIfCountInArpQueryRequests,
+		cvIfCountInArpQueryResponses,
+		cvIfCountInArpAssignmentRequests,
+		cvIfCountInArpAssignmentResponses,
+		cvIfCountInArpIllegalMessages,
+		cvIfCountInIcpErrorMessages,
+		cvIfCountInIcpMetricMessages,
+		cvIfCountInIcpIllegalMessages,
+		cvIfCountInIpcMessages,
+		cvIfCountInRtp0Messages,
+		cvIfCountInRtp1Messages,
+		cvIfCountInRtp2Messages,
+		cvIfCountInRtp3Messages,
+		cvIfCountInRtpUpdateMessages,
+		cvIfCountInRtpResponseMessages,
+		cvIfCountInRtpRedirectMessages,
+		cvIfCountInRtpIllegalMessages,
+		cvIfCountInSppMessages,
+		cvIfCountInIpUnknownProtocols,
+		cvIfCountInIpcUnknownPorts,
+		cvIfCountInBroadcastsHelpered,
+		cvIfCountInBroadcastsForwarded,
+		cvIfCountInBroadcastDuplicates,
+		cvIfCountInEchoPackets,
+		cvIfCountInMacEchoPackets,
+		cvIfCountInProxyReplyPackets,
+		cvIfCountOutUnicastPackets,
+		cvIfCountOutBroadcastPackets,
+		cvIfCountOutForwardedPackets,
+		cvIfCountOutEncapsulationFailures,
+		cvIfCountOutAccessFailures,
+		cvIfCountOutDownFailures,
+		cvIfCountOutPacketsNotBroadcastToSource,
+		cvIfCountOutPacketsNotBroadcastLanOnly,
+		cvIfCountOutPacketsNotBroadcastNotOver4800,
+		cvIfCountOutPacketsNotBroadcastNoCharge,
+		cvIfCountOutBroadcastsForwarded,
+		cvIfCountOutBroadcastsHelpered,
+		cvIfCountOutArpQueryRequests,
+		cvIfCountOutArpQueryResponses,
+		cvIfCountOutArpAssignmentRequests,
+		cvIfCountOutArpAssignmentResponses,
+		cvIfCountOutIcpErrorMessages,
+		cvIfCountOutIcpMetricMessages,
+		cvIfCountOutIpcMessages,
+		cvIfCountOutRtp0Messages,
+		cvIfCountOutRtpRequestMessages,
+		cvIfCountOutRtp2Messages,
+		cvIfCountOutRtp3Messages,
+		cvIfCountOutRtpUpdateMessages,
+		cvIfCountOutRtpResponseMessages,
+		cvIfCountOutRtpRedirectMessages,
+		cvIfCountOutSppMessages,
+		cvIfCountOutEchoPackets,
+		cvIfCountOutMacEchoPackets,
+		cvIfCountOutProxyPackets
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects providing VINES monitoring."
+	::= { ciscoVinesMIBGroups 1 }
+
+END

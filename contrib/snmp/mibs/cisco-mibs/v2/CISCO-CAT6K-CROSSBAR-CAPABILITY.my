@@ -1,0 +1,1113 @@
+-- *****************************************************************
+-- CISCO-CAT6K-CROSSBAR-CAPABILITY.my:
+-- Cisco CISCO-CAT6K-CROSSBAR-MIB AGENT-CAPABILITIES
+--   
+-- April 2004, Padma Pullela
+--   
+-- Copyright (c) 2004-2008, 2010, 2013 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-CAT6K-CROSSBAR-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoCat6kCrossbarCapability MODULE-IDENTITY
+    LAST-UPDATED    "201307250000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-cat6000@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-CAT6K-CROSSBAR-MIB."
+    REVISION        "201307250000Z"
+    DESCRIPTION
+        "Added capability statement
+        ccXbarCapV15R0102SYPCat6kSup2T and
+        ccXbarCapV15R0102SYPCat6kSup720."
+    REVISION        "201011240000Z"
+    DESCRIPTION
+        "Added capability statement
+        ccXbarCapV12R0250SYPCat6K."
+    REVISION        "201003110000Z"
+    DESCRIPTION
+        "Added capability statements
+        ccXbarCapV12R0233SXI4PCat6KSup720
+        and ccXbarCapV12R0233SXI4PCat6KSup32."
+    REVISION        "200810220000Z"
+    DESCRIPTION
+        "Added capability statements
+        ccXbarCapV12R0233SXIPCat6KSup720
+        and ccXbarCapV12R0233SXIPCat6KSup32."
+    REVISION        "200803240000Z"
+    DESCRIPTION
+        "Added capability statement 
+        ccXbarCapCatOSV08R0701PCat6KSup2.
+        Modified the description of
+        capability statement
+        ccXbarCapV12R0233SXHPCat6KSup32."
+    REVISION        "200803140000Z"
+    DESCRIPTION
+        "Added capability statements 
+        ccXbarCapCatOSV08R0701PCat6KSup720
+        and ccXbarCapCatOSV08R0701PCat6KSup32."
+    REVISION        "200711190000Z"
+    DESCRIPTION
+        "Added capability statement 
+        ccXbarCapV12R0233SXH01PCat6KSup720."
+    REVISION        "200706280000Z"
+    DESCRIPTION
+        "Added capability statements
+        ccXbarCapV12R0233SXHPCat6KSup720
+        and ccXbarCapV12R0233SXHPCat6KSup32."
+    REVISION        "200701030000Z"
+    DESCRIPTION
+        "Added capability statement
+        ccXbarCapCatOSV08R0601Cat6KSup32."
+    REVISION        "200506220000Z"
+    DESCRIPTION
+        "Added capability statements
+        ccXbarCapV12R0218SXFPCat6KSup2,
+        ccXbarCapV12R0218SXFPCat6KSup720,
+        and ccXbarCapV12R0218SXFPCat6KSup32."
+    REVISION        "200505030000Z"
+    DESCRIPTION
+        "Added capability statements
+        ccXbarCapV12R012504EPCat6KSup1,
+        and ccXbarCapV12R012504EPCat6KSup2."
+    REVISION        "200410190000Z"
+    DESCRIPTION
+        "Added capability statements
+        ccXbarCapV12R0119EPCat6KSup2,
+        ccXbarCapV12R0123E01PCat6KSup1,
+        and ccXbarCapV12R0123E01PCat6KSup2."
+    REVISION        "200404190000Z"
+    DESCRIPTION
+        "Added ccXbarCapV12R0218SXDCat6KSup720 and
+        ccXbarCapV12R0218SXDCat6KSup2."
+    REVISION        "200404020000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 356 }
+
+
+
+ccXbarCapV12R0108aEXCat6KSup2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(8a)EX on Catalyst 6000/6500
+                         and Cisco 7600 series devices with 
+                         Supervisor 2 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroup,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroup,
+                        cc6kxbarBusOnlyAllowedGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 1 }
+
+ccXbarCapV12R0214SXCat6KSup720 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(14)SX on Catalyst 6500 
+                        and Cisco 7600 series devices with 
+                        Supervisor 720 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 2 }
+
+ccXbarCapCatOSV06R0301Cat6KSup2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 6.3(1) on Catalyst 6000/6500
+                         and Cisco 7600 series devices
+                         with Supervisor 2 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroup,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroup,
+                        cc6kxbarFallbackGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 3 }
+
+ccXbarCapCatOSV08R0101Cat6KSup2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on Catalyst 6000/6500
+                         and Cisco 7600 series devices
+                         with Supervisor 2 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarFallbackGroup,
+                        cc6kxbarLcdBannerGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 4 }
+
+ccXbarCapCatOSV08R0101Cat6KSup720 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on  Catalyst 6500
+                        and Cisco 7600 series devices with 
+                        Supervisor 720 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarFallbackGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 5 }
+
+ccXbarCapV12R0218SXDCat6KSup720 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(18)SXD on Catalyst 6000/6500 
+                        and Cisco 7600 series devices with 
+                        Supervisor 720 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarTruncatedOperGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 6 }
+
+ccXbarCapV12R0218SXDCat6KSup2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(18)SXD on Catalyst 6000/6500 
+                        and Cisco 7600 series devices with 
+                        Supervisor 2 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarLcdBannerGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarTruncatedOperGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 7 }
+
+ccXbarCapV12R0119EPCat6KSup2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(19)E on Catalyst 6000/6500
+                         and Cisco 7600 series devices with 
+                         Supervisor 2 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroup,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroup,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 8 }
+
+ccXbarCapV12R0123E01PCat6KSup1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(23)E1 on Catalyst 6000/6500 
+                        series devices with Supervisor 1 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 9 }
+
+ccXbarCapV12R0123E01PCat6KSup2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(23)E1 on Catalyst 6000/6500
+                         and Cisco 7600 series devices with 
+                         Supervisor 2 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroup,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroup,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 10 }
+
+ccXbarCapV12R012504EPCat6KSup1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(25.04)E on Catalyst 6000/6500 
+                        series devices with Supervisor 1 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 11 }
+
+ccXbarCapV12R012504EPCat6KSup2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(25.04)E on Catalyst 6000/6500
+                         and Cisco 7600 series devices with 
+                         Supervisor 2 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroup,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroup,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 12 }
+
+ccXbarCapV12R0218SXFPCat6KSup2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(18)SXF on Catalyst 6000/6500 
+                        and Cisco 7600 series devices with 
+                        Supervisor 2 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarLcdBannerGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarTruncatedOperGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 13 }
+
+ccXbarCapV12R0218SXFPCat6KSup720 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(18)SXF on Catalyst 6000/6500 
+                        and Cisco 7600 series devices with 
+                        Supervisor 720 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarTruncatedOperGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 14 }
+
+ccXbarCapV12R0218SXFPCat6KSup32 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(18)SXF on Catalyst 6000/6500 
+                        and Cisco 7600 series devices with 
+                        Supervisor 32 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 15 }
+
+ccXbarCapCatOSV08R0601Cat6KSup32 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.6(1) on Catalyst 6500
+                        series devices with Supervisor 32 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarFlowCtrlNotifCtrlGroup,
+                        cc6kxbarFlowCtrlBusThreshGroup,
+                        cc6kxbarFlowCtrlBusThrNotifGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 16 }
+
+ccXbarCapV12R0233SXHPCat6KSup720 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                        series devices with Supervisor 720 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarTruncatedOperGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup,
+                        cc6kxbarDcefOnlyModeAllowedGroup,
+                        cc6kxbarForceBusModeGroup,
+                        cc6kxbarBusOnlyModeOperGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 17 }
+
+ccXbarCapV12R0233SXHPCat6KSup32 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                     series devices with Supervisor 32 present
+                     and ME-C65xx series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup,
+                        cc6kxbarFlowCtrlNotifCtrlGroup,
+                        cc6kxbarFlowCtrlBusThreshGroup,
+                        cc6kxbarFlowCtrlBusThrNotifGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 18 }
+
+ccXbarCapV12R0233SXH01PCat6KSup720 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH1 on Catalyst 6000/6500
+                        series devices with Supervisor 720 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarTruncatedOperGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup,
+                        cc6kxbarDcefOnlyModeAllowedGroup,
+                        cc6kxbarForceBusModeGroup,
+                        cc6kxbarBusOnlyModeOperGroup
+                    }
+
+    VARIATION       cc6kxbarSwBusStatusChangeNotif -- NOTIFICATION-TYPE
+--  OBJECTS         { 
+--                      cc6kxbarSwBusSwitchingStatus,
+--                      cc6kxbarSwBusFailureDuration,
+--                      entPhysicalDescr 
+--                          - appended for virtual switch system
+--                  } 
+    DESCRIPTION 
+        "In addition to the regular varbinds, the instance value 
+         of entPhysicalDescr of the core switch for which the 
+         cc6kxbarSwBusStatusChangeNotif is generated is 
+         also appended for virtual switch systems." 
+    
+    ::= { ciscoCat6kCrossbarCapability 19 }
+
+ccXbarCapCatOSV08R0701PCat6KSup720 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.7(1) on  Catalyst 6000/6500
+                        and Cisco 7600 series devices with 
+                        Supervisor 720 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarFallbackGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarTruncatedOperGroup,
+                        cc6kxbarForceBusModeGroup,
+                        cc6kxbarSwBusGroup1,
+                        cc6kxbarErrorGroup,
+                        cc6kxbarErrRcvryThresholdGroup,
+                        cc6kxbarErrRcvrySwitchoverGroup 
+                    }
+
+    VARIATION      cc6kxbarErrRcvryThreshLink
+    SYNTAX         Unsigned32 (1..255)
+    DESCRIPTION    
+        "Only limited set of values is supported."
+
+    VARIATION      cc6kxbarErrRcvryThreshPersLink
+    SYNTAX         Unsigned32 (1..300)
+    DESCRIPTION
+        "Only limited set of values is supported."
+    ::= { ciscoCat6kCrossbarCapability 20 }
+
+ccXbarCapCatOSV08R0701PCat6KSup32 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.7(1) on Catalyst 6500
+                     series devices with Supervisor 32 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarFlowCtrlNotifCtrlGroup,
+                        cc6kxbarFlowCtrlBusThreshGroup,
+                        cc6kxbarFlowCtrlBusThrNotifGroup,
+                        cc6kxbarSwBusGroup1
+                    }
+    ::= { ciscoCat6kCrossbarCapability 21 }
+
+ccXbarCapCatOSV08R0701PCat6KSup2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.7(1) on  Catalyst 6000/6500
+                     and Cisco 7600 series devices with 
+                     Supervisor 2 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarFallbackGroup,
+                        cc6kxbarLcdBannerGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarTruncatedOperGroup,
+                        cc6kxbarSwBusGroup1,
+                        cc6kxbarErrorGroup
+                    }
+    ::= { ciscoCat6kCrossbarCapability 22 }
+
+ccXbarCapV12R0233SXIPCat6KSup720 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                     series devices with Supervisor 720 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarTruncatedOperGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup,
+                        cc6kxbarDcefOnlyModeAllowedGroup,
+                        cc6kxbarForceBusModeGroup,
+                        cc6kxbarBusOnlyModeOperGroup,
+                        cc6kxbarSysCapPfcOperModeGroup,
+                        cc6kxbarSysCapSwitchResGroup,
+                        cc6kxbarChannelUtilGroup1,
+                        cc6kxbarSwBusGroup1,
+                        cc6kxbarErrorGroup 
+                    }
+
+    VARIATION       cc6kxbarSwBusStatusChangeNotif -- NOTIFICATION-TYPE
+--  OBJECTS         { 
+--                      cc6kxbarSwBusSwitchingStatus,
+--                      cc6kxbarSwBusFailureDuration,
+--                      entPhysicalDescr  
+--                          - appended for virtual switch system
+--                  } 
+    DESCRIPTION 
+        "In addition to the regular varbinds, the instance value 
+         of entPhysicalDescr of the core switch for which the 
+         cc6kxbarSwBusStatusChangeNotif is generated is 
+         also appended for virtual switch systems."
+
+    ::= { ciscoCat6kCrossbarCapability 23 }
+
+ccXbarCapV12R0233SXIPCat6KSup32 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                     series devices with Supervisor 32 present
+                     and ME-C65xx series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup,
+                        cc6kxbarFlowCtrlNotifCtrlGroup,
+                        cc6kxbarFlowCtrlBusThreshGroup,
+                        cc6kxbarFlowCtrlBusThrNotifGroup,
+                        cc6kxbarSysCapPfcOperModeGroup,
+                        cc6kxbarSysCapSwitchResGroup,
+                        cc6kxbarSwBusGroup1
+                    }
+    ::= { ciscoCat6kCrossbarCapability 24 }
+
+ccXbarCapV12R0233SXI4PCat6KSup720 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                     series devices with Supervisor 720 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarTruncatedOperGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup,
+                        cc6kxbarDcefOnlyModeAllowedGroup,
+                        cc6kxbarForceBusModeGroup,
+                        cc6kxbarBusOnlyModeOperGroup,
+                        cc6kxbarSysCapPfcOperModeGroup,
+                        cc6kxbarSysCapSwitchResGroup,
+                        cc6kxbarChannelUtilGroup1,
+                        cc6kxbarSwBusGroup1,
+                        cc6kxbarErrorGroup,
+                        cc6kxbarTMSwBusUtilGroup,
+                        cc6kxbarTMSwBusUtilNotifControlGroup,
+                        cc6kxbarTMSwBusUtilNotifObjectGroup,
+                        cc6kxbarTMSwBusUtilNotifGroup,
+                        cc6kxbarTMChUtilGroup,
+                        cc6kxbarTMChUtilNotifControlGroup,
+                        cc6kxbarTMChUtilNotifObjectGroup,
+                        cc6kxbarTMChUtilNotifGroup
+                    }
+
+    VARIATION       cc6kxbarSwBusStatusChangeNotif -- NOTIFICATION-TYPE
+--  OBJECTS         { 
+--                      cc6kxbarSwBusSwitchingStatus,
+--                      cc6kxbarSwBusFailureDuration,
+--                      entPhysicalDescr  
+--                          - appended for virtual switch system
+--                  } 
+    DESCRIPTION 
+        "In addition to the regular varbinds, the instance value 
+         of entPhysicalDescr of the core switch for which the 
+         cc6kxbarSwBusStatusChangeNotif is generated is 
+         also appended for virtual switch systems."
+
+    VARIATION      cc6kxbarTMSwBusUtilInterval
+    SYNTAX         Unsigned32 (1..300)
+    DESCRIPTION
+        "Only limited set of values is supported.
+         Unable to set this if the object value of 
+         cc6kxbarTMSwBusUtilEnable is 'false'."
+
+    VARIATION      cc6kxbarTMSwBusUtilThreshold
+    DESCRIPTION
+        "Unable to set this if the object value of 
+         cc6kxbarTMSwBusUtilEnable is 'false'."
+
+    VARIATION      cc6kxbarTMSwBusUtilLogInterval
+    SYNTAX         Unsigned32 (300..14400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION      cc6kxbarTMChUtilInterval
+    SYNTAX         Unsigned32 (1..300)
+    DESCRIPTION
+        "Only limited set of values is supported.
+         Unable to set this if the corresponding
+         instance value of cc6kxbarTMChUtilEnable is
+         'false'."
+
+    VARIATION      cc6kxbarTMChUtilThreshold
+    DESCRIPTION
+        "Unable to set this if the corresponding
+         instance value of cc6kxbarTMChUtilEnable is
+         'false'."
+
+    VARIATION      cc6kxbarTMChUtilLogInterval
+    SYNTAX         Unsigned32 (300..14400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoCat6kCrossbarCapability 25 }
+
+ccXbarCapV12R0233SXI4PCat6KSup32 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                     series devices with Supervisor 32 present
+                     and ME-C65xx series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup,
+                        cc6kxbarFlowCtrlNotifCtrlGroup,
+                        cc6kxbarFlowCtrlBusThreshGroup,
+                        cc6kxbarFlowCtrlBusThrNotifGroup,
+                        cc6kxbarSysCapPfcOperModeGroup,
+                        cc6kxbarSysCapSwitchResGroup,
+                        cc6kxbarSwBusGroup1,
+                        cc6kxbarTMSwBusUtilGroup,
+                        cc6kxbarTMSwBusUtilNotifControlGroup,
+                        cc6kxbarTMSwBusUtilNotifObjectGroup,
+                        cc6kxbarTMSwBusUtilNotifGroup
+                    }
+
+    VARIATION      cc6kxbarTMSwBusUtilInterval
+    SYNTAX         Unsigned32 (1..300)
+    DESCRIPTION
+        "Only limited set of values is supported.
+         Unable to set this if the object value of 
+         cc6kxbarTMSwBusUtilEnable is 'false'."
+
+    VARIATION      cc6kxbarTMSwBusUtilThreshold
+    DESCRIPTION
+        "Unable to set this if the object value of 
+         cc6kxbarTMSwBusUtilEnable is 'false'."
+
+    VARIATION      cc6kxbarTMSwBusUtilLogInterval
+    SYNTAX         Unsigned32 (300..14400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoCat6kCrossbarCapability 26 }
+
+ccXbarCapV12R0250SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarTruncatedOperGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup,
+                        cc6kxbarDcefOnlyModeAllowedGroup,
+                        cc6kxbarForceBusModeGroup,
+                        cc6kxbarBusOnlyModeOperGroup,
+                        cc6kxbarSysCapPfcOperModeGroup,
+                        cc6kxbarSysCapSwitchResGroup,
+                        cc6kxbarChannelUtilGroup1,
+                        cc6kxbarSwBusGroup1,
+                        cc6kxbarErrorGroup,
+                        cc6kxbarErrRcvryThresholdGroup,
+                        cc6kxbarErrRcvrySwitchoverGroup,
+                        cc6kxbarErrRcvryPersLinkResGroup,
+                        cc6kxbarErrRcvryChResyncGroup,
+                        cc6kxbarTMSwBusUtilGroup,
+                        cc6kxbarTMSwBusUtilNotifControlGroup,
+                        cc6kxbarTMSwBusUtilNotifObjectGroup,
+                        cc6kxbarTMSwBusUtilNotifGroup,
+                        cc6kxbarTMChUtilGroup,
+                        cc6kxbarTMChUtilNotifControlGroup,
+                        cc6kxbarTMChUtilNotifObjectGroup,
+                        cc6kxbarTMChUtilNotifGroup
+                    }
+
+    VARIATION       cc6kxbarSwBusStatusChangeNotif -- NOTIFICATION-TYPE
+--  OBJECTS         { 
+--                      cc6kxbarSwBusSwitchingStatus,
+--                      cc6kxbarSwBusFailureDuration,
+--                      entPhysicalDescr  
+--                          - appended for virtual switch system
+--                  } 
+    DESCRIPTION 
+        "In addition to the regular varbinds, the instance value 
+         of entPhysicalDescr of the core switch for which the 
+         cc6kxbarSwBusStatusChangeNotif is generated is 
+         also appended for virtual switch systems."
+
+    VARIATION      cc6kxbarErrRcvryThreshLink
+    SYNTAX         Unsigned32 (1..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION      cc6kxbarErrRcvryThreshPersLink
+    SYNTAX         Unsigned32 (1..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION      cc6kxbarErrRcvryChResyncCount 
+    SYNTAX         Unsigned32 (1..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION      cc6kxbarErrRcvryChResyncInterval
+    SYNTAX         Unsigned32 (10..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION      cc6kxbarTMSwBusUtilInterval
+    SYNTAX         Unsigned32 (1..300)
+    DESCRIPTION
+        "Only limited set of values is supported.
+         Unable to set this if the object value of 
+         cc6kxbarTMSwBusUtilEnable is 'false'."
+
+    VARIATION      cc6kxbarTMSwBusUtilThreshold
+    DESCRIPTION
+        "Unable to set this if the object value of 
+         cc6kxbarTMSwBusUtilEnable is 'false'."
+
+    VARIATION      cc6kxbarTMSwBusUtilLogInterval
+    SYNTAX         Unsigned32 (300..14400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION      cc6kxbarTMChUtilInterval
+    SYNTAX         Unsigned32 (1..300)
+    DESCRIPTION
+        "Only limited set of values is supported.
+         Unable to set this if the corresponding
+         instance value of cc6kxbarTMChUtilEnable is
+         'false'."
+
+    VARIATION      cc6kxbarTMChUtilThreshold
+    DESCRIPTION
+        "Unable to set this if the corresponding
+         instance value of cc6kxbarTMChUtilEnable is
+         'false'."
+
+    VARIATION      cc6kxbarTMChUtilLogInterval
+    SYNTAX         Unsigned32 (300..14400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoCat6kCrossbarCapability 27 }
+
+ccXbarCapV15R0102SYPCat6kSup2T AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(2)SY on Catalyst 6000/6500
+                     series devices with Supervisor 2T present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarTruncatedOperGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup,
+                        cc6kxbarDcefOnlyModeAllowedGroup,
+                        cc6kxbarForceBusModeGroup,
+                        cc6kxbarBusOnlyModeOperGroup,
+                        cc6kxbarSysCapPfcOperModeGroup,
+                        cc6kxbarSysCapSwitchResGroup,
+                        cc6kxbarChannelUtilGroup1,
+                        cc6kxbarSwBusGroup1,
+                        cc6kxbarErrorGroup,
+                        cc6kxbarErrRcvryThresholdGroup,
+                        cc6kxbarErrRcvrySwitchoverGroup,
+                        cc6kxbarErrRcvryPersLinkResGroup,
+                        cc6kxbarErrRcvryChResyncGroup,
+                        cc6kxbarTMSwBusUtilGroup,
+                        cc6kxbarTMSwBusUtilNotifControlGroup,
+                        cc6kxbarTMSwBusUtilNotifObjectGroup,
+                        cc6kxbarTMSwBusUtilNotifGroup,
+                        cc6kxbarTMChUtilGroup,
+                        cc6kxbarTMChUtilNotifControlGroup,
+                        cc6kxbarTMChUtilNotifObjectGroup,
+                        cc6kxbarTMChUtilNotifGroup,
+                        cc6kxbarStatisticsLbusDropGroup
+                    }
+
+    VARIATION       cc6kxbarSwBusStatusChangeNotif -- NOTIFICATION-TYPE
+--  OBJECTS         { 
+--                      cc6kxbarSwBusSwitchingStatus,
+--                      cc6kxbarSwBusFailureDuration,
+--                      entPhysicalDescr  
+--                          - appended for virtual switch system
+--                  } 
+    DESCRIPTION 
+        "In addition to the regular varbinds, the instance value 
+         of entPhysicalDescr of the core switch for which the 
+         cc6kxbarSwBusStatusChangeNotif is generated is 
+         also appended for virtual switch systems."
+
+    VARIATION      cc6kxbarErrRcvryThreshLink
+    SYNTAX         Unsigned32 (1..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION      cc6kxbarErrRcvryThreshPersLink
+    SYNTAX         Unsigned32 (1..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION      cc6kxbarErrRcvryChResyncCount 
+    SYNTAX         Unsigned32 (1..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION      cc6kxbarErrRcvryChResyncInterval
+    SYNTAX         Unsigned32 (10..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION      cc6kxbarTMSwBusUtilInterval
+    SYNTAX         Unsigned32 (1..300)
+    DESCRIPTION
+        "Only limited set of values is supported.
+         Unable to set this if the object value of 
+         cc6kxbarTMSwBusUtilEnable is 'false'."
+
+    VARIATION      cc6kxbarTMSwBusUtilThreshold
+    DESCRIPTION
+        "Unable to set this if the object value of 
+         cc6kxbarTMSwBusUtilEnable is 'false'."
+
+    VARIATION      cc6kxbarTMSwBusUtilLogInterval
+    SYNTAX         Unsigned32 (300..14400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION      cc6kxbarTMChUtilInterval
+    SYNTAX         Unsigned32 (1..300)
+    DESCRIPTION
+        "Only limited set of values is supported.
+         Unable to set this if the corresponding
+         instance value of cc6kxbarTMChUtilEnable is
+         'false'."
+
+    VARIATION      cc6kxbarTMChUtilThreshold
+    DESCRIPTION
+        "Unable to set this if the corresponding
+         instance value of cc6kxbarTMChUtilEnable is
+         'false'."
+
+    VARIATION      cc6kxbarTMChUtilLogInterval
+    SYNTAX         Unsigned32 (300..14400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoCat6kCrossbarCapability 28 }
+
+ccXbarCapV15R0102SYPCat6kSup720 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(2)SY on Catalyst 6000/6500
+                     series devices with Supervisor 720 present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAT6K-CROSSBAR-MIB capabilities."
+
+    SUPPORTS        CISCO-CAT6K-CROSSBAR-MIB
+    INCLUDES        {
+                        cc6kxbarModuleStatusGroupVer1,
+                        cc6kxbarChannelStatusGroup,
+                        cc6kxbarChannelStatisticsGroupVer1,
+                        cc6kxbarBusOnlyAllowedGroup,
+                        cc6kxbarChannelUtilGroup,
+                        cc6kxbarChannelSpeedGroup,
+                        cc6kxbarSwBusGroup,
+                        cc6kxbarSwBusNotifGroup,
+                        cc6kxbarTruncatedOperGroup,
+                        cc6kxbarIntBusNotifControlGroup,
+                        cc6kxbarIntBusCRCErrNotifGroup,
+                        cc6kxbarIntBusCRCErrGroup,
+                        cc6kxbarDcefOnlyModeAllowedGroup,
+                        cc6kxbarForceBusModeGroup,
+                        cc6kxbarBusOnlyModeOperGroup,
+                        cc6kxbarSysCapPfcOperModeGroup,
+                        cc6kxbarSysCapSwitchResGroup,
+                        cc6kxbarChannelUtilGroup1,
+                        cc6kxbarSwBusGroup1,
+                        cc6kxbarErrorGroup,
+                        cc6kxbarTMSwBusUtilGroup,
+                        cc6kxbarTMSwBusUtilNotifControlGroup,
+                        cc6kxbarTMSwBusUtilNotifObjectGroup,
+                        cc6kxbarTMSwBusUtilNotifGroup,
+                        cc6kxbarTMChUtilGroup,
+                        cc6kxbarTMChUtilNotifControlGroup,
+                        cc6kxbarTMChUtilNotifObjectGroup,
+                        cc6kxbarTMChUtilNotifGroup,
+                        cc6kxbarStatisticsLbusDropGroup
+                    }
+
+    VARIATION       cc6kxbarSwBusStatusChangeNotif -- NOTIFICATION-TYPE
+--  OBJECTS         { 
+--                      cc6kxbarSwBusSwitchingStatus,
+--                      cc6kxbarSwBusFailureDuration,
+--                      entPhysicalDescr  
+--                          - appended for virtual switch system
+--                  } 
+    DESCRIPTION 
+        "In addition to the regular varbinds, the instance value 
+         of entPhysicalDescr of the core switch for which the 
+         cc6kxbarSwBusStatusChangeNotif is generated is 
+         also appended for virtual switch systems."
+
+    VARIATION      cc6kxbarTMSwBusUtilInterval
+    SYNTAX         Unsigned32 (1..300)
+    DESCRIPTION
+        "Only limited set of values is supported.
+         Unable to set this if the object value of 
+         cc6kxbarTMSwBusUtilEnable is 'false'."
+
+    VARIATION      cc6kxbarTMSwBusUtilThreshold
+    DESCRIPTION
+        "Unable to set this if the object value of 
+         cc6kxbarTMSwBusUtilEnable is 'false'."
+
+    VARIATION      cc6kxbarTMSwBusUtilLogInterval
+    SYNTAX         Unsigned32 (300..14400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION      cc6kxbarTMChUtilInterval
+    SYNTAX         Unsigned32 (1..300)
+    DESCRIPTION
+        "Only limited set of values is supported.
+         Unable to set this if the corresponding
+         instance value of cc6kxbarTMChUtilEnable is
+         'false'."
+
+    VARIATION      cc6kxbarTMChUtilThreshold
+    DESCRIPTION
+        "Unable to set this if the corresponding
+         instance value of cc6kxbarTMChUtilEnable is
+         'false'."
+
+    VARIATION      cc6kxbarTMChUtilLogInterval
+    SYNTAX         Unsigned32 (300..14400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoCat6kCrossbarCapability 29 }
+END
+

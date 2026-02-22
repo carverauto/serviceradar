@@ -1,0 +1,365 @@
+-- *****************************************************************
+-- ciscoMGX8800IfMapping MIB - MGX8800 IF-Mapping MIB
+--
+-- October 2002, Asok Tiyyagura
+-- March 2003, Jeffrey Liang
+-- December 2003, Qing Yu
+-- Apr 2004, Sheldon Chan
+-- May 2004, Feng Luo
+--
+-- Copyright (c) 1999-2000, 2001, 2002, 2003, 2004 cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-MGX8800-IF-MAPPING-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32           FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION   FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP         FROM SNMPv2-CONF
+    InterfaceIndex       FROM IF-MIB 
+    ciscoWan   	         FROM CISCOWAN-SMI;
+
+ciscoMGX8800IfMappingMIB MODULE-IDENTITY
+    LAST-UPDATED   "200405250000Z"
+    ORGANIZATION   "Cisco Systems, Inc."
+    CONTACT-INFO
+        "           Cisco Systems
+                    Customer Service
+
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+               Tel: +1 800 553-NETS
+
+            E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "This MIB module is used for getting the ifIndex values 
+         given physical location and/or logical information.
+         The physical information includes the slot, back-card
+         and physical line, IMA group ID, MFR (Multilink Frame Relay)
+         bundle etc. The logical information includes the logical 
+         interface or virtual interface number.
+ 
+         In this MIB back card, bay, line module are used to
+         refer to the back card.
+        "
+
+    REVISION  "200405250000Z"
+    DESCRIPTION
+        "Added following enums to CmimIfType:
+            lapd(24). 
+        "
+
+    REVISION  "200404300000Z"
+    DESCRIPTION
+        "Added following enums to CmimIfType:
+            ppplink(22), pppMultilinkBundle(23), 
+        "
+    REVISION  "200312040000Z"
+    DESCRIPTION
+        "Added new enum mfrBundle(21) to CmimIfType.
+        "
+    REVISION  "200303200000Z"
+    DESCRIPTION
+        "Fixed alignments and descriptions.
+        "
+    REVISION  "200210210000Z"
+    DESCRIPTION
+        "1. Added following enums to CmimIfType:
+            ds1VTPath(18), ds1Ds3SonetPath(19) and atmVciEndPt(20)
+         2. Modified description for cmimModuleIndex, CmimIfType
+            and cmimIfNumber to describe the rules to form a
+            query to obtain ifIndex for ds1VTPath, ds1Ds3SonetPath
+            and atmVciEndPt.
+        " 
+    REVISION  "200210160000Z"
+    DESCRIPTION
+        "1. Added following enums to CmimIfType:
+            frameRelayPort(16), ces(17).
+         2. Modified description for cmimModuleIndex, CmimIfType
+            and cmimIfNumber to describe the rules to form a
+            query to obtain ifIndex for frame relay and ces 
+            interfaces.
+        "
+    REVISION  "200205210000Z"
+    DESCRIPTION
+        "1. Added following enums to CmimIfType:
+            sonetPath(12), ds3SonetPath(13),
+            atmSonetPath(14), atmDs3SonetPath(15).
+         2. Modified description for cmimModuleIndex, CmimIfType
+            and cmimIfNumber to describe the rules to form a
+            query to obtain ifIndex for SONET Path, ds3 path on 
+            a SONET path and corresponding ATM Cell layers.
+         3. Imported Unsigned32 from SNMPv2-SMI instead of 
+            CISCO-TC.
+        "
+    REVISION  "200202170000Z"
+    DESCRIPTION
+        "Added enums srmBertLine(10) and srmBertPort(11) to CmimIfType
+         and modified descriptions of cmimIfNumber and CmimIfType, 
+         explaining how to discover the interface indexes of  
+         physical lines and logical ports of narrow-band service 
+         modules (NBSM) that obtain BERT service through Service 
+         Resource Module (SRM).
+        "
+    REVISION  "200110160000Z"
+    DESCRIPTION
+        "Added enum sonetVT(8) and imaGrpAtmPhy(9) for CmimIfType,
+         and modified descriptions for cmimIfNumber and CmimIfType.
+        "
+    REVISION  "200107080000Z"
+    DESCRIPTION
+        "Added following enumerations to Textual-convention CmimIfType:
+         adjCardApsLine(6), propAtm(7).
+        "
+    REVISION  "200002120000Z"
+    DESCRIPTION 
+        "Initial version of this MIB Module" 
+
+	::= { ciscoWan 7 }
+
+CmimIfType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The interface types.
+        "
+    SYNTAX INTEGER {
+        physicalLine(1),     -- for ifType sonet, ds3,  ds1, 
+                             -- ethernet etc.
+        atmIma(2),           -- for ifType = atmIma(107)
+        atm(3),	             -- for ifType = atm(37)
+        atmVirtual(4),       -- for ifType = atmVirtual(149)
+        ds1Inds3(5),         -- for DS1s in a DS3, E1s in E3
+        adjCardApsLine(6),   -- for Adjacent card APS line
+        propAtm(7),          -- for ifType = propAtm(197)
+        sonetVT(8),          -- for ifType = sonetVT(51)
+        imaGrpAtmPhy(9),     -- for ifType = atm(37) with ATM
+                             -- IMA phy query
+        srmBertLine(10),     -- for BERT interfaces of NBSM 
+                             -- physical lines
+        srmBertPort(11),     -- for BERT interfaces of NBSM 
+                             -- logical ports
+        sonetPath(12),       -- for STS-N paths and SDH AUs
+        ds3SonetPath(13),    -- for DS3 path carried by 
+                             -- STS-N/AU Path
+        atmSonetPath(14),    -- for ATM Cell Layer carried by 
+                             -- STS-N/AU Path
+        atmDs3SonetPath(15), -- for ATM Cell Layer carried by 
+                             -- DS3 on STS-N/AU Path
+        frameRelayPort(16),  -- for ifType = frameRelayService(44),
+	                     -- frForward(158) and atmFuni(106)
+        ces(17),             -- for ifType = ces(133)
+        ds1VTPath(18),       -- for ds1 in VT, ifType = 18
+        ds1Ds3SonetPath(19), -- for ds1 in Ds3 on STS1, ifType = 18
+        atmVciEndPt(20),     -- for ifType atmVciEndPt = 194
+        mfrBundle(21),       -- for ifType frf16MfrBundle = 163        
+        ppplink(22),         -- for ifType ppp = 23 
+        pppMpbundle(23),     -- for ifType pppMultilinkBundle = 108 
+        lapd(24)             -- for ifType = lapd(77)
+        }
+
+cmimMappingObjects OBJECT IDENTIFIER ::= { ciscoMGX8800IfMappingMIB 1 }
+cmimPhysToIf	   OBJECT IDENTIFIER ::= { cmimMappingObjects 1 }
+ 
+cmimPhysToIfTable OBJECT-TYPE
+    SYNTAX       SEQUENCE OF CmimPhysToIfEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION   
+        "This table contains one or more rows, representing 
+         mappings of physical or logical interfaces to ifIndex
+         values.
+        "
+    ::= { cmimPhysToIf 1 }
+
+cmimPhysToIfEntry OBJECT-TYPE
+    SYNTAX      CmimPhysToIfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION   
+        "Information about a particular physical interface or 
+         logical interface.
+        "
+    INDEX  { cmimModuleIndex, cmimIfNumber, cmimIfType }
+    ::= { cmimPhysToIfTable 1 }
+
+CmimPhysToIfEntry ::=
+    SEQUENCE {
+        cmimModuleIndex   Unsigned32,
+        cmimIfNumber      Unsigned32,
+        cmimIfType        CmimIfType,
+        cmimIfIndex       InterfaceIndex
+        }
+
+cmimModuleIndex OBJECT-TYPE
+    SYNTAX       Unsigned32
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION  
+        "An index value that uniquely identifies the location 
+         of the module or a physical line.
+         It has the information on slot number, back card
+         and physical line number. Following is the mapping 
+         used for this object.
+
+         Mapping used when cmimIfType is physicalLine(1), atm(3),
+         adjCardApsLine(6), imaGrpAtmPhy(9) and mfrBundle(21)
+
+          Bits 0-7   : Ignored
+          Bits 8-15  : Back Card Number (0 - Ignored, 1-Top Back card
+                                         2 - Bottom Back card)
+          Bits 16-23 : Logical slot number
+          Bits 24-31 : Shelf number
+                       (1 - Currently, only value 1 is supported)
+
+          Mapping used when cmimIfType is set to ds1Inds3(5),
+          sonetVT(8), sonetPath(12), ds3SonetPath(13), 
+          atmSonetPath(14), atmDs3SonetPath(15), ds1VTPath(18),
+          ds1Ds3SonetPath(19) and lapd(24)
+
+          Bits 0-7   : DS3/E3/Sonet/Sdh physical line number
+          Bits 8-15  : Back Card Number (0 - Ignored, 1-Top Back card
+                                         2 - Bottom Back card.
+          Bits 16-23 : Logical slot number
+          Bits 24-31 : Shelf number 
+                       (1 - Currently, only value 1 is supported)
+
+          Mapping used when cmimIfType is set to propAtm(7),
+          frameRelayPort(16), ces(17), atmVciEndPt(20), ppplink(22)
+          and pppMpbundle(23).
+
+          Bits 0-7   : 0  Ignored
+          Bits 8-15  : 0  Ignored
+          Bits 16-23 : Logical slot number
+          Bits 24-31 : Shelf number (1 - only value 1 is supported)
+
+          Mapping used when cmimIfType is set to srmBertLine(10) or
+          srmBertPort(11) 
+
+          Bits 0-7   : 0  Ignored
+          Bits 8-15  : Logical slot number of NBSM
+          Bits 16-23 : Logical slot number of SRM
+          Bits 24-31 : Shelf number (1 - only value 1 is supported)
+	 "
+    ::= { cmimPhysToIfEntry 1 }
+
+cmimIfNumber OBJECT-TYPE
+    SYNTAX       Unsigned32
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION   
+        "An index value uniquely identifies the interface
+         number (physical, logical) of the module. The 
+         value specified depends on the value specified in 
+         cmimIfType.
+	     
+         cmimIfType	            cmimIfNumber
+         ----------              ------------
+
+         physicalLine(1)         physical line number
+         atm(3)	                 physical line number for atm phy 
+                                 number
+         ds1Inds3(5)             DS1/E1 line number in a DS3/E3
+         adjCardApsLine(6)       adjacent card APS line number
+         propAtm(7)              set to 1, this is the only value
+                                 supported at this time
+         sonetVT(8)              DSxN tributary in a sonet/sdh line
+         imaGrpAtmPhy(9)         atm ima group for atm phy number
+         srmBertLine(10)         physical line number of NBSM
+         srmBertPort(11)         logical port number of NBSM.
+         sonetPath(12)           STS-1/AU-3 Path Number
+         atmSonetPath(14)        STS-1/AU-3 Path Number   
+         ds3SonetPath(13)        Bits 0..15 : STS-1/AU-3 Path Number
+                                 Bits 16..31: 1 for STS-1/AU-3 
+                                 or DS3 Number within AU-4 
+         atmDs3SonetPath(15)     Bits 0..15 : STS-1/AU-3 Path Number
+                                 Bits 16..31: 1 for STS-1/AU-3 
+                                 or DS3 Number within AU-4
+         frameRelayPort(16)      logical port number for frame 
+                                 interface
+         ces(17)                 logical port number of circuit
+                                 emulation service interface
+         ds1InVT(18)             Bits 0..7 :  VT Number
+                                 Bits 8..15:  VT group number
+                                 Bits 16..31: STS-1/AU-3 Path Number
+         ds1Ds3SonetPath(19)     Bits 0..7 :  ds1 Number
+                                 Bits 8..15:  ds3 Number
+                                 Bits 16..31: STS Path Number
+         atmVciEndPt(20)         Bits 0..15 : VCI 
+                                 Bits 16..27: VPI 
+                                 Bits 28..31: Port(ATM)
+         mfrBundle(21)           Multilink Frame Relay bundle number
+         ppplink(22)             ppp index of the ppp interface
+         pppMpbundle(23)         mpbundle index of the mpbundle 
+                                 interface 
+         lapd(24)                Bits 0..7  : ds0 number
+                                 Bits 8..15 : VT number or ds1 number
+                                 Bits 16..23: VT group (DS3 ignore it) 
+                                 Bits 24..31: STS or DS3 path
+        "
+    ::= { cmimPhysToIfEntry 2 }
+
+cmimIfType OBJECT-TYPE
+    SYNTAX       CmimIfType
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION 
+        "The type of interface specified by cmimIfNumber."
+    ::= { cmimPhysToIfEntry 3 }
+
+cmimIfIndex OBJECT-TYPE
+    SYNTAX       InterfaceIndex
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION 
+        "The value of the instance of the ifIndex object,
+         defined in MIB-II, for the interface corresponding
+         to the INDEXes specified in the table.
+
+         Note that the values returned for cmimIfType=srmBertLine(10) 
+         and cmimIfType=srmBertPort(11) will not have any entries 
+         in the IF-TABLE.
+        "
+    ::= { cmimPhysToIfEntry 4 }
+
+-- conformance information
+ 
+cmimPhysToIfMIBConformance 
+    OBJECT IDENTIFIER ::= { ciscoMGX8800IfMappingMIB 3 }
+
+cmimPhysToIfMIBCompliances 
+    OBJECT IDENTIFIER ::= { cmimPhysToIfMIBConformance 1 }
+
+cmimPhysToIfMIBGroups      
+    OBJECT IDENTIFIER ::= { cmimPhysToIfMIBConformance 2 }
+
+cmimPhysToIfMIBCompliance MODULE-COMPLIANCE
+    STATUS       current
+    DESCRIPTION
+        "The compliance statement for cmimPhystoIfTable.
+        "
+    MODULE -- this module
+    MANDATORY-GROUPS { cmimPhysToIfMIBGroup }
+    ::= { cmimPhysToIfMIBCompliances 1 }
+
+-- units of conformance
+
+cmimPhysToIfMIBGroup OBJECT-GROUP
+    OBJECTS {
+        cmimIfIndex
+        }
+    STATUS       current
+    DESCRIPTION
+        "This group has to be implemented on all MGX8800 
+         series products.
+        "
+    ::= { cmimPhysToIfMIBGroups 1 }
+
+END
+
+
+

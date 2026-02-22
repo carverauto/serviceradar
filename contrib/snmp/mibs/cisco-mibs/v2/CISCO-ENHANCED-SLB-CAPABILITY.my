@@ -1,0 +1,684 @@
+-- *****************************************************************
+-- CISCO-ENHANCED-SLB-CAPABILITY.my:
+-- Cisco CISCO-ENHANCED-SLB-MIB AGENT-CAPABILITIES
+--   
+-- May 2006, Roopeshakumar N. Shalgar
+--   
+-- Copyright (c) 2006, 2008 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-ENHANCED-SLB-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoEnhancedSlbCapability MODULE-IDENTITY
+    LAST-UPDATED    "200807070000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-slb@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-ENHANCED-SLB-MIB."
+    REVISION        "200807070000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoEnhancedSlbCapc4710aceVA3R10 for
+        ACE 4710 Application Control Engine Appliance."
+    REVISION        "200802080000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoEnhancedSlbCapc4710aceVA1R70 for
+        ACE 4710 Application Control Engine Appliance."
+    REVISION        "200605220000Z"
+    DESCRIPTION
+        "Initial version of this MIB
+        Added capability statement 
+        ciscoEnhancedSlbCapACSWV03R000 for 
+        Application Control Engine (ACE)."
+    ::= { ciscoAgentCapability 507 }
+
+
+
+ciscoEnhancedSlbCapACSWV03R000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0"
+    STATUS          current
+    DESCRIPTION
+        "ACSW (Application Control Software) 3.0
+        CISCO ENHANCED SLB MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-SLB-MIB
+    INCLUDES        {
+                        cesRealServerGroup,
+                        cesRealServerFarmGroup,
+                        cesRealServerNotifGroupRev1
+                    }
+    VARIATION       cesRserverType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverIpAddressType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverIpAddress
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverDescription
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverMaxConns
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverMinConns
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverAdminWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverRedirectRelocationStr
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverRedirectCode
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverRedirectPort
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverAdminStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverProbeStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverProbeRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverAdminWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverOperWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverMaxConns
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverMinConns
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverAdminStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverBackupName
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverBackupPort
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverDroppedConns
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cesServerFarmRserverStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRealServerStateUp
+    DESCRIPTION
+        "cesRealServerStateUp is generated when a
+        real server changes to 'inservice' state
+        by the user intervention. Additonal
+        varbinds clogOriginIDType and clogOriginID
+        are included in the Notification PDU. These
+        can be used in recognizing the device from
+        which the Notification is generated."
+
+    VARIATION       cesRealServerStateDown
+    DESCRIPTION
+        "cesRealServerStateDown is generated when a
+        real server changes to 'outOfService' state
+        by the user intervention. Additonal varbinds
+        clogOriginIDType and clogOriginID are
+        included in the Notification PDU. These
+        can be used in recognizing the device from
+        which the Notification is generated."
+
+    VARIATION       cesRealServerStateChange
+    DESCRIPTION
+        "cesRealServerStateChange is generated when
+        a real server changes to a new state change
+        other than that initiated by the user.
+        Additonal varbinds clogOriginIDType and
+        clogOriginID are included in the Notification
+        PDU. These can be used in recognizing the
+        device from which the Notification is generated."
+
+    VARIATION       cesRserverStateUp
+    DESCRIPTION
+        "cesRealServerStateUp is generated when the
+        real server identified in cesRserverTable
+        changes state to 'inservice' by the user
+        intervention. Additonal varbinds
+        clogOriginIDType and clogOriginID are
+        included in the Notification PDU. These
+        can be used in recognizing the device from
+        which the Notification is generated."
+
+    VARIATION       cesRserverStateDown
+    DESCRIPTION
+        "cesRserverStateDown is generated when the
+        real server identified in cesRserverTable
+        changes state to 'outOfService' by the
+        user intervention. Additonal varbinds
+        clogOriginIDType and clogOriginID are
+        included in the Notification PDU. These
+        can be used in recognizing the device from
+        which the Notification is generated."
+
+    VARIATION       cesRserverStateChange
+    DESCRIPTION
+        "cesRserverStateChange is generated when
+        the real server identified in cesRserverTable
+        changes to a new state other than that
+        initiated by the user. Additonal varbinds
+        clogOriginIDType and clogOriginID are
+        included in the Notification PDU. This helps
+        in recognizing the device from which the
+        Notification is generated."
+
+    ::= { ciscoEnhancedSlbCapability 1 }
+
+ciscoEnhancedSlbCapc4710aceVA1R70 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7)
+                    for ACE 4710 Application Control Engine 
+                    Appliance"
+    STATUS          current
+    DESCRIPTION
+        "ACSW (Application Control Software) A1(7)
+        CISCO ENHANCED SLB MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-SLB-MIB
+    INCLUDES        {
+                        cesRealServerGroup,
+                        cesRealServerFarmGroup,
+                        cesRealServerNotifGroupRev1
+                    }
+    VARIATION       cesRserverType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverIpAddressType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverIpAddress
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverDescription
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverMaxConns
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverMinConns
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverAdminWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverRedirectRelocationStr
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverRedirectCode
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverRedirectPort
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverAdminStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverProbeStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverProbeRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverAdminWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverOperWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverMaxConns
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverMinConns
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverAdminStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverBackupName
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverBackupPort
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverDroppedConns
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cesServerFarmRserverStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRealServerStateUp
+    DESCRIPTION
+        "cesRealServerStateUp is generated when a
+        real server changes to 'inservice' state
+        by the user intervention. Additonal
+        varbinds clogOriginIDType and clogOriginID
+        are included in the Notification PDU. These
+        can be used in recognizing the device from
+        which the Notification is generated."
+
+    VARIATION       cesRealServerStateDown
+    DESCRIPTION
+        "cesRealServerStateDown is generated when a
+        real server changes to 'outOfService' state
+        by the user intervention. Additonal varbinds
+        clogOriginIDType and clogOriginID are
+        included in the Notification PDU. These
+        can be used in recognizing the device from
+        which the Notification is generated."
+
+    VARIATION       cesRealServerStateChange
+    DESCRIPTION
+        "cesRealServerStateChange is generated when
+        a real server changes to a new state change
+        other than that initiated by the user.
+        Additonal varbinds clogOriginIDType and
+        clogOriginID are included in the Notification
+        PDU. These can be used in recognizing the
+        device from which the Notification is
+        generated."
+
+    VARIATION       cesRserverStateUp
+    DESCRIPTION
+        "cesRealServerStateUp is generated when the
+        real server identified in cesRserverTable
+        changes state to 'inservice' by the user
+        intervention. Additonal varbinds
+        clogOriginIDType and clogOriginID are
+        included in the Notification PDU. These
+        can be used in recognizing the device from
+        which the Notification is generated."
+
+    VARIATION       cesRserverStateDown
+    DESCRIPTION
+        "cesRserverStateDown is generated when the
+        real server identified in cesRserverTable
+        changes state to 'outOfService' by the
+        user intervention. Additonal varbinds
+        clogOriginIDType and clogOriginID are
+        included in the Notification PDU. These
+        can be used in recognizing the device from
+        which the Notification is generated."
+
+    VARIATION       cesRserverStateChange
+    DESCRIPTION
+        "cesRserverStateChange is generated when
+        the real server identified in cesRserverTable
+        changes to a new state other than that
+        initiated by the user. Additonal varbinds
+        clogOriginIDType and clogOriginID are
+        included in the Notification PDU. This helps
+        in recognizing the device from which the
+        Notification is generated."
+
+    ::= { ciscoEnhancedSlbCapability 2 }
+
+ciscoEnhancedSlbCapc4710aceVA3R10 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A3(1.0)
+                    for ACE 4710 Application Control Engine 
+                    Appliance"
+    STATUS          current
+    DESCRIPTION
+        "ACSW (Application Control Software) A3(1.0)
+        CISCO ENHANCED SLB MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-SLB-MIB
+    INCLUDES        {
+                        cesRealServerGroup,
+                        cesRealServerFarmGroup,
+                        cesRealServerNotifGroupRev1,
+                        cesNotificationObjectGroup
+                    }
+    VARIATION       cesRealServerName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cesRserverType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverIpAddressType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverIpAddress
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverDescription
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverMaxConns
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverMinConns
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverAdminWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverRedirectRelocationStr
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverRedirectPort
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverRedirectCode
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverAdminStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverProbeStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesRserverProbeRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverAdminWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverOperWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverMaxConns
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverMinConns
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverAdminStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverBackupName
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverBackupPort
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverDroppedConns
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cesServerFarmRserverStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmRserverRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed via SNMP."
+
+    VARIATION       cesServerFarmName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cesProbeName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cesRealServerNotifEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed via SNMP."
+
+    VARIATION       cesRealServerStateUp
+    DESCRIPTION
+        "cesRealServerStateUp is generated when a
+        real server changes to 'inservice' state
+        by the user intervention. Additonal
+        varbinds clogOriginIDType and clogOriginID
+        are included in the Notification PDU. These
+        can be used in recognizing the device from
+        which the Notification is generated."
+
+    VARIATION       cesRealServerStateDown
+    DESCRIPTION
+        "cesRealServerStateDown is generated when a
+        real server changes to 'outOfService' state
+        by the user intervention. Additonal varbinds
+        clogOriginIDType and clogOriginID are
+        included in the Notification PDU. These
+        can be used in recognizing the device from
+        which the Notification is generated."
+
+    VARIATION       cesRealServerStateChange
+    DESCRIPTION
+        "cesRealServerStateChange is generated when
+        a real server changes to a new state change
+        other than that initiated by the user.
+        Additonal varbinds clogOriginIDType and
+        clogOriginID are included in the Notification
+        PDU. These can be used in recognizing the
+        device from which the Notification is generated."
+
+    VARIATION       cesRserverStateUp
+    DESCRIPTION
+        "cesRealServerStateUp is generated when the
+        real server identified in cesRserverTable
+        changes state to 'inservice' by the user
+        intervention. Additonal varbinds
+        clogOriginIDType and clogOriginID are
+        included in the Notification PDU. These
+        can be used in recognizing the device from
+        which the Notification is generated."
+
+    VARIATION       cesRserverStateDown
+    DESCRIPTION
+        "cesRserverStateDown is generated when the
+        real server identified in cesRserverTable
+        changes state to 'outOfService' by the
+        user intervention. Additonal varbinds
+        clogOriginIDType and clogOriginID are
+        included in the Notification PDU. These
+        can be used in recognizing the device from
+        which the Notification is generated."
+
+    VARIATION       cesRserverStateChange
+    DESCRIPTION
+        "cesRserverStateChange is generated when
+        the real server identified in cesRserverTable
+        changes to a new state other than that
+        initiated by the user. Additonal varbinds
+        clogOriginIDType and clogOriginID are
+        included in the Notification PDU. This helps
+        in recognizing the device from which the
+        Notification is generated."
+
+    ::= { ciscoEnhancedSlbCapability 3 }
+
+END

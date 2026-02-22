@@ -1,0 +1,968 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-NETWORK-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- NETWORK management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-NETWORK-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprEquipmentSensorThresholdStatus,
+    CfprMgmtAdminState,
+    CfprNetworkElementOperability,
+    CfprNetworkIfStatsType,
+    CfprNetworkIfStatsUnits,
+    CfprNetworkInventoryStatus,
+    CfprNetworkSamConfigStatus,
+    CfprNetworkSwitchId,
+    CfprNetworkVlanCountStatus
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprNetworkObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        NETWORK management information model package"
+    ::= { ciscoFirepowerMIBObjects 52 }
+
+cfprNetworkElementTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprNetworkElementEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower network:Element managed object table"
+    ::= { cfprNetworkObjects 1 }
+
+cfprNetworkElementEntry OBJECT-TYPE
+    SYNTAX           CfprNetworkElementEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprNetworkElementTable table."
+    INDEX { cfprNetworkElementInstanceId }
+    ::= { cfprNetworkElementTable 1 }
+
+CfprNetworkElementEntry ::= SEQUENCE {
+    cfprNetworkElementInstanceId                                     CfprManagedObjectId,
+    cfprNetworkElementDn                                             CfprManagedObjectDn,
+    cfprNetworkElementRn                                             SnmpAdminString,
+    cfprNetworkElementAdminInbandIfState                             CfprMgmtAdminState,
+    cfprNetworkElementDiffMemory                                     Gauge32,
+    cfprNetworkElementExpectedMemory                                 Gauge32,
+    cfprNetworkElementFltAggr                                        Unsigned64,
+    cfprNetworkElementId                                             CfprNetworkSwitchId,
+    cfprNetworkElementInbandIfGw                                     InetAddressIPv4,
+    cfprNetworkElementInbandIfIp                                     InetAddressIPv4,
+    cfprNetworkElementInbandIfMask                                   InetAddressIPv4,
+    cfprNetworkElementInbandIfVnet                                   Gauge32,
+    cfprNetworkElementInventoryStatus                                CfprNetworkInventoryStatus,
+    cfprNetworkElementModel                                          SnmpAdminString,
+    cfprNetworkElementOobIfGw                                        InetAddressIPv4,
+    cfprNetworkElementOobIfIp                                        InetAddressIPv4,
+    cfprNetworkElementOobIfMask                                      InetAddressIPv4,
+    cfprNetworkElementOperability                                    CfprNetworkElementOperability,
+    cfprNetworkElementRevision                                       SnmpAdminString,
+    cfprNetworkElementSerial                                         SnmpAdminString,
+    cfprNetworkElementThermal                                        CfprEquipmentSensorThresholdStatus,
+    cfprNetworkElementTotalMemory                                    Gauge32,
+    cfprNetworkElementVendor                                         SnmpAdminString,
+    cfprNetworkElementIcapCount                                      Gauge32,
+    cfprNetworkElementIcapCountString                                SnmpAdminString,
+    cfprNetworkElementMaxIcapCount                                   Gauge32,
+    cfprNetworkElementMaxVcapCount                                   Gauge32,
+    cfprNetworkElementSamConfigStatus                                CfprNetworkSamConfigStatus,
+    cfprNetworkElementVcapCount                                      Gauge32,
+    cfprNetworkElementVcapCountString                                SnmpAdminString,
+    cfprNetworkElementVid                                            SnmpAdminString
+}
+
+cfprNetworkElementInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprNetworkElementEntry 1 }
+
+cfprNetworkElementDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:dn managed object property"
+    ::= { cfprNetworkElementEntry 2 }
+
+cfprNetworkElementRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:rn managed object property"
+    ::= { cfprNetworkElementEntry 3 }
+
+cfprNetworkElementAdminInbandIfState OBJECT-TYPE
+    SYNTAX       CfprMgmtAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:adminInbandIfState
+        managed object property"
+    ::= { cfprNetworkElementEntry 4 }
+
+cfprNetworkElementDiffMemory OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:diffMemory managed
+        object property"
+    ::= { cfprNetworkElementEntry 5 }
+
+cfprNetworkElementExpectedMemory OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:expectedMemory
+        managed object property"
+    ::= { cfprNetworkElementEntry 6 }
+
+cfprNetworkElementFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:fltAggr managed object property"
+    ::= { cfprNetworkElementEntry 7 }
+
+cfprNetworkElementId OBJECT-TYPE
+    SYNTAX       CfprNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:id managed object property"
+    ::= { cfprNetworkElementEntry 8 }
+
+cfprNetworkElementInbandIfGw OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:inbandIfGw managed
+        object property"
+    ::= { cfprNetworkElementEntry 9 }
+
+cfprNetworkElementInbandIfIp OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:inbandIfIp managed
+        object property"
+    ::= { cfprNetworkElementEntry 10 }
+
+cfprNetworkElementInbandIfMask OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:inbandIfMask managed
+        object property"
+    ::= { cfprNetworkElementEntry 11 }
+
+cfprNetworkElementInbandIfVnet OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:inbandIfVnet managed
+        object property"
+    ::= { cfprNetworkElementEntry 12 }
+
+cfprNetworkElementInventoryStatus OBJECT-TYPE
+    SYNTAX       CfprNetworkInventoryStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:inventoryStatus
+        managed object property"
+    ::= { cfprNetworkElementEntry 13 }
+
+cfprNetworkElementModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:model managed object property"
+    ::= { cfprNetworkElementEntry 14 }
+
+cfprNetworkElementOobIfGw OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:oobIfGw managed object property"
+    ::= { cfprNetworkElementEntry 15 }
+
+cfprNetworkElementOobIfIp OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:oobIfIp managed object property"
+    ::= { cfprNetworkElementEntry 16 }
+
+cfprNetworkElementOobIfMask OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:oobIfMask managed
+        object property"
+    ::= { cfprNetworkElementEntry 17 }
+
+cfprNetworkElementOperability OBJECT-TYPE
+    SYNTAX       CfprNetworkElementOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:operability managed
+        object property"
+    ::= { cfprNetworkElementEntry 18 }
+
+cfprNetworkElementRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:revision managed object property"
+    ::= { cfprNetworkElementEntry 19 }
+
+cfprNetworkElementSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:serial managed object property"
+    ::= { cfprNetworkElementEntry 20 }
+
+cfprNetworkElementThermal OBJECT-TYPE
+    SYNTAX       CfprEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:thermal managed object property"
+    ::= { cfprNetworkElementEntry 21 }
+
+cfprNetworkElementTotalMemory OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:totalMemory managed
+        object property"
+    ::= { cfprNetworkElementEntry 22 }
+
+cfprNetworkElementVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:vendor managed object property"
+    ::= { cfprNetworkElementEntry 23 }
+
+cfprNetworkElementIcapCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:icapCount managed
+        object property"
+    ::= { cfprNetworkElementEntry 24 }
+
+cfprNetworkElementIcapCountString OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:icapCountString
+        managed object property"
+    ::= { cfprNetworkElementEntry 25 }
+
+cfprNetworkElementMaxIcapCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:maxIcapCount managed
+        object property"
+    ::= { cfprNetworkElementEntry 26 }
+
+cfprNetworkElementMaxVcapCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:maxVcapCount managed
+        object property"
+    ::= { cfprNetworkElementEntry 27 }
+
+cfprNetworkElementSamConfigStatus OBJECT-TYPE
+    SYNTAX       CfprNetworkSamConfigStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:samConfigStatus
+        managed object property"
+    ::= { cfprNetworkElementEntry 28 }
+
+cfprNetworkElementVcapCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:vcapCount managed
+        object property"
+    ::= { cfprNetworkElementEntry 29 }
+
+cfprNetworkElementVcapCountString OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:vcapCountString
+        managed object property"
+    ::= { cfprNetworkElementEntry 30 }
+
+cfprNetworkElementVid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:Element:vid managed object property"
+    ::= { cfprNetworkElementEntry 31 }
+
+cfprNetworkIfStatsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprNetworkIfStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower network:IfStats managed object table"
+    ::= { cfprNetworkObjects 2 }
+
+cfprNetworkIfStatsEntry OBJECT-TYPE
+    SYNTAX           CfprNetworkIfStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprNetworkIfStatsTable table."
+    INDEX { cfprNetworkIfStatsInstanceId }
+    ::= { cfprNetworkIfStatsTable 1 }
+
+CfprNetworkIfStatsEntry ::= SEQUENCE {
+    cfprNetworkIfStatsInstanceId                                     CfprManagedObjectId,
+    cfprNetworkIfStatsDn                                             CfprManagedObjectDn,
+    cfprNetworkIfStatsRn                                             SnmpAdminString,
+    cfprNetworkIfStatsOut                                            Unsigned64,
+    cfprNetworkIfStatsRin                                            Unsigned64,
+    cfprNetworkIfStatsType                                           CfprNetworkIfStatsType,
+    cfprNetworkIfStatsUnits                                          CfprNetworkIfStatsUnits
+}
+
+cfprNetworkIfStatsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprNetworkIfStatsEntry 1 }
+
+cfprNetworkIfStatsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:IfStats:dn managed object property"
+    ::= { cfprNetworkIfStatsEntry 2 }
+
+cfprNetworkIfStatsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:IfStats:rn managed object property"
+    ::= { cfprNetworkIfStatsEntry 3 }
+
+cfprNetworkIfStatsOut OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:IfStats:out managed object property"
+    ::= { cfprNetworkIfStatsEntry 4 }
+
+cfprNetworkIfStatsRin OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:IfStats:rin managed object property"
+    ::= { cfprNetworkIfStatsEntry 5 }
+
+cfprNetworkIfStatsType OBJECT-TYPE
+    SYNTAX       CfprNetworkIfStatsType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:IfStats:type managed object property"
+    ::= { cfprNetworkIfStatsEntry 6 }
+
+cfprNetworkIfStatsUnits OBJECT-TYPE
+    SYNTAX       CfprNetworkIfStatsUnits
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:IfStats:units managed object property"
+    ::= { cfprNetworkIfStatsEntry 7 }
+
+cfprNetworkLanNeighborEntryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprNetworkLanNeighborEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighborEntry managed object table"
+    ::= { cfprNetworkObjects 3 }
+
+cfprNetworkLanNeighborEntryEntry OBJECT-TYPE
+    SYNTAX           CfprNetworkLanNeighborEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprNetworkLanNeighborEntryTable table."
+    INDEX { cfprNetworkLanNeighborEntryInstanceId }
+    ::= { cfprNetworkLanNeighborEntryTable 1 }
+
+CfprNetworkLanNeighborEntryEntry ::= SEQUENCE {
+    cfprNetworkLanNeighborEntryInstanceId                            CfprManagedObjectId,
+    cfprNetworkLanNeighborEntryDn                                    CfprManagedObjectDn,
+    cfprNetworkLanNeighborEntryRn                                    SnmpAdminString,
+    cfprNetworkLanNeighborEntryCapabilities                          SnmpAdminString,
+    cfprNetworkLanNeighborEntryDeviceId                              SnmpAdminString,
+    cfprNetworkLanNeighborEntryFiPortDn                              SnmpAdminString,
+    cfprNetworkLanNeighborEntryIpV4Address                           SnmpAdminString,
+    cfprNetworkLanNeighborEntryIpV4MgmtAddress                       SnmpAdminString,
+    cfprNetworkLanNeighborEntryLocalInterface                        SnmpAdminString,
+    cfprNetworkLanNeighborEntryNativeVlan                            Gauge32,
+    cfprNetworkLanNeighborEntryPlatform                              SnmpAdminString,
+    cfprNetworkLanNeighborEntryRemoteInterface                       SnmpAdminString
+}
+
+cfprNetworkLanNeighborEntryInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprNetworkLanNeighborEntryEntry 1 }
+
+cfprNetworkLanNeighborEntryDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighborEntry:dn managed
+        object property"
+    ::= { cfprNetworkLanNeighborEntryEntry 2 }
+
+cfprNetworkLanNeighborEntryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighborEntry:rn managed
+        object property"
+    ::= { cfprNetworkLanNeighborEntryEntry 3 }
+
+cfprNetworkLanNeighborEntryCapabilities OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighborEntry:capabilities
+        managed object property"
+    ::= { cfprNetworkLanNeighborEntryEntry 4 }
+
+cfprNetworkLanNeighborEntryDeviceId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighborEntry:deviceId
+        managed object property"
+    ::= { cfprNetworkLanNeighborEntryEntry 5 }
+
+cfprNetworkLanNeighborEntryFiPortDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighborEntry:fiPortDn
+        managed object property"
+    ::= { cfprNetworkLanNeighborEntryEntry 6 }
+
+cfprNetworkLanNeighborEntryIpV4Address OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighborEntry:ipV4Address
+        managed object property"
+    ::= { cfprNetworkLanNeighborEntryEntry 7 }
+
+cfprNetworkLanNeighborEntryIpV4MgmtAddress OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighborEntry:ipV4MgmtAddress
+        managed object property"
+    ::= { cfprNetworkLanNeighborEntryEntry 8 }
+
+cfprNetworkLanNeighborEntryLocalInterface OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighborEntry:localInterface
+        managed object property"
+    ::= { cfprNetworkLanNeighborEntryEntry 9 }
+
+cfprNetworkLanNeighborEntryNativeVlan OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighborEntry:nativeVlan
+        managed object property"
+    ::= { cfprNetworkLanNeighborEntryEntry 10 }
+
+cfprNetworkLanNeighborEntryPlatform OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighborEntry:platform
+        managed object property"
+    ::= { cfprNetworkLanNeighborEntryEntry 11 }
+
+cfprNetworkLanNeighborEntryRemoteInterface OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighborEntry:remoteInterface
+        managed object property"
+    ::= { cfprNetworkLanNeighborEntryEntry 12 }
+
+cfprNetworkLanNeighborsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprNetworkLanNeighborsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighbors managed object table"
+    ::= { cfprNetworkObjects 4 }
+
+cfprNetworkLanNeighborsEntry OBJECT-TYPE
+    SYNTAX           CfprNetworkLanNeighborsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprNetworkLanNeighborsTable table."
+    INDEX { cfprNetworkLanNeighborsInstanceId }
+    ::= { cfprNetworkLanNeighborsTable 1 }
+
+CfprNetworkLanNeighborsEntry ::= SEQUENCE {
+    cfprNetworkLanNeighborsInstanceId                                CfprManagedObjectId,
+    cfprNetworkLanNeighborsDn                                        CfprManagedObjectDn,
+    cfprNetworkLanNeighborsRn                                        SnmpAdminString
+}
+
+cfprNetworkLanNeighborsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprNetworkLanNeighborsEntry 1 }
+
+cfprNetworkLanNeighborsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighbors:dn managed object property"
+    ::= { cfprNetworkLanNeighborsEntry 2 }
+
+cfprNetworkLanNeighborsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:LanNeighbors:rn managed object property"
+    ::= { cfprNetworkLanNeighborsEntry 3 }
+
+cfprNetworkOperLevelTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprNetworkOperLevelEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower network:OperLevel managed object table"
+    ::= { cfprNetworkObjects 5 }
+
+cfprNetworkOperLevelEntry OBJECT-TYPE
+    SYNTAX           CfprNetworkOperLevelEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprNetworkOperLevelTable table."
+    INDEX { cfprNetworkOperLevelInstanceId }
+    ::= { cfprNetworkOperLevelTable 1 }
+
+CfprNetworkOperLevelEntry ::= SEQUENCE {
+    cfprNetworkOperLevelInstanceId                                   CfprManagedObjectId,
+    cfprNetworkOperLevelDn                                           CfprManagedObjectDn,
+    cfprNetworkOperLevelRn                                           SnmpAdminString,
+    cfprNetworkOperLevelId                                           CfprNetworkSwitchId,
+    cfprNetworkOperLevelMaxPrimaryVlanCount                          Gauge32,
+    cfprNetworkOperLevelMaxSecVlanPerPrimaryVlanCount                Gauge32,
+    cfprNetworkOperLevelMaxSecondaryVlanCount                        Gauge32,
+    cfprNetworkOperLevelPrimaryVlanCount                             Gauge32,
+    cfprNetworkOperLevelPrimaryVlanCountStatus                       CfprNetworkVlanCountStatus,
+    cfprNetworkOperLevelSecondaryVlanCount                           Gauge32,
+    cfprNetworkOperLevelSecondaryVlanCountStatus                     CfprNetworkVlanCountStatus
+}
+
+cfprNetworkOperLevelInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprNetworkOperLevelEntry 1 }
+
+cfprNetworkOperLevelDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:OperLevel:dn managed object property"
+    ::= { cfprNetworkOperLevelEntry 2 }
+
+cfprNetworkOperLevelRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:OperLevel:rn managed object property"
+    ::= { cfprNetworkOperLevelEntry 3 }
+
+cfprNetworkOperLevelId OBJECT-TYPE
+    SYNTAX       CfprNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:OperLevel:id managed object property"
+    ::= { cfprNetworkOperLevelEntry 4 }
+
+cfprNetworkOperLevelMaxPrimaryVlanCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:OperLevel:maxPrimaryVlanCount
+        managed object property"
+    ::= { cfprNetworkOperLevelEntry 5 }
+
+cfprNetworkOperLevelMaxSecVlanPerPrimaryVlanCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:OperLevel:maxSecVlanPerPrimaryVlanCount
+        managed object property"
+    ::= { cfprNetworkOperLevelEntry 6 }
+
+cfprNetworkOperLevelMaxSecondaryVlanCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:OperLevel:maxSecondaryVlanCount
+        managed object property"
+    ::= { cfprNetworkOperLevelEntry 7 }
+
+cfprNetworkOperLevelPrimaryVlanCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:OperLevel:primaryVlanCount
+        managed object property"
+    ::= { cfprNetworkOperLevelEntry 8 }
+
+cfprNetworkOperLevelPrimaryVlanCountStatus OBJECT-TYPE
+    SYNTAX       CfprNetworkVlanCountStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:OperLevel:primaryVlanCountStatus
+        managed object property"
+    ::= { cfprNetworkOperLevelEntry 9 }
+
+cfprNetworkOperLevelSecondaryVlanCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:OperLevel:secondaryVlanCount
+        managed object property"
+    ::= { cfprNetworkOperLevelEntry 10 }
+
+cfprNetworkOperLevelSecondaryVlanCountStatus OBJECT-TYPE
+    SYNTAX       CfprNetworkVlanCountStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:OperLevel:secondaryVlanCountStatus
+        managed object property"
+    ::= { cfprNetworkOperLevelEntry 11 }
+
+cfprNetworkSanNeighborEntryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprNetworkSanNeighborEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighborEntry managed object table"
+    ::= { cfprNetworkObjects 6 }
+
+cfprNetworkSanNeighborEntryEntry OBJECT-TYPE
+    SYNTAX           CfprNetworkSanNeighborEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprNetworkSanNeighborEntryTable table."
+    INDEX { cfprNetworkSanNeighborEntryInstanceId }
+    ::= { cfprNetworkSanNeighborEntryTable 1 }
+
+CfprNetworkSanNeighborEntryEntry ::= SEQUENCE {
+    cfprNetworkSanNeighborEntryInstanceId                            CfprManagedObjectId,
+    cfprNetworkSanNeighborEntryDn                                    CfprManagedObjectDn,
+    cfprNetworkSanNeighborEntryRn                                    SnmpAdminString,
+    cfprNetworkSanNeighborEntryFabricMgmtAddr                        SnmpAdminString,
+    cfprNetworkSanNeighborEntryFabricNwwn                            SnmpAdminString,
+    cfprNetworkSanNeighborEntryFabricPwwn                            SnmpAdminString,
+    cfprNetworkSanNeighborEntryFiPortDn                              SnmpAdminString,
+    cfprNetworkSanNeighborEntryLocalInterface                        SnmpAdminString,
+    cfprNetworkSanNeighborEntryMyNwwn                                SnmpAdminString,
+    cfprNetworkSanNeighborEntryMyPwwn                                SnmpAdminString,
+    cfprNetworkSanNeighborEntryPortVsan                              SnmpAdminString
+}
+
+cfprNetworkSanNeighborEntryInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprNetworkSanNeighborEntryEntry 1 }
+
+cfprNetworkSanNeighborEntryDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighborEntry:dn managed
+        object property"
+    ::= { cfprNetworkSanNeighborEntryEntry 2 }
+
+cfprNetworkSanNeighborEntryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighborEntry:rn managed
+        object property"
+    ::= { cfprNetworkSanNeighborEntryEntry 3 }
+
+cfprNetworkSanNeighborEntryFabricMgmtAddr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighborEntry:fabricMgmtAddr
+        managed object property"
+    ::= { cfprNetworkSanNeighborEntryEntry 4 }
+
+cfprNetworkSanNeighborEntryFabricNwwn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighborEntry:fabricNwwn
+        managed object property"
+    ::= { cfprNetworkSanNeighborEntryEntry 5 }
+
+cfprNetworkSanNeighborEntryFabricPwwn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighborEntry:fabricPwwn
+        managed object property"
+    ::= { cfprNetworkSanNeighborEntryEntry 6 }
+
+cfprNetworkSanNeighborEntryFiPortDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighborEntry:fiPortDn
+        managed object property"
+    ::= { cfprNetworkSanNeighborEntryEntry 7 }
+
+cfprNetworkSanNeighborEntryLocalInterface OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighborEntry:localInterface
+        managed object property"
+    ::= { cfprNetworkSanNeighborEntryEntry 8 }
+
+cfprNetworkSanNeighborEntryMyNwwn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighborEntry:myNwwn
+        managed object property"
+    ::= { cfprNetworkSanNeighborEntryEntry 9 }
+
+cfprNetworkSanNeighborEntryMyPwwn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighborEntry:myPwwn
+        managed object property"
+    ::= { cfprNetworkSanNeighborEntryEntry 10 }
+
+cfprNetworkSanNeighborEntryPortVsan OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighborEntry:portVsan
+        managed object property"
+    ::= { cfprNetworkSanNeighborEntryEntry 11 }
+
+cfprNetworkSanNeighborsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprNetworkSanNeighborsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighbors managed object table"
+    ::= { cfprNetworkObjects 7 }
+
+cfprNetworkSanNeighborsEntry OBJECT-TYPE
+    SYNTAX           CfprNetworkSanNeighborsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprNetworkSanNeighborsTable table."
+    INDEX { cfprNetworkSanNeighborsInstanceId }
+    ::= { cfprNetworkSanNeighborsTable 1 }
+
+CfprNetworkSanNeighborsEntry ::= SEQUENCE {
+    cfprNetworkSanNeighborsInstanceId                                CfprManagedObjectId,
+    cfprNetworkSanNeighborsDn                                        CfprManagedObjectDn,
+    cfprNetworkSanNeighborsRn                                        SnmpAdminString
+}
+
+cfprNetworkSanNeighborsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprNetworkSanNeighborsEntry 1 }
+
+cfprNetworkSanNeighborsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighbors:dn managed object property"
+    ::= { cfprNetworkSanNeighborsEntry 2 }
+
+cfprNetworkSanNeighborsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower network:SanNeighbors:rn managed object property"
+    ::= { cfprNetworkSanNeighborsEntry 3 }
+
+END

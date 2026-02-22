@@ -1,0 +1,191 @@
+-- *****************************************************************
+-- CISCO-VOICE-CARD-MIB.my:  Codec Complexity MIB
+--
+-- March 2002, Prabhakaran Ganesan
+--
+-- Copyright (c) 1994 - 1996, 2000, 2001, 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+--
+
+
+   CISCO-VOICE-CARD-MIB DEFINITIONS ::= BEGIN
+
+
+   IMPORTS
+       MODULE-IDENTITY, OBJECT-TYPE, Unsigned32 FROM SNMPv2-SMI
+       MODULE-COMPLIANCE, OBJECT-GROUP          FROM SNMPv2-CONF
+       ciscoMgmt                                FROM CISCO-SMI; 
+ 
+   ciscoVoiceCard MODULE-IDENTITY
+       LAST-UPDATED "200202150000Z"
+       ORGANIZATION "Cisco Systems, Inc"
+       CONTACT-INFO
+               "       Cisco Systems
+                       Customer Service
+
+
+               Postal: 170 W. Tasman Drive
+                       San Jose, CA  95134
+                       USA
+
+
+               Tel: +1 800 553-NETS
+
+
+               E-mail: cs-voice@cisco.com"
+       DESCRIPTION
+               "The MIB module to configure voice-card specific 
+                parameters  such as  codec complexity in voice-
+                enabled cisco routers."
+       REVISION      "200202150000Z"
+       DESCRIPTION
+               "Initial version"
+       ::= { ciscoMgmt 300576 }
+
+
+-- Notification
+
+
+   ciscoVoiceCardNotifications OBJECT IDENTIFIER 
+                                          ::= { ciscoVoiceCard 0  }
+
+
+   ciscoVoiceCardObjects OBJECT IDENTIFIER ::= { ciscoVoiceCard 1 }
+
+
+   -- The Voice Card table contains the various objects defining the
+   -- characteristics of the voice card. The index is used to access 
+   -- each voice card's entry in the table.
+
+
+   cVoiceCardTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF CVoiceCardEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+               "A list of voice card entries.  The number of entries
+                is the number of slots in the router."
+       ::= { ciscoVoiceCardObjects 1 }
+
+
+   cVoiceCardEntry OBJECT-TYPE
+       SYNTAX      CVoiceCardEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+               "An entry containing management information applicable
+                to a particular  voice card. The number of entries is
+                the same  as the number of  slots in the router. This 
+                is a constant for a given router."
+       INDEX   { cVoiceCardIndex }
+       ::= { cVoiceCardTable 1 }
+
+
+   CVoiceCardEntry ::=
+       SEQUENCE {
+           cVoiceCardIndex                 Unsigned32,
+           cVoiceCardSlotNumber            Unsigned32,
+           cVoiceCardCodecComplexity       INTEGER,
+           cVoiceCardAdminStatus           INTEGER
+       }
+
+
+   cVoiceCardIndex OBJECT-TYPE
+       SYNTAX      Unsigned32 (1..255)
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+               "A unique value, greater than zero, used to index the
+                cVoiceCardTable."
+       ::= { cVoiceCardEntry 1 }
+
+
+    cVoiceCardSlotNumber  OBJECT-TYPE
+       SYNTAX  Unsigned32 (0..255) 
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+                "The slot number of the slot containing this voice 
+                 card."
+       ::= { cVoiceCardEntry 2 }
+
+
+   cVoiceCardCodecComplexity OBJECT-TYPE
+       SYNTAX  INTEGER {
+                   hc(2),       -- High Complexity
+                   mc(4)        -- Medium Complexity
+               }
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+               "Determines whether the voice ports in  the card can
+                support   all  codecs  or not.   Medium  complexity 
+                configuration  can  not support  all  codecs, while  
+                High Complexity configuration supports  all codecs.
+                The card  may support  all types of  codecs listed, 
+                but the NMS  setting  a value  will force  the card
+                only to use the codecs limited by the Codec 
+                Complexity configured."
+       ::= { cVoiceCardEntry 3 }
+
+
+    cVoiceCardAdminStatus  OBJECT-TYPE
+       SYNTAX  INTEGER {
+                   up(1),       -- The voice card is not shut. 
+                   down(2)      -- The voice card is shut.
+               }
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+               "Administrative  status of the  voice  card.  The voice
+                card is  administratively down  if all voice ports are
+                shut. The agent changes the status whenever the status
+                of  the voice  card changes in  the router.  The voice 
+                card  changes state  immediately when  the NMS changes
+                the state of this object."
+       ::= { cVoiceCardEntry 4 }
+  
+-- Conformance
+
+
+   ciscoVoiceCardConformance OBJECT IDENTIFIER 
+                                ::= { ciscoVoiceCard 2 }
+   ciscoVoiceCardMIBCompliances OBJECT IDENTIFIER 
+                                ::= { ciscoVoiceCardConformance 1 }
+   ciscoVoiceCardMIBGroups OBJECT IDENTIFIER 
+                                ::= { ciscoVoiceCardConformance 2 }
+
+
+  -- Compliance statements
+
+
+   ciscoVoiceCardMIBCompliance MODULE-COMPLIANCE
+       STATUS current
+       DESCRIPTION
+           "Describes the requirements for conformance to the
+            Cisco Voice Card MIB."
+       MODULE   -- Compliance to this module
+           MANDATORY-GROUPS  { 
+              ciscoVoiceCardGroup 
+           }
+       ::= { ciscoVoiceCardMIBCompliances 1 }
+
+
+  -- MIB Groups
+
+
+   ciscoVoiceCardGroup OBJECT-GROUP
+       OBJECTS {
+          cVoiceCardSlotNumber,
+          cVoiceCardCodecComplexity,
+          cVoiceCardAdminStatus
+       }
+       STATUS current
+       DESCRIPTION 
+          "A collection of objects providing voice card specific
+           functionality."
+       ::= { ciscoVoiceCardMIBGroups 1 }
+   
+   END

@@ -1,0 +1,1396 @@
+-- MIB file created 28-Oct-2004 13:35:17, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IKE-CONFIGURATION-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IKE-CONFIGURATION-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    InetAddress, InetAddressType, InetAddressPrefixLength
+            FROM INET-ADDRESS-MIB
+    CIPsecPhase1PeerIdentityType, CIPsecIkeAuthMethod, 
+    CIPsecDiffHellmanGrp, CIPsecIkeHashAlgorithm, 
+    CIPsecEncryptAlgorithm, CIPsecIkePRFAlgorithm, CIKEIsakmpDoi, 
+    CIKELifetime, CIPsecControlProtocol, CIKELifesize
+            FROM CISCO-IPSEC-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoIkeConfigMIB OBJECT IDENTIFIER ::= { ciscoMgmt 423 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200409160000Z
+--  OrgName
+--    Cisco Systems
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-ipsecmib@external.cisco.com
+--  Descr
+--    This is a MIB Module for configuring and viewing IKE 
+--    parameters and policies. 
+--    
+--    Acronyms
+--    The following acronyms are used in this document:
+--    
+--    IPsec:      Secure IP Protocol
+--    
+--    VPN:        Virtual Private Network
+--    
+--    ISAKMP:     Internet Security Association and Key Exchange
+--                Protocol
+--    
+--    IKE:        Internet Key Exchange Protocol
+--    
+--    DOI:        Domain of Interpretation (of the attributes
+--                of IKE protocol in the context of a specific 
+--                Phase-2 protocol).
+--    
+--    SA:         Security Association
+--                (ref: rfc2408).
+--    
+--    SPI:        Security Parameter Index is the pointer or
+--                identifier used in accessing SA attributes
+--                (ref: rfc2408).
+--    
+--    MM:         Main Mode - the process of setting up
+--                a Phase 1 SA to secure the exchanges
+--                required to setup Phase 2 SAs
+--    
+--    Phase 1 Tunnel:
+--                An ISAKMP SA can be regarded as representing
+--                a flow of ISAKMP/IKE traffic. Hence an ISAKMP
+--                is referred to as a 'Phase 1 Tunnel' in this
+--                document. 
+--    
+--    Phase 2 Tunnel:
+--                A Phase 2 Tunnel is an instance of a
+--                non-ISAKMP SA bundle in which all the SA
+--                share the same proxy identifiers (IDii,IDir)
+--                and protect the same stream of application
+--                traffic.
+--                Note that a Phase 2 tunnel may comprise one
+--                SA bundle at any given point of time, but 
+--                the SA bundle changes with time due to 
+--                key refresh.
+--    
+--    
+--    History of the MIB
+--    This MIB was originally written as CISCO-IPSEC-MIB
+--    which combined the configuration of IKE and IPsec
+--    protocols into a single MIB.
+--  RevDate
+--    200409160000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+cicIkeConfigMIBNotifs OBJECT IDENTIFIER ::= { ciscoIkeConfigMIB 0 }
+cicIkeConfigMIBObjects OBJECT IDENTIFIER ::= { ciscoIkeConfigMIB 1 }
+cicIkeConfigMIBConform OBJECT IDENTIFIER ::= { ciscoIkeConfigMIB 2 }
+cicIkeCfgOperations OBJECT IDENTIFIER ::= { cicIkeConfigMIBObjects 1 }
+cicIkeCfgIdentities OBJECT IDENTIFIER ::= { cicIkeConfigMIBObjects 2 }
+cicIkeCfgFailureRecovery OBJECT IDENTIFIER ::= { cicIkeConfigMIBObjects 3 }
+cicIkeCfgPeerAuth OBJECT IDENTIFIER ::= { cicIkeConfigMIBObjects 4 }
+cicIkeCfgPskAuthConfig OBJECT IDENTIFIER ::= { cicIkeCfgPeerAuth 1 }
+cicIkeCfgNonceAuthConfig OBJECT IDENTIFIER ::= { cicIkeCfgPeerAuth 2 }
+cicIkeCfgPkiAuthConfig OBJECT IDENTIFIER ::= { cicIkeCfgPeerAuth 3 }
+cicIkeCfgPolicies OBJECT IDENTIFIER ::= { cicIkeConfigMIBObjects 5 }
+cicIkeCfgServiceControl OBJECT IDENTIFIER ::= { cicIkeConfigMIBObjects 6 }
+cicIkeCfgCallAdmssionnCtrl OBJECT IDENTIFIER ::= { cicIkeCfgServiceControl 1 }
+cicIkeCfgQoSControl OBJECT IDENTIFIER ::= { cicIkeCfgServiceControl 2 }
+cicIkeConfigMibNotifCntl OBJECT IDENTIFIER ::= { cicIkeConfigMIBObjects 7 }
+cicIkeCfgMIBGroups OBJECT IDENTIFIER ::= { cicIkeConfigMIBConform 1 }
+cicIkeCfgMIBCompliances OBJECT IDENTIFIER ::= { cicIkeConfigMIBConform 2 }
+
+CicIkeConfigPskIndex ::= Gauge(1..65535)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An arbitrary unique value identifying the
+--    configured pre-shared keys.
+
+CicIkeConfigInitiatorIndex ::= Gauge(1..65535)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An arbitrary unique value identifying the
+--    configured IKE version initiator.
+
+cicIkeEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        This object reflects the operational status (enabled/
+        disabled) of the IKE entity on the managed device.
+        'true'  - IKE is enabled.
+        'false' - IKE is disabled."
+    ::= { cicIkeCfgOperations 1 }
+
+cicIkeAggressModeEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        This object reflects if the IKE entity on the managed 
+        device performs aggressive mode negotiations.
+        'true'  - IKE entity performs aggressive mode
+                  negotiations.
+        'false' - IKE entity does not perform aggressive mode
+                  negotiations."
+    ::= { cicIkeCfgOperations 2 }
+
+cicIkeCfgIdentityTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CicIkeCfgIdentityEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The table containing the list of Phase-1 identities
+        used by the IKE protocol for the different Phase-2
+        DOIs it operates in."
+    ::= { cicIkeCfgIdentities 1 }
+
+cicIkeCfgIdentityEntry OBJECT-TYPE
+    SYNTAX CicIkeCfgIdentityEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        Each entry represents a Phase-1 identity
+        used by IKE for a specific Phase-2 DOI."
+    INDEX { cicIkeCfgIdentityDoi }
+    ::= { cicIkeCfgIdentityTable 1 }
+
+CicIkeCfgIdentityEntry ::= SEQUENCE {
+    cicIkeCfgIdentityDoi CIKEIsakmpDoi,
+    cicIkeCfgIdentityType CIPsecPhase1PeerIdentityType
+    }
+
+cicIkeCfgIdentityDoi OBJECT-TYPE
+    SYNTAX CIKEIsakmpDoi
+--    Rsyntax INTEGER {
+--        isakmpDoiUnknown(1),
+--        isakmpDoiOther(2),
+--        isakmpDoiIPsec(3),
+--        isakmpDoiFcsp(4),
+--        isakmpDoiCps(5),
+--        isakmpDoiFcCtAuth(6)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        This is the DOI type that is supported 
+        by this IKE entity on the managed device and
+        for which the Phase-1 identity corresponding to this
+        conceptual row is being defined."
+    ::= { cicIkeCfgIdentityEntry 1 }
+
+cicIkeCfgIdentityType OBJECT-TYPE
+    SYNTAX CIPsecPhase1PeerIdentityType
+--    Rsyntax INTEGER {
+--        idOther(1),
+--        idIpv4Addr(2),
+--        idFqdn(3),
+--        idDn(4),
+--        idIpv6Addr(5),
+--        idUserFqdn(6),
+--        idIpv4AddrSubnet(7),
+--        idIpv6AddrSubnet(8),
+--        idIpv4AddrRange(9),
+--        idIpv6AddrRange(10),
+--        idDerAsn1Gn(11),
+--        idKeyId(12),
+--        idWwn(13)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The Phase I identity type used by the Phase-2 DOI
+        corresponding to this conceptual row."
+    ::= { cicIkeCfgIdentityEntry 2 }
+
+cicIkeCfgInitiatorNextAvailTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CicIkeCfgInitiatorNextAvailEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The table providing the next available index for
+        the cicIkeCfgInitiatorTable, in a domain of
+        interpretation(DOI), identified by
+        cicIkeCfgIdentityDoi.  This value is only a
+        recommended value, but the user can choose to
+        use a different value to create an entry
+        in the cicIkeCfgInitiatorTable. "
+    ::= { cicIkeCfgIdentities 2 }
+
+cicIkeCfgInitiatorNextAvailEntry OBJECT-TYPE
+    SYNTAX CicIkeCfgInitiatorNextAvailEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        Each entry represents a next available index
+        for the cicIkeCfgInitiatorTable."
+    INDEX { cicIkeCfgIdentityDoi }
+-- Augments cicIkeCfgIdentityEntry
+    ::= { cicIkeCfgInitiatorNextAvailTable 1 }
+
+CicIkeCfgInitiatorNextAvailEntry ::= SEQUENCE {
+    cicIkeCfgInitiatorNextAvailIndex CicIkeConfigInitiatorIndex
+    }
+
+cicIkeCfgInitiatorNextAvailIndex OBJECT-TYPE
+    SYNTAX CicIkeConfigInitiatorIndex
+--    Rsyntax Gauge(1..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The object specifies the next available index for
+        object cicIkeCfgInitiatorIndex which can be used for 
+        creating an entry in cicIkeCfgInitiatorTable."
+    ::= { cicIkeCfgInitiatorNextAvailEntry 1 }
+
+cicIkeCfgInitiatorTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CicIkeCfgInitiatorEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table containing the IKE version initiators
+        for peers. "
+    ::= { cicIkeCfgIdentities 3 }
+
+cicIkeCfgInitiatorEntry OBJECT-TYPE
+    SYNTAX CicIkeCfgInitiatorEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents the IKE protocol version
+        initiated when connecting to a remote peer."
+    INDEX { cicIkeCfgIdentityDoi, cicIkeCfgInitiatorIndex }
+    ::= { cicIkeCfgInitiatorTable 1 }
+
+CicIkeCfgInitiatorEntry ::= SEQUENCE {
+    cicIkeCfgInitiatorIndex CicIkeConfigInitiatorIndex,
+    cicIkeCfgInitiatorPAddrType CIPsecPhase1PeerIdentityType,
+    cicIkeCfgInitiatorPAddr OCTET STRING,
+    cicIkeCfgInitiatorVer CIPsecControlProtocol,
+    cicIkeCfgInitiatorStatus RowStatus
+    }
+
+cicIkeCfgInitiatorIndex OBJECT-TYPE
+    SYNTAX CicIkeConfigInitiatorIndex
+--    Rsyntax Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary value identifying the configured
+        IKE version initiated for a peer in this domain of
+        interpretation, identified by cicIkeCfgIdentityDoi,
+        on a managed device. This object could have the
+        same value as cicIkeCfgInitiatorNextAvailIndex."
+    ::= { cicIkeCfgInitiatorEntry 1 }
+
+cicIkeCfgInitiatorPAddrType OBJECT-TYPE
+    SYNTAX CIPsecPhase1PeerIdentityType
+--    Rsyntax INTEGER {
+--        idOther(1),
+--        idIpv4Addr(2),
+--        idFqdn(3),
+--        idDn(4),
+--        idIpv6Addr(5),
+--        idUserFqdn(6),
+--        idIpv4AddrSubnet(7),
+--        idIpv6AddrSubnet(8),
+--        idIpv4AddrRange(9),
+--        idIpv6AddrRange(10),
+--        idDerAsn1Gn(11),
+--        idKeyId(12),
+--        idWwn(13)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The Phase 1 ID type of the remote peer for which
+        this IKE protocol initiator is configured.
+        
+        This object cannot be modified while the
+        corresponding value of cicIkeCfgInitiatorStatus is
+        equal to 'active'."
+    ::= { cicIkeCfgInitiatorEntry 2 }
+
+cicIkeCfgInitiatorPAddr OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the address of the remote
+        peer corresponding to this conceptual row.
+        
+        This object cannot be modified while the
+        corresponding value of cicIkeCfgInitiatorStatus is
+        equal to 'active'."
+    ::= { cicIkeCfgInitiatorEntry 3 }
+
+cicIkeCfgInitiatorVer OBJECT-TYPE
+    SYNTAX CIPsecControlProtocol
+--    Rsyntax INTEGER {
+--        cpUnknown(1),
+--        cpAll(2),
+--        cpOther(3),
+--        cpManual(4),
+--        cpIkev1(5),
+--        cpIkev2(6),
+--        cpKink(7),
+--        cpPhoturis(8)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the IKE protocol version
+        used when connecting to a remote peer specified in
+        cicIkeCfgInitiatorPAddr.
+        
+        This object cannot be modified while the
+        corresponding value of cicIkeCfgInitiatorStatus is
+        equal to 'active'."
+    ::= { cicIkeCfgInitiatorEntry 4 }
+
+cicIkeCfgInitiatorStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. To configure an
+        IKE version initiator entry, the NMS must do a
+        multivarbind set containing
+        cicIkeCfgInitiatorPAddrType, cicIkeCfgInitiatorPAddr
+        and cicIkeCfgInitiatorVer.
+        Creation of row can only be done via 'createAndGo'.
+        To remove a row, set this object value to 'destroy'."
+    ::= { cicIkeCfgInitiatorEntry 5 }
+
+cicIkeCfgFailureRecovConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CicIkeCfgFailureRecovConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table containing the failure recovery
+        configuration for IKE per supported DOI in the
+        managed entity."
+    ::= { cicIkeCfgFailureRecovery 1 }
+
+cicIkeCfgFailureRecovConfigEntry OBJECT-TYPE
+    SYNTAX CicIkeCfgFailureRecovConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a Phase I failure recovery
+        configuration for the Phase 2 DOI corresponding
+        to the conceptual row."
+    INDEX { cicIkeCfgIdentityDoi }
+-- Augments cicIkeCfgIdentityEntry
+    ::= { cicIkeCfgFailureRecovConfigTable 1 }
+
+CicIkeCfgFailureRecovConfigEntry ::= SEQUENCE {
+    cicIkeKeepAliveEnabled TruthValue,
+    cicIkeKeepAliveType INTEGER,
+    cicIkeKeepAliveInterval Gauge,
+    cicIkeKeepAliveRetryInterval Gauge,
+    cicIkeInvalidSpiNotify TruthValue
+    }
+
+cicIkeKeepAliveEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        This object reflects if the IKE entity in the
+        managed device performs keepalives with all the
+        peers for the DOI corresponding to this
+        conceptual row. 
+        'true'  - keepalives are performed.
+        'false' - no keepalives are performed."
+    ::= { cicIkeCfgFailureRecovConfigEntry 1 }
+
+cicIkeKeepAliveType OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        periodic(2),
+        ondemand(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        This object reflects the type of keepalives to be used
+        by the IKE entity on the managed device with all the
+        peers for the DOI corresponding to this conceptual row."
+    ::= { cicIkeCfgFailureRecovConfigEntry 2 }
+
+cicIkeKeepAliveInterval OBJECT-TYPE
+    SYNTAX Gauge(1..86400)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        This object reflects the keepalive interval in
+        seconds used by the IKE entity on the managed
+        device with all the peers for the DOI corresponding
+        to this conceptual row."
+    ::= { cicIkeCfgFailureRecovConfigEntry 3 }
+
+cicIkeKeepAliveRetryInterval OBJECT-TYPE
+    SYNTAX Gauge(1..600)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        This object reflects the keepalive retry interval
+        in seconds used by the IKE entity on the managed
+        device with all the peers for the DOI corresponding
+        to this conceptual row."
+    ::= { cicIkeCfgFailureRecovConfigEntry 4 }
+
+cicIkeInvalidSpiNotify OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        This object reflects if the IKE entity on the managed 
+        device notifies any peer when an IPsec Phase-1 or
+        Phase-2 packet with an invalid SPI is received from
+        that peer for the DOI corresponding to this
+        conceptual row.
+        'true'  - IKE entity notifies peer.
+        'false' - IKE entity does not notify peer."
+    ::= { cicIkeCfgFailureRecovConfigEntry 5 }
+
+cicIkeCfgPskNextAvailTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CicIkeCfgPskNextAvailEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The table providing the next available index for the
+        cicIkeCfgPskTable, in a domain of interpretation(DOI),
+        identified by cicIkeCfgIdentityDoi.
+        This value is only a recommended value, but the user
+        can choose to use a different value to create an
+        entry in the cicIkeCfgPskTable. "
+    ::= { cicIkeCfgPskAuthConfig 1 }
+
+cicIkeCfgPskNextAvailEntry OBJECT-TYPE
+    SYNTAX CicIkeCfgPskNextAvailEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        Each entry represents a next available index for the
+        cicIkeCfgPskTable."
+    INDEX { cicIkeCfgIdentityDoi }
+-- Augments cicIkeCfgIdentityEntry
+    ::= { cicIkeCfgPskNextAvailTable 1 }
+
+CicIkeCfgPskNextAvailEntry ::= SEQUENCE {
+    cicIkeCfgPskNextAvailIndex CicIkeConfigPskIndex
+    }
+
+cicIkeCfgPskNextAvailIndex OBJECT-TYPE
+    SYNTAX CicIkeConfigPskIndex
+--    Rsyntax Gauge(1..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The object specifies the next available index for
+        object cicIkeCfgPskIndex which can be used for 
+        creating an entry in cicIkeCfgPskTable."
+    ::= { cicIkeCfgPskNextAvailEntry 1 }
+
+cicIkeCfgPskTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CicIkeCfgPskEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The table containing the list of pre shared
+        authentication keys configured to be used by
+        IKE protocol catalogued by the DOI and the peer
+        identity. It is possible to have 
+        multiple peers per DOI."
+    ::= { cicIkeCfgPskAuthConfig 2 }
+
+cicIkeCfgPskEntry OBJECT-TYPE
+    SYNTAX CicIkeCfgPskEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        Each entry represents a configured pre-shared
+        authentication key for a specific peer."
+    INDEX { cicIkeCfgIdentityDoi, cicIkeCfgPskIndex }
+    ::= { cicIkeCfgPskTable 1 }
+
+CicIkeCfgPskEntry ::= SEQUENCE {
+    cicIkeCfgPskIndex CicIkeConfigPskIndex,
+    cicIkeCfgPskKey OCTET STRING,
+    cicIkeCfgPskRemIdentType CIPsecPhase1PeerIdentityType,
+    cicIkeCfgPskRemIdentTypeStand InetAddressType,
+    cicIkeCfgPskRemIdentity OCTET STRING,
+    cicIkeCfgPskRemIdAddrOrRg1OrSn InetAddress,
+    cicIkeCfgPskRemIdAddrRange2 InetAddress,
+    cicIkeCfgPskRemIdSubnetMask InetAddressPrefixLength,
+    cicIkeCfgPskStatus RowStatus
+    }
+
+cicIkeCfgPskIndex OBJECT-TYPE
+    SYNTAX CicIkeConfigPskIndex
+--    Rsyntax Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        An arbitrary value identifying the configured
+        pre-shared keys for IKE entity in this domain of
+        interpretation, identified by cicIkeCfgIdentityDoi,
+        on a managed device. This object could have the
+        same value as cicIkeCfgPskNextAvailIndex."
+    ::= { cicIkeCfgPskEntry 1 }
+
+cicIkeCfgPskKey OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The pre-shared authorization key used in
+        authenticating the peer corresponding to this
+        conceptual row.
+        
+        This object cannot be modified while the
+        corresponding value of cicIkeCfgPskStatus is equal
+        to 'active'. "
+    ::= { cicIkeCfgPskEntry 2 }
+
+cicIkeCfgPskRemIdentType OBJECT-TYPE
+    SYNTAX CIPsecPhase1PeerIdentityType
+--    Rsyntax INTEGER {
+--        idOther(1),
+--        idIpv4Addr(2),
+--        idFqdn(3),
+--        idDn(4),
+--        idIpv6Addr(5),
+--        idUserFqdn(6),
+--        idIpv4AddrSubnet(7),
+--        idIpv6AddrSubnet(8),
+--        idIpv4AddrRange(9),
+--        idIpv6AddrRange(10),
+--        idDerAsn1Gn(11),
+--        idKeyId(12),
+--        idWwn(13)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The Phase 1 ID type of the remote peer identity for
+        which this preshared key is configured.
+        
+        This object cannot be modified while the
+        corresponding value of cicIkeCfgPskStatus is equal
+        to 'active'.  "
+    ::= { cicIkeCfgPskEntry 3 }
+
+cicIkeCfgPskRemIdentTypeStand OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "If the object 'cicIkeCfgPskRemIdentType' is one
+        of
+               idIpv4Addr
+               idIpv6Addr
+               idIpv4AddrRange
+               idIpv6AddrRange
+               idIpv4AddrSubnet
+               idIpv6AddrSubnet
+        then this object contains the type of InetAddress
+        for the corresponding value(s) of
+        cicIkeCfgPskRemIdAddrOrRg1OrSn,
+        cicIkeCfgPskRemIdAddrRange2 and/or
+        cicIkeCfgPskRemIdSubnetMask.
+        
+        This object would have a value 'unknown', for other
+        values of cicIkeCfgPskRemIdentType. "
+    ::= { cicIkeCfgPskEntry 4 }
+
+cicIkeCfgPskRemIdentity OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The Phase 1 ID identity of the peer for which
+        this preshared key is configured on the local entity. 
+        
+        This object cannot be modified while the
+        corresponding value of cicIkeCfgPskStatus is equal to 
+        'active'. "
+    ::= { cicIkeCfgPskEntry 5 }
+
+cicIkeCfgPskRemIdAddrOrRg1OrSn OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        If the object cicIkeCfgPskRemIdentType is one 
+        of
+                idIpv4Addr
+                idIpv6Addr
+                idIpv4AddrRange
+                idIpv6AddrRange
+                idIpv4AddrSubnet
+                idIpv6AddrSubnet
+        
+        then this object contains the first or only
+        component of the Phase 1 identity. Otherwise, the
+        value contained in this object will be a zero
+        length string which should be disregarded."
+    ::= { cicIkeCfgPskEntry 6 }
+
+cicIkeCfgPskRemIdAddrRange2 OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        If the object cicIkeCfgPskRemIdentType is one 
+        of
+                idIpv4AddrRange
+                idIpv6AddrRange
+        
+        then this object contains the second component of 
+        the Phase 1 identity.   Otherwise, the
+        value contained in this object will be a zero 
+        length string which should be disregarded."
+    ::= { cicIkeCfgPskEntry 7 }
+
+cicIkeCfgPskRemIdSubnetMask OBJECT-TYPE
+    SYNTAX InetAddressPrefixLength
+--    Rsyntax Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        If the object 'cicIkeCfgPskRemIdentType' is one of 
+                idIpv4AddrSubnet
+                idIpv6AddrSubnet 
+        
+        then this object contains the second component of 
+        the Phase 1 identity.
+        Otherwise, the value contained in this object will
+        be zero which should be disregarded."
+    ::= { cicIkeCfgPskEntry 8 }
+
+cicIkeCfgPskStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. To configure
+        an pre shared authentication key entry, the NMS must
+        do a multivarbind set containing cicIkeCfgPskKey,
+        cicIkeCfgPskRemIdentType,cicIkeCfgPskRemIdentity.
+        
+        Creation of row can only be done via 'createAndGo'.
+        To remove a row, set this object value to 'destroy'."
+    ::= { cicIkeCfgPskEntry 9 }
+
+cicIkeCfgPolicyTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CicIkeCfgPolicyEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The table containing the list of all
+        ISAKMP policy entries configured by the operator."
+    ::= { cicIkeCfgPolicies 1 }
+
+cicIkeCfgPolicyEntry OBJECT-TYPE
+    SYNTAX CicIkeCfgPolicyEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        Each entry contains the attributes associated with
+        a single ISAKMP Policy entry."
+    INDEX { cicIkeCfgIdentityDoi, cicIkeCfgPolicyPriority }
+    ::= { cicIkeCfgPolicyTable 1 }
+
+CicIkeCfgPolicyEntry ::= SEQUENCE {
+    cicIkeCfgPolicyPriority Gauge,
+    cicIkeCfgPolicyEncr CIPsecEncryptAlgorithm,
+    cicIkeCfgPolicyHash CIPsecIkeHashAlgorithm,
+    cicIkeCfgPolicyPRF CIPsecIkePRFAlgorithm,
+    cicIkeCfgPolicyAuth CIPsecIkeAuthMethod,
+    cicIkeCfgPolicyDHGroup CIPsecDiffHellmanGrp,
+    cicIkeCfgPolicyLifetime CIKELifetime,
+    cicIkeCfgPolicyLifesize CIKELifesize,
+    cicIkeCfgPolicyStatus RowStatus
+    }
+
+cicIkeCfgPolicyPriority OBJECT-TYPE
+    SYNTAX Gauge(1..65534)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The priority of this ISAKMP Policy entry. The policy
+        with lower value would take precedence over
+        the policy with higher value in the same DOI.   "
+    ::= { cicIkeCfgPolicyEntry 1 }
+
+cicIkeCfgPolicyEncr OBJECT-TYPE
+    SYNTAX CIPsecEncryptAlgorithm
+--    Rsyntax INTEGER {
+--        none(1),
+--        other(2),
+--        espDes(3),
+--        esp3des(4),
+--        espRc5(5),
+--        espIdea(6),
+--        espCast(7),
+--        espTwofish(8),
+--        espBlowfish(9),
+--        esp3idea(10),
+--        espRc4(11),
+--        espNull(12),
+--        espAes128(13),
+--        espAes192(14),
+--        espAes256(15),
+--        espAesCtr128(16),
+--        espAesCtr192(17),
+--        espAesCtr256(18)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The encryption transform specified by this 
+        ISAKMP policy specification. The Internet Key
+        Exchange (IKE) tunnels setup using this policy item
+        would use the specified encryption transform to protect
+        the ISAKMP PDUs."
+    DEFVAL { esp3des }
+    ::= { cicIkeCfgPolicyEntry 2 }
+
+cicIkeCfgPolicyHash OBJECT-TYPE
+    SYNTAX CIPsecIkeHashAlgorithm
+--    Rsyntax INTEGER {
+--        none(1),
+--        other(2),
+--        md5(3),
+--        sha(4),
+--        tiger(5),
+--        sha256(6),
+--        sha384(7),
+--        sha512(8),
+--        aesMac(9)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The hash transform specified by this 
+        ISAKMP policy specification. The IKE tunnels
+        setup using this policy item would use the 
+        specified hash transform to protect the
+        ISAKMP PDUs."
+    DEFVAL { sha }
+    ::= { cicIkeCfgPolicyEntry 3 }
+
+cicIkeCfgPolicyPRF OBJECT-TYPE
+    SYNTAX CIPsecIkePRFAlgorithm
+--    Rsyntax INTEGER {
+--        none(1),
+--        other(2),
+--        prfHmacMd5(3),
+--        prfHmacSha1(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The Pseudo Random Function algorithm specified by
+        this ISAKMP policy specification. The value of this
+        object would only be used for IKEv2."
+    DEFVAL { prfHmacSha1 }
+    ::= { cicIkeCfgPolicyEntry 4 }
+
+cicIkeCfgPolicyAuth OBJECT-TYPE
+    SYNTAX CIPsecIkeAuthMethod
+--    Rsyntax INTEGER {
+--        other(1),
+--        preSharedKey(2),
+--        rsaSignature(3),
+--        rsaEncryption(4),
+--        revRsaEncryption(5),
+--        dssSignature(6),
+--        elGamalEncryption(7),
+--        revElGamalEncryption(8),
+--        ecsdaSignature(9),
+--        gssApiV1(10),
+--        gssApiV2(11)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The peer authentication method specified by
+        this ISAKMP policy specification. If this policy
+        entity is selected for negotiation with a peer,
+        the local entity would authenticate the peer using 
+        the method specified by this object."
+    DEFVAL { preSharedKey }
+    ::= { cicIkeCfgPolicyEntry 5 }
+
+cicIkeCfgPolicyDHGroup OBJECT-TYPE
+    SYNTAX CIPsecDiffHellmanGrp
+--    Rsyntax INTEGER {
+--        other(1),
+--        notDH(2),
+--        modp768(3),
+--        modp1024(4),
+--        ec2nGP155(5),
+--        ec2nGP185(6),
+--        modp1536(7),
+--        ec2nGF163(8),
+--        ec2nGF283(9),
+--        ec2nGF409(10),
+--        ec2nGF571(11),
+--        modp2048(12)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        This object specifies the Oakley group used 
+        for Diffie Hellman exchange in the Main Mode. 
+        If this policy item is selected to negotiate
+        Main Mode with an IKE peer, the local entity 
+        chooses the group specified by this object to
+        perform Diffie Hellman exchange with the
+        peer."
+    DEFVAL { modp1024 }
+    ::= { cicIkeCfgPolicyEntry 6 }
+
+cicIkeCfgPolicyLifetime OBJECT-TYPE
+    SYNTAX CIKELifetime
+--    Rsyntax Gauge(60..86400)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        This object specifies the lifetime in seconds
+        of the IKE tunnels generated using this 
+        policy specification."
+    DEFVAL { 86400 }
+    ::= { cicIkeCfgPolicyEntry 7 }
+
+cicIkeCfgPolicyLifesize OBJECT-TYPE
+    SYNTAX CIKELifesize
+--    Rsyntax Gauge(2560..4294967295)
+--  Units
+--    kbytes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        This object specifies the life size in Kbytes
+        of the IKE tunnels generated using this 
+        policy specification."
+    DEFVAL { 2560 }
+    ::= { cicIkeCfgPolicyEntry 8 }
+
+cicIkeCfgPolicyStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        This object specifies the status of the ISAKMP
+        policy corresponding to this conceptual row.
+        
+        Creation of row can only be done via 'createAndGo'.
+        To remove a row, set this object value to 'destroy'."
+    ::= { cicIkeCfgPolicyEntry 9 }
+
+cicNotifCntlIkeAllNotifs OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+        This value of this object must be 'true' to enable
+        any notification in addition to the
+        notification-specific control variables
+        defined below.
+        
+        A notification <foo> defined in this module is
+        enabled if and only if the expression
+        
+        (cicNotifCntlIkeAllNotifs && cicNotifCntlIke<foo>)
+        
+        evaluates to 'true'."
+    DEFVAL { true }
+    ::= { cicIkeConfigMibNotifCntl 1 }
+
+cicNotifCntlIkeOperStateChanged OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When cicNotifCntlIkeAllNotifs has the value
+        'true', this variable controls the generation of
+        the ciscoIkeConfigOperStateChanged notification.
+        
+        When this variable is set to 'true', generation 
+        of the notification is enabled. When this variable 
+        is set to 'false', generation of the notification 
+        is disabled."
+    DEFVAL { true }
+    ::= { cicIkeConfigMibNotifCntl 2 }
+
+cicNotifCntlIkePskAdded OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When cicNotifCntlIkeAllNotifs has the value 'true',
+        this variable controls the generation of
+        cicNotifCntlIkePskAdded notification.
+        
+        When this variable is set to 'true', generation 
+        of the notification is enabled. When this variable 
+        is set to 'false', generation of the notification 
+        is disabled."
+    DEFVAL { true }
+    ::= { cicIkeConfigMibNotifCntl 3 }
+
+cicNotifCntlIkePskDeleted OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When cicNotifCntlIkeAllNotifs has the value 'true',
+        this variable controls the generation of
+        cicNotifCntlIkePskDeleted notification.
+        
+        When this variable is set to 'true', generation 
+        of the notification is enabled. When this variable 
+        is set to 'false', generation of the notification 
+        is disabled."
+    DEFVAL { true }
+    ::= { cicIkeConfigMibNotifCntl 4 }
+
+cicNotifCntlIkePolicyAdded OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When cicNotifCntlIkeAllNotifs has the value 'true',
+        this variable controls the generation of
+        cicNotifCntlIkePolicyAdded notification.
+        
+        When this variable is set to 'true', generation 
+        of the notification is enabled. When this variable 
+        is set to 'false', generation of the notification 
+        is disabled."
+    DEFVAL { true }
+    ::= { cicIkeConfigMibNotifCntl 5 }
+
+cicNotifCntlIkePolicyDeleted OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When cicNotifCntlIkeAllNotifs has the value 'true',
+        this variable controls the generation of
+        cicNotifCntlIkePolicyDeleted notification.
+        
+        When this variable is set to 'true', generation 
+        of the notification is enabled. When this variable 
+        is set to 'false', generation of the notification 
+        is disabled."
+    DEFVAL { true }
+    ::= { cicIkeConfigMibNotifCntl 6 }
+
+ciscoIkeConfigOperStateChanged TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIkeConfigMIB
+    VARIABLES {
+        cicIkeEnabled }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "
+        The notification is generated when the operational
+        state of IKE entity on the managed device has
+        been changed."
+    ::= 1
+
+ciscoIkeConfigPskAdded TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIkeConfigMIB
+    VARIABLES {
+        cicIkeCfgPskRemIdentType, cicIkeCfgPskRemIdentity }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "
+        This notification is generated when a new preshared
+        key is configured on the managed device."
+    ::= 2
+
+ciscoIkeConfigPskDeleted TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIkeConfigMIB
+    VARIABLES {
+        cicIkeCfgPskRemIdentType, cicIkeCfgPskRemIdentity }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "
+        This notification is generated when an existing
+        preshared key is configured on the managed device is
+        about to be deleted."
+    ::= 3
+
+ciscoIkeConfigPolicyAdded TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIkeConfigMIB
+    VARIABLES {
+        cicIkeCfgPolicyEncr, cicIkeCfgPolicyHash, 
+        cicIkeCfgPolicyAuth, cicIkeCfgPolicyDHGroup }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "
+        This notification is generated when a new ISAKMP
+        policy is configured on the managed device."
+    ::= 4
+
+ciscoIkeConfigPolicyDeleted TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIkeConfigMIB
+    VARIABLES {
+        cicIkeCfgPolicyEncr, cicIkeCfgPolicyHash, 
+        cicIkeCfgPolicyAuth, cicIkeCfgPolicyDHGroup }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "
+        This notification is issued when an existing ISAKMP
+        policy configured on the managed device is about
+        to be deleted."
+    ::= 5
+
+cicIkeCfgOperGroup OBJECT IDENTIFIER ::= { cicIkeCfgMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    
+--    This group consists of objects that reflect the
+--    operational state of the IKE entity on the
+--    managed device.
+--  objects
+--    cicIkeEnabled, cicIkeAggressModeEnabled
+
+cicIkeCfgIdentitiesGroup OBJECT IDENTIFIER ::= { cicIkeCfgMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    
+--    This group consists of objects that reflect the
+--    Phase 1 ID used by the IKE entity on the
+--    managed device.
+--  objects
+--    cicIkeCfgIdentityType, cicIkeCfgInitiatorNextAvailIndex, 
+--    cicIkeCfgInitiatorPAddrType, cicIkeCfgInitiatorPAddr, 
+--    cicIkeCfgInitiatorVer, cicIkeCfgInitiatorStatus
+
+cicIkeCfgFailureRecoveryGroup OBJECT IDENTIFIER ::= { cicIkeCfgMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    
+--    This group consists of objects that define how the
+--    local IKE entity is configured to respond to
+--    common failures.
+--  objects
+--    cicIkeKeepAliveEnabled, cicIkeKeepAliveType, 
+--    cicIkeKeepAliveInterval, cicIkeKeepAliveRetryInterval, 
+--    cicIkeInvalidSpiNotify
+
+cicIkeCfgPskAuthGroup OBJECT IDENTIFIER ::= { cicIkeCfgMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    
+--    This group consists of objects that are used to
+--    view and configure the preshared keys configured on
+--    the managed entity.
+--  objects
+--    cicIkeCfgPskNextAvailIndex, cicIkeCfgPskKey, 
+--    cicIkeCfgPskRemIdentType, cicIkeCfgPskRemIdentTypeStand, 
+--    cicIkeCfgPskRemIdentity, cicIkeCfgPskRemIdAddrOrRg1OrSn, 
+--    cicIkeCfgPskRemIdAddrRange2, cicIkeCfgPskRemIdSubnetMask, 
+--    cicIkeCfgPskStatus
+
+cicIkeCfgPolicyGroup OBJECT IDENTIFIER ::= { cicIkeCfgMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    
+--    This group consists of objects that are used to
+--    view and configure the ISAKMP policies configured on
+--    the managed device.
+--  objects
+--    cicIkeCfgPolicyEncr, cicIkeCfgPolicyHash, cicIkeCfgPolicyPRF, 
+--    cicIkeCfgPolicyAuth, cicIkeCfgPolicyDHGroup, 
+--    cicIkeCfgPolicyLifetime, cicIkeCfgPolicyStatus
+
+cicIkeCfgOptionalPolicyGroup OBJECT IDENTIFIER ::= { cicIkeCfgMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    
+--    This group consists of objects pertaining to ISAKMP
+--    policy management which are optional and may not be
+--    supported by every implementation of IKE.
+--  objects
+--    cicIkeCfgPolicyLifesize
+
+cicIkeCfgNotifCntlGroup OBJECT IDENTIFIER ::= { cicIkeCfgMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    
+--    This group of objects controls the sending 
+--    of notifications to signal the state of Phase-1 IKE
+--    configuration on the managed device.
+--  objects
+--    cicNotifCntlIkeAllNotifs, cicNotifCntlIkeOperStateChanged, 
+--    cicNotifCntlIkePskAdded, cicNotifCntlIkePskDeleted, 
+--    cicNotifCntlIkePolicyAdded, cicNotifCntlIkePolicyDeleted
+
+cicIkeCfgNotificationGroup OBJECT IDENTIFIER ::= { cicIkeCfgMIBGroups 8 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    
+--    This group contains the notifications to signal the 
+--    changes to IKE on the managed device.
+--  notifications
+--    ciscoIkeConfigOperStateChanged, ciscoIkeConfigPskAdded, 
+--    ciscoIkeConfigPskDeleted, ciscoIkeConfigPolicyAdded, 
+--    ciscoIkeConfigPolicyDeleted
+
+cicIkeCfgMIBCompliance OBJECT IDENTIFIER ::= { cicIkeCfgMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP entities
+--    the Internet Key Exchange Protocol
+--    configuration MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cicIkeCfgOperGroup
+--   MandGroup
+--    cicIkeCfgIdentitiesGroup
+--   MandGroup
+--    cicIkeCfgPskAuthGroup
+--   MandGroup
+--    cicIkeCfgPolicyGroup
+--   OptGroup
+--    cicIkeCfgOptionalPolicyGroup
+--   OptGroup
+--    cicIkeCfgFailureRecoveryGroup
+--   OptGroup
+--    cicIkeCfgNotificationGroup
+--   OptGroup
+--    cicIkeCfgNotifCntlGroup
+--   ObjVar
+--    cicIkeEnabled
+--   ObjVar
+--    cicIkeAggressModeEnabled
+--   ObjVar
+--    cicIkeKeepAliveEnabled
+--   ObjVar
+--    cicIkeKeepAliveType
+--   ObjVar
+--    cicIkeKeepAliveInterval
+--   ObjVar
+--    cicIkeKeepAliveRetryInterval
+--   ObjVar
+--    cicIkeInvalidSpiNotify
+--   ObjVar
+--    cicIkeCfgPskKey
+--   ObjVar
+--    cicIkeCfgPskRemIdentType
+--   ObjVar
+--    cicIkeCfgPskRemIdentity
+--   ObjVar
+--    cicIkeCfgPskRemIdAddrOrRg1OrSn
+--   ObjVar
+--    cicIkeCfgPskRemIdAddrRange2
+--   ObjVar
+--    cicIkeCfgPskRemIdSubnetMask
+--   ObjVar
+--    cicIkeCfgPskStatus
+--   ObjVar
+--    cicIkeCfgPolicyStatus
+--   ObjVar
+--    cicNotifCntlIkeAllNotifs
+--   ObjVar
+--    cicNotifCntlIkeOperStateChanged
+--   ObjVar
+--    cicNotifCntlIkePskAdded
+--   ObjVar
+--    cicNotifCntlIkePskDeleted
+--   ObjVar
+--    cicNotifCntlIkePolicyAdded
+--   ObjVar
+--    cicNotifCntlIkePolicyDeleted
+--   ObjVar
+--    cicIkeCfgInitiatorPAddrType
+--   ObjVar
+--    cicIkeCfgInitiatorPAddr
+--   ObjVar
+--    cicIkeCfgInitiatorVer
+--   ObjVar
+--    cicIkeCfgInitiatorStatus
+
+
+END
+

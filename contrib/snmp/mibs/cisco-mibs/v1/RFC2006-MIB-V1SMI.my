@@ -1,0 +1,2132 @@
+-- MIB file created 09-May-2001 15:17:20, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+MIP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "RFC2006-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    experimental, mib-2
+            FROM SNMPv2-SMI-v1
+    RowStatus, TruthValue, TimeStamp
+            FROM SNMPv2-TC-v1
+    Counter, Gauge, IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+mipMIB OBJECT IDENTIFIER ::= { mib-2 44 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9606040000Z
+--  OrgName
+--    IETF Mobile IP Working Group
+--  ContactInfo
+--           David Cong
+--    Postal: Motorola
+--            1301 E. Algonquin Rd.
+--            Schaumburg, IL 60196
+--    Phone:  +1-847-576-1357
+--    Email:  cong@comm.mot.com
+--  Descr
+--    The MIB Module for the Mobile IP.
+
+mipMIBObjects   OBJECT IDENTIFIER ::= { mipMIB 1 }
+mipSystem       OBJECT IDENTIFIER ::= { mipMIBObjects 1 }
+mipSecurity     OBJECT IDENTIFIER ::= { mipMIBObjects 2 }
+mipMN           OBJECT IDENTIFIER ::= { mipMIBObjects 3 }
+mipMA           OBJECT IDENTIFIER ::= { mipMIBObjects 4 }
+mipFA           OBJECT IDENTIFIER ::= { mipMIBObjects 5 }
+mipHA           OBJECT IDENTIFIER ::= { mipMIBObjects 6 }
+mnSystem        OBJECT IDENTIFIER ::= { mipMN 1 }
+mnDiscovery     OBJECT IDENTIFIER ::= { mipMN 2 }
+mnRegistration  OBJECT IDENTIFIER ::= { mipMN 3 }
+maAdvertisement OBJECT IDENTIFIER ::= { mipMA 2 }
+faSystem        OBJECT IDENTIFIER ::= { mipFA 1 }
+faAdvertisement OBJECT IDENTIFIER ::= { mipFA 2 }
+faRegistration  OBJECT IDENTIFIER ::= { mipFA 3 }
+haRegistration  OBJECT IDENTIFIER ::= { mipHA 3 }
+mnRecentAdvReceived OBJECT IDENTIFIER ::= { mnDiscovery 2 }
+mipMIBNotificationPrefix OBJECT IDENTIFIER ::= { mipMIB 2 }
+mipMIBNotifications OBJECT IDENTIFIER ::= { mipMIBNotificationPrefix 0 }
+mipMIBConformance OBJECT IDENTIFIER ::= { mipMIB 3 }
+mipGroups       OBJECT IDENTIFIER ::= { mipMIBConformance 1 }
+mipCompliances  OBJECT IDENTIFIER ::= { mipMIBConformance 2 }
+
+RegistrationFlags ::= OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   vjCompression(0)
+        --   gre(1)
+        --   minEnc(2)
+        --   decapsulationbyMN(3)
+        --   broadcastDatagram(4)
+        --   simultaneousBindings(5)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This data type is used to define the registration
+--    flags for Mobile IP registration extension:
+--       vjCompression
+--           == Request to use VJ compression
+--       gre
+--           == Request to use GRE
+--       minEnc
+--           == Request to use minimal encapsulation
+--       decapsulationByMN
+--           == Decapsulation by mobile node
+--       broadcastDatagram
+--           == Request to receive broadcasts
+--       simultaneoursBindings
+--           == Request to retain prior binding(s).
+
+mipEntities OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   mobileNode(0)
+        --   foreignAgent(1)
+        --   homeAgent(2)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes which Mobile IP entities are
+        supported by this managed entity. The entity may
+        support more than one Mobile IP entities. For example,
+        the entity supports both Foreign Agent (FA) and Home
+        Agent (HA). Therefore, bit 1 and bit 2 are set to 1
+        for this object."
+    ::= { mipSystem 1 }
+
+mipEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the Mobile IP protocol should be
+        enabled for the managed entity. If it is disabled, the
+        entity should disable both agent discovery and
+        registration functions."
+    ::= { mipSystem 2 }
+
+mipEncapsulationSupported OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   ipInIp(0)
+        --   gre(1)
+        --   minEnc(2)
+        --   other(3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Encapsulation methods supported by the Mobile IP
+        entity. The entity may support multiple encapsulation
+        methods or none of them:
+            ipInIp(0), -- IP Encapsulation within IP
+            gre(1),    -- Generic Routing Encapsulation,
+                       -- refers to RFC1701
+            minEnc(2), -- Minimal Encapsulation within IP."
+    ::= { mipSystem 3 }
+
+mipSecAssocTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF MipSecAssocEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing Mobility Security Associations."
+    ::= { mipSecurity 1 }
+
+mipSecAssocEntry OBJECT-TYPE
+    SYNTAX MipSecAssocEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "One particular Mobility Security Association."
+    INDEX { mipSecPeerAddress, mipSecSPI }
+    ::= { mipSecAssocTable 1 }
+
+MipSecAssocEntry ::= SEQUENCE {
+    mipSecPeerAddress IpAddress,
+    mipSecSPI Gauge,
+    mipSecAlgorithmType INTEGER,
+    mipSecAlgorithmMode INTEGER,
+    mipSecKey OCTET STRING,
+    mipSecReplayMethod INTEGER
+    }
+
+mipSecPeerAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the peer entity with which this
+        node shares the mobility security association."
+    ::= { mipSecAssocEntry 1 }
+
+mipSecSPI OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The SPI is the 4-byte opaque index within the
+        Mobility Security Association which selects the
+        specific security parameters to be used to
+        authenticate the peer, i.e. the rest of the variables
+        in this MipSecAssocEntry."
+    ::= { mipSecAssocEntry 2 }
+
+mipSecAlgorithmType OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        md5(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Type of security algorithm."
+    ::= { mipSecAssocEntry 3 }
+
+mipSecAlgorithmMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        prefixSuffix(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Security mode used by this algorithm."
+    ::= { mipSecAssocEntry 4 }
+
+mipSecKey OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(16))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The shared secret key for the security
+        associations. Reading this object will always return
+        zero length value."
+    ::= { mipSecAssocEntry 5 }
+
+mipSecReplayMethod OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        timestamps(2),
+        nonces(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The replay-protection method supported for this SPI
+        within this Mobility Security Association."
+    ::= { mipSecAssocEntry 6 }
+
+mipSecTotalViolations OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of security violations in the entity"
+    ::= { mipSecurity 2 }
+
+mipSecViolationTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF MipSecViolationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing information about security
+        violations."
+    ::= { mipSecurity 3 }
+
+mipSecViolationEntry OBJECT-TYPE
+    SYNTAX MipSecViolationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about one particular security violation."
+    INDEX { mipSecViolatorAddress }
+    ::= { mipSecViolationTable 1 }
+
+MipSecViolationEntry ::= SEQUENCE {
+    mipSecViolatorAddress IpAddress,
+    mipSecViolationCounter Counter,
+    mipSecRecentViolationSPI INTEGER,
+    mipSecRecentViolationTime TimeStamp,
+    mipSecRecentViolationIDLow INTEGER,
+    mipSecRecentViolationIDHigh INTEGER,
+    mipSecRecentViolationReason INTEGER
+    }
+
+mipSecViolatorAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Violator's IP address. The violator is not necessary
+        in the mipSecAssocTable."
+    ::= { mipSecViolationEntry 1 }
+
+mipSecViolationCounter OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of security violations for this peer."
+    ::= { mipSecViolationEntry 2 }
+
+mipSecRecentViolationSPI OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "SPI of the most recent security violation for this
+        peer. If the security violation is due to an
+        identification mismatch, then this is the SPI from the
+        Mobile-Home Authentication Extension.  If the security
+        violation is due to an invalid authenticator, then
+        this is the SPI from the offending authentication
+        extension.  In all other cases, it should be set to
+        zero."
+    ::= { mipSecViolationEntry 3 }
+
+mipSecRecentViolationTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Time of the most recent security violation for this
+        peer."
+    ::= { mipSecViolationEntry 4 }
+
+mipSecRecentViolationIDLow OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Low-order 32 bits of identification used in request or
+         reply of the most recent security violation for this
+         peer."
+    ::= { mipSecViolationEntry 5 }
+
+mipSecRecentViolationIDHigh OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "High-order 32 bits of identification used in request
+        or reply of the most recent security violation for
+        this peer."
+    ::= { mipSecViolationEntry 6 }
+
+mipSecRecentViolationReason OBJECT-TYPE
+    SYNTAX INTEGER {
+        noMobilitySecurityAssociation(1),
+        badAuthenticator(2),
+        badIdentifier(3),
+        badSPI(4),
+        missingSecurityExtension(5),
+        other(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reason for the most recent security violation for
+        this peer."
+    ::= { mipSecViolationEntry 7 }
+
+mnState OBJECT-TYPE
+    SYNTAX INTEGER {
+        home(1),
+        registered(2),
+        pending(3),
+        isolated(4),
+        unknown(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates mobile node's state of Mobile IP:
+             home,
+                 -- MN is connected to home network.
+             registered,
+                 -- MN has registered on foreign network
+             pending,
+                 -- MN has sent registration request and is
+                    waiting for the reply
+             isolated,
+                 -- MN is isolated from network
+             unknown
+                 -- MN can not determine its state."
+    ::= { mnSystem 1 }
+
+mnHomeAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An IP address that is assigned for an extended period
+        of time to the mobile node. It remains unchanged
+        regardless of the mobile node's current point of
+        attachment."
+    ::= { mnSystem 2 }
+
+mnHATable OBJECT-TYPE
+    SYNTAX SEQUENCE OF MnHAEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing all of the mobile node's potential
+        home agents."
+    ::= { mnSystem 3 }
+
+mnHAEntry OBJECT-TYPE
+    SYNTAX MnHAEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information for a particular Home Agent."
+    INDEX { mnHAAddress }
+    ::= { mnHATable 1 }
+
+MnHAEntry ::= SEQUENCE {
+    mnHAAddress IpAddress,
+    mnCurrentHA TruthValue,
+    mnHAStatus RowStatus
+    }
+
+mnHAAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "IP address of mobile node's Home Agent."
+    ::= { mnHAEntry 1 }
+
+mnCurrentHA OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Whether this home agent is the current home agent for
+        the mobile node. If it is true, the mobile node is
+        registered with that home agent."
+    ::= { mnHAEntry 2 }
+
+mnHAStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The row status for this home agent entry. If the
+        status is set to 'createAndGo' or 'active', then the
+        mobile node can use mnHAAddress as a valid candidate
+        for a home agent. If the status is set to 'destroy',
+        then the mobile node should delete this row, and
+        deregister from that home agent."
+    ::= { mnHAEntry 3 }
+
+mnFATable OBJECT-TYPE
+    SYNTAX SEQUENCE OF MnFAEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing all foreign agents that the mobile
+        node knows about and their corresponding COA (care-of
+        address). This COA is an address of a foreign agent
+        with which the mobile node is registered. The table is
+        updated when advertisements are received by the mobile
+        node. If an advertisement expires, its entry(s) should
+        be deleted from the table. One foreign agent can
+        provide more than one COA in its advertisements."
+    ::= { mnDiscovery 1 }
+
+mnFAEntry OBJECT-TYPE
+    SYNTAX MnFAEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "One pair of foreign agent IP address and COA for that
+        foreign agent."
+    INDEX { mnFAAddress, mnCOA }
+    ::= { mnFATable 1 }
+
+MnFAEntry ::= SEQUENCE {
+    mnFAAddress IpAddress,
+    mnCOA IpAddress
+    }
+
+mnFAAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Foreign agent's IP address."
+    ::= { mnFAEntry 1 }
+
+mnCOA OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A care-of address being offered by this foreign agent
+        or a co-located care-of address which the mobile node
+        has associated with one of its own network
+        interfaces."
+    ::= { mnFAEntry 2 }
+
+mnAdvSourceAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The source IP address of the most recently received
+        Agent Advertisement. This address could be the address
+        of a home agent or a foreign agent."
+    ::= { mnRecentAdvReceived 1 }
+
+mnAdvSequence OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sequence number of the most recently received
+        advertisement. The sequence number ranges from 0 to
+        0xffff. After the sequence number attains the value
+        0xffff, it will roll over to 256."
+    ::= { mnRecentAdvReceived 2 }
+
+mnAdvFlags OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   vjCompression(0)
+        --   gre(1)
+        --   minEnc(2)
+        --   foreignAgent(3)
+        --   homeAgent(4)
+        --   busy(5)
+        --   regRequired(6)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The flags are contained in the 7th byte in the
+        extension of the most recently received mobility agent
+        advertisement:
+            vjCompression
+                -- Agent supports Van Jacobson compression
+            gre
+                -- Agent offers Generice Routing Encapsulation
+            minEnc,
+                -- Agent offers Minimal Encapsulation
+            foreignAgent,
+                -- Agent is a Foreign Agent
+            homeAgent,
+                -- Agent is a Home Agent
+            busy,
+                -- Foreign Agent is busy
+            regRequired,
+                -- FA registration is required."
+    ::= { mnRecentAdvReceived 3 }
+
+mnAdvMaxRegLifetime OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The longest lifetime in seconds that the agent is
+        willing to accept in any registration request."
+    ::= { mnRecentAdvReceived 4 }
+
+mnAdvMaxAdvLifetime OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum length of time that the Advertisement is
+        considered valid in the absence of further
+        Advertisements."
+    REFERENCE
+        "AdvertisementLifeTime in RFC1256."
+    ::= { mnRecentAdvReceived 5 }
+
+mnAdvTimeReceived OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time at which the most recently received
+        advertisement was received."
+    ::= { mnRecentAdvReceived 6 }
+
+mnSolicitationsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Solicitation sent by the mobile
+        node."
+    ::= { mnDiscovery 3 }
+
+mnAdvertisementsReceived OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of advertisements received by the mobile
+        node."
+    ::= { mnDiscovery 4 }
+
+mnAdvsDroppedInvalidExtension OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of advertisements dropped by the mobile
+        node due to both poorly formed extensions and
+        unrecognized extensions with extension number in the
+        range 0-127."
+    ::= { mnDiscovery 5 }
+
+mnAdvsIgnoredUnknownExtension OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of unrecognized extensions in the range
+        128-255 that were ignored by the mobile node."
+    ::= { mnDiscovery 6 }
+
+mnMoveFromHAToFA OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times that the mobile node has decided to
+        move from its home network to a foreign network."
+    ::= { mnDiscovery 7 }
+
+mnMoveFromFAToFA OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times that the mobile node has decided to
+        move from one foreign network to another foreign
+        network."
+    ::= { mnDiscovery 8 }
+
+mnMoveFromFAToHA OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times that the mobile node has decided to
+        move from a foreign network to its home network."
+    ::= { mnDiscovery 9 }
+
+mnGratuitousARPsSend OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Gratuitous ARPs sent by mobile node
+        in order to clear out any stale ARP entries in the ARP
+        caches of nodes on the home network."
+    ::= { mnDiscovery 10 }
+
+mnAgentRebootsDectected OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of agent reboots detected by the mobile
+        node through sequence number of the advertisement."
+    ::= { mnDiscovery 11 }
+
+mnRegistrationTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF MnRegistrationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing information about the mobile
+        node's attempted registration(s).  The mobile node
+        updates this table based upon Registration Requests
+        sent and Registration Replies received in response to
+        these requests.  Certain variables within this table
+        are also updated if when Registration Requests are
+        retransmitted."
+    ::= { mnRegistration 1 }
+
+mnRegistrationEntry OBJECT-TYPE
+    SYNTAX MnRegistrationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about one registration attempt."
+    INDEX { mnRegAgentAddress, mnRegCOA }
+    ::= { mnRegistrationTable 1 }
+
+MnRegistrationEntry ::= SEQUENCE {
+    mnRegAgentAddress IpAddress,
+    mnRegCOA IpAddress,
+    mnRegFlags RegistrationFlags,
+    mnRegIDLow INTEGER,
+    mnRegIDHigh INTEGER,
+    mnRegTimeRequested INTEGER,
+    mnRegTimeRemaining Gauge,
+    mnRegTimeSent TimeStamp,
+    mnRegIsAccepted TruthValue,
+    mnCOAIsLocal TruthValue
+    }
+
+mnRegAgentAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "IP address of the agent as used in the destination
+        IP address of the Registration Request.  The agent
+        may be a home agent or a foreign agent."
+    ::= { mnRegistrationEntry 1 }
+
+mnRegCOA OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Care-of address for the registration."
+    ::= { mnRegistrationEntry 2 }
+
+mnRegFlags OBJECT-TYPE
+    SYNTAX RegistrationFlags
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           vjCompression(0)
+--           gre(1)
+--           minEnc(2)
+--           decapsulationbyMN(3)
+--           broadcastDatagram(4)
+--           simultaneousBindings(5)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Registration flags sent by the mobile node. It is the
+        second byte in the Mobile IP Registratation Request
+        message."
+    ::= { mnRegistrationEntry 3 }
+
+mnRegIDLow OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Low-order 32 bits of the Identification used in that
+        registration by the mobile node."
+    ::= { mnRegistrationEntry 4 }
+
+mnRegIDHigh OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "High-order 32 bits of the Identification used in that
+        registration by the mobile node."
+    ::= { mnRegistrationEntry 5 }
+
+mnRegTimeRequested OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "If the registration is pending, then this is the
+        lifetime requested by the mobile node (in seconds).
+        If the registration has been accepted, then this is
+        the lifetime actually granted by the home agent in the
+        reply."
+    ::= { mnRegistrationEntry 6 }
+
+mnRegTimeRemaining OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of seconds remaining until this
+        registration expires.  It has the same initial value
+        as mnRegTimeRequested and is only valid if
+        mnRegIsAccepted is TRUE."
+    ::= { mnRegistrationEntry 7 }
+
+mnRegTimeSent OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time when the last (re-)transmission occured."
+    ::= { mnRegistrationEntry 8 }
+
+mnRegIsAccepted OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "true(1) if the mobile node has received a
+        Registration Reply indicating that service has been
+        accepted; false(2) otherwise.  false(2) implies that
+        the registration is still pending."
+    ::= { mnRegistrationEntry 9 }
+
+mnCOAIsLocal OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Whether the COA is local to (dynamically acquired by)
+        the mobile node or not.  If it is false(2), the COA is
+        an address of the foreign agent."
+    ::= { mnRegistrationEntry 10 }
+
+mnRegRequestsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of registration requests sent by the
+        mobile node. This does not include deregistrations
+        (those with Lifetime equal to zero)."
+    ::= { mnRegistration 2 }
+
+mnDeRegRequestsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of deregistration requests sent by the
+        mobile node (those with Lifetime equal to zero)."
+    ::= { mnRegistration 3 }
+
+mnRegRepliesRecieved OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of registration replies received by the
+        mobile node in which the Lifetime is greater than
+        zero."
+    ::= { mnRegistration 4 }
+
+mnDeRegRepliesRecieved OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of (de)registration replies received by
+        the mobile node in which the Lifetime is equal to
+        zero."
+    ::= { mnRegistration 5 }
+
+mnRepliesInvalidHomeAddress OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of replies with invalid home address for
+        the mobile node."
+    ::= { mnRegistration 6 }
+
+mnRepliesUnknownHA OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of replies with unknown home agents
+        (not in home agent table)."
+    ::= { mnRegistration 7 }
+
+mnRepliesUnknownFA OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of replies with unknown foreign agents if
+        replies relayed through foreign agent."
+    ::= { mnRegistration 8 }
+
+mnRepliesInvalidID OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of replies with invalid Identification
+        fields."
+    ::= { mnRegistration 9 }
+
+mnRepliesDroppedInvalidExtension OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Replies dropped by the
+        mobile node due to both poorly formed extensions and
+        unrecognized extensions with extension number in the
+        range 0-127."
+    ::= { mnRegistration 10 }
+
+mnRepliesIgnoredUnknownExtension OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Replies that contained
+        one or more unrecognized extensions in the range
+        128-255 that were ignored by the mobile node."
+    ::= { mnRegistration 11 }
+
+mnRepliesHAAuthenticationFailure OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of replies without a valid Home Agent to
+        Mobile Node authenticator."
+    ::= { mnRegistration 12 }
+
+mnRepliesFAAuthenticationFailure OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of replies without a valid Foreign Agent
+        to Mobile Node authenticator."
+    ::= { mnRegistration 13 }
+
+mnRegRequestsAccepted OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of registration requests accepted by the
+        mobile node's home agent (Code 0 and Code 1)."
+    ::= { mnRegistration 14 }
+
+mnRegRequestsDeniedByHA OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of registration requests denied by
+        mobile node's home agent (Sum of Code 128 through
+        Code 191)."
+    ::= { mnRegistration 15 }
+
+mnRegRequestsDeniedByFA OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of registration requests denied by the
+        foreign agent (Sum of Codes 64 through Code 127)."
+    ::= { mnRegistration 16 }
+
+mnRegRequestsDeniedByHADueToID OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Request denied by home
+        agent due to identification mismatch."
+    ::= { mnRegistration 17 }
+
+mnRegRequestsWithDirectedBroadcast OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests sent by mobile
+        node with a directed broadcast address in the home
+        agent field."
+    ::= { mnRegistration 18 }
+
+maAdvConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF MaAdvConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing configurable advertisement
+        parameters for all advertisement interfaces in
+        the mobility agent."
+    ::= { maAdvertisement 1 }
+
+maAdvConfigEntry OBJECT-TYPE
+    SYNTAX MaAdvConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Advertisement parameters for one advertisement
+        interface."
+    INDEX { maInterfaceAddress }
+    ::= { maAdvConfigTable 1 }
+
+MaAdvConfigEntry ::= SEQUENCE {
+    maInterfaceAddress IpAddress,
+    maAdvMaxRegLifetime INTEGER,
+    maAdvPrefixLengthInclusion TruthValue,
+    maAdvAddress IpAddress,
+    maAdvMaxInterval INTEGER,
+    maAdvMinInterval INTEGER,
+    maAdvMaxAdvLifetime INTEGER,
+    maAdvResponseSolicitationOnly TruthValue,
+    maAdvStatus RowStatus
+    }
+
+maInterfaceAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "IP address for advertisement interface."
+    ::= { maAdvConfigEntry 1 }
+
+maAdvMaxRegLifetime OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The longest lifetime in seconds that mobility agent
+        is willing to accept in any Registration Request."
+    ::= { maAdvConfigEntry 2 }
+
+maAdvPrefixLengthInclusion OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Whether the advertisement should include the Prefix-
+        Lengths Extension. If it is true, all advertisements
+        sent over this interface should include the
+        Prefix-Lengths Extension."
+    ::= { maAdvConfigEntry 3 }
+
+maAdvAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The IP destination address to be used for
+        advertisements sent from the interface. The only
+        permissible values are the all-systems multicast
+        address (224.0.0.1) or the limited-broadcast address
+        (255.255.255.255)."
+    REFERENCE
+        "AdvertisementAddress in RFC1256."
+    ::= { maAdvConfigEntry 4 }
+
+maAdvMaxInterval OBJECT-TYPE
+    SYNTAX INTEGER(4..1800)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum time in seconds between successive
+        transmissions of Agent Advertisements from this
+        interface."
+    REFERENCE
+        "MaxAdvertisementInterval in RFC1256."
+    ::= { maAdvConfigEntry 5 }
+
+maAdvMinInterval OBJECT-TYPE
+    SYNTAX INTEGER(3..1800)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum time in seconds between successive
+        transmissions of Agent Advertisements from this
+        interface."
+    REFERENCE
+        "MinAdvertisementInterval in RFC1256."
+    ::= { maAdvConfigEntry 6 }
+
+maAdvMaxAdvLifetime OBJECT-TYPE
+    SYNTAX INTEGER(4..9000)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The time (in seconds) to be placed in the Lifetime
+        field of the RFC 1256-portion of the Agent
+        Advertisements sent over this interface."
+    REFERENCE
+        "AdvertisementLifetime in RFC1256."
+    ::= { maAdvConfigEntry 7 }
+
+maAdvResponseSolicitationOnly OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The flag indicates whether the advertisement from
+        that interface should be sent only in response to an
+        Agent Solicitation message."
+    DEFVAL { false }
+    ::= { maAdvConfigEntry 8 }
+
+maAdvStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The row status for the agent advertisement table. If
+        this column status is 'active', the manager should not
+        change any column in the row."
+    ::= { maAdvConfigEntry 9 }
+
+maAdvertisementsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of advertisements sent by the mobility
+        agent."
+    ::= { maAdvertisement 2 }
+
+maAdvsSentForSolicitation OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of advertisements sent by mobility agent
+        in response to mobile node solicitations."
+    ::= { maAdvertisement 3 }
+
+maSolicitationsReceived OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of solicitations received by the
+        mobility agent."
+    ::= { maAdvertisement 4 }
+
+faCOATable OBJECT-TYPE
+    SYNTAX SEQUENCE OF FaCOAEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing all of the care-of addresses
+        (COAs) supported by the foreign agent. New entries can
+        be added to the table. The order of entries in the
+        faCOATAble is also the order in which the COAs are
+        listed in the Agent Advertisement."
+    ::= { faSystem 1 }
+
+faCOAEntry OBJECT-TYPE
+    SYNTAX FaCOAEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry of COA"
+    INDEX { faSupportedCOA }
+    ::= { faCOATable 1 }
+
+FaCOAEntry ::= SEQUENCE {
+    faSupportedCOA IpAddress,
+    faCOAStatus RowStatus
+    }
+
+faSupportedCOA OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Care-of-address supported by this foreign agent."
+    ::= { faCOAEntry 1 }
+
+faCOAStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The row status for COA entry."
+    ::= { faCOAEntry 2 }
+
+faIsBusy OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Whether or not the foreign agent is too busy to
+        accept additional registrations. If true(1), the agent
+        is busy and any Agent advertisements sent from this
+        agent should have the 'B' bit set to 1."
+    ::= { faAdvertisement 1 }
+
+faRegistrationRequired OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Whether or not this foreign agent requires
+        registration even from those mobile nodes that have
+        acquired their own, colocated care-of address.  If
+        true(1), registration is required and any Agent
+        Advertisements sent from this agent should have the
+        'R' bit set to 1."
+    ::= { faAdvertisement 2 }
+
+faVisitorTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF FaVisitorEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing the foreign agent's visitor list.
+        The foreign agent updates this table in response to
+        registration events from mobile nodes."
+    ::= { faRegistration 1 }
+
+faVisitorEntry OBJECT-TYPE
+    SYNTAX FaVisitorEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information for one visitor."
+    INDEX { faVisitorIPAddress }
+    ::= { faVisitorTable 1 }
+
+FaVisitorEntry ::= SEQUENCE {
+    faVisitorIPAddress IpAddress,
+    faVisitorHomeAddress IpAddress,
+    faVisitorHomeAgentAddress IpAddress,
+    faVisitorTimeGranted INTEGER,
+    faVisitorTimeRemaining Gauge,
+    faVisitorRegFlags RegistrationFlags,
+    faVisitorRegIDLow INTEGER,
+    faVisitorRegIDHigh INTEGER,
+    faVisitorRegIsAccepted TruthValue
+    }
+
+faVisitorIPAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Source IP address of visitor's Registration Request."
+    ::= { faVisitorEntry 1 }
+
+faVisitorHomeAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Home (IP) address of visiting mobile node."
+    ::= { faVisitorEntry 2 }
+
+faVisitorHomeAgentAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Home agent IP address for that visiting mobile node."
+    ::= { faVisitorEntry 3 }
+
+faVisitorTimeGranted OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The lifetime in seconds granted to the mobile node
+        for this registration.  Only valid if
+        faVisitorRegIsAccepted is true(1)."
+    ::= { faVisitorEntry 4 }
+
+faVisitorTimeRemaining OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of seconds remaining until the
+        registration is expired. It has the same initial value
+        as faVisitorTimeGranted, and is counted down by the
+        foreign agent."
+    ::= { faVisitorEntry 5 }
+
+faVisitorRegFlags OBJECT-TYPE
+    SYNTAX RegistrationFlags
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           vjCompression(0)
+--           gre(1)
+--           minEnc(2)
+--           decapsulationbyMN(3)
+--           broadcastDatagram(4)
+--           simultaneousBindings(5)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Registration flags sent by mobile node."
+    ::= { faVisitorEntry 6 }
+
+faVisitorRegIDLow OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Low 32 bits of Identification used in that
+        registration by the mobile node."
+    ::= { faVisitorEntry 7 }
+
+faVisitorRegIDHigh OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "High 32 bits of Identification used in that
+        registration by the mobile node."
+    ::= { faVisitorEntry 8 }
+
+faVisitorRegIsAccepted OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Whether the registration has been accepted or not. If
+        it is false(2), this registration is still pending for
+        reply."
+    ::= { faVisitorEntry 9 }
+
+faRegRequestsReceived OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of valid Registration Requests
+        received."
+    ::= { faRegistration 2 }
+
+faRegRequestsRelayed OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests relayed to home
+        agent by foreign agent."
+    ::= { faRegistration 3 }
+
+faReasonUnspecified OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by
+        foreign agent -- reason unspecified (Code 64)."
+    ::= { faRegistration 4 }
+
+faAdmProhibited OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by
+        foreign agent -- administratively prohibited (Code
+        65)."
+    ::= { faRegistration 5 }
+
+faInsufficientResource OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by
+        foreign agent -- insufficient resources (Code 66)."
+    ::= { faRegistration 6 }
+
+faMNAuthenticationFailure OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by
+        foreign agent -- mobile node failed authentication
+        (Code 67)."
+    ::= { faRegistration 7 }
+
+faRegLifetimeTooLong OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by
+        foreign agent -- requested lifetime too long (Code
+        69)."
+    ::= { faRegistration 8 }
+
+faPoorlyFormedRequests OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by
+        foreign agent -- poorly formed request (Code 70)."
+    ::= { faRegistration 9 }
+
+faEncapsulationUnavailable OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by
+        foreign agent -- requested encapsulation unavailable
+        (Code 72)."
+    ::= { faRegistration 10 }
+
+faVJCompressionUnavailable OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by
+        foreign agent -- requested Van Jacobson header
+        compression unavailable (Code 73)."
+    ::= { faRegistration 11 }
+
+faHAUnreachable OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by
+        foreign agent -- home agent unreachable (Codes
+        80-95)."
+    ::= { faRegistration 12 }
+
+faRegRepliesRecieved OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of well-formed Registration Replies
+        received by foreign agent."
+    ::= { faRegistration 13 }
+
+faRegRepliesRelayed OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of valid Registration Replies relayed to
+        the mobile node by foreign agent."
+    ::= { faRegistration 14 }
+
+faHAAuthenticationFailure OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Replies denied by
+        foreign agent -- home agent failed authentication
+        (Code 68)."
+    ::= { faRegistration 15 }
+
+faPoorlyFormedReplies OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Replies denied by
+        foreign agent -- poorly formed reply (Code 71)."
+    ::= { faRegistration 16 }
+
+haMobilityBindingTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF HaMobilityBindingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing the home agent's mobility binding
+        list.  The home agent updates this table in response
+        to registration events from mobile nodes."
+    ::= { haRegistration 1 }
+
+haMobilityBindingEntry OBJECT-TYPE
+    SYNTAX HaMobilityBindingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry on the mobility binding list."
+    INDEX { haMobilityBindingMN, haMobilityBindingCOA }
+    ::= { haMobilityBindingTable 1 }
+
+HaMobilityBindingEntry ::= SEQUENCE {
+    haMobilityBindingMN IpAddress,
+    haMobilityBindingCOA IpAddress,
+    haMobilityBindingSourceAddress IpAddress,
+    haMobilityBindingRegFlags RegistrationFlags,
+    haMobilityBindingRegIDLow INTEGER,
+    haMobilityBindingRegIDHigh INTEGER,
+    haMobilityBindingTimeGranted INTEGER,
+    haMobilityBindingTimeRemaining Gauge
+    }
+
+haMobilityBindingMN OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Mobile node's home (IP) address."
+    ::= { haMobilityBindingEntry 1 }
+
+haMobilityBindingCOA OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Mobile node's care-of-address. One mobile node can
+        have multiple bindings with different
+        care-of-addresses."
+    ::= { haMobilityBindingEntry 2 }
+
+haMobilityBindingSourceAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "IP source address of the Registration Request as
+        received by the home agent.  Will be either a mobile
+        node's co-located care-of address or an address of the
+        foreign agent."
+    ::= { haMobilityBindingEntry 3 }
+
+haMobilityBindingRegFlags OBJECT-TYPE
+    SYNTAX RegistrationFlags
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           vjCompression(0)
+--           gre(1)
+--           minEnc(2)
+--           decapsulationbyMN(3)
+--           broadcastDatagram(4)
+--           simultaneousBindings(5)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Registration flags sent by mobile node."
+    ::= { haMobilityBindingEntry 4 }
+
+haMobilityBindingRegIDLow OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Low 32 bits of Identification used in that binding by
+        the mobile node."
+    ::= { haMobilityBindingEntry 5 }
+
+haMobilityBindingRegIDHigh OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "High 32 bits of Identification used in that binding by
+         the mobile node."
+    ::= { haMobilityBindingEntry 6 }
+
+haMobilityBindingTimeGranted OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The lifetime in seconds granted to the mobile node
+        for this registration."
+    ::= { haMobilityBindingEntry 7 }
+
+haMobilityBindingTimeRemaining OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of seconds remaining until the
+        registration is expired. It has the same initial value
+        as haMobilityBindingTimeGranted, and is counted down
+        by the home agent."
+    ::= { haMobilityBindingEntry 8 }
+
+haCounterTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF HaCounterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing registration statistics for all
+        mobile nodes authorized to use this home agent."
+    ::= { haRegistration 2 }
+
+haCounterEntry OBJECT-TYPE
+    SYNTAX HaCounterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Registration statistics for one mobile node."
+    INDEX { haMobilityBindingMN }
+    ::= { haCounterTable 1 }
+
+HaCounterEntry ::= SEQUENCE {
+    haServiceRequestsAccepted Counter,
+    haServiceRequestsDenied Counter,
+    haOverallServiceTime Gauge,
+    haRecentServiceAcceptedTime TimeStamp,
+    haRecentServiceDeniedTime TimeStamp,
+    haRecentServiceDeniedCode INTEGER
+    }
+
+haServiceRequestsAccepted OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of service requests for the mobile node
+        accepted by the home agent (Code 0 + Code 1)."
+    ::= { haCounterEntry 2 }
+
+haServiceRequestsDenied OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of service requests for the mobile node
+        denied by the home agent (sum of all registrations
+        denied with Code 128 through Code 159)."
+    ::= { haCounterEntry 3 }
+
+haOverallServiceTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Overall service time (in seconds) that has
+        accumulated for the mobile node since the home agent
+        last rebooted."
+    ::= { haCounterEntry 4 }
+
+haRecentServiceAcceptedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time at which the most recent Registration
+        Request was accepted by the home agent for this mobile
+        node."
+    ::= { haCounterEntry 5 }
+
+haRecentServiceDeniedTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time at which the most recent Registration
+        Request was denied by the home agent for this mobile
+        node."
+    ::= { haCounterEntry 6 }
+
+haRecentServiceDeniedCode OBJECT-TYPE
+    SYNTAX INTEGER {
+        reasonUnspecified(128),
+        admProhibited(129),
+        insufficientResource(130),
+        mnAuthenticationFailure(131),
+        faAuthenticationFailure(132),
+        idMismatch(133),
+        poorlyFormedRequest(134),
+        tooManyBindings(135),
+        unknownHA(136)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Code indicating the reason why the most recent
+        Registration Request for this mobile node was rejected
+        by the home agent."
+    ::= { haCounterEntry 7 }
+
+haRegistrationAccepted OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests accepted by
+        home agent (Code 0)."
+    ::= { haRegistration 3 }
+
+haMultiBindingUnsupported OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests accepted by
+        home agent -- simultaneous mobility bindings
+        unsupported (Code 1)."
+    ::= { haRegistration 4 }
+
+haReasonUnspecified OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by home
+        agent -- reason unspecified (Code 128)."
+    ::= { haRegistration 5 }
+
+haAdmProhibited OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by home
+        agent -- administratively prohibited (Code 129)."
+    ::= { haRegistration 6 }
+
+haInsufficientResource OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by home
+        agent -- insufficient resources (Code 130)."
+    ::= { haRegistration 7 }
+
+haMNAuthenticationFailure OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by home
+        agent -- mobile node failed authentication (Code
+        131)."
+    ::= { haRegistration 8 }
+
+haFAAuthenticationFailure OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by home
+        agent -- foreign agent failed authentication (Code
+        132)."
+    ::= { haRegistration 9 }
+
+haIDMismatch OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by home
+        agent -- Identification mismatch (Code 133)."
+    ::= { haRegistration 10 }
+
+haPoorlyFormedRequest OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by home
+        agent -- poorly formed request (Code 134)."
+    ::= { haRegistration 11 }
+
+haTooManyBindings OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by home
+        agent -- too many simultaneous mobility bindings (Code
+        135)."
+    ::= { haRegistration 12 }
+
+haUnknownHA OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests denied by home
+        agent -- unknown home agent address (Code 136)."
+    ::= { haRegistration 13 }
+
+haGratuitiousARPsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of gratuition ARPs sent by the home
+        agent on behalf of mobile nodes."
+    ::= { haRegistration 14 }
+
+haProxyARPsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of proxy ARPs sent by the home agent on
+        behalf of mobile nodes."
+    ::= { haRegistration 15 }
+
+haRegRequestsReceived OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests received by
+        home agent."
+    ::= { haRegistration 16 }
+
+haDeRegRequestsReceived OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Requests received by the
+        home agent with a Lifetime of zero (requests to
+        deregister)."
+    ::= { haRegistration 17 }
+
+haRegRepliesSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Replies sent by the home
+        agent."
+    ::= { haRegistration 18 }
+
+haDeRegRepliesSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of Registration Replies sent by the home
+        agent in response to requests to deregister."
+    ::= { haRegistration 19 }
+
+mipAuthFailure TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE mipMIBNotificationPrefix
+    VARIABLES {
+        mipSecViolatorAddress, mipSecRecentViolationSPI, 
+        mipSecRecentViolationIDLow, mipSecRecentViolationIDHigh, 
+        mipSecRecentViolationReason }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The mipAuthFailure indicates that the Mobile IP
+        entity has an authentication failure when it validates
+        the mobile Registration Request or Reply.
+        Implementation of this trap is optional."
+    ::= 1
+
+mipSystemGroup OBJECT IDENTIFIER ::= { mipGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the basic Mobile IP
+--    entity's management information.
+--  objects
+--    mipEntities, mipEnable, mipEncapsulationSupported
+
+mipSecAssociationGroup OBJECT IDENTIFIER ::= { mipGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the management
+--    information for security associations of Mobile IP
+--    entities.
+--  objects
+--    mipSecAlgorithmType, mipSecAlgorithmMode, mipSecKey, 
+--    mipSecReplayMethod
+
+mipSecViolationGroup OBJECT IDENTIFIER ::= { mipGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the management
+--    information for security violation logging of Mobile
+--    IP entities.
+--  objects
+--    mipSecTotalViolations, mipSecViolationCounter, 
+--    mipSecRecentViolationSPI, mipSecRecentViolationTime, 
+--    mipSecRecentViolationIDLow, mipSecRecentViolationIDHigh, 
+--    mipSecRecentViolationReason
+
+mnSystemGroup OBJECT IDENTIFIER ::= { mipGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the basic
+--    management information for mobile nodes.
+--  objects
+--    mnState, mnCurrentHA, mnHomeAddress, mnHAStatus
+
+mnDiscoveryGroup OBJECT IDENTIFIER ::= { mipGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing management
+--    information for the Agent Discovery function within a
+--    mobile node.
+--  objects
+--    mnFAAddress, mnCOA, mnAdvSourceAddress, mnAdvSequence, 
+--    mnAdvFlags, mnAdvMaxRegLifetime, mnAdvMaxAdvLifetime, 
+--    mnAdvTimeReceived, mnSolicitationsSent, 
+--    mnAdvertisementsReceived, mnAdvsDroppedInvalidExtension, 
+--    mnAdvsIgnoredUnknownExtension, mnMoveFromHAToFA, 
+--    mnMoveFromFAToFA, mnMoveFromFAToHA, mnGratuitousARPsSend, 
+--    mnAgentRebootsDectected
+
+mnRegistrationGroup OBJECT IDENTIFIER ::= { mipGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing management
+--    information for the registration function within a
+--    mobile node.
+--  objects
+--    mnRegAgentAddress, mnRegCOA, mnRegFlags, mnRegIDLow, 
+--    mnRegIDHigh, mnRegTimeRequested, mnRegTimeRemaining, 
+--    mnRegTimeSent, mnRegIsAccepted, mnCOAIsLocal, 
+--    mnRegRequestsSent, mnRegRepliesRecieved, mnDeRegRequestsSent, 
+--    mnDeRegRepliesRecieved, mnRepliesInvalidHomeAddress, 
+--    mnRepliesUnknownHA, mnRepliesUnknownFA, mnRepliesInvalidID, 
+--    mnRepliesDroppedInvalidExtension, 
+--    mnRepliesIgnoredUnknownExtension, 
+--    mnRepliesHAAuthenticationFailure, 
+--    mnRepliesFAAuthenticationFailure, mnRegRequestsAccepted, 
+--    mnRegRequestsDeniedByHA, mnRegRequestsDeniedByFA, 
+--    mnRegRequestsDeniedByHADueToID, 
+--    mnRegRequestsWithDirectedBroadcast
+
+maAdvertisementGroup OBJECT IDENTIFIER ::= { mipGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing management
+--    information for the Agent Advertisement function
+--    within mobility agents.
+--  objects
+--    maAdvMaxRegLifetime, maAdvPrefixLengthInclusion, maAdvAddress, 
+--    maAdvMaxInterval, maAdvMinInterval, maAdvMaxAdvLifetime, 
+--    maAdvResponseSolicitationOnly, maAdvStatus, 
+--    maAdvertisementsSent, maAdvsSentForSolicitation, 
+--    maSolicitationsReceived
+
+faSystemGroup OBJECT IDENTIFIER ::= { mipGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the basic
+--    management information for foreign agents.
+--  objects
+--    faCOAStatus
+
+faAdvertisementGroup OBJECT IDENTIFIER ::= { mipGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing supplemental
+--    management information for the Agent Advertisement
+--    function within a foreign agent.
+--  objects
+--    faIsBusy, faRegistrationRequired
+
+faRegistrationGroup OBJECT IDENTIFIER ::= { mipGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing management
+--    information for the registration function within a
+--    foreign agent.
+--  objects
+--    faVisitorIPAddress, faVisitorHomeAddress, 
+--    faVisitorHomeAgentAddress, faVisitorTimeGranted, 
+--    faVisitorTimeRemaining, faVisitorRegFlags, faVisitorRegIDLow, 
+--    faVisitorRegIDHigh, faVisitorRegIsAccepted, 
+--    faRegRequestsReceived, faRegRequestsRelayed, 
+--    faReasonUnspecified, faAdmProhibited, faInsufficientResource, 
+--    faMNAuthenticationFailure, faRegLifetimeTooLong, 
+--    faPoorlyFormedRequests, faEncapsulationUnavailable, 
+--    faVJCompressionUnavailable, faHAUnreachable, 
+--    faRegRepliesRecieved, faRegRepliesRelayed, 
+--    faHAAuthenticationFailure, faPoorlyFormedReplies
+
+haRegistrationGroup OBJECT IDENTIFIER ::= { mipGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing management
+--    information for the registration function within a
+--    home agent.
+--  objects
+--    haMobilityBindingMN, haMobilityBindingCOA, 
+--    haMobilityBindingSourceAddress, haMobilityBindingRegFlags, 
+--    haMobilityBindingRegIDLow, haMobilityBindingRegIDHigh, 
+--    haMobilityBindingTimeGranted, haMobilityBindingTimeRemaining, 
+--    haRegistrationAccepted, haMultiBindingUnsupported, 
+--    haReasonUnspecified, haAdmProhibited, haInsufficientResource, 
+--    haMNAuthenticationFailure, haFAAuthenticationFailure, 
+--    haIDMismatch, haPoorlyFormedRequest, haTooManyBindings, 
+--    haUnknownHA, haGratuitiousARPsSent, haProxyARPsSent, 
+--    haRegRequestsReceived, haDeRegRequestsReceived, 
+--    haRegRepliesSent, haDeRegRepliesSent
+
+haRegNodeCountersGroup OBJECT IDENTIFIER ::= { mipGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing management
+--    information for counters related to the registration
+--    function within a home agent.
+--  objects
+--    haServiceRequestsAccepted, haServiceRequestsDenied, 
+--    haOverallServiceTime, haRecentServiceAcceptedTime, 
+--    haRecentServiceDeniedTime, haRecentServiceDeniedCode
+
+mipSecNotificationsGroup OBJECT IDENTIFIER ::= { mipGroups 13 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The notification related to security violations.
+--  notifications
+--    mipAuthFailure
+
+mipCompliance OBJECT IDENTIFIER ::= { mipCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMPv2 entities which
+--    implement the Mobile IP MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    mipSystemGroup
+--   OptGroup
+--    mipSecAssociationGroup
+--   OptGroup
+--    mipSecViolationGroup
+--   OptGroup
+--    mnSystemGroup
+--   OptGroup
+--    mnDiscoveryGroup
+--   OptGroup
+--    mnRegistrationGroup
+--   OptGroup
+--    maAdvertisementGroup
+--   OptGroup
+--    faSystemGroup
+--   OptGroup
+--    faAdvertisementGroup
+--   OptGroup
+--    faRegistrationGroup
+--   OptGroup
+--    haRegistrationGroup
+--   OptGroup
+--    haRegNodeCountersGroup
+--   OptGroup
+--    mipSecNotificationsGroup
+
+
+END
+

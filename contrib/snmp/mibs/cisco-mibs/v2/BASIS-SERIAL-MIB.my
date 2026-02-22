@@ -1,0 +1,193 @@
+-- *****************************************************************
+-- BASIS-SERIAL-MIB: Serial Port MIB MGX8250 and MGX8220 products.
+--
+-- May 2003, Subra Hegde
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+BASIS-SERIAL-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32                  FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP               FROM SNMPv2-CONF
+    basisLines                 FROM BASIS-MIB
+    ciscoWan                   FROM CISCOWAN-SMI;
+
+basisSerialMIB MODULE-IDENTITY
+    LAST-UPDATED    "200305030000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB module to configure serial ports
+        in Processor Module and different Service 
+        Modules(cards) in MGX8850,MGX8250 and MGX8220
+        ATM Edge switches."
+
+     REVISION    "200305030000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in CISCO-WAN-AXIPOP-MIB defined using SMIv1.
+        The applicable objects from CISCO-WAN-AXIPOP-MIB
+        are defined using SMIv2 in this MIB. Also the
+        descriptions of some of the objects have been 
+        modified."
+    ::= { ciscoWan 69 }
+
+
+serialInterface         OBJECT IDENTIFIER ::= {basisLines 1}
+
+-- ***************************************************************
+--
+-- serial interface table                                      
+--
+-- ***************************************************************
+
+serialPortNumOfValidEntries   OBJECT-TYPE
+    SYNTAX     Integer32(1..2)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object contains number of serial ports.
+        This identifies the number of entries in
+        serialInterfacetable."
+    ::= { serialInterface 2 }
+
+serialInterfaceTable   OBJECT-TYPE
+    SYNTAX  SEQUENCE OF SerialInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "This table represents Physical serial interfaces in
+        the module."
+    ::= { serialInterface 1 }
+
+serialInterfaceEntry   OBJECT-TYPE
+    SYNTAX  SerialInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "An entry for each serial interface. 
+        Each entry contains information on
+        port type, port speed."
+    INDEX   { serialPortNum }
+    ::= { serialInterfaceTable 1}
+ 
+SerialInterfaceEntry ::=
+    SEQUENCE {
+        serialPortNum       Integer32,
+        serialPortType      INTEGER,
+        serialPortEnable    INTEGER,
+        serialPortbps       INTEGER
+    }
+
+serialPortNum OBJECT-TYPE
+    SYNTAX     Integer32(1..2)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+         "This object identifies the serial port number.
+
+         The value 1 is used for Console Port.
+         The Console Port is also known as control port(CP).
+
+         The value 2 is used for Maintenance Port
+         and this can be used as SLIP
+         (Serial Line Internet Protocol) interface.
+         The Maintenance Port is also known as 
+         Modem Port(MP)."
+    ::= { serialInterfaceEntry 1 }
+
+serialPortType OBJECT-TYPE
+    SYNTAX  INTEGER {
+                main  (1),
+                debug (2)
+    }
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+        "This object identifies the type of port.
+        
+        main(1)  : This is applicable for Maintenance Port
+        debug(2) : This is applicable for Console Port."
+    ::= { serialInterfaceEntry 2 }
+
+serialPortEnable OBJECT-TYPE
+    SYNTAX  INTEGER {
+                disable (1),
+                enable  (2)
+            }
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+        "This object is used for enabling/disabling
+        serial port."
+    ::= { serialInterfaceEntry 3 }
+
+serialPortbps OBJECT-TYPE
+    SYNTAX  INTEGER {
+                bps9600     (1),
+                bps2400     (2),
+                bps19200    (3)
+    }
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+        "This object identifies the baud rate of the ports."
+    DEFVAL { bps9600 }
+    ::= { serialInterfaceEntry 4 }
+
+
+-- conformance information
+
+basisSerialMIBConformance  OBJECT IDENTIFIER ::= { basisSerialMIB 2 }
+
+basisSerialMIBGroups       OBJECT IDENTIFIER ::= 
+                              { basisSerialMIBConformance 1 }
+
+basisSerialMIBCompliances  OBJECT IDENTIFIER ::= 
+                              { basisSerialMIBConformance 2 }
+
+-- compliance statements
+
+basisSerialCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for objects related
+        to Serial Ports."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+            basisSerialConfGroup
+        }
+    ::= { basisSerialMIBCompliances 1 }
+
+basisSerialConfGroup OBJECT-GROUP
+    OBJECTS {
+        serialPortNumOfValidEntries,
+        serialPortNum,
+        serialPortType,
+        serialPortEnable,
+        serialPortbps
+      }
+      STATUS current
+      DESCRIPTION
+          "The collection of objects which are used to represent
+          serial ports."
+      ::= { basisSerialMIBGroups 1 }
+
+END

@@ -1,0 +1,398 @@
+-- *****************************************************************
+-- POST-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-POST-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200PostMib MODULE-IDENTITY
+    LAST-UPDATED "201605030000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of Post"
+    REVISION    "201605030000Z"
+    DESCRIPTION
+        "Add POST error notification"
+    REVISION    "201405160000Z"
+    DESCRIPTION
+        "fix typo Hareware to Hardware"
+    REVISION    "201405130000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 118 }
+
+
+ME1200PostTestResult ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the results of POST test."
+    SYNTAX      INTEGER { notTested(0), pass(1), failed(2) }
+
+me1200PostMibObjects OBJECT IDENTIFIER
+    ::= { me1200PostMib 1 }
+
+me1200PostConfig OBJECT IDENTIFIER
+    ::= { me1200PostMibObjects 2 }
+
+me1200PostConfigGlobals OBJECT IDENTIFIER
+    ::= { me1200PostConfig 1 }
+
+me1200PostConfigGlobalsMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global operation mode of POST"
+    ::= { me1200PostConfigGlobals 1 }
+
+me1200PostStatus OBJECT IDENTIFIER
+    ::= { me1200PostMibObjects 3 }
+
+me1200PostStatusHwComponentTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PostStatusHwComponentEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a status table of hardware component tests."
+    ::= { me1200PostStatus 1 }
+
+me1200PostStatusHwComponentEntry OBJECT-TYPE
+    SYNTAX      ME1200PostStatusHwComponentEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of test status."
+    INDEX       { me1200PostStatusHwComponentSwitchId }
+    ::= { me1200PostStatusHwComponentTable 1 }
+
+ME1200PostStatusHwComponentEntry ::= SEQUENCE {
+    me1200PostStatusHwComponentSwitchId   Integer32,
+    me1200PostStatusHwComponentHwBist     ME1200PostTestResult,
+    me1200PostStatusHwComponentTcamBistIs0    ME1200PostTestResult,
+    me1200PostStatusHwComponentTcamBistIs1    ME1200PostTestResult,
+    me1200PostStatusHwComponentTcamBistIs2    ME1200PostTestResult,
+    me1200PostStatusHwComponentTcamBistEs0    ME1200PostTestResult,
+    me1200PostStatusHwComponentDdr    ME1200PostTestResult,
+    me1200PostStatusHwComponentEeprom     ME1200PostTestResult
+}
+
+me1200PostStatusHwComponentSwitchId OBJECT-TYPE
+    SYNTAX      Integer32 (1..16)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of switch."
+    ::= { me1200PostStatusHwComponentEntry 1 }
+
+me1200PostStatusHwComponentHwBist OBJECT-TYPE
+    SYNTAX      ME1200PostTestResult
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Hardware Built-In Self-Test(BIST)."
+    ::= { me1200PostStatusHwComponentEntry 2 }
+
+me1200PostStatusHwComponentTcamBistIs0 OBJECT-TYPE
+    SYNTAX      ME1200PostTestResult
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "TCAM BIST on IS0."
+    ::= { me1200PostStatusHwComponentEntry 3 }
+
+me1200PostStatusHwComponentTcamBistIs1 OBJECT-TYPE
+    SYNTAX      ME1200PostTestResult
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "TCAM BIST on IS1."
+    ::= { me1200PostStatusHwComponentEntry 4 }
+
+me1200PostStatusHwComponentTcamBistIs2 OBJECT-TYPE
+    SYNTAX      ME1200PostTestResult
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "TCAM BIST on IS2."
+    ::= { me1200PostStatusHwComponentEntry 5 }
+
+me1200PostStatusHwComponentTcamBistEs0 OBJECT-TYPE
+    SYNTAX      ME1200PostTestResult
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "TCAM BIST on ES0."
+    ::= { me1200PostStatusHwComponentEntry 6 }
+
+me1200PostStatusHwComponentDdr OBJECT-TYPE
+    SYNTAX      ME1200PostTestResult
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "DDR SDRAM test."
+    ::= { me1200PostStatusHwComponentEntry 7 }
+
+me1200PostStatusHwComponentEeprom OBJECT-TYPE
+    SYNTAX      ME1200PostTestResult
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "EEPROM test."
+    ::= { me1200PostStatusHwComponentEntry 8 }
+
+me1200PostStatusInterfaceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PostStatusInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a status table of port interface tests."
+    ::= { me1200PostStatus 2 }
+
+me1200PostStatusInterfaceEntry OBJECT-TYPE
+    SYNTAX      ME1200PostStatusInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of test status."
+    INDEX       { me1200PostStatusInterfaceIfIndex }
+    ::= { me1200PostStatusInterfaceTable 1 }
+
+ME1200PostStatusInterfaceEntry ::= SEQUENCE {
+    me1200PostStatusInterfaceIfIndex      ME1200InterfaceIndex,
+    me1200PostStatusInterfaceLoopback     ME1200PostTestResult,
+    me1200PostStatusInterfaceI2cBusScan   ME1200PostTestResult
+}
+
+me1200PostStatusInterfaceIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of physical port."
+    ::= { me1200PostStatusInterfaceEntry 1 }
+
+me1200PostStatusInterfaceLoopback OBJECT-TYPE
+    SYNTAX      ME1200PostTestResult
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Loopback test."
+    ::= { me1200PostStatusInterfaceEntry 2 }
+
+me1200PostStatusInterfaceI2cBusScan OBJECT-TYPE
+    SYNTAX      ME1200PostTestResult
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "I2C bus scan test."
+    ::= { me1200PostStatusInterfaceEntry 3 }
+
+me1200PostStatusMonitorIcTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PostStatusMonitorIcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a status table of monitor IC tests."
+    ::= { me1200PostStatus 3 }
+
+me1200PostStatusMonitorIcEntry OBJECT-TYPE
+    SYNTAX      ME1200PostStatusMonitorIcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of test status."
+    INDEX       { me1200PostStatusMonitorIcSwitchId, me1200PostStatusMonitorIcIcId }
+    ::= { me1200PostStatusMonitorIcTable 1 }
+
+ME1200PostStatusMonitorIcEntry ::= SEQUENCE {
+    me1200PostStatusMonitorIcSwitchId     Integer32,
+    me1200PostStatusMonitorIcIcId     Integer32,
+    me1200PostStatusMonitorIcI2cBusScan   ME1200PostTestResult,
+    me1200PostStatusMonitorIcV5   ME1200DisplayString,
+    me1200PostStatusMonitorIcV12      ME1200DisplayString,
+    me1200PostStatusMonitorIcV2dot5   ME1200DisplayString,
+    me1200PostStatusMonitorIcVccp     ME1200DisplayString,
+    me1200PostStatusMonitorIcLocalTemperature     Unsigned32,
+    me1200PostStatusMonitorIcRemoteTemperature    Unsigned32
+}
+
+me1200PostStatusMonitorIcSwitchId OBJECT-TYPE
+    SYNTAX      Integer32 (1..16)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of switch."
+    ::= { me1200PostStatusMonitorIcEntry 1 }
+
+me1200PostStatusMonitorIcIcId OBJECT-TYPE
+    SYNTAX      Integer32 (1..2)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Monitor IC ID."
+    ::= { me1200PostStatusMonitorIcEntry 2 }
+
+me1200PostStatusMonitorIcI2cBusScan OBJECT-TYPE
+    SYNTAX      ME1200PostTestResult
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "I2C bus scan test."
+    ::= { me1200PostStatusMonitorIcEntry 3 }
+
+me1200PostStatusMonitorIcV5 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..15))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Voltage on 5v."
+    ::= { me1200PostStatusMonitorIcEntry 4 }
+
+me1200PostStatusMonitorIcV12 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..15))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Voltage on 12v."
+    ::= { me1200PostStatusMonitorIcEntry 5 }
+
+me1200PostStatusMonitorIcV2dot5 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..15))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Voltage on 2.5v."
+    ::= { me1200PostStatusMonitorIcEntry 6 }
+
+me1200PostStatusMonitorIcVccp OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..15))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Voltage on vccp."
+    ::= { me1200PostStatusMonitorIcEntry 7 }
+
+me1200PostStatusMonitorIcLocalTemperature OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Local temperature in Celsius."
+    ::= { me1200PostStatusMonitorIcEntry 8 }
+
+me1200PostStatusMonitorIcRemoteTemperature OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Remote temperature in Celsius."
+    ::= { me1200PostStatusMonitorIcEntry 9 }
+
+me1200PostNotificationPrefix OBJECT IDENTIFIER
+    ::= { me1200PostMibObjects 4 }
+
+me1200PostNotification OBJECT IDENTIFIER
+    ::= { me1200PostNotificationPrefix 0 }
+
+me1200PostNotificationErrorDetected NOTIFICATION-TYPE
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the device detects POST errors."
+   ::= { me1200PostNotification 1 }
+
+me1200PostMibConformance OBJECT IDENTIFIER
+    ::= { me1200PostMib 2 }
+
+me1200PostMibCompliances OBJECT IDENTIFIER
+    ::= { me1200PostMibConformance 1 }
+
+me1200PostMibGroups OBJECT IDENTIFIER
+    ::= { me1200PostMibConformance 2 }
+
+me1200PostConfigGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PostConfigGlobalsMode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PostMibGroups 1 }
+
+me1200PostStatusHwComponentTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PostStatusHwComponentHwBist, 
+                  me1200PostStatusHwComponentTcamBistIs0, 
+                  me1200PostStatusHwComponentTcamBistIs1, 
+                  me1200PostStatusHwComponentTcamBistIs2, 
+                  me1200PostStatusHwComponentTcamBistEs0, 
+                  me1200PostStatusHwComponentDdr, me1200PostStatusHwComponentEeprom }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PostMibGroups 2 }
+
+me1200PostStatusInterfaceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PostStatusInterfaceLoopback, 
+                  me1200PostStatusInterfaceI2cBusScan }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PostMibGroups 3 }
+
+me1200PostStatusMonitorIcTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PostStatusMonitorIcI2cBusScan, me1200PostStatusMonitorIcV5, 
+                  me1200PostStatusMonitorIcV12, me1200PostStatusMonitorIcV2dot5, 
+                  me1200PostStatusMonitorIcVccp, 
+                  me1200PostStatusMonitorIcLocalTemperature, 
+                  me1200PostStatusMonitorIcRemoteTemperature }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PostMibGroups 4 }
+
+me1200PostNotificationInfoGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { me1200PostNotificationErrorDetected }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PostMibGroups 5 }
+
+me1200PostMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200PostConfigGlobalsInfoGroup, 
+                  me1200PostStatusHwComponentTableInfoGroup, 
+                  me1200PostStatusInterfaceTableInfoGroup, 
+                  me1200PostStatusMonitorIcTableInfoGroup,
+                  me1200PostNotificationInfoGroup  }
+
+    ::= { me1200PostMibCompliances 1 }
+
+END

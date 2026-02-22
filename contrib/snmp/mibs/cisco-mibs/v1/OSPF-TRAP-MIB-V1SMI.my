@@ -1,0 +1,566 @@
+-- MIB file created 03-Jun-2008 13:11:12, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+OSPF-TRAP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "OSPF-TRAP-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ospfRouterId, ospfIfIpAddress, ospfAddressLessIf, ospfIfState, 
+    ospfVirtIfAreaId, ospfVirtIfNeighbor, ospfVirtIfState, 
+    ospfNbrIpAddr, ospfNbrAddressLessIndex, ospfNbrRtrId, 
+    ospfNbrState, ospfVirtNbrArea, ospfVirtNbrRtrId, 
+    ospfVirtNbrState, ospfLsdbType, ospfLsdbLsid, ospfLsdbRouterId, 
+    ospfLsdbAreaId, ospfExtLsdbLimit, ospf, ospfAreaId, 
+    ospfAreaNssaTranslatorState, ospfRestartStatus, 
+    ospfRestartInterval, ospfRestartExitReason, 
+    ospfNbrRestartHelperStatus, ospfNbrRestartHelperAge, 
+    ospfNbrRestartHelperExitReason, ospfVirtNbrRestartHelperStatus, 
+    ospfVirtNbrRestartHelperAge, ospfVirtNbrRestartHelperExitReason
+            FROM OSPF-MIB
+    IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ospfTrap OBJECT IDENTIFIER ::= { ospf 16 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200611100000Z
+--  OrgName
+--    IETF OSPF Working Group
+--  ContactInfo
+--    WG E-Mail: ospf@ietf.org
+--    
+--     WG Chairs: acee@cisco.com
+--                rohit@gmail.com
+--    
+--     Editors:   Dan Joyal
+--                Nortel
+--                600 Technology Park Drive
+--                Billerica, MA  01821
+--                djoyal@nortel.com
+--    
+--                Piotr Galecki
+--                Airvana
+--                19 Alpha Road
+--                Chelmsford, MA 01824
+--                pgalecki@airvana.com
+--    
+--                Spencer Giacalone
+--                CSFB
+--                Eleven Madison Ave
+--                New York, NY 10010-3629
+--    
+--                spencer.giacalone@gmail.com
+--  Descr
+--    The MIB module to describe traps for the OSPF
+--    Version 2 Protocol.
+--    
+--    Copyright (C) The IETF Trust (2006).
+--    This version of this MIB module is part of
+--    RFC 4750;  see the RFC itself for full legal
+--    notices.
+--  RevDate
+--    200611100000Z
+--  RevDescr
+--    Updated for latest changes to OSPFv2:
+--     -added graceful restart related traps
+--     -added new config error types
+--     -added ospfNssaTranslatorStatusChange trap.
+--     See Appendix B of RFC 4750 for more details.
+--    
+--    This version published as part of RFC 4750
+--  RevDate
+--    199501201225Z
+--  RevDescr
+--    The initial SMIv2 revision of this MIB module, published
+--    in RFC 1850.
+
+ospfTrapControl OBJECT IDENTIFIER ::= { ospfTrap 1 }
+ospfTraps       OBJECT IDENTIFIER ::= { ospfTrap 2 }
+ospfTrapConformance OBJECT IDENTIFIER ::= { ospfTrap 3 }
+ospfTrapGroups  OBJECT IDENTIFIER ::= { ospfTrapConformance 1 }
+ospfTrapCompliances OBJECT IDENTIFIER ::= { ospfTrapConformance 2 }
+
+ospfSetTrap OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(4))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A 4-octet string serving as a bit map for
+        the trap events defined by the OSPF traps.  This
+        object is used to enable and disable specific
+        OSPF traps where a 1 in the bit field
+        represents enabled.  The right-most bit (least
+        significant) represents trap 0.
+        
+        This object is persistent and when written
+        
+        the entity SHOULD save the change to non-volatile
+        storage."
+    ::= { ospfTrapControl 1 }
+
+ospfConfigErrorType OBJECT-TYPE
+    SYNTAX INTEGER {
+        badVersion(1),
+        areaMismatch(2),
+        unknownNbmaNbr(3),
+        unknownVirtualNbr(4),
+        authTypeMismatch(5),
+        authFailure(6),
+        netMaskMismatch(7),
+        helloIntervalMismatch(8),
+        deadIntervalMismatch(9),
+        optionMismatch(10),
+        mtuMismatch(11),
+        duplicateRouterId(12),
+        noError(13)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Potential types of configuration conflicts.
+        Used by the ospfConfigError and
+        ospfConfigVirtError traps.  When the last value
+        of a trap using this object is needed, but no
+        traps of that type have been sent, this value
+        pertaining to this object should be returned as
+        noError."
+    ::= { ospfTrapControl 2 }
+
+ospfPacketType OBJECT-TYPE
+    SYNTAX INTEGER {
+        hello(1),
+        dbDescript(2),
+        lsReq(3),
+        lsUpdate(4),
+        lsAck(5),
+        nullPacket(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "OSPF packet types.  When the last value of a trap
+        using this object is needed, but no traps of
+        that type have been sent, this value pertaining
+        to this object should be returned as nullPacket."
+    ::= { ospfTrapControl 3 }
+
+ospfPacketSrc OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of an inbound packet that cannot
+        be identified by a neighbor instance.  When
+        the last value of a trap using this object is
+        needed, but no traps of that type have been sent,
+        this value pertaining to this object should
+        be returned as 0.0.0.0."
+    ::= { ospfTrapControl 4 }
+
+ospfVirtIfStateChange TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfVirtIfAreaId, ospfVirtIfNeighbor, 
+        ospfVirtIfState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfVirtIfStateChange trap signifies that there
+        has been a change in the state of an OSPF virtual
+        interface.
+        
+        This trap should be generated when the interface
+        state regresses (e.g., goes from Point-to-Point to Down)
+        or progresses to a terminal state
+        (i.e., Point-to-Point)."
+    ::= 1
+
+ospfNbrStateChange TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfNbrIpAddr, ospfNbrAddressLessIndex, 
+        ospfNbrRtrId, ospfNbrState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfNbrStateChange trap signifies that
+        there has been a change in the state of a
+        non-virtual OSPF neighbor.  This trap should be
+        generated when the neighbor state regresses
+        (e.g., goes from Attempt or Full to 1-Way or
+        Down) or progresses to a terminal state (e.g.,
+        
+        2-Way or Full).  When an neighbor transitions
+        from or to Full on non-broadcast multi-access
+        and broadcast networks, the trap should be
+        generated by the designated router.  A designated
+        router transitioning to Down will be noted by
+        ospfIfStateChange."
+    ::= 2
+
+ospfVirtNbrStateChange TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfVirtNbrArea, ospfVirtNbrRtrId, 
+        ospfVirtNbrState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfVirtNbrStateChange trap signifies that there
+        has been a change in the state of an OSPF virtual
+        neighbor.  This trap should be generated
+        when the neighbor state regresses (e.g., goes
+        from Attempt or Full to 1-Way or Down) or
+        progresses to a terminal state (e.g., Full)."
+    ::= 3
+
+ospfIfConfigError TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfIfIpAddress, ospfAddressLessIf, 
+        ospfPacketSrc, ospfConfigErrorType, ospfPacketType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfIfConfigError trap signifies that a
+        packet has been received on a non-virtual
+        interface from a router whose configuration
+        parameters conflict with this router's
+        configuration parameters.  Note that the event
+        optionMismatch should cause a trap only if it
+        prevents an adjacency from forming."
+    ::= 4
+
+ospfVirtIfConfigError TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfVirtIfAreaId, ospfVirtIfNeighbor, 
+        ospfConfigErrorType, ospfPacketType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfVirtIfConfigError trap signifies that a
+        packet has been received on a virtual interface
+        from a router whose configuration parameters
+        conflict with this router's configuration
+        parameters.  Note that the event optionMismatch
+        should cause a trap only if it prevents an
+        adjacency from forming."
+    ::= 5
+
+ospfIfAuthFailure TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfIfIpAddress, ospfAddressLessIf, 
+        ospfPacketSrc, ospfConfigErrorType, ospfPacketType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfIfAuthFailure trap signifies that a
+        packet has been received on a non-virtual
+        interface from a router whose authentication key
+        or authentication type conflicts with this
+        router's authentication key or authentication
+        type."
+    ::= 6
+
+ospfVirtIfAuthFailure TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfVirtIfAreaId, ospfVirtIfNeighbor, 
+        ospfConfigErrorType, ospfPacketType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfVirtIfAuthFailure trap signifies that a
+        packet has been received on a virtual interface
+        from a router whose authentication key or
+        authentication type conflicts with this router's
+        authentication key or authentication type."
+    ::= 7
+
+ospfIfRxBadPacket TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfIfIpAddress, ospfAddressLessIf, 
+        ospfPacketSrc, ospfPacketType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfIfRxBadPacket trap signifies that an
+        OSPF packet has been received on a non-virtual
+        interface that cannot be parsed."
+    ::= 8
+
+ospfVirtIfRxBadPacket TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfVirtIfAreaId, ospfVirtIfNeighbor, 
+        ospfPacketType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfVirtIfRxBadPacket trap signifies that an OSPF
+        packet has been received on a virtual interface
+        that cannot be parsed."
+    ::= 9
+
+ospfTxRetransmit TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfIfIpAddress, ospfAddressLessIf, 
+        ospfNbrRtrId, ospfPacketType, ospfLsdbType, ospfLsdbLsid, 
+        ospfLsdbRouterId }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfTxRetransmit trap signifies than an
+        OSPF packet has been retransmitted on a
+        non-virtual interface.  All packets that may be
+        retransmitted are associated with an LSDB entry.
+        The LS type, LS ID, and Router ID are used to
+        identify the LSDB entry."
+    ::= 10
+
+ospfVirtIfTxRetransmit TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfVirtIfAreaId, ospfVirtIfNeighbor, 
+        ospfPacketType, ospfLsdbType, ospfLsdbLsid, 
+        ospfLsdbRouterId }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfVirtIfTxRetransmit trap signifies than an
+        OSPF packet has been retransmitted on a virtual
+        interface.  All packets that may be retransmitted
+        are associated with an LSDB entry.  The LS
+        type, LS ID, and Router ID are used to identify
+        the LSDB entry."
+    ::= 11
+
+ospfOriginateLsa TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfLsdbAreaId, ospfLsdbType, ospfLsdbLsid, 
+        ospfLsdbRouterId }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfOriginateLsa trap signifies that a new
+        LSA has been originated by this router.  This
+        trap should not be invoked for simple refreshes
+        of LSAs (which happens every 30 minutes), but
+        instead will only be invoked when an LSA is
+        (re)originated due to a topology change.
+        Additionally, this trap does not include LSAs that
+        are being flushed because they have reached
+        MaxAge."
+    ::= 12
+
+ospfMaxAgeLsa TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfLsdbAreaId, ospfLsdbType, ospfLsdbLsid, 
+        ospfLsdbRouterId }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfMaxAgeLsa trap signifies that one of
+        the LSAs in the router's link state database has
+        aged to MaxAge."
+    ::= 13
+
+ospfLsdbOverflow TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfExtLsdbLimit }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfLsdbOverflow trap signifies that the
+        number of LSAs in the router's link state
+        database has exceeded ospfExtLsdbLimit."
+    ::= 14
+
+ospfLsdbApproachingOverflow TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfExtLsdbLimit }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfLsdbApproachingOverflow trap signifies
+        that the number of LSAs in the router's
+        link state database has exceeded ninety percent of
+        ospfExtLsdbLimit."
+    ::= 15
+
+ospfIfStateChange TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfIfIpAddress, ospfAddressLessIf, 
+        ospfIfState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfIfStateChange trap signifies that there
+        has been a change in the state of a non-virtual
+        OSPF interface.  This trap should be generated
+        when the interface state regresses (e.g., goes
+        from Dr to Down) or progresses to a terminal
+        state (i.e., Point-to-Point, DR Other, Dr, or
+        Backup)."
+    ::= 16
+
+ospfNssaTranslatorStatusChange TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfAreaId, ospfAreaNssaTranslatorState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfNssaTranslatorStatusChange trap indicates that
+        there has been a change in the router's ability to
+        translate OSPF type-7 LSAs into OSPF type-5 LSAs.
+        This trap should be generated when the translator
+        status transitions from or to any defined status on
+        a per-area basis."
+    ::= 17
+
+ospfRestartStatusChange TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfRestartStatus, ospfRestartInterval, 
+        ospfRestartExitReason }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfRestartStatusChange trap signifies that
+        there has been a change in the graceful restart
+        state for the router.  This trap should be
+        generated when the router restart status
+        changes."
+    ::= 18
+
+ospfNbrRestartHelperStatusChange TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfNbrIpAddr, ospfNbrAddressLessIndex, 
+        ospfNbrRtrId, ospfNbrRestartHelperStatus, 
+        ospfNbrRestartHelperAge, ospfNbrRestartHelperExitReason }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfNbrRestartHelperStatusChange trap signifies that
+        there has been a change in the graceful restart
+        helper state for the neighbor.  This trap should be
+        generated when the neighbor restart helper status
+        transitions for a neighbor."
+    ::= 19
+
+ospfVirtNbrRestartHelperStatusChange TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE ospfTraps
+    VARIABLES {
+        ospfRouterId, ospfVirtNbrArea, ospfVirtNbrRtrId, 
+        ospfVirtNbrRestartHelperStatus, ospfVirtNbrRestartHelperAge, 
+        ospfVirtNbrRestartHelperExitReason }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "An ospfVirtNbrRestartHelperStatusChange trap signifies
+        that there has been a change in the graceful restart
+        helper state for the virtual neighbor.  This trap should
+        be generated when the virtual neighbor restart helper
+        status transitions for a virtual neighbor."
+    ::= 20
+
+ospfTrapControlGroup OBJECT IDENTIFIER ::= { ospfTrapGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These objects are required to control traps
+--    from OSPF systems.
+--  objects
+--    ospfSetTrap, ospfConfigErrorType, ospfPacketType, 
+--    ospfPacketSrc
+
+ospfTrapEventGroup OBJECT IDENTIFIER ::= { ospfTrapGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A grouping of OSPF trap events, as specified
+--    in NOTIFICATION-TYPE constructs.
+--  notifications
+--    ospfVirtIfStateChange, ospfNbrStateChange, 
+--    ospfVirtNbrStateChange, ospfIfConfigError, 
+--    ospfVirtIfConfigError, ospfIfAuthFailure, 
+--    ospfVirtIfAuthFailure, ospfIfRxBadPacket, 
+--    ospfVirtIfRxBadPacket, ospfTxRetransmit, 
+--    ospfVirtIfTxRetransmit, ospfOriginateLsa, ospfMaxAgeLsa, 
+--    ospfLsdbOverflow, ospfLsdbApproachingOverflow, 
+--    ospfIfStateChange, ospfNssaTranslatorStatusChange, 
+--    ospfRestartStatusChange, ospfNbrRestartHelperStatusChange, 
+--    ospfVirtNbrRestartHelperStatusChange
+
+ospfTrapCompliance OBJECT IDENTIFIER ::= { ospfTrapCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    obsolete
+--  Descr
+--    The compliance statement.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ospfTrapControlGroup
+
+ospfTrapCompliance2 OBJECT IDENTIFIER ::= { ospfTrapCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ospfTrapControlGroup
+--   MandGroup
+--    ospfTrapEventGroup
+--   ObjVar
+--    ospfConfigErrorType
+--   ObjVar
+--    ospfPacketType
+--   ObjVar
+--    ospfPacketSrc
+
+
+END
+

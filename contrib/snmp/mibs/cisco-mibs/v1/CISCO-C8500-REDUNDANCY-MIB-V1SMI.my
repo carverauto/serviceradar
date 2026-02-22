@@ -1,0 +1,569 @@
+-- MIB file created 26-Jan-2006 15:28:44, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-C8500-REDUNDANCY-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-C8500-REDUNDANCY-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TimeStamp, TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoC8500RedundancyMIB OBJECT IDENTIFIER ::= { ciscoMgmt 105 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200305040000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--            Cisco Systems
+--             Customer Service
+--    
+--    Postal:  170 W. Tasman Drive
+--             San Jose, CA  95134
+--             USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail:  cs-atm@cisco.com
+--  Descr
+--    This MIB allows management of redundancy of CPU and 
+--     switch cards for the Catalyst 8540 switch, and other 
+--     products with similar implementations.
+--    
+--     The Catalyst 8540 is an ATM switch. It has 13 (or, in
+--     some models, 14) slots, of which 2 slots can hold CPU
+--     cards, and 3 (or, in some models, 4) slots can hold
+--     switch cards. A switch card is one that contains the
+--     ATM switching fabric. Two switch cards are combined 
+--     to operate in 20Gbps switching mode.
+--     For CPU cards, 1+1 redundancy is supported.
+--     For switch cards, 2+1 redundancy is supported.
+--  RevDate
+--    200305040000Z
+--  RevDescr
+--    Added the following scalar objects to ccrCpu group:
+--     ccrCpuStandbyEnableMode, ccrCpuSwitchoverTime,
+--     ccrForceCounterSync, ccrIfCounterSyncFreq,
+--     ccrVcCounterSyncFreq, ccrSigCounterSyncEnable.
+--  RevDate
+--    199806220000Z
+--  RevDescr
+--    Initial version of the MIB Module.
+
+ciscoC8500RedundancyMIBObjects OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIB 1 }
+ccrCpu          OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIBObjects 1 }
+ccrSwitch       OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIBObjects 2 }
+ciscoC8500RedundancyMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIB 2 }
+ccrMIBNotifications OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIBNotificationPrefix 0 }
+ciscoC8500RedundancyMIBConformance OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIB 3 }
+ciscoC8500RedundancyMIBCompliances OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIBConformance 1 }
+ciscoC8500RedundancyMIBGroups OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIBConformance 2 }
+
+RedundancyStatus ::= INTEGER {
+        notPresent(1),
+        ok(2),
+        fault(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The operational status of a card.
+
+RedundancyMode ::= INTEGER {
+        active(1),
+        standby(2),
+        unused(3),
+        notPresent(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The redundancy mode of a card.
+--    
+--    The redundancy mode of a card is part of the state of
+--    the redundancy machine (i.e., the hardware or software
+--    that implements redundancy). The redundancy modes of
+--    all the cards in a redundancy group together represent
+--    the state of the redundancy machine for that
+--    redundancy group. The inputs to the redundancy machine
+--    that cause the redundancy mode of a card to transition
+--    from one value to another are events like card
+--    failure, card removal, user configuration, etc.
+--    Objects defined using this TC have a MAX-ACCESS of
+--    read-write or read-create. This allows a user to force
+--    the redundancy machine to transition to a desired 
+--    state.
+--    
+--    The following values may be written:
+--    
+--      active(1) - Make this card an active member of the
+--    redundancy group.
+--    
+--      standby(2) - Make this card a standby member of
+--    the redundancy group.
+--    
+--      unused(3)  - Do not use this card.
+--    
+--    Writing the above values may cause a switchover.
+--    
+--    When read, the values mean:
+--    
+--     active(1) - This card is an active member of the
+--    redundancy group.
+--    
+--     standby(2) - This card is a standby member of the
+--    redundancy group.
+--    
+--     unused(3) - This card is not being used at present.
+--    
+--     notPresent(4) - There is no card in the slot.
+
+RedundancySlotIndex ::= Gauge(1..65535)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A value that identifies a physical slot in the 
+--     chassis.
+--    
+--     For a chassis with slots that are numbered left to 
+--     right, the leftmost slot has value 1.
+--    
+--     For a chassis with slots that are numbered top to 
+--     bottom, the topmost slot has value 1.
+
+ccrCpuTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrCpuEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "There is an entry in this table for each slot that
+         can hold a CPU card."
+    ::= { ccrCpu 1 }
+
+ccrCpuEntry OBJECT-TYPE
+    SYNTAX CcrCpuEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Redundancy information for a CPU card."
+    INDEX { ccrCpuSlotIndex }
+    ::= { ccrCpuTable 1 }
+
+CcrCpuEntry ::= SEQUENCE {
+    ccrCpuSlotIndex RedundancySlotIndex,
+    ccrCpuMode RedundancyMode,
+    ccrCpuStatus RedundancyStatus
+    }
+
+ccrCpuSlotIndex OBJECT-TYPE
+    SYNTAX RedundancySlotIndex
+--    Rsyntax Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies a chassis slot."
+    ::= { ccrCpuEntry 1 }
+
+ccrCpuMode OBJECT-TYPE
+    SYNTAX RedundancyMode
+--    Rsyntax INTEGER {
+--        active(1),
+--        standby(2),
+--        unused(3),
+--        notPresent(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The redundancy mode of this CPU card."
+    ::= { ccrCpuEntry 2 }
+
+ccrCpuStatus OBJECT-TYPE
+    SYNTAX RedundancyStatus
+--    Rsyntax INTEGER {
+--        notPresent(1),
+--        ok(2),
+--        fault(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The operational status of this CPU card."
+    ::= { ccrCpuEntry 3 }
+
+ccrSyncConfigOnSet OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   runningConfig(0)
+        --   startupConfig(1)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The device's running-configuration and
+        startup-configuration both reside on the active CPU
+        card.  This object indicates whether these
+        configurations should be copied from the active CPU
+        to the standby CPU whenever they change.  It is
+        acceptable to copy either, both, or neither."
+    ::= { ccrCpu 2 }
+
+ccrCpuStandbyEnableMode OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to allow or disallow the
+         execution of the enable exec command on the 
+         secondary CPU.
+         
+         When set to 'true', the enable exec command can be 
+         executed on secondary CPU, and the user may enter 
+         enable mode after keying in the password configured.
+         When set to 'false', the enable exec command cannot 
+         be executed; thus, no user may enter enabled mode."
+    DEFVAL { false }
+    ::= { ccrCpu 3 }
+
+ccrCpuSwitchoverTime OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time taken for the most recent CPU switchover."
+    ::= { ccrCpu 4 }
+
+ccrForceCounterSync OBJECT-TYPE
+    SYNTAX INTEGER {
+        forcesync(1),
+        noop(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to force the synchronization of
+         counters from primary CPU to secondary CPU. It should
+         generally be set just before a controlled Route 
+         Processor Switchover.
+        
+         When this object is retrieved, the value 'noop' is 
+         returned.   When this object is set to 'noop' no 
+         operation is performed."
+    ::= { ccrCpu 5 }
+
+ccrIfCounterSyncFreq OBJECT-TYPE
+    SYNTAX INTEGER(0..1440)
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object configures the periodicity of interface
+         counter synchronization from primary CPU to 
+         secondary CPU. Setting this object to 0 will disable 
+         counter synchronization."
+    ::= { ccrCpu 6 }
+
+ccrVcCounterSyncFreq OBJECT-TYPE
+    SYNTAX INTEGER(0..1440)
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object configures the periodicity of Virtual 
+         Circuit (VC) counter synchronization from primary CPU
+         to secondary CPU.  Setting this object to 0 will 
+         disable counter synchronization."
+    ::= { ccrCpu 7 }
+
+ccrSigCounterSyncEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object configures the synchronization of ATM
+         Signalling Statistics from primary CPU to 
+         secondary CPU.
+        
+         When this object is set to 'true', sychronization 
+         is enabled.  When this object is set to 'false', 
+         synchronization is disabled."
+    ::= { ccrCpu 8 }
+
+ccrSwitchTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrSwitchEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "There is an entry in this table for each slot that
+         can hold a switch card. A 'switch card' is a card that
+         contains the ATM switch fabric."
+    ::= { ccrSwitch 1 }
+
+ccrSwitchEntry OBJECT-TYPE
+    SYNTAX CcrSwitchEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Redundancy information for a switch card."
+    INDEX { ccrSwitchSlotIndex }
+    ::= { ccrSwitchTable 1 }
+
+CcrSwitchEntry ::= SEQUENCE {
+    ccrSwitchSlotIndex RedundancySlotIndex,
+    ccrSwitchMode RedundancyMode,
+    ccrSwitchStatus RedundancyStatus
+    }
+
+ccrSwitchSlotIndex OBJECT-TYPE
+    SYNTAX RedundancySlotIndex
+--    Rsyntax Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies a chassis slot."
+    ::= { ccrSwitchEntry 1 }
+
+ccrSwitchMode OBJECT-TYPE
+    SYNTAX RedundancyMode
+--    Rsyntax INTEGER {
+--        active(1),
+--        standby(2),
+--        unused(3),
+--        notPresent(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The redundancy mode of this switch card."
+    ::= { ccrSwitchEntry 2 }
+
+ccrSwitchStatus OBJECT-TYPE
+    SYNTAX RedundancyStatus
+--    Rsyntax INTEGER {
+--        notPresent(1),
+--        ok(2),
+--        fault(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The operational status of this switch card."
+    ::= { ccrSwitchEntry 3 }
+
+ccrSwitchLastSwitchoverTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime at the last switchover of the 
+         switch cards. 
+        
+         The value is zero if there was no switchover since
+         agent initialization."
+    ::= { ccrSwitch 2 }
+
+ccrSwitchLastSwitchoverReason OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        notKnown(2),
+        userInitiated(3),
+        cardFailed(4),
+        cardRecovered(5),
+        cardRemoved(6),
+        cardInserted(7)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The reason for the last switch card switchover.
+        
+         The value is none(1) if there was no switchover since
+         agent initialization."
+    ::= { ccrSwitch 3 }
+
+ccrSwitchBw OBJECT-TYPE
+    SYNTAX INTEGER {
+        tenGbps(1),
+        twentyGbps(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The switching capacity (i.e., bandwidth) of the
+         switch fabric.
+            tenGbps(1) - 10 Gigabits/sec
+            twentyGbps(2) - 20 Gigabits/sec."
+    ::= { ccrSwitch 4 }
+
+ccrDesiredSwitchBw OBJECT-TYPE
+    SYNTAX INTEGER {
+        tenGbps(1),
+        twentyGbps(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The desired switching capacity (i.e., bandwidth) of 
+         the switch fabric.
+            tenGbps(1) - 10 Gigabits/sec
+            twentyGbps(2) - 20 Gigabits/sec
+        
+         If the value configured by writing to this object is
+         supported by the device, it will be applied at the 
+         next reboot. The speed at which the switch fabric is
+         currently operating is reflected by the value of 
+         ccrSwitchBw."
+    ::= { ccrSwitch 5 }
+
+ccrCpuStatusChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoC8500RedundancyMIBNotificationPrefix
+    VARIABLES {
+        ccrCpuStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the value of
+         ccrCpuStatus changes for a CPU card.
+        
+         The varbind indicates the current status of the
+         affected card."
+    ::= 1
+
+ccrSwitchStatusChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoC8500RedundancyMIBNotificationPrefix
+    VARIABLES {
+        ccrSwitchStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the value of
+         ccrSwitchStatus changes for a switch card.
+        
+         The varbind indicates the current status of the
+         affected card."
+    ::= 2
+
+ccrSwitchModeChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoC8500RedundancyMIBNotificationPrefix
+    VARIABLES {
+        ccrSwitchMode }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the value of
+         ccrSwitchMode changes from active(1) to either
+         standby(2) or unused(3) or notPresent(4).
+         The varbind indicates the current mode of the 
+         affected card."
+    ::= 3
+
+ccrCpuMibGroup OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    obsolete
+--  Descr
+--    A collection of objects providing the ability to
+--     manage CPU card redundancy.
+--  objects
+--    ccrCpuMode, ccrCpuStatus, ccrSyncConfigOnSet
+
+ccrSwitchMibGroup OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the ability to
+--     manage Switch Fabric card redundancy.
+--  objects
+--    ccrSwitchMode, ccrSwitchStatus, ccrSwitchLastSwitchoverTime, 
+--    ccrSwitchLastSwitchoverReason, ccrSwitchBw, 
+--    ccrDesiredSwitchBw
+
+ccrCpuMibGroup1 OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the ability to
+--    manage CPU card redundancy and redundancy feature
+--    for counter, enable password on secondary and
+--    switchover duration.
+--  objects
+--    ccrCpuMode, ccrCpuStatus, ccrSyncConfigOnSet, 
+--    ccrCpuStandbyEnableMode, ccrCpuSwitchoverTime, 
+--    ccrForceCounterSync, ccrIfCounterSyncFreq, 
+--    ccrVcCounterSyncFreq, ccrSigCounterSyncEnable
+
+ccrNotificationsGroup OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications related to redundancy.
+--  notifications
+--    ccrCpuStatusChange, ccrSwitchStatusChange, 
+--    ccrSwitchModeChange
+
+ciscoC8500RedundancyMIBCompliance OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    obsolete
+--  Descr
+--    The compliance statement for Cisco agents which 
+--     implement the CISCO-C8500-REDUNDANCY-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ccrCpuMibGroup
+--   MandGroup
+--    ccrSwitchMibGroup
+
+ciscoC8500RedundancyMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoC8500RedundancyMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement to include objects
+--     related to the redundancy features like
+--     enable password on secondary, switchover
+--     duration and counter.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ccrCpuMibGroup1
+--   MandGroup
+--    ccrSwitchMibGroup
+--   MandGroup
+--    ccrNotificationsGroup
+
+
+END
+

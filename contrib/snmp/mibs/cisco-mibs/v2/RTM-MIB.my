@@ -1,0 +1,344 @@
+-- *****************************************************************
+-- RTM MIB: Robust Trap Mechanism MIB
+--
+-- MIB For recovering the traps that are lost in the network.
+--
+-- July 2002
+--
+-- Copyright (c) 1996, 2001-2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+-- 
+-- LAST-UPDATED "200207090000Z"
+-- DESCRIPTION "This is the Robust Trap MIB(RTM) module.
+--              RTM requires that each of the traps/notifications
+--              have mandatory varbinds in the begining.
+--              The mandatory varbinds are different in
+--              different MGX products. However all the
+--              RTM Compliant Traps(notifications) have to have 
+--              'lastSequenceNumber' object
+--              as the first varbind. The 'lastSequenceNumber' value
+--              can be used by the SNMP managers to find the
+--              lost/missing traps(notifications) from the system.
+--
+--              The word 'system'(running agent)applies to MGX series
+--              products from Cisco Systems."
+--              The word 'manager' applies to any SNMP
+--              Manager application.
+--
+-- REVISION "200207090000Z"
+-- DESCRIPTION
+--    "- Added recoverTrapTable. This table can be used
+--       for recovering traps from the system."
+--
+--       It is recommended that 'recoverTable' is used
+--       instead of 'trapUploadTable' for recovering
+--       lost traps.
+--
+-- REVISION "200108220000Z"
+-- DESCRIPTION
+--    "- Clarified the descriptions of the mib objects.
+--     - SYNTAX range for managerNumOfValidEntries object
+--       have been changed from (0..8) to (0..12).
+--
+--        CONTACT-INFO
+--              "         Cisco Systems
+--                        Customer Service
+--
+--                Postal: 170 W Tasman Drive
+--                        San Jose, CA  95134
+--                        USA
+--
+--                        Tel: +1 800 553-NETS
+--
+--                E-mail: cs-wanatm@cisco.com"
+--    "
+--
+
+RTM-MIB DEFINITIONS ::= BEGIN
+ 
+IMPORTS
+    IpAddress                           FROM RFC1155-SMI
+    OBJECT-TYPE                         FROM RFC-1212
+    DisplayString                       FROM RFC1213-MIB
+    stratacom                           FROM CISCOWAN-SMI;
+ 
+ 
+rtm    OBJECT IDENTIFIER ::= { stratacom 120 }
+ 
+trapsConfig OBJECT IDENTIFIER ::= { rtm 1}
+
+--
+-- Trap Configuration Table.
+-- 
+
+trapConfigTable   OBJECT-TYPE
+    SYNTAX SEQUENCE OF TrapConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The trap configuration table. This table
+        is used for registering SNMP managers with the system.
+        The system will send traps only to the registered
+        SNMP mangers."
+    ::= { trapsConfig 1 }
+
+trapConfigEntry   OBJECT-TYPE
+    SYNTAX TrapConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry for each of the SNMP Manager registered.
+        Each SNMP Manager is identified by its IP Address
+        specified in managerIPAddress object."
+    INDEX   { managerIPaddress }
+    ::= { trapConfigTable 1 }
+ 
+TrapConfigEntry ::=
+        SEQUENCE {
+                managerIPaddress        IpAddress,
+                managerPortNumber       INTEGER,
+                managerRowStatus        INTEGER,
+                readingTrapsFlag        INTEGER,
+                nextTrapSeqNum          INTEGER
+        }
+managerIPaddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A unique index value representing the SNMP manager."
+    ::= { trapConfigEntry 1 }
+
+managerPortNumber OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The UDP Port number on which the manager
+        receives traps from a system."
+    ::= { trapConfigEntry 2}
+
+managerRowStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+               addRow (1),
+               delRow (2)
+           }
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is used for adding(registering) and
+        deleting(de-registering) SNMP managers in the system.
+        By setting this object to 'addRow' snmp manager will be
+        registered with the system.
+
+        By setting this object to 'delRow' snmp manager will be
+        registered with the system.
+
+        In some systems, the SNMP Manager will be de-registered
+        automatically by the agent (to allow other SNMP managers
+        to register), if manager is idle for long time(
+        This time is called aging interval time).
+        In order to avoid Managers being de-registered automatically
+        it is expected that the SNMP Managers keep sending
+        keep-alive requests(SNMP GET on this object)
+        to the system for predefined interval(Choosen by
+        SNMP Manager). The keep-alive requests need to be 
+        sent few minutes before the aging interval expires.
+
+        The aging value of the Registered Managers are in the 
+        order of minutes(system dependent or user configured).
+        The value supported for the aging value 
+        is system dependent. The system might support
+        aging value per manager basis or per node basis
+        (applicable to all the registered managers).
+        "
+        ::= { trapConfigEntry 3}
+
+readingTrapsFlag OBJECT-TYPE
+    SYNTAX INTEGER {
+               false(1),
+               true(2)
+           }
+    ACCESS read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "An entry for the state of the manager.
+        The value 'false' indicates that SNMP manager is not
+        in the middle of uploading traps(via trapUploadTable).
+
+        The value 'true' indicates that SNMP manager is in the
+        middle of uploading traps(via trapUploadTable).
+
+        When the value is 'true' the system will not send traps
+        to the corresponding manager identified by
+        managerIPAddress object."
+        ::= { trapConfigEntry 4}
+
+nextTrapSeqNum OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "Set by the manager to indicate the first trap(identified
+        by this sequence number) it is interested in uploading.
+        The agent increments this value when readingTrapsFlag is
+        set to true(1) and SNMP Get is performed on trapUploadTable.
+        The trapUploadTable entries returned depends upon this
+        value. If there are no traps in the system with the 
+        the sequence number, the agent will set the value for
+        this object to the head of FIFO(Saved traps)
+        and return an error response."
+    ::= { trapConfigEntry 5}
+
+managerNumOfValidEntries OBJECT-TYPE
+    SYNTAX INTEGER (0..12)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of entries in trapConfigTable."
+    ::= { trapsConfig 2 }
+
+lastSequenceNumber OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sequence number of the last trap generated by
+        the system. This object is used in each of the 
+        RTM Compliant trap definitions. The manager can 
+        figure out whether any trap is lost(missing) by comparing
+        the lastSequenceNumber values received in last 2 traps."
+    ::= { trapsConfig 3}
+
+-- 
+-- Trap Upload Table
+--
+
+trapUploadTable   OBJECT-TYPE
+    SYNTAX  SEQUENCE OF TrapUploadEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "The trapUploadTable is used by the manager to retrieve
+        missing(lost) traps using robust trap mechanism.
+        The manager does a Get request on this table."
+    ::= { trapsConfig 4}
+
+trapUploadEntry   OBJECT-TYPE
+    SYNTAX TrapUploadEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Manager does a Get request on the elements of this entry
+        to upload missing traps."
+    INDEX   { trapManagerIPaddress }
+    ::= { trapUploadTable 1 }
+
+TrapUploadEntry ::= 
+    SEQUENCE {
+        trapManagerIPaddress IpAddress,
+        trapSequenceNum      INTEGER,
+        trapPduString        DisplayString,
+        endOfQueueFlag       INTEGER
+    }
+
+trapManagerIPaddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP address of the manager used as an index to the table.
+        The value of this object must match with the value
+        in the managerIPaddress object."
+        ::= { trapUploadEntry 1 }
+
+trapSequenceNum OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sequence number associated with the trap.
+        This sequence number has to match with the
+        value in lastSequenceNumber object embedded
+        in trapPduString."
+    ::= { trapUploadEntry 2}
+
+trapPduString OBJECT-TYPE
+    SYNTAX DisplayString 
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Trap description string. This contains the Trap PDU
+        that is stored in the system."
+        ::= { trapUploadEntry 3}
+
+endOfQueueFlag OBJECT-TYPE
+    SYNTAX INTEGER {
+               false (1),
+               true (2)
+           }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Flag indicating the last trap saved in the
+        system's FIFO queue."
+        ::= { trapUploadEntry 4}
+
+
+--
+-- Trap Recover Table
+--
+
+recoverTrapTable   OBJECT-TYPE
+     SYNTAX  SEQUENCE OF RecoverTrapEntry
+     ACCESS  not-accessible
+     STATUS  mandatory
+     DESCRIPTION
+         "A table containing information about the traps
+         sent from the system/switch. The total number of
+         traps stored in the switch is implementation
+         specific.
+         It is expected that systems supporting RTM Mechanism
+         save atleast least 500 traps , so that NMS
+         applications can recover the traps if they
+         determined it to be lost."
+     ::= { trapsConfig 5}
+
+recoverTrapEntry OBJECT-TYPE
+     SYNTAX RecoverTrapEntry
+     ACCESS not-accessible
+     STATUS mandatory
+     DESCRIPTION
+         "The entry for each of the traps stored in the switch."
+     INDEX   { recoverTrapSequenceNum }
+     ::= { recoverTrapTable 1 }
+
+RecoverTrapEntry ::=
+     SEQUENCE {
+         recoverTrapSequenceNum      INTEGER,
+         recoverTrapPduString        OCTET STRING
+     }
+
+recoverTrapSequenceNum OBJECT-TYPE
+     SYNTAX     INTEGER(0..2147483647)
+     ACCESS     read-only
+     STATUS     mandatory
+     DESCRIPTION
+         "The sequence number associated with the trap.
+         The system tries to find a matching entry
+         in the list of traps stored.
+         If there is a match, an valid entry returned 
+         with value for 'recoverTrapPduString' object."
+     ::= { recoverTrapEntry 1}
+
+recoverTrapPduString OBJECT-TYPE
+     SYNTAX     OCTET STRING (SIZE(0..512))
+     ACCESS     read-only
+     STATUS     mandatory
+     DESCRIPTION
+         "Trap description string. This contains the Trap PDU
+         that is stored in the system."
+     ::= { recoverTrapEntry 2 }
+END

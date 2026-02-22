@@ -1,0 +1,1173 @@
+-- *****************************************************************
+-- CISCO-FIBRECHANNEL-MIB.my
+-- Fibre Channel INTERFACE MIB
+--
+-- May 2021 Rahul Shivaprasad (rshivapr)
+--
+-- Copyright (c) 2021 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-FIBRECHANNEL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    DisplayString,
+    MacAddress,
+    TimeStamp
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    ifIndex,
+    ifName
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoFibreChanMIB MODULE-IDENTITY
+    LAST-UPDATED    "202105070000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-<list>@cisco.com"
+    DESCRIPTION
+        "This MIB module defines the managed objects for physical layer
+        characteristics of Fibre Channel interfaces and performance
+        statistics objects for protocol specific counters in Fibre Channel
+        devices.
+        Performance monitoring (PM) parameters are used by service
+        providers to gather, store, set thresholds for and report
+        performance data for early detection of problems.
+        Thresholds are used to set error levels for each PM parameter.
+        During the accumulation cycle, if the current value of a
+        performance monitoring parameter reaches or exceeds its
+        corresponding threshold value, a threshold crossing alarm (TCA)
+        is generated. The TCAs provide early detection of performance
+        degradation."
+        ::= { ciscoMgmt 1053 }
+
+-- Textual Conventions
+
+CoiIntervalType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the time period over which performance
+        monitoring data has been collected. Valid values are -
+
+        fifteenMin(1)  -  values for the 15 min interval.
+        oneDay(2)      -  values for the 1  Day interval.
+        thirtySeconds(3) - values for the 30 second interval"
+    SYNTAX          INTEGER  {
+                        fifteenMin(1),
+                        oneDay(2),
+                        thirtySeconds(3)
+                    }
+-- Textual Conventions definition will be defined before this line
+
+-- MIB Notification Definitions
+
+ciscoFibreChanMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoFibreChanMIB 0 }
+
+-- MIB Object Definitions 
+
+ciscoFibreChanMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoFibreChanMIB 1 }
+
+coiFibreChanController OBJECT IDENTIFIER
+    ::= { ciscoFibreChanMIBObjects 1 }
+
+coiFcPm OBJECT IDENTIFIER
+    ::= { ciscoFibreChanMIBObjects 2 }
+
+coiFecPm OBJECT IDENTIFIER
+    ::= { ciscoFibreChanMIBObjects 3 }
+
+coiPcsPm OBJECT IDENTIFIER
+    ::= { ciscoFibreChanMIBObjects 4 }
+
+coiFibreChanControllerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiFibreChanControllerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for physical layer
+        related attributes of interfaces with an ifType of
+        FibreChannel(56)" 
+    ::= { coiFibreChanController 1 }
+
+coiFibreChanControllerEntry OBJECT-TYPE
+    SYNTAX          CoiFibreChanControllerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on physical layer
+        related attributes of interfaces with an ifType
+        FibreChannel(56). Entries are created by the feature when a
+        new interface is added. Entries are deleted by the agent 
+        when an interface is removed."
+    INDEX   { ifIndex }
+    ::= { coiFibreChanControllerTable 1 }
+
+
+CoiFibreChanControllerEntry ::= SEQUENCE {
+        coiFibreChanControllerAdminStatus               INTEGER,
+        coiFibreChanControllerOperStatus                INTEGER,
+        coiFibreChanControllerLoopbackInfo              INTEGER,
+        coiFibreChanControllerAlarmStatus               BITS
+        }
+
+
+coiFibreChanControllerAdminStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        down(0),
+                        up(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the administration status
+        of the Fibre Channel interfaces. when it is set to down(0),
+        it results in transmitted being stopped and there should be 
+        corresponding change in coiFibreChanControllerOperStatus. 
+        Valid values are :
+        down(0):          The controller is in down state. 
+        up(1):            The controller is in up state" 
+    ::= { coiFibreChanControllerEntry 1 }
+
+coiFibreChanControllerOperStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        down(0),
+                        up(1)
+                        }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the current operational state of the 
+        Fibre Channel controller, valid values are -
+        down(0):          The controller is in down state.
+        up(1):            The controller is in up state.
+        If coiFibreChanControllerAdminStatus is down(0) then 
+        coiFibreChanControllerOperStatus should be down(0). If 
+        coiFibreChanControllerAdminStatus is changed to up(1) then
+        coiFibreChanControllerOperStatus should change to up(1), provided
+        the controller is operational and ready to transmit traffic.
+        It should remain in down(0) if there is a fault that prevents
+        it from going to the up(1) state. " 
+    ::= { coiFibreChanControllerEntry 2 }
+
+coiFibreChanControllerLoopbackInfo OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        loopbackNone(0),
+                        loopbackLine(1),
+                        loopbackInternal(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the loopback value of the Fibre Channel controller,
+        valid values are -
+        loopbackNone(0):       No controller loopback info
+        loopbackLine(1):       The controller loopback info is line level  
+        loopbackInternal(2):   The controller loopback info is internal level. "
+    ::= { coiFibreChanControllerEntry 3 }
+
+coiFibreChanControllerAlarmStatus OBJECT-TYPE
+    SYNTAX          BITS {
+                        noAlarm(0),
+                        los(1),
+                        syncLoss(2),
+                        pcsErr(3),
+                        hiBer(4),
+                        localFault(5),
+                        remoteFault(6),
+                        nos(7),
+                        squelch(8)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current defect status of the Fibre Channel 
+        controller. Valid values are - 
+         noAlarm(0):     No Alarm. This bit will be set when none of the 
+                         following defect bits are set.
+         los(1):         LOS (Loss Of Signal). This bit will be set when
+                         LOS alarm condition is detected on the Fibre Channel
+                         Recieve side.
+         syncLoss(2):    Sync Loss alarm.
+         pcsErr(3):      PCS (Physical Coding Sublayer) Error alarm.
+         hiBer(4):       high BER(Block Errored Seconds Ratio) alarm.
+         localFault(5):  Local Fault alarm.
+         remoteFault(6): Remote Fault alarm.
+         nos(7):         NOS (Not-Operational primitive Sequence).
+         squelch(8):     Squelch alarm."
+    ::= { coiFibreChanControllerEntry 4 }
+
+coiFcPmCurrentTable OBJECT IDENTIFIER
+    ::= { coiFcPm 1 }
+
+coiFcPmCurrentEntry OBJECT-TYPE
+    SYNTAX          CoiFcPmCurrentEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing Fibre Channel layer performance monitoring current interval data
+        for Fibre Channel Controller."
+    INDEX           {
+                        ifIndex,
+                        coiFcPmCurrentIntervalType
+                    }
+    ::= { coiFcPmCurrentTable 1 }
+    
+CoiFcPmCurrentEntry ::= SEQUENCE {
+        coiFcPmCurrentIntervalType      CoiIntervalType,
+        coiFcPmIfInOctets               Counter64,
+        coiFcPmRxTotalPkts              Counter64,
+        coiFcPmIfInErrors               Counter64,
+        coiFcPmRxBadFcs                 Counter64,
+        coiFcPmRxFramesTooShort         Counter64,
+        coiFcPmRxFramesTooLong          Counter64,
+        coiFcPmIfOutOctets              Counter64,
+        coiFcPmTxTotalPkts              Counter64,
+        coiFcPmTxBadFcs                 Counter64,
+        coiFcPmTxFramesTooShort         Counter64,
+        coiFcPmTxFramesTooLong          Counter64,
+        coiFcCurrentPmValidData         TruthValue
+}
+
+coiFcPmCurrentIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type for which Fibre Channel layer
+         current performance monitoring data is collected."
+    ::= { coiFcPmCurrentEntry 1 }
+
+coiFcPmIfInOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of bytes received since the last counter reset."
+    ::= { coiFcPmCurrentEntry 2 }
+
+coiFcPmRxTotalPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of receive packets."
+    ::= { coiFcPmCurrentEntry 3 }
+
+coiFcPmIfInErrors OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of receive errors."
+    ::= { coiFcPmCurrentEntry 4 }
+
+coiFcPmRxBadFcs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of received frames with bad FCS, no coding error."
+    ::= { coiFcPmCurrentEntry 5 }
+
+coiFcPmRxFramesTooShort OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of truncated received frames."
+    ::= { coiFcPmCurrentEntry 6 }
+
+coiFcPmRxFramesTooLong OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of too long received frames."
+    ::= { coiFcPmCurrentEntry 7 }
+
+coiFcPmIfOutOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of octets transmitted out of the interface,
+         including framing characters."
+    ::= { coiFcPmCurrentEntry 8 }
+
+coiFcPmTxTotalPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of transmitted packets."
+    ::= { coiFcPmCurrentEntry 9 }
+
+coiFcPmTxBadFcs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of transmitted frames with bad FCS, no coding error."
+    ::= { coiFcPmCurrentEntry 10 }
+
+coiFcPmTxFramesTooShort OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of truncated transmitted frames."
+    ::= { coiFcPmCurrentEntry 11 }
+
+coiFcPmTxFramesTooLong OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of too long transmitted frames."
+    ::= { coiFcPmCurrentEntry 12 }
+
+coiFcCurrentPmValidData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates if the Fibre Channel layer performance monitoring data for the
+         interval identified by coiFcPmCurrentIntervalType is valid."
+    ::= { coiFcPmCurrentEntry 13 }
+
+coiFcPmHistoryTable OBJECT IDENTIFIER
+    ::= { coiFcPm 2 }
+
+coiFcPmHistoryEntry OBJECT-TYPE
+    SYNTAX          CoiFcPmHistoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing Fibre Channel layer performance monitoring historical interval data
+        for Fibre Channel Controller."
+    INDEX           { 
+                        ifIndex,
+                        coiFcPmHistoryIntervalType,
+                        coiFcPmIntervalNumber
+                    }
+    ::= { coiFcPmHistoryTable 1 }
+    
+CoiFcPmHistoryEntry ::= SEQUENCE {
+        coiFcPmHistoryIntervalType             CoiIntervalType,
+        coiFcPmIntervalNumber                    Unsigned32,
+        coiFcPmHistoryIfInOctets               Counter64,
+        coiFcPmHistoryRxTotalPkts              Counter64,
+        coiFcPmHistoryIfInErrors               Counter64,
+        coiFcPmHistoryRxBadFcs                 Counter64,
+        coiFcPmHistoryRxFramesTooShort         Counter64,
+        coiFcPmHistoryRxFramesTooLong          Counter64,
+        coiFcPmHistoryIfOutOctets              Counter64,
+        coiFcPmHistoryTxTotalPkts              Counter64,        
+        coiFcPmHistoryTxBadFcs                 Counter64,
+        coiFcPmHistoryTxFramesTooShort         Counter64,
+        coiFcPmHistoryTxFramesTooLong          Counter64,
+        coiFcPmHistoryValidData                TruthValue
+}
+
+coiFcPmHistoryIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type for which Fibre Channel layer
+         historical performance monitoring data is collected."
+    ::= { coiFcPmHistoryEntry 1 }
+
+coiFcPmIntervalNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..32)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval number for Fibre Channel layer
+         performance monitoring data in given interval."
+    ::= { coiFcPmHistoryEntry 2 }
+
+coiFcPmHistoryIfInOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of bytes received since the last counter reset."
+    ::= { coiFcPmHistoryEntry 3 }
+
+coiFcPmHistoryRxTotalPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of receive packets."
+    ::= { coiFcPmHistoryEntry 4 }
+
+coiFcPmHistoryIfInErrors OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of receive errors."
+    ::= { coiFcPmHistoryEntry 5 }
+
+coiFcPmHistoryRxBadFcs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of received frames with bad FCS, no coding error."
+    ::= { coiFcPmHistoryEntry 6 }
+
+coiFcPmHistoryRxFramesTooShort OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of truncated received frames."
+    ::= { coiFcPmHistoryEntry 7 }
+
+coiFcPmHistoryRxFramesTooLong OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of too long received frames."
+    ::= { coiFcPmHistoryEntry 8 }
+
+coiFcPmHistoryIfOutOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of octets transmitted out of the interface,
+         including framing characters."
+    ::= { coiFcPmHistoryEntry 9 }
+
+coiFcPmHistoryTxTotalPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of transmitted packets."
+    ::= { coiFcPmHistoryEntry 10 }
+
+coiFcPmHistoryTxBadFcs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of transmitted frames with bad FCS, no coding error."
+    ::= { coiFcPmHistoryEntry 11 }
+
+coiFcPmHistoryTxFramesTooShort OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of truncated transmitted frames."
+    ::= { coiFcPmHistoryEntry 12 }
+
+coiFcPmHistoryTxFramesTooLong OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of too long transmitted frames."
+    ::= { coiFcPmHistoryEntry 13 }
+
+coiFcPmHistoryValidData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates if the Fibre Channel layer performance monitoring data for the
+         interval identified by coiFcPmHistoryIntervalType is valid."
+    ::= { coiFcPmHistoryEntry 14 }
+
+
+coiPcsPmCurrentTable OBJECT IDENTIFIER
+    ::= { coiPcsPm 1 }
+
+coiPcsPmCurrentEntry OBJECT-TYPE
+    SYNTAX          CoiPcsPmCurrentEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing PCS layer performance monitoring current interval data
+        for Fibre Channel Controller."
+    INDEX           {
+                        ifIndex,
+                        coiPcsPmCurrentIntervalType
+                    }
+    ::= { coiPcsPmCurrentTable 1 }
+    
+CoiPcsPmCurrentEntry ::= SEQUENCE {
+        coiPcsPmCurrentIntervalType      CoiIntervalType,
+        coiPcsPmCumBip                      Counter64,
+        coiPcsPmCumFrmError                 Counter64,
+        coiPcsPmCumBadSh                    Counter64,
+        coiPcsPmEs                       Counter64,
+        coiPcsPmSes                      Counter64,
+        coiPcsPmUas                      Counter64,
+        coiPcsPmFarEndEs                     Counter64,
+        coiPcsPmFarEndSes                    Counter64,
+        coiPcsPmFarEndUas                    Counter64,
+        coiPcsCurrentPmValidData         TruthValue
+}
+
+coiPcsPmCurrentIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type for which PCS layer
+         current performance monitoring data is collected."
+    ::= { coiPcsPmCurrentEntry 1 }
+
+coiPcsPmCumBip OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the cumulative number of BIP errors."
+    ::= { coiPcsPmCurrentEntry 2 }
+
+coiPcsPmCumFrmError OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the cumulative number of frame errors."
+    ::= { coiPcsPmCurrentEntry 3 }
+
+coiPcsPmCumBadSh OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the cumulative number of bad sync header errors."
+    ::= { coiPcsPmCurrentEntry 4 }
+
+coiPcsPmEs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of errored seconds."
+    ::= { coiPcsPmCurrentEntry 5 }
+
+coiPcsPmSes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of severely errored seconds."
+    ::= { coiPcsPmCurrentEntry 6 }
+
+coiPcsPmUas OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of unavailable seconds."
+    ::= { coiPcsPmCurrentEntry 7 }
+
+coiPcsPmFarEndEs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of errored seconds on the far end."
+    ::= { coiPcsPmCurrentEntry 8 }
+
+coiPcsPmFarEndSes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of severely errored seconds on the far end."
+    ::= { coiPcsPmCurrentEntry 9 }
+
+coiPcsPmFarEndUas OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of unavailable seconds on the far end."
+    ::= { coiPcsPmCurrentEntry 10 }
+
+coiPcsCurrentPmValidData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates if the PCS layer performance monitoring data for the
+         interval identified by coiPcsPmCurrentIntervalType is valid."
+    ::= { coiPcsPmCurrentEntry 11 }
+
+coiPcsPmHistoryTable OBJECT IDENTIFIER
+    ::= { coiPcsPm 2 }
+
+coiPcsPmHistoryEntry OBJECT-TYPE
+    SYNTAX          CoiPcsPmHistoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing PCS layer performance monitoring historical interval data
+        for Fibre Channel Controller."
+    INDEX           { 
+                        ifIndex,
+                        coiPcsPmHistoryIntervalType,
+                        coiPcsPmIntervalNumber
+                    }
+    ::= { coiPcsPmHistoryTable 1 }
+
+CoiPcsPmHistoryEntry ::= SEQUENCE {
+        coiPcsPmHistoryIntervalType             CoiIntervalType,
+        coiPcsPmIntervalNumber                    Unsigned32,
+        coiPcsPmHistoryCumBip                      Counter64,
+        coiPcsPmHistoryCumFrmError                 Counter64,
+        coiPcsPmHistoryCumBadSh                    Counter64,
+        coiPcsPmHistoryEs                       Counter64,
+        coiPcsPmHistorySes                      Counter64,
+        coiPcsPmHistoryUas                      Counter64,
+        coiPcsPmHistoryEsFe                     Counter64,
+        coiPcsPmHistorySesFe                    Counter64,
+        coiPcsPmHistoryUasFe                    Counter64,
+        coiPcsPmHistoryValidData                TruthValue
+}
+
+coiPcsPmHistoryIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type for which PCS layer
+         historical performance monitoring data is collected."
+    ::= { coiPcsPmHistoryEntry 1 }
+
+coiPcsPmIntervalNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..32)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval number for PCS layer
+         performance monitoring data in given interval."
+    ::= { coiPcsPmHistoryEntry 2 }
+
+coiPcsPmHistoryCumBip OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the cumulative number of BIP errors."
+    ::= { coiPcsPmHistoryEntry 3 }
+
+coiPcsPmHistoryCumFrmError OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the cumulative number of frame errors."
+    ::= { coiPcsPmHistoryEntry 4 }
+
+coiPcsPmHistoryCumBadSh OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the cumulative number of bad sync header errors."
+    ::= { coiPcsPmHistoryEntry 5 }
+
+coiPcsPmHistoryEs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of errored seconds."
+    ::= { coiPcsPmHistoryEntry 6 }
+
+coiPcsPmHistorySes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of severely errored seconds."
+    ::= { coiPcsPmHistoryEntry 7 }
+
+coiPcsPmHistoryUas OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of unavailable seconds."
+    ::= { coiPcsPmHistoryEntry 8 }
+
+coiPcsPmHistoryEsFe OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of errored seconds on the far end."
+    ::= { coiPcsPmHistoryEntry 9 }
+
+coiPcsPmHistorySesFe OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of severely errored seconds on the far end."
+    ::= { coiPcsPmHistoryEntry 10 }
+
+coiPcsPmHistoryUasFe OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of unavailable seconds on the far end."
+    ::= { coiPcsPmHistoryEntry 11 }
+
+coiPcsPmHistoryValidData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates if the PCS layer performance monitoring data for the
+         interval identified by coiPcsPmHistoryIntervalType is valid."
+    ::= { coiPcsPmHistoryEntry 12 }
+
+
+coiFecPmCurrentTable OBJECT IDENTIFIER
+    ::= { coiFecPm 1 }
+
+coiFecPmCurrentEntry OBJECT-TYPE
+    SYNTAX          CoiFecPmCurrentEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing FEC layer performance monitoring current interval data
+        for Fibre Channel Controller."
+    INDEX           {
+                        ifIndex,
+                        coiFecPmCurrentIntervalType
+                    }
+    ::= { coiFecPmCurrentTable 1 }
+    
+CoiFecPmCurrentEntry ::= SEQUENCE {
+        coiFecPmCurrentIntervalType      CoiIntervalType,
+        coiFecPmCorWordErrs              Counter64,
+        coiFecPmUncorWords               Counter64,
+        coiFecPmPreFECMin                DisplayString,
+        coiFecPmPreFECMax                DisplayString,
+        coiFecPmPreFECAvg                DisplayString,
+        coiFecPmPostFECMin               DisplayString,
+        coiFecPmPostFECMax               DisplayString,
+        coiFecPmPostFECAvg               DisplayString,
+        coiFecPmQFactorMin               DisplayString,
+        coiFecPmQFactorMax               DisplayString,
+        coiFecPmQFactorAvg               DisplayString,
+        coiFecPmQMarginMin               DisplayString,
+        coiFecPmQMarginMax               DisplayString,
+        coiFecPmQMarginAvg               DisplayString,
+        coiFecPmInstQMarginMin           DisplayString,
+        coiFecPmInstQMarginMax           DisplayString,
+        coiFecPmInstQMarginAvg           DisplayString,
+        coiFecCurrentPmValidData         TruthValue
+}
+
+coiFecPmCurrentIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type for which FEC layer
+         current performance monitoring data is collected."
+    ::= { coiFecPmCurrentEntry 1 }
+
+coiFecPmCorWordErrs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of corrected word errors."
+    ::= { coiFecPmCurrentEntry 2 }
+
+coiFecPmUncorWords OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of number of uncorrectable words encountered."
+    ::= { coiFecPmCurrentEntry 3 }
+
+coiFecPmPreFECMin OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the minimum value of PreFEC BER."
+    ::= { coiFecPmCurrentEntry 4 }
+
+coiFecPmPreFECMax OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the maximum value of PreFEC BER."
+    ::= { coiFecPmCurrentEntry 5 }
+
+coiFecPmPreFECAvg OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the average value of PreFEC BER."
+    ::= { coiFecPmCurrentEntry 6 }
+
+coiFecPmPostFECMin OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the minimum value of PostFEC BER."
+    ::= { coiFecPmCurrentEntry 7 }
+
+coiFecPmPostFECMax OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the maximum value of PostFEC BER."
+    ::= { coiFecPmCurrentEntry 8 }
+
+coiFecPmPostFECAvg OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the average value of PostFEC BER."
+    ::= { coiFecPmCurrentEntry 9 }
+
+coiFecPmQFactorMin OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the minimum value of Q Factor."
+    ::= { coiFecPmCurrentEntry 10 }
+
+coiFecPmQFactorMax OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the maximum value of Q Factor."
+    ::= { coiFecPmCurrentEntry 11 }
+
+coiFecPmQFactorAvg OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the average value of Q Factor."
+    ::= { coiFecPmCurrentEntry 12 }
+
+coiFecPmQMarginMin OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the minimum value of Q Margin."
+    ::= { coiFecPmCurrentEntry 13 }
+
+coiFecPmQMarginMax OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the maximum value of Q Margin."
+    ::= { coiFecPmCurrentEntry 14 }
+
+coiFecPmQMarginAvg OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the average value of Q Margin."
+    ::= { coiFecPmCurrentEntry 15 }
+
+coiFecPmInstQMarginMin OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the minimum value of Instantaneous Q Margin."
+    ::= { coiFecPmCurrentEntry 16 }
+
+coiFecPmInstQMarginMax OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the maximum value of Instantaneous Q Margin."
+    ::= { coiFecPmCurrentEntry 17 }
+
+coiFecPmInstQMarginAvg OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the average value of Instantaneous Q Margin."
+    ::= { coiFecPmCurrentEntry 18 }
+
+coiFecCurrentPmValidData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates if the FEC layer performance monitoring data for the
+         interval identified by coiFecPmCurrentIntervalType is valid."
+    ::= { coiFecPmCurrentEntry 19 }
+
+coiFecPmHistoryTable OBJECT IDENTIFIER
+    ::= { coiFecPm 2 }
+
+coiFecPmHistoryEntry OBJECT-TYPE
+    SYNTAX          CoiFecPmHistoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing FEC layer performance monitoring historical interval data
+        for Fibre Channel Controller."
+    INDEX           { 
+                        ifIndex,
+                        coiFecPmHistoryIntervalType,
+                        coiFecPmIntervalNumber
+                    }
+    ::= { coiFecPmHistoryTable 1 }
+    
+CoiFecPmHistoryEntry ::= SEQUENCE {
+        coiFecPmHistoryIntervalType             CoiIntervalType,
+        coiFecPmIntervalNumber                    Unsigned32,
+        coiFecPmHistoryCorWordErrs              Counter64,
+        coiFecPmHistoryUncorWords               Counter64,
+        coiFecPmHistoryPreFECMin                DisplayString,
+        coiFecPmHistoryPreFECMax                DisplayString,
+        coiFecPmHistoryPreFECAvg                DisplayString,
+        coiFecPmHistoryPostFECMin               DisplayString,
+        coiFecPmHistoryPostFECMax               DisplayString,
+        coiFecPmHistoryPostFECAvg               DisplayString,
+        coiFecPmHistoryQFactorMin               DisplayString,
+        coiFecPmHistoryQFactorMax               DisplayString,
+        coiFecPmHistoryQFactorAvg               DisplayString,
+        coiFecPmHistoryQMarginMin               DisplayString,
+        coiFecPmHistoryQMarginMax               DisplayString,
+        coiFecPmHistoryQMarginAvg               DisplayString,
+        coiFecPmHistoryInstQMarginMin           DisplayString,
+        coiFecPmHistoryInstQMarginMax           DisplayString,
+        coiFecPmHistoryInstQMarginAvg           DisplayString,
+        coiFecPmHistoryValidData                TruthValue
+}
+
+coiFecPmHistoryIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type for which FEC layer
+         historical performance monitoring data is collected."
+    ::= { coiFecPmHistoryEntry 1 }
+
+coiFecPmIntervalNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..32)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval number for FEC layer
+         performance monitoring data in given interval."
+    ::= { coiFecPmHistoryEntry 2 }
+
+coiFecPmHistoryCorWordErrs OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of corrected word errors."
+    ::= { coiFecPmHistoryEntry 3 }
+
+coiFecPmHistoryUncorWords OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of number of uncorrectable words encountered."
+    ::= { coiFecPmHistoryEntry 4 }
+
+coiFecPmHistoryPreFECMin OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the minimum value of PreFEC BER."
+    ::= { coiFecPmHistoryEntry 5 }
+
+coiFecPmHistoryPreFECMax OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the maximum value of PreFEC BER."
+    ::= { coiFecPmHistoryEntry 6 }
+
+coiFecPmHistoryPreFECAvg OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the average value of PreFEC BER."
+    ::= { coiFecPmHistoryEntry 7 }
+
+coiFecPmHistoryPostFECMin OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the minimum value of PostFEC BER."
+    ::= { coiFecPmHistoryEntry 8 }
+
+coiFecPmHistoryPostFECMax OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the maximum value of PostFEC BER."
+    ::= { coiFecPmHistoryEntry 9 }
+
+coiFecPmHistoryPostFECAvg OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the average value of PostFEC BER."
+    ::= { coiFecPmHistoryEntry 10 }
+
+coiFecPmHistoryQFactorMin OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the minimum value of Q Factor."
+    ::= { coiFecPmHistoryEntry 11 }
+
+coiFecPmHistoryQFactorMax OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the maximum value of Q Factor."
+    ::= { coiFecPmHistoryEntry 12 }
+
+coiFecPmHistoryQFactorAvg OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the average value of Q Factor."
+    ::= { coiFecPmHistoryEntry 13 }
+
+coiFecPmHistoryQMarginMin OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the minimum value of Q Margin."
+    ::= { coiFecPmHistoryEntry 14 }
+
+coiFecPmHistoryQMarginMax OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the maximum value of Q Margin."
+    ::= { coiFecPmHistoryEntry 15 }
+
+coiFecPmHistoryQMarginAvg OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the average value of Q Margin."
+    ::= { coiFecPmHistoryEntry 16 }
+
+coiFecPmHistoryInstQMarginMin OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the minimum value of Instantaneous Q Margin."
+    ::= { coiFecPmHistoryEntry 17 }
+
+coiFecPmHistoryInstQMarginMax OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the maximum value of Instantaneous Q Margin."
+    ::= { coiFecPmHistoryEntry 18 }
+
+coiFecPmHistoryInstQMarginAvg OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the average value of Instantaneous Q Margin."
+    ::= { coiFecPmHistoryEntry 19 }
+
+coiFecPmHistoryValidData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates if the FEC layer performance monitoring data for the
+         interval identified by coiFecPmHistoryIntervalType is valid."
+    ::= { coiFecPmHistoryEntry 20 }
+
+
+-- MIB Conformance Statements
+
+ciscoFibreChanMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoFibreChanMIB 2 }
+
+ciscoFibreChanMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoFibreChanMIBConformance 1 }
+
+ciscoFibreChanMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoFibreChanMIBConformance 2 }
+
+
+END

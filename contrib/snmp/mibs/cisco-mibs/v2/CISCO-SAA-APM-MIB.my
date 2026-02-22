@@ -1,0 +1,499 @@
+-- *****************************************************************
+-- SAA Application Performance Monitoring (SAA APM) MIB
+--
+-- Feb 2000, Rahul Patel
+--
+-- Copyright (c) 2000 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+
+CISCO-SAA-APM-MIB DEFINITIONS ::= BEGIN
+ 
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE,
+        Integer32, Gauge32 
+                FROM SNMPv2-SMI
+        TruthValue, TimeStamp, RowStatus,
+        TEXTUAL-CONVENTION
+                FROM SNMPv2-TC
+	MODULE-COMPLIANCE, OBJECT-GROUP
+		FROM SNMPv2-CONF
+        ciscoMgmt
+                FROM CISCO-SMI
+	OwnerString
+                FROM IF-MIB
+	SnmpAdminString
+		FROM SNMP-FRAMEWORK-MIB
+; 
+
+ciscoSaaApmMIB MODULE-IDENTITY
+        LAST-UPDATED    "200010100000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+ 
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+ 
+                   Tel: +1 800 553-NETS
+ 
+                E-mail: cs-saa@cisco.com"
+        DESCRIPTION
+                 "Acronyms and Terms:
+		   SAA - Service Assurance Agent
+		   APM - Application Performance Monitoring
+
+		 A MIB for controlling SAA APM.
+                 APM provides a framework for running scripts,
+                 written in TCL language, which help emulate 
+                 the data flows of an application. Through this 
+                 emulation, the performance of an application across a 
+                 network can be computed. The parameters required to 
+                 perform an operation are defined in a 'config file'
+                 as defined by saaApmCtrlScriptCfgURL.
+
+                 This MIB has three OBJECT group. 'saaApmAppl' group
+                 contains global objects while 'saaApmCtrl' group
+                 contains the objects to control the APM operation.
+                 Controlling includes creation and deletion of the
+                 operation and initiating a result-transfer for the
+                 operation. 'saaApmOper' group contains objects to
+                 get the statistics of the operation."
+
+        REVISION        "200010100000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 177 }
+ 
+SaaApmOperErrorCode ::= TEXTUAL-CONVENTION
+  STATUS      current
+  DESCRIPTION
+       "Represents the various errors that could occur
+	during APM operation.
+	noError(1)       - There are no errors.
+	ftpDnldErr(2)    - ftp download error while downloading
+			   the script/data/config file.
+	targetDown(3)    - Target device is down.
+	scriptErr(4)     - The Script has syntax or other errors.
+	socketErr(5)     - Socket error occurred while executing
+			   the application script.
+	internalErr(6)   - Errors other than described here.
+        digestErr(7)     - This error indicates that the authentication
+			   digest is invalid.
+        fileHeaderErr(8) - The header length for the script/scheduler
+			   file doesn't match the requirements.
+	fileFormatErr(9) - It indicates an invalid file format.
+	cacheFull(10)    - Cache for storing the script/scheduler/data
+			   file is full.
+	lowMem(11)       - Free memory is less than 
+			   saaApmApplFreeMemLowWaterMark."
+  SYNTAX      INTEGER
+  {
+    noError(1),
+    ftpDnldErr(2),
+    targetDown(3),
+    scriptErr(4),
+    socketErr(5),
+    internalErr(6),
+    digestErr(7),
+    fileHeaderErr(8),
+    fileFormatErr(9),
+    cacheFull(10),
+    lowMem(11)
+  }
+ 
+SaaApmDataTransErrorCode ::= TEXTUAL-CONVENTION
+  STATUS      current
+  DESCRIPTION
+       "Represents the various error code for APM data
+        transfer.
+	
+	noError(1)       - No Error.
+        ftpErr(2)        - FTP error while uploading results.
+	timeoutErr(3)    - Time out error while uploading 
+			   results."
+  SYNTAX      INTEGER
+  {
+    noError(1),
+    ftpErr(2),
+    timeoutErr(3)
+  }
+ 
+ciscoSaaApmMIBObjects OBJECT IDENTIFIER ::= { ciscoSaaApmMIB 1 }
+
+--
+-- SAA APM Object Groups.
+--
+
+saaApmAppl         OBJECT IDENTIFIER ::= { ciscoSaaApmMIBObjects 1 }
+saaApmCtrl         OBJECT IDENTIFIER ::= { ciscoSaaApmMIBObjects 2 }
+saaApmOper         OBJECT IDENTIFIER ::= { ciscoSaaApmMIBObjects 3 }
+
+--
+-- Global SAA APM Objects
+--
+
+saaApmApplMajorVersion OBJECT-TYPE
+	SYNTAX      Integer32 (1..50)
+	MAX-ACCESS  read-only
+	STATUS      current
+	DESCRIPTION
+	      "SAA APM application major version."
+        ::= { saaApmAppl 1 }
+
+saaApmApplMinorVersion OBJECT-TYPE
+	SYNTAX       Integer32 (1..50)
+	MAX-ACCESS   read-only
+	STATUS       current
+	DESCRIPTION
+	      "SAA APM application minor version."
+	::= { saaApmAppl 2 }
+
+saaApmApplMaxOper OBJECT-TYPE
+        SYNTAX       Integer32 (1..50)
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION 
+               "This object defines the maximum total number of 
+		operations that can be configured."
+        ::= { saaApmAppl 3 }
+
+saaApmApplFreeMemLowWaterMark OBJECT-TYPE
+	SYNTAX       Integer32 (1..2147483647)
+	UNITS        "bytes"
+        MAX-ACCESS   read-write
+        STATUS       current
+        DESCRIPTION
+               "If APM determines that the available free processor 
+		memory has fallen below this mark, new operations
+		will not be configurable until the amount of 
+		available free memory is greater than this mark.
+                Available free memory is indicated by the
+		object, ciscoMemoryPoolFree.
+		
+		This object's value should not be set so high as to 
+		approach or exceed the free processor memory
+		available on the managed device."
+        ::= { saaApmAppl 4 }
+
+saaApmApplOperCapacity OBJECT-TYPE
+	SYNTAX       Gauge32 (1..50)
+	MAX-ACCESS   read-only
+	STATUS       current
+	DESCRIPTION
+	       "This object defines the number of new operations that
+                can be configured on the device. The number is obtain by
+                dividing the memory available for APM by the average 
+                memory used for each APM operation. The available
+                memory for APM is computed by taking the difference
+                between Free Memory on the device and 
+                saaApmApplFreeMemLowWaterMark. If the current number of
+                operation configured is equal to saaApmApplMaxOper then 
+                saaApmApplOperCapacity is zero."
+        ::= { saaApmAppl 5 }
+
+--
+-- SAA Ctrl
+--
+-- This group provides the ability to create, control and destroy an APM
+-- operation. Apart from control, it also provides the ability to 
+-- retrieve the results of an APM operation. It doesn't provide the
+-- ability to read the result.
+-- 
+
+saaApmCtrlTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF SaaApmCtrlEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "A set of parameters to create, control and destroy
+                 an APM Operation."
+        ::= { saaApmCtrl 1 }
+
+saaApmCtrlEntry OBJECT-TYPE
+        SYNTAX     SaaApmCtrlEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Parameters for controlling APM operation."
+        INDEX { saaApmCtrlIndex }
+        ::= { saaApmCtrlTable 1}
+
+SaaApmCtrlEntry ::= SEQUENCE {
+	saaApmCtrlIndex                   Integer32,
+	saaApmCtrlScriptCfgURL            SnmpAdminString,
+	saaApmCtrlOwner                   OwnerString,
+	saaApmCtrlInitDataTrans           TruthValue,
+        saaApmCtrlDataTransTime           TimeStamp,
+        saaApmCtrlDataTransStatus         SaaApmDataTransErrorCode,
+        saaApmCtrlStatus                  RowStatus,
+	saaApmCtrlNvgen                   TruthValue
+}
+
+saaApmCtrlIndex OBJECT-TYPE
+        SYNTAX     Integer32 (1..2147483647)
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+             "This object uniquely identifies a row int the
+              saaApmCtrlTable. This is a pseudo-random number selected
+	      by the management station when creating a row via the 
+	      saaApmCtrlStatus object. If the pseudo-random number is
+	      already in use, an 'inconsistentValue' error will be 
+	      returned by the agent."
+        ::= { saaApmCtrlEntry 1 }
+
+saaApmCtrlScriptCfgURL OBJECT-TYPE
+        SYNTAX     SnmpAdminString
+        MAX-ACCESS read-create    
+        STATUS     current
+        DESCRIPTION
+              "This URL defines the location of the config file required
+               to measure the performance of the application. It also
+               defines which protocol should be used in downloading the
+               file.
+               For example
+	         ftp://joe:mybirthday@myhost/smtp/smtp.cfg
+             
+	       The config file contains the parameters required to
+	       start and run the operation. Operation/Results control
+	       variables, the URL's of the scheduler, and script/data
+	       scriptfiles are all possible parameters contained in
+	       the config file."
+        ::= { saaApmCtrlEntry 2 }
+
+saaApmCtrlOwner OBJECT-TYPE
+        SYNTAX     OwnerString (SIZE(1..48))
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                   "Identifies the entity that created this table row."
+        ::= { saaApmCtrlEntry 3 }
+
+saaApmCtrlInitDataTrans OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+            "This object is set to TRUE to initiate result transfer.
+             Results are transferred to a server specified in the
+	     control file. It is set back automatically to 'false'
+             by this system once the results are transferred."
+	DEFVAL { false }
+        ::= { saaApmCtrlEntry 4 }
+
+saaApmCtrlDataTransTime OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "This object indicates the time of the last result
+             transfer attempt."
+        ::= { saaApmCtrlEntry 5 }
+
+saaApmCtrlDataTransStatus OBJECT-TYPE
+        SYNTAX     SaaApmDataTransErrorCode 
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "This object indicates the status of the result transfer."
+        ::= { saaApmCtrlEntry 6 }
+
+saaApmCtrlStatus OBJECT-TYPE
+        SYNTAX     RowStatus
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+            "saaApmControlScriptCfgURL is the only required object for
+             this row to become 'active'.
+ 
+             APM operations are created in one of two ways:
+             1) By setting this object to 'createAndGo' and supplying
+                a values for saaApmControlScriptCfgURL as part of the
+                same set operation.
+             2) By setting this object to 'createAndWait' and then
+                supplying a value for saaApmControlScriptCfgURL via
+                a different set operation.
+ 
+             In the 'createAndGo' case, the row will transition to
+             'active' and the APM operation will start.  In the 
+             'createAndWait' case, a subsequent set operation will be
+             required to transition the row to 'active' and start the
+             APM operation.
+             
+             The APM operation cannot start until saaApmScriptCfgURL is
+             set. Until the required object is set, the row will be
+             'notReady'.
+
+             The APM operation can be started by setting this object to
+             'active'.
+
+             The APM operation can be stopped by setting this object to
+             'notInService'.
+             
+             The APM operation can be deleted by setting this object to
+             'destroy'.
+	     
+             saaApmCtrlStatus transitions from 'active' to
+	     'notInService' if the saaApmOperLastStatus is changed to
+	     any error other than 'noError' and 'socketErr'."
+        ::= { saaApmCtrlEntry 7 }
+
+saaApmCtrlNvgen OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+            "This object is to allow or disallow the operation control
+	     info from being written to running-config. It cannot be 
+	     set once the operation is 'active'."
+        DEFVAL { false }
+        ::= { saaApmCtrlEntry 8 }
+
+--
+-- APM Operation Table for status
+-- 
+
+saaApmOperTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF SaaApmOperEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "A list of Operational status for monitoring APM
+                 Operations.
+		 
+		 All the object in this table are updated after
+                 the completion of performance measurement cycle."
+        ::= { saaApmOper 1 }
+
+saaApmOperEntry OBJECT-TYPE
+        SYNTAX     SaaApmOperEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "An entry containing the status information applicable
+             to a particular APM operation."
+        AUGMENTS { saaApmCtrlEntry }
+        ::= { saaApmOperTable 1}
+
+SaaApmOperEntry ::= SEQUENCE {
+	saaApmOperLastStartTime   TimeStamp,
+	saaApmOperLastEndTime     TimeStamp,
+	saaApmOperLastStatus      SaaApmOperErrorCode
+}
+
+saaApmOperLastStartTime OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                  "This object represents the start time of the last
+                   performance measurement cycle for the application
+                   specified by saaApmCtrlScriptCfgURL object."
+        ::= { saaApmOperEntry 1 }
+
+saaApmOperLastEndTime OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                  "This object represents the end time of the last
+                   performance measurement cycle for the application
+                   specified by saaApmCtrlScriptCfgURL object."
+        ::= { saaApmOperEntry 2 }
+ 
+saaApmOperLastStatus OBJECT-TYPE
+        SYNTAX     SaaApmOperErrorCode
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                  "This object is used to indicate status of the
+                   last measurement cycle."
+        ::= { saaApmOperEntry 3 }
+
+ 
+-- 
+-- Notification Definitions
+--
+-- Currently there are no Notifications defined.
+--
+
+ciscoSaaApmMIBNotifPrefix OBJECT IDENTIFIER ::= { ciscoSaaApmMIB 2}
+ciscoSaaApmMIBNotifs OBJECT IDENTIFIER 
+			   ::= { ciscoSaaApmMIBNotifPrefix 0 }
+
+--
+-- Conformance Information
+--
+
+ciscoSaaApmMIBConformance OBJECT IDENTIFIER
+                             ::= { ciscoSaaApmMIB 3 }
+ciscoSaaApmMIBCompliances OBJECT IDENTIFIER
+                             ::= { ciscoSaaApmMIBConformance 1 }
+ciscoSaaApmMIBGroups      OBJECT IDENTIFIER
+                             ::= { ciscoSaaApmMIBConformance 2 }
+
+--
+-- Compliance Statements
+--
+
+ciscoSaaApmMIBCompliance MODULE-COMPLIANCE
+        STATUS      current
+        DESCRIPTION
+               "The compliance statement for entities which implement
+                the Cisco SAA APM MIB."
+        MODULE  
+                MANDATORY-GROUPS {
+                   ciscoSaaApmApplGroup,
+                   ciscoSaaApmCtrlGroup,
+                   ciscoSaaApmOperGroup
+                }
+        ::= { ciscoSaaApmMIBCompliances 1 }
+
+
+ciscoSaaApmApplGroup     OBJECT-GROUP
+        OBJECTS {
+            saaApmApplMajorVersion,
+            saaApmApplMinorVersion,
+            saaApmApplMaxOper,
+            saaApmApplFreeMemLowWaterMark,
+            saaApmApplOperCapacity
+        }
+        STATUS   current
+        DESCRIPTION
+            "A collection  of objects to provide the general
+             information of SAA APM management."
+        ::= { ciscoSaaApmMIBGroups 1 }
+
+ciscoSaaApmCtrlGroup     OBJECT-GROUP
+        OBJECTS {
+            saaApmCtrlScriptCfgURL,
+            saaApmCtrlOwner,
+            saaApmCtrlInitDataTrans,
+            saaApmCtrlDataTransTime,
+            saaApmCtrlDataTransStatus,
+            saaApmCtrlStatus,
+            saaApmCtrlNvgen
+        }
+        STATUS   current
+        DESCRIPTION
+              "A collection of objects to control the APM Operations."
+        ::= { ciscoSaaApmMIBGroups 2 }
+
+ciscoSaaApmOperGroup     OBJECT-GROUP
+        OBJECTS {
+            saaApmOperLastStartTime,
+            saaApmOperLastEndTime,
+            saaApmOperLastStatus
+        }
+        STATUS   current
+        DESCRIPTION
+            "A collection of objects to provide the operational status
+             of APM Operations."
+        ::= { ciscoSaaApmMIBGroups 3 }
+ 
+
+END

@@ -1,0 +1,318 @@
+-- *-------------------------------------------------------------------------
+-- * CISCO-AUTHORIZATION-STATS-MIB.my:  The CISCO Authorization Status MIB.
+-- *
+-- * Jan 2003, Brian D. Steven
+-- *
+-- * Copyright (c) 2003-2006 by Cisco Systems, Inc.
+--   
+-- * All rights reserved.
+-- *
+-- *------------------------------------------------------------------------
+
+CISCO-AUTHORIZATION-STATS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Integer32,
+    Gauge32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TimeInterval
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    CiscoPort
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoAuthorizationStatsMibModule MODULE-IDENTITY
+    LAST-UPDATED    "200611080000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+            E-mail: cs-cvpn3000@cisco.com"
+    DESCRIPTION
+        "The Cisco User Authorization Statistics MIB models
+        counters and objects that are of management 
+        interest.
+        "
+    REVISION        "200611080000Z"
+    DESCRIPTION
+        "The initial version of this MIB."
+          ::= { ciscoMgmt 343 }
+
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- MIB Objects
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+cStatsAuthorization  OBJECT IDENTIFIER
+    ::= { ciscoAuthorizationStatsMibModule 1 }
+
+cAuthorizationGlobal  OBJECT IDENTIFIER
+    ::= { cStatsAuthorization 1 }
+
+
+cAuthorizationStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CAuthorizationStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The list of servers that may be queried for authorization
+        attributes for connecting IPSec tunnel users."
+    ::= { cStatsAuthorization 2 }
+
+cAuthorizationStatsEntry OBJECT-TYPE
+    SYNTAX          CAuthorizationStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the cAuthorizationStatsTable. These entries are
+        created or destroyed whenever an authorization server 
+        connection is added or removed via one of the management 
+        interfaces to the tunnel server."
+    INDEX           { cAuthorizServerIndex } 
+    ::= { cAuthorizationStatsTable 1 }
+
+CAuthorizationStatsEntry ::= SEQUENCE {
+        cAuthorizServerIndex            Integer32,
+        cAuthorizServerAddressType      InetAddressType,
+        cAuthorizServerAddress          InetAddress,
+        cAuthorizClientServerPortNum    CiscoPort,
+        cAuthorizClientRoundTripTime    TimeInterval,
+        cAuthorizClientAccessRequests   Counter32,
+        cAuthorizClientAccessRetrans    Counter32,
+        cAuthorizClientAccessAccepts    Counter32,
+        cAuthorizClientAccessRejects    Counter32,
+        cAuthorizClientAccessChallenges Counter32,
+        cAuthorizClientMalAccessResps   Counter32,
+        cAuthorizClientBadAuthenticates Counter32,
+        cAuthorizClientPendingRequests  Gauge32,
+        cAuthorizClientTimeouts         Counter32,
+        cAuthorizClientUnknownTypes     Counter32,
+        cAuthorizServerGroupId          Integer32
+}
+
+cAuthorizServerIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..65535 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION     "The unique number used as the index for this row." 
+    ::= { cAuthorizationStatsEntry 1 }
+
+cAuthorizServerAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     "The type of Internet address used by this entry." 
+    ::= { cAuthorizationStatsEntry 2 }
+
+cAuthorizServerAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The IP address of the authorization server whose
+        statistics are being reported." 
+    ::= { cAuthorizationStatsEntry 3 }
+
+cAuthorizClientServerPortNum OBJECT-TYPE
+    SYNTAX          CiscoPort
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The UDP The port on the server to which authorization
+        requests are directed." 
+    ::= { cAuthorizationStatsEntry 4 }
+
+cAuthorizClientRoundTripTime OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time interval between the most recent
+        Access-Reply/Access-Challenge and the Access-Request." 
+    ::= { cAuthorizationStatsEntry 5 }
+
+-- Request/Response statistics
+-- Ignoring Unknown Types, then
+-- AccessRequests + AccesssRetransmissions = AccessAccepts +
+-- AccessRejects + AccessChallenges + PendingRequests + Timeouts
+cAuthorizClientAccessRequests OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of  Access-Request packets sent to
+        authorization server since client start-up. 
+        This does not include retransmissions." 
+    ::= { cAuthorizationStatsEntry 6 }
+
+cAuthorizClientAccessRetrans OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of  Access-Request packets retransmitted
+        to authorization server since client start-up." 
+    ::= { cAuthorizationStatsEntry 7 }
+
+cAuthorizClientAccessAccepts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of  Access-Accept packets received by
+        authorization server since client start-up." 
+    ::= { cAuthorizationStatsEntry 8 }
+
+cAuthorizClientAccessRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of  Access-Reject packets received by
+        authorization server since client start-up." 
+    ::= { cAuthorizationStatsEntry 9 }
+
+cAuthorizClientAccessChallenges OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of  Access-Challenge packets received by
+        authorization server since client start-up." 
+    ::= { cAuthorizationStatsEntry 10 }
+
+-- "Access-Response" includes an Access-Accept, Access-Challenge
+-- or Access-Reject
+cAuthorizClientMalAccessResps OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of malformed Access-Response packets
+        received by authoriztion server since client start-up. 
+        Malformed packets include packets with an invalid length. 
+        Bad authenticators or Signature attributes are not included 
+        as malformed access responses." 
+    ::= { cAuthorizationStatsEntry 11 }
+
+cAuthorizClientBadAuthenticates OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of Access-Response packets containing
+        invalid authenticators or Signature attributes received by 
+        authorization server since client start-up." 
+    ::= { cAuthorizationStatsEntry 12 }
+
+cAuthorizClientPendingRequests OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of  Access-Request packets destined for
+        authorization server that have not yet timed out or received 
+        a response. This variable is incremented when an 
+        Access-Request is sent and decremented due to receipt of an 
+        Access-Reply or Access-Challenge, a timeout or 
+        retransmission." 
+    ::= { cAuthorizationStatsEntry 13 }
+
+cAuthorizClientTimeouts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of timeouts to authorization server since
+        client startup. After a timeout the client may retry to the 
+        same server, send to a different server, or give up. A retry 
+        to the same server is counted as a retransmit as well as a 
+        timeout. A send to a different server is counted as a Request 
+        as well as a timeout." 
+    ::= { cAuthorizationStatsEntry 14 }
+
+cAuthorizClientUnknownTypes OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of unknown type packets received by
+        authorization server since client start-up." 
+    ::= { cAuthorizationStatsEntry 15 }
+
+cAuthorizServerGroupId OBJECT-TYPE
+    SYNTAX          Integer32 (0..65535 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Id of user group associated with authorization
+        server. The group ID is an integer value assigned by 
+        the tunnel server. Group ID 0 is a special value used 
+        to refer all gorups." 
+    ::= { cAuthorizationStatsEntry 16 }
+ 
+
+-- conformance information
+cAuthorizationMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoAuthorizationStatsMibModule 2 }
+
+cAuthorizationMIBCompliances  OBJECT IDENTIFIER
+    ::= { cAuthorizationMIBConformance 1 }
+
+cAuthorizationGroup  OBJECT IDENTIFIER
+    ::= { cAuthorizationMIBConformance 2 }
+
+
+-- compliance statements
+cAuthorizationMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for authorization clients
+        implementing the Authorization Client MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cAuthorizationClientMIBGroup }
+    ::= { cAuthorizationMIBCompliances 1 }
+
+cAuthorizationClientMIBGroup OBJECT-GROUP
+    OBJECTS         {
+                        cAuthorizServerAddressType,
+                        cAuthorizServerAddress,
+                        cAuthorizClientServerPortNum,
+                        cAuthorizClientRoundTripTime,
+                        cAuthorizClientAccessRequests,
+                        cAuthorizClientAccessRetrans,
+                        cAuthorizClientAccessAccepts,
+                        cAuthorizClientAccessRejects,
+                        cAuthorizClientAccessChallenges,
+                        cAuthorizClientMalAccessResps,
+                        cAuthorizClientBadAuthenticates,
+                        cAuthorizClientPendingRequests,
+                        cAuthorizClientTimeouts,
+                        cAuthorizClientUnknownTypes,
+                        cAuthorizServerGroupId
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The basic collection of objects providing management of
+        Authorization Clients."
+    ::= { cAuthorizationGroup 1 }
+
+END
+
+
+
+

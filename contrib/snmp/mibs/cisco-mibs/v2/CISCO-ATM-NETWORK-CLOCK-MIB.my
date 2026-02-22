@@ -1,0 +1,816 @@
+-- *****************************************************************
+-- CISCO-ATM-NETWORK-CLOCK-MIB.my:  CISCO-ATM-NETWORK-CLOCK MIB file
+--   
+-- Dec 1998, David Kushi
+--   
+-- Copyright (c) 1998-1999, 2008 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+--   
+-- *****************************************************************
+-- $Endlog
+
+CISCO-ATM-NETWORK-CLOCK-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    TimeStamp,
+    RowStatus
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI
+    entPhysicalIndex,
+    PhysicalIndex
+        FROM ENTITY-MIB
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF;
+
+
+ciscoAtmNetworkClockMIB MODULE-IDENTITY
+    LAST-UPDATED    "200802180000Z"
+    ORGANIZATION    "Cisco System Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive,
+            San Jose CA 95134-1706.
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-atm@cisco.com"
+    DESCRIPTION
+        "The MIB module for management of network clock        distribution
+        and the Network Clock Distribution Protocol (NCDP) in Cisco 
+        devices.
+
+        In the context of this MIB 'network clock' refers to the
+        clock signal that is used to time the physical interfaces.
+        Network clock distribution refers to the distribution of a
+        clock signal through a device and between devices for use
+        by the physical interfaces.  (See Bell Communications 
+        Research, GR-1244-CORE, 'Clocks for the Synchronized
+        Network: Common  Generic Criteria' and Bell Communications
+        Research, GR-436-CORE, 'Digital Network Synchronization 
+        Plan').
+
+        NCDP is used to configure the network clocking hardware of 
+        the platform on which an NCDP entity exists.  The underlying
+        network clocking hardware in turn distributes a clock signal
+        through the device for use by the physical interfaces.  When
+        all of the interfaces that support synchronous clock 
+        recovery in a network are timed to one master clock signal,
+        the network is said to be synchronized.
+
+         NCDP protocol entities residing on adjacent devices 
+        cooperate through the exchange of protocol messages to
+         construct a spanning network clock distribution tree.
+        The tree preserves the synchronous digital hierarchy.
+
+        After NCDP has determined that its algorithm has converged
+        it superimposes the clock distribution tree on the
+        underlying network and the result is a synchronized
+        network."
+    REVISION        "200802180000Z"
+    DESCRIPTION
+        "The SYNTAX of following objects changed from INTEGER to Integer32.
+         cncNcdpMessageInterval, cncNcdpHoldTime ,cncNcdpPriority ,
+         CncNcdpAtmEntry ,cncNcdpAdminWeight,cncNcdpVpi,
+         cncNcdpVci ."
+    REVISION         "200112110000Z"
+    DESCRIPTION 
+         "Intial MIB version."
+    ::= { ciscoMgmt 121 }
+
+
+-- CISCO-ATM-NETWORK-CLOCK MIB groups
+
+ciscoAtmNetworkClockMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoAtmNetworkClockMIB 1 }
+
+cncGlobal  OBJECT IDENTIFIER
+    ::= { ciscoAtmNetworkClockMIBObjects 1 }
+
+cncManualSource  OBJECT IDENTIFIER
+    ::= { ciscoAtmNetworkClockMIBObjects 2 }
+
+cncNcdpSource  OBJECT IDENTIFIER
+    ::= { ciscoAtmNetworkClockMIBObjects 3 }
+
+cncNcdp  OBJECT IDENTIFIER
+    ::= { ciscoAtmNetworkClockMIBObjects 4 }
+
+
+-- textual conventions
+
+CncStratum ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The stratum level associated with a source of network clock
+        or a device.  (See American National Standards Institute,
+        ANSI T1.101, 'Synchronization Interface for Digital 
+        Networks' and Bell Communications Research, GR-436-CORE,
+        'Digital Network Synchronization Plan' for more detailed
+        information.)"
+    SYNTAX          INTEGER  {
+                        s1(1),
+                        s2e(2),
+                        s2(3),
+                        s3e(4),
+                        s3(5),
+                        s4e(6),
+                        s4(7),
+                        other(8)
+                    }
+
+CncHealth ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The health of a source of network clock.
+
+        A value of 'good' indicates that a given source of network 
+        clock is known by the managed system to be good.
+
+        A value of 'bad' indicates that a given source of network 
+        clock is known by the managed system to be bad.
+
+        A value of 'unknown' indicates that the health of the 
+        source of network clock is unknown to the managed system."
+    SYNTAX          INTEGER  {
+                        good(1),
+                        bad(2),
+                        unknown(3)
+                    }
+
+-- scalars
+
+cncDistributionMethod OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ncdp(1),
+                        manual(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The method used to distribute network clock for the device.
+        When the mode of operation is 'ncdp', the services provided
+        by the NCDP entity are in use.  When this is the case, NCDP
+        entities residing on adjacent nodes exchange protocol 
+        messages that are used by the resident NCDP entity to select
+        clock source such that a network-wide clock distribution 
+        tree is constructed.  When the mode of operation is manual,
+        the NCDP entity is not in use and sources of network clock
+        are statically configured.  When this is the case, the
+        construction of a network-wide clock distribution tree is 
+        done manually by a network administrator or NMS 
+        application."
+    DEFVAL          { manual } 
+    ::= { cncGlobal 1 }
+
+cncNotificationOnChange OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The value of this object determines whether a notification
+        should be generated due to a change in the device's root 
+        clock source (given by the value of cncRootClockSource).  
+        A value of 'true' enables the generation of notifications;
+        'false' disables notification generation."
+    DEFVAL          { true } 
+    ::= { cncGlobal 2 }
+
+cncNodeStratum OBJECT-TYPE
+    SYNTAX          CncStratum
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The stratum at which the device exists in the Synchronous
+        Digital Hierarchy (See American National Standards 
+        Institute, ANSI T1.101, 'Synchronization Interface for
+        Digital Networks' and Bell Communications Research,
+        GR-436-CORE, 'Digital Network Synchronization Plan' for 
+        more detailed information regarding stratum.).
+
+        The resident NCDP entity uses the value of this object to
+        enforce the network clock distribution stratum hierarchy.
+
+        This object is only used by the NCDP protocol entity." 
+    ::= { cncGlobal 3 }
+
+cncNcdpMaxDiameter OBJECT-TYPE
+    SYNTAX          Integer32 (3..255 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum possible height of a network clock distribution
+        tree in the network.  (Alternatively this is known as the 
+        maximum diameter of the network of devices that are 
+        participating in NCDP.)  If all of the nodes in the network 
+        are participating in the protocol then the maximum height of
+        the network clock distribution tree is exactly the maximum
+        diameter of the network.  If a proper subset of the nodes
+        are participating in the NCDP then the maximum height of a
+        network clock distribution tree is the maximum diameter of 
+        the subnetwork induced by the removal of the 
+        non-participating nodes and their associated links.
+
+        The NCDP protocol entity uses the value of this object to
+        determine when the NCDP algorithm has converged.  All 
+        devices participating in NCDP within the bounds of the
+        network must use the same value for maximum network diameter
+        for the NCDP algorithm to operate properly. If the value of
+        this object is set too small the resultant network may 
+        exhibit unstable clocking characteristics and may constantly
+        switch clock sources.  If the value is much larger than the
+        network diameter, the algorithm will take longer to declare
+        convergence than if the diameter were set closer to the 
+        actual maximum network diameter, the result being that it 
+        will take longer for the network to resynchronize after a 
+        switchover to a secondary clock source located on a
+        secondary device.
+
+        This object is only used by the NCDP protocol entity." 
+    ::= { cncGlobal 4 }
+
+cncNcdpMessageInterval OBJECT-TYPE
+    SYNTAX          Integer32 (75..60000 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The interval at which NCDP configuration PDUs are to be
+        generated.
+
+        The message interval directly affects the convergence time 
+        of the NCDP algorithm.  Convergence time is equal to the max 
+        network diameter * message interval + transmission delays + 
+        the time a configuration PDU is spent being processed in  
+        each device.  Thus if transmission delays and processing 
+        delays are  both close to 0, the convergence time is
+        approximately ( max network diameter * message interval )
+        milliseconds.
+
+        The value of cncNcdpHoldTime should normally match the value 
+        of this object.
+
+        This object is only used by the NCDP protocol entity."
+    DEFVAL          { 500 } 
+    ::= { cncGlobal 5 }
+
+cncNcdpHoldTime OBJECT-TYPE
+    SYNTAX          Integer32 (75..60000 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The delay between the transmission of NCDP configuration
+        PDUs.
+
+        The hold time is used to limit the transmission of NCDP 
+        configuration PDUs out of an interface to a maximum of one
+        configuration PDU per hold time interval per interface.
+
+        The value of this object should normally be set        to match the 
+        value of cncNcdpMessageInterval.  If the value of this 
+        object is higher than the value of cncNcdpMessageInterval,
+        NCDP configuration PDUs will end up being propagated at
+        the rate specified by the value of this object instead.
+
+        This object is only used by the NCDP protocol entity."
+    DEFVAL          { 500 } 
+    ::= { cncGlobal 6 }
+
+cncSourceChangeReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        lossOfLock(2),
+                        lossOfActivity(3),
+                        ncdpRestructure(4),
+                        other(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The reason for the most recent change of a source of
+        network clock, as indicated by the change in the value 
+        of cncSourceChangeTimeStamp.
+
+        'none' indicates that the source of network clock 
+        has not changed.
+
+        'lossOfLock' indicates that the clock source was 
+        changed because the network clocking hardware lost 
+        lock on the previous network clock source.
+
+        'lossOfActivity' indicates that the clock source was changed
+        because the network clocking hardware detected a loss of 
+        activity on the previous network clock source.
+
+        'ncdpRestructure' indicates that the NCDP entity has changed 
+        the clock source as a result of a network-wide network clock 
+        distribution tree restructuring process.
+
+        When the reason for a clock switchover is none of the 
+        above, the value of this object is 'other'." 
+    ::= { cncGlobal 7 }
+
+cncSourceChangeTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime when the most recent change of a
+        source of network clock occurred.
+
+        A value of 0 indicates that no such event has occurred since 
+        the instantiation of this object."
+    DEFVAL          { 0 } 
+    ::= { cncGlobal 8 }
+
+cncRootClockSource OBJECT-TYPE
+    SYNTAX          PhysicalIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The entPhysicalIndex of the network clock source that is
+        actively supplying network clock within the device." 
+    ::= { cncGlobal 9 }
+-- table of objects representing static network clock sources
+
+cncManualSourceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CncManualSourceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of network clock sources available to the managed
+        system."
+    ::= { cncManualSource 1 }
+
+cncManualSourceEntry OBJECT-TYPE
+    SYNTAX          CncManualSourceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Network clock status and statistics for sources of network
+        clock.  When the value of cncDistributionMethod is 'manual',
+        the managed system uses this table to select a source of 
+        network clock for the managed system.  Within this table a
+        physical entity that is a source of network clock is 
+        identified by cncManualSourceId.  Table entries are indexed 
+        by priority (cncManualSourcePriority).
+
+        A source of network clock for the device may be an 
+        oscillator local to the device, a Building Integrated
+        Timing Supply (BITS) port or an interface that supports
+        synchronous clock  recovery. (BITS is explained in more
+        detail in Bell Communications Research, GR-436-CORE,
+        'Digital Network Synchronization Plan'.)
+
+        When the managed system initializes it creates a row for 
+        the device's default source of network clock, (the entry
+        having cncManualSourcePriority with value 'default').  The
+        only operations allowed on the columnar objects in this
+        particular row are read operations.
+
+        Other rows are created or destroyed by a management station
+        or through the device's local management interface when a 
+        source of network clock is configured or removed.  When a
+        management station creates a row it creates it explicitly 
+        using RowStatus with either createAndGo or createAndWait.
+        A row is not made active until a valid value for
+        cncManualSourceId is supplied.  A management station may
+        perform a write operation on any columnar object while the
+        row is active or not in service.
+
+        The value of any instance of cncManualSourceId located in
+        the table is unique except when the value refers to the 
+        device's default source of network clock; any instance of
+        cncManualSourceId within the table may have this value at
+        any time."
+    INDEX           { cncManualSourcePriority } 
+    ::= { cncManualSourceTable 1 }
+
+CncManualSourceEntry ::= SEQUENCE {
+        cncManualSourcePriority INTEGER ,
+        cncManualSourceId       PhysicalIndex,
+        cncManualSourceHealth   CncHealth,
+        cncManualRowStatus      RowStatus
+}
+
+cncManualSourcePriority OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        primary(1),
+                        secondary(2),
+                        default(3)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A value used to identify a source of network clock
+        available to the device's manual network clock selection
+        algorithm." 
+    ::= { cncManualSourceEntry 1 }
+
+cncManualSourceId OBJECT-TYPE
+    SYNTAX          PhysicalIndex
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The entPhysicalIndex that uniquely identifies a source of
+        network        clock within the managed system." 
+    ::= { cncManualSourceEntry 2 }
+
+cncManualSourceHealth OBJECT-TYPE
+    SYNTAX          CncHealth
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The health of the clock source identified by
+        cncManualSourceId." 
+    ::= { cncManualSourceEntry 3 }
+
+cncManualRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row." 
+    ::= { cncManualSourceEntry 4 }
+ 
+
+-- table of objects representing network clock sources advertised by
+-- ncdp
+
+cncNcdpSourceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CncNcdpSourceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of configured network clock sources available to
+        the managed system for use by the NCDP protocol entity."
+    ::= { cncNcdpSource 1 }
+
+cncNcdpSourceEntry OBJECT-TYPE
+    SYNTAX          CncNcdpSourceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Network clock status and statistics for sources of network
+        clock identified by entPhysicalIndex and used by the managed
+        system when the value of cncDistributionMethod is 'ncdp'.
+
+        A source of network clock for the device may be an
+        oscillator local to the device, a Building Integrated Timing
+        Supply (BITS) port or an interface that supports synchronous
+        clock recovery.
+        (BITS is explained in more detail in Bell Communications
+        Research, GR-436-CORE, 'Digital Network Synchronization 
+        Plan'.)
+
+        The NCDP protocol entity selects one entry in this table to
+        advertise as the best available clock source for the device.
+        Cooperating NCDP protocol entities select the best available
+        clock source among those advertised within the cooperating
+        group and build a clock        distribution tree rooted at that 
+        clock source.  When the value of cncRootClockSource is used
+        as an index into this table and the indicated clock source
+        has cncNcdpBestClockSource with value 'true' then the
+        indicated clock source is the root of some clock
+        distribution tree.  If only one such root exists on all 
+        participating devices in the network, then it is the root of
+        a network wide clock distribution tree.
+
+        When the managed system initializes it creates a row for the
+        device's default source of network clock.  This row cannot be
+        destroyed by a management station.  Within this row a write
+        operation is only allowed on the cncNcdpPriority object; only
+        read operations are allowed on all other columnar objects
+        within this specific row.  The status of this row is always
+        active.  The default source can always be found by issuing a
+        read operation on the row within cncManualSourceTable indexed
+        by 'default' (as the value of cncManualSourcePriority).  The
+        cncManualSourceId object contains the entPhysicalIndex of the
+        default source of network clock and identifies it within this
+        table.
+
+        Other rows are created or destroyed by a management station
+        or through the device's local management interface when a 
+        source of network clock is configured or removed.  When a
+        management station creates a row it creates it explicitly  
+        using RowStatus with either createAndGo or createAndWait. 
+        A row is not made active until all read-create objects not 
+        having default values are properly initialized.
+
+        The values of cncNcdpPriority, cncNcdpStratum and
+        cncNcdpPRSReference collectively describe a source of network
+        clock, that is they are three components of a vector used as 
+        an input to the NCDP algorithm to make clock source selection
+        decisions.  The management station must make the row 
+        notInService before changing the values of any of these 
+        objects."
+    INDEX           { entPhysicalIndex } 
+    ::= { cncNcdpSourceTable 1 }
+
+CncNcdpSourceEntry ::= SEQUENCE {
+        cncNcdpBestClockSource TruthValue,
+        cncNcdpPriority        Integer32,
+        cncNcdpStratum         CncStratum,
+        cncNcdpPRSReference    INTEGER ,
+        cncNcdpSourceHealth    CncHealth,
+        cncNcdpRowStatus       RowStatus
+}
+
+cncNcdpBestClockSource OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An indication of whether the NCDP entity is presently
+        advertising this clock source as the best clock source 
+        available in this table." 
+    ::= { cncNcdpSourceEntry 1 }
+
+cncNcdpPriority OBJECT-TYPE
+    SYNTAX          Integer32 (1..255 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The network-wide priority of this clock source if
+        configured as a source of network clock for NCDP. The
+        highest priority clock source is that clock source having 
+        the lowest positive numeric value.  The clock source with
+        the highest priority is selected as the root of the clock
+        distribution tree by the NCDP algorithm.  If more that one
+        clock source is configured with with the same priority the 
+        NCDP algorithm uses the value cncNcdpStratum as a
+        tiebreaker."
+    DEFVAL          { 128 } 
+    ::= { cncNcdpSourceEntry 2 }
+
+cncNcdpStratum OBJECT-TYPE
+    SYNTAX          CncStratum
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The stratum level associated with this clock source if
+        configured as a source of network clock for NCDP.  (See 
+        American National Standards Institute, ANSI T1.101, 
+        'Synchronization Interface for Digital Networks' and Bell 
+        Communications Research, GR-436-CORE, 'Digital Network
+        Synchronization Plan' for more detailed information 
+        regarding stratum.).  If the value of this object is used
+        as a tiebreaker  by the NCDP protocol entity, the lower of
+        the given values is the winner.  If the values are the
+        same, the value of cncNcdpPRSReference is used as a
+        tiebreaker by the NCDP algorithm." 
+    ::= { cncNcdpSourceEntry 3 }
+
+cncNcdpPRSReference OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        internal(1),
+                        external(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "An value that identifies the primary reference source that
+        the network clock available from this source is traceable 
+        to if configured as a source of network clock for NCDP.
+        (See American National Standards Institute, ANSI T1.101,
+        'Synchronization Interface for Digital Networks' and Bell 
+        Communications Research, GR-436-CORE, 'Digital Network 
+        Synchronization Plan' for more        detailed information 
+        regarding Primary Reference Sources.).  If a source of 
+        network clock is an onboard oscillator local to the device
+        it is 'internal' otherwise it is 'external'.  If the value
+        of this object is used as a tiebreaker by the NCDP
+        algorithm,'external' wins over 'internal'.
+
+        All 'external' sources of network clock are assumed to be
+        traceable to the same PRS by the NCDP protocol entity." 
+    ::= { cncNcdpSourceEntry 4 }
+
+cncNcdpSourceHealth OBJECT-TYPE
+    SYNTAX          CncHealth
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The health of the clock source associated with this row." 
+    ::= { cncNcdpSourceEntry 5 }
+
+cncNcdpRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row." 
+    ::= { cncNcdpSourceEntry 6 }
+ 
+
+-- table of objects used to support ncdp protocol entity at atm
+-- interfaces
+
+cncNcdpAtmTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CncNcdpAtmEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing the status of NCDP on the device's ATM
+        interfaces."
+    ::= { cncNcdp 1 }
+
+cncNcdpAtmEntry OBJECT-TYPE
+    SYNTAX          CncNcdpAtmEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the cncNcdpAtm table containing the status of
+        Ncdp on an ATM interface.
+
+        A row in this table is created by the managed system and
+        disappears when the associated physical entity disappears.
+
+        When a row is created all of the row objects are 
+        instantiated."
+    INDEX           { entPhysicalIndex } 
+    ::= { cncNcdpAtmTable 1 }
+
+CncNcdpAtmEntry ::= SEQUENCE {
+        cncNcdpEnable      TruthValue,
+        cncNcdpAdminWeight Integer32,
+        cncNcdpVpi         Integer32,
+        cncNcdpVci         Integer32,
+        cncNcdpHealth      CncHealth
+}
+
+cncNcdpEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "An indication of whether NCDP is presently running on an
+        interface.  When NCDP is enabled for an interface, the
+        interface is an active member of the clock distribution
+        topology as seen by the NCDP protocol entity.
+
+        After this object is instantiated by the agent the
+        managed system initializes the value of this object to 'true'
+        if it determines that the physical interface is an ATM
+        Network-to-Network Interface (see ATM Forum Private
+        Network-Network Interface Specification        Version 1.0).  In 
+        all other cases the managed system initializes the value of
+        this object to 'false'." 
+    ::= { cncNcdpAtmEntry 1 }
+
+cncNcdpAdminWeight OBJECT-TYPE
+    SYNTAX          Integer32 (1..16777215 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A weight metric used by the NCDP protocol entity and
+        associated with a physical interface that supports 
+        synchronous clock recovery.  When NCDP is enabled for the
+        physical interface the value of this object is used by NCDP
+        algorithms during tree computations.
+
+        The lower the administrative weight, the more attractive 
+        the given link is to the NCDP algorithm.  If the weight of
+        a link is changed, it can cause the NCDP protocol entity
+        to reconstruct the clock distribution tree."
+    DEFVAL          { 10 } 
+    ::= { cncNcdpAtmEntry 2 }
+
+cncNcdpVpi OBJECT-TYPE
+    SYNTAX          Integer32 (0..4095 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The VPI value of the VCC supporting the NCDP entity at this
+        ATM interface.  If the values of cncNcdpVpi and
+        cncNcdpVci are both equal to zero then the NCDP entity 
+        is not supported at this ATM interface."
+    DEFVAL          { 0 } 
+    ::= { cncNcdpAtmEntry 3 }
+
+cncNcdpVci OBJECT-TYPE
+    SYNTAX          Integer32 (0..65535 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The VCI value of the VCC supporting the NCDP entity at this
+        ATM interface.  If the values of cncNcdpVpi and
+        cncNcdpVci are both equal to zero then the NCDP entity 
+        is not supported at this ATM interface."
+    DEFVAL          { 34 } 
+    ::= { cncNcdpAtmEntry 4 }
+
+cncNcdpHealth OBJECT-TYPE
+    SYNTAX          CncHealth
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The health of the clock source associated with this row." 
+    ::= { cncNcdpAtmEntry 5 }
+ 
+
+-- notifications
+
+ciscoAtmNetworkClockNotificationPrefix  OBJECT IDENTIFIER
+    ::= { ciscoAtmNetworkClockMIB 2 }
+
+ciscoAtmNetworkClockMIBNotifications  OBJECT IDENTIFIER
+    ::= { ciscoAtmNetworkClockNotificationPrefix 0 }
+
+
+cncNotifySourceChange NOTIFICATION-TYPE
+    OBJECTS         { cncSourceChangeReason }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates that the agent has detected a
+        change in the device's root source of network clock.  This 
+        notification is generated whenever there is a switchover
+        from one clock source to another."
+   ::= { ciscoAtmNetworkClockMIBNotifications 1 }
+-- conformance information
+
+ciscoAtmNetworkClockConformance  OBJECT IDENTIFIER
+    ::= { ciscoAtmNetworkClockMIB 3 }
+
+ciscoAtmNetworkClockMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoAtmNetworkClockConformance 1 }
+
+ciscoAtmNetworkClockMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoAtmNetworkClockConformance 2 }
+
+
+-- compliance statements
+
+cncMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for SNMPv2 entities which
+        implement network clock distribution methods and NCDP."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cncGroup,
+                        cncNotificationGroup
+                    }
+    ::= { ciscoAtmNetworkClockMIBCompliances 1 }
+
+-- units of conformance
+
+cncGroup OBJECT-GROUP
+    OBJECTS         {
+                        cncDistributionMethod,
+                        cncNotificationOnChange,
+                        cncNodeStratum,
+                        cncNcdpMaxDiameter,
+                        cncNcdpMessageInterval,
+                        cncNcdpHoldTime,
+                        cncSourceChangeReason,
+                        cncSourceChangeTimeStamp,
+                        cncRootClockSource,
+                        cncManualSourceId,
+                        cncManualSourceHealth,
+                        cncManualRowStatus,
+                        cncNcdpBestClockSource,
+                        cncNcdpPriority,
+                        cncNcdpStratum,
+                        cncNcdpPRSReference,
+                        cncNcdpSourceHealth,
+                        cncNcdpRowStatus,
+                        cncNcdpEnable,
+                        cncNcdpAdminWeight,
+                        cncNcdpVpi,
+                        cncNcdpVci,
+                        cncNcdpHealth
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The cnc group of objects providing for management of
+        network clock distribution and NCDP entities."
+    ::= { ciscoAtmNetworkClockMIBGroups 1 }
+
+cncNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cncNotifySourceChange }
+    STATUS          current
+    DESCRIPTION
+        "Conformance group for cnc notifications."
+    ::= { ciscoAtmNetworkClockMIBGroups 2 }
+
+END
+
+
+
+
+

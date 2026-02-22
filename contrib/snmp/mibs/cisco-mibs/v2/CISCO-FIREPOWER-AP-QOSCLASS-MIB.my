@@ -1,0 +1,999 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-QOSCLASS-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- QOSCLASS management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-QOSCLASS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApConditionRemoteInvRslt,
+    CfprApFsmCompletion,
+    CfprApFsmFlags,
+    CfprApFsmFsmStageStatus,
+    CfprApPolicyPolicyOwner,
+    CfprApQosclassDefinitionFsmCurrentFsm,
+    CfprApQosclassDefinitionFsmStageName,
+    CfprApQosclassDefinitionFsmTaskItem,
+    CfprApQosclassEthBEAdminState,
+    CfprApQosclassEthBEDrop,
+    CfprApQosclassEthBEPriority,
+    CfprApQosclassEthClassifiedAdminState,
+    CfprApQosclassEthClassifiedDrop,
+    CfprApQosclassEthClassifiedPriority,
+    CfprApQosclassFcAdminState,
+    CfprApQosclassFcDrop,
+    CfprApQosclassFcPriority
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApQosclassObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        QOSCLASS management information model package"
+    ::= { ciscoFirepowerApMIBObjects 67 }
+
+cfprApQosclassDefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApQosclassDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition managed object table"
+    ::= { cfprApQosclassObjects 1 }
+
+cfprApQosclassDefinitionEntry OBJECT-TYPE
+    SYNTAX           CfprApQosclassDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApQosclassDefinitionTable table."
+    INDEX { cfprApQosclassDefinitionInstanceId }
+    ::= { cfprApQosclassDefinitionTable 1 }
+
+CfprApQosclassDefinitionEntry ::= SEQUENCE {
+    cfprApQosclassDefinitionInstanceId                               CfprApManagedObjectId,
+    cfprApQosclassDefinitionDn                                       CfprApManagedObjectDn,
+    cfprApQosclassDefinitionRn                                       SnmpAdminString,
+    cfprApQosclassDefinitionDescr                                    SnmpAdminString,
+    cfprApQosclassDefinitionFsmDescr                                 SnmpAdminString,
+    cfprApQosclassDefinitionFsmPrev                                  SnmpAdminString,
+    cfprApQosclassDefinitionFsmProgr                                 Gauge32,
+    cfprApQosclassDefinitionFsmRmtInvErrCode                         Gauge32,
+    cfprApQosclassDefinitionFsmRmtInvErrDescr                        SnmpAdminString,
+    cfprApQosclassDefinitionFsmRmtInvRslt                            CfprApConditionRemoteInvRslt,
+    cfprApQosclassDefinitionFsmStageDescr                            SnmpAdminString,
+    cfprApQosclassDefinitionFsmStamp                                 DateAndTime,
+    cfprApQosclassDefinitionFsmStatus                                SnmpAdminString,
+    cfprApQosclassDefinitionFsmTry                                   Gauge32,
+    cfprApQosclassDefinitionIntId                                    SnmpAdminString,
+    cfprApQosclassDefinitionName                                     SnmpAdminString,
+    cfprApQosclassDefinitionPolicyLevel                              Gauge32,
+    cfprApQosclassDefinitionPolicyOwner                              CfprApPolicyPolicyOwner
+}
+
+cfprApQosclassDefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApQosclassDefinitionEntry 1 }
+
+cfprApQosclassDefinitionDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:dn managed object property"
+    ::= { cfprApQosclassDefinitionEntry 2 }
+
+cfprApQosclassDefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:rn managed object property"
+    ::= { cfprApQosclassDefinitionEntry 3 }
+
+cfprApQosclassDefinitionDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:descr managed
+        object property"
+    ::= { cfprApQosclassDefinitionEntry 4 }
+
+cfprApQosclassDefinitionFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:fsmDescr managed
+        object property"
+    ::= { cfprApQosclassDefinitionEntry 5 }
+
+cfprApQosclassDefinitionFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:fsmPrev managed
+        object property"
+    ::= { cfprApQosclassDefinitionEntry 6 }
+
+cfprApQosclassDefinitionFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:fsmProgr managed
+        object property"
+    ::= { cfprApQosclassDefinitionEntry 7 }
+
+cfprApQosclassDefinitionFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprApQosclassDefinitionEntry 8 }
+
+cfprApQosclassDefinitionFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprApQosclassDefinitionEntry 9 }
+
+cfprApQosclassDefinitionFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:fsmRmtInvRslt
+        managed object property"
+    ::= { cfprApQosclassDefinitionEntry 10 }
+
+cfprApQosclassDefinitionFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:fsmStageDescr
+        managed object property"
+    ::= { cfprApQosclassDefinitionEntry 11 }
+
+cfprApQosclassDefinitionFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:fsmStamp managed
+        object property"
+    ::= { cfprApQosclassDefinitionEntry 12 }
+
+cfprApQosclassDefinitionFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:fsmStatus
+        managed object property"
+    ::= { cfprApQosclassDefinitionEntry 13 }
+
+cfprApQosclassDefinitionFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:fsmTry managed
+        object property"
+    ::= { cfprApQosclassDefinitionEntry 14 }
+
+cfprApQosclassDefinitionIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:intId managed
+        object property"
+    ::= { cfprApQosclassDefinitionEntry 15 }
+
+cfprApQosclassDefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:name managed object property"
+    ::= { cfprApQosclassDefinitionEntry 16 }
+
+cfprApQosclassDefinitionPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:policyLevel
+        managed object property"
+    ::= { cfprApQosclassDefinitionEntry 17 }
+
+cfprApQosclassDefinitionPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Definition:policyOwner
+        managed object property"
+    ::= { cfprApQosclassDefinitionEntry 18 }
+
+cfprApQosclassDefinitionFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApQosclassDefinitionFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsm managed object table"
+    ::= { cfprApQosclassObjects 2 }
+
+cfprApQosclassDefinitionFsmEntry OBJECT-TYPE
+    SYNTAX           CfprApQosclassDefinitionFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApQosclassDefinitionFsmTable table."
+    INDEX { cfprApQosclassDefinitionFsmInstanceId }
+    ::= { cfprApQosclassDefinitionFsmTable 1 }
+
+CfprApQosclassDefinitionFsmEntry ::= SEQUENCE {
+    cfprApQosclassDefinitionFsmInstanceId                            CfprApManagedObjectId,
+    cfprApQosclassDefinitionFsmDn                                    CfprApManagedObjectDn,
+    cfprApQosclassDefinitionFsmRn                                    SnmpAdminString,
+    cfprApQosclassDefinitionFsmCompletionTime                        DateAndTime,
+    cfprApQosclassDefinitionFsmCurrentFsm                            CfprApQosclassDefinitionFsmCurrentFsm,
+    cfprApQosclassDefinitionFsmDescrData                             SnmpAdminString,
+    cfprApQosclassDefinitionFsmFsmStatus                             CfprApFsmFsmStageStatus,
+    cfprApQosclassDefinitionFsmProgress                              Gauge32,
+    cfprApQosclassDefinitionFsmRmtErrCode                            Gauge32,
+    cfprApQosclassDefinitionFsmRmtErrDescr                           SnmpAdminString,
+    cfprApQosclassDefinitionFsmRmtRslt                               CfprApConditionRemoteInvRslt
+}
+
+cfprApQosclassDefinitionFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApQosclassDefinitionFsmEntry 1 }
+
+cfprApQosclassDefinitionFsmDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsm:dn managed
+        object property"
+    ::= { cfprApQosclassDefinitionFsmEntry 2 }
+
+cfprApQosclassDefinitionFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsm:rn managed
+        object property"
+    ::= { cfprApQosclassDefinitionFsmEntry 3 }
+
+cfprApQosclassDefinitionFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsm:completionTime
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmEntry 4 }
+
+cfprApQosclassDefinitionFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprApQosclassDefinitionFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsm:currentFsm
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmEntry 5 }
+
+cfprApQosclassDefinitionFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsm:descr managed
+        object property"
+    ::= { cfprApQosclassDefinitionFsmEntry 6 }
+
+cfprApQosclassDefinitionFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsm:fsmStatus
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmEntry 7 }
+
+cfprApQosclassDefinitionFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsm:progress
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmEntry 8 }
+
+cfprApQosclassDefinitionFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsm:rmtErrCode
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmEntry 9 }
+
+cfprApQosclassDefinitionFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsm:rmtErrDescr
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmEntry 10 }
+
+cfprApQosclassDefinitionFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsm:rmtRslt
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmEntry 11 }
+
+cfprApQosclassDefinitionFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApQosclassDefinitionFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmStage managed object table"
+    ::= { cfprApQosclassObjects 3 }
+
+cfprApQosclassDefinitionFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprApQosclassDefinitionFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApQosclassDefinitionFsmStageTable table."
+    INDEX { cfprApQosclassDefinitionFsmStageInstanceId }
+    ::= { cfprApQosclassDefinitionFsmStageTable 1 }
+
+CfprApQosclassDefinitionFsmStageEntry ::= SEQUENCE {
+    cfprApQosclassDefinitionFsmStageInstanceId                       CfprApManagedObjectId,
+    cfprApQosclassDefinitionFsmStageDn                               CfprApManagedObjectDn,
+    cfprApQosclassDefinitionFsmStageRn                               SnmpAdminString,
+    cfprApQosclassDefinitionFsmStageDescrData                        SnmpAdminString,
+    cfprApQosclassDefinitionFsmStageLastUpdateTime                   DateAndTime,
+    cfprApQosclassDefinitionFsmStageName                             CfprApQosclassDefinitionFsmStageName,
+    cfprApQosclassDefinitionFsmStageOrder                            Gauge32,
+    cfprApQosclassDefinitionFsmStageRetry                            Gauge32,
+    cfprApQosclassDefinitionFsmStageStageStatus                      CfprApFsmFsmStageStatus
+}
+
+cfprApQosclassDefinitionFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApQosclassDefinitionFsmStageEntry 1 }
+
+cfprApQosclassDefinitionFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmStage:dn
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmStageEntry 2 }
+
+cfprApQosclassDefinitionFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmStage:rn
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmStageEntry 3 }
+
+cfprApQosclassDefinitionFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmStage:descr
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmStageEntry 4 }
+
+cfprApQosclassDefinitionFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmStageEntry 5 }
+
+cfprApQosclassDefinitionFsmStageName OBJECT-TYPE
+    SYNTAX       CfprApQosclassDefinitionFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmStage:name
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmStageEntry 6 }
+
+cfprApQosclassDefinitionFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmStage:order
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmStageEntry 7 }
+
+cfprApQosclassDefinitionFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmStage:retry
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmStageEntry 8 }
+
+cfprApQosclassDefinitionFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmStage:stageStatus
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmStageEntry 9 }
+
+cfprApQosclassDefinitionFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApQosclassDefinitionFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmTask managed object table"
+    ::= { cfprApQosclassObjects 4 }
+
+cfprApQosclassDefinitionFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprApQosclassDefinitionFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApQosclassDefinitionFsmTaskTable table."
+    INDEX { cfprApQosclassDefinitionFsmTaskInstanceId }
+    ::= { cfprApQosclassDefinitionFsmTaskTable 1 }
+
+CfprApQosclassDefinitionFsmTaskEntry ::= SEQUENCE {
+    cfprApQosclassDefinitionFsmTaskInstanceId                        CfprApManagedObjectId,
+    cfprApQosclassDefinitionFsmTaskDn                                CfprApManagedObjectDn,
+    cfprApQosclassDefinitionFsmTaskRn                                SnmpAdminString,
+    cfprApQosclassDefinitionFsmTaskCompletion                        CfprApFsmCompletion,
+    cfprApQosclassDefinitionFsmTaskFlags                             CfprApFsmFlags,
+    cfprApQosclassDefinitionFsmTaskItem                              CfprApQosclassDefinitionFsmTaskItem,
+    cfprApQosclassDefinitionFsmTaskSeqId                             Gauge32
+}
+
+cfprApQosclassDefinitionFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApQosclassDefinitionFsmTaskEntry 1 }
+
+cfprApQosclassDefinitionFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmTask:dn
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmTaskEntry 2 }
+
+cfprApQosclassDefinitionFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmTask:rn
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmTaskEntry 3 }
+
+cfprApQosclassDefinitionFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprApFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmTask:completion
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmTaskEntry 4 }
+
+cfprApQosclassDefinitionFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprApFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmTask:flags
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmTaskEntry 5 }
+
+cfprApQosclassDefinitionFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprApQosclassDefinitionFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmTask:item
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmTaskEntry 6 }
+
+cfprApQosclassDefinitionFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:DefinitionFsmTask:seqId
+        managed object property"
+    ::= { cfprApQosclassDefinitionFsmTaskEntry 7 }
+
+cfprApQosclassEthBETable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApQosclassEthBEEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthBE managed object table"
+    ::= { cfprApQosclassObjects 5 }
+
+cfprApQosclassEthBEEntry OBJECT-TYPE
+    SYNTAX           CfprApQosclassEthBEEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApQosclassEthBETable table."
+    INDEX { cfprApQosclassEthBEInstanceId }
+    ::= { cfprApQosclassEthBETable 1 }
+
+CfprApQosclassEthBEEntry ::= SEQUENCE {
+    cfprApQosclassEthBEInstanceId                                    CfprApManagedObjectId,
+    cfprApQosclassEthBEDn                                            CfprApManagedObjectDn,
+    cfprApQosclassEthBERn                                            SnmpAdminString,
+    cfprApQosclassEthBEAdminState                                    CfprApQosclassEthBEAdminState,
+    cfprApQosclassEthBEBwPercent                                     Gauge32,
+    cfprApQosclassEthBECos                                           Gauge32,
+    cfprApQosclassEthBEDrop                                          CfprApQosclassEthBEDrop,
+    cfprApQosclassEthBEMtu                                           SnmpAdminString,
+    cfprApQosclassEthBEMulticastOptimize                             TruthValue,
+    cfprApQosclassEthBEName                                          SnmpAdminString,
+    cfprApQosclassEthBEPriority                                      CfprApQosclassEthBEPriority,
+    cfprApQosclassEthBEWeight                                        Gauge32
+}
+
+cfprApQosclassEthBEInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApQosclassEthBEEntry 1 }
+
+cfprApQosclassEthBEDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthBE:dn managed object property"
+    ::= { cfprApQosclassEthBEEntry 2 }
+
+cfprApQosclassEthBERn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthBE:rn managed object property"
+    ::= { cfprApQosclassEthBEEntry 3 }
+
+cfprApQosclassEthBEAdminState OBJECT-TYPE
+    SYNTAX       CfprApQosclassEthBEAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthBE:adminState managed
+        object property"
+    ::= { cfprApQosclassEthBEEntry 4 }
+
+cfprApQosclassEthBEBwPercent OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthBE:bwPercent managed object property"
+    ::= { cfprApQosclassEthBEEntry 5 }
+
+cfprApQosclassEthBECos OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthBE:cos managed object property"
+    ::= { cfprApQosclassEthBEEntry 6 }
+
+cfprApQosclassEthBEDrop OBJECT-TYPE
+    SYNTAX       CfprApQosclassEthBEDrop
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthBE:drop managed object property"
+    ::= { cfprApQosclassEthBEEntry 7 }
+
+cfprApQosclassEthBEMtu OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthBE:mtu managed object property"
+    ::= { cfprApQosclassEthBEEntry 8 }
+
+cfprApQosclassEthBEMulticastOptimize OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthBE:multicastOptimize
+        managed object property"
+    ::= { cfprApQosclassEthBEEntry 9 }
+
+cfprApQosclassEthBEName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthBE:name managed object property"
+    ::= { cfprApQosclassEthBEEntry 10 }
+
+cfprApQosclassEthBEPriority OBJECT-TYPE
+    SYNTAX       CfprApQosclassEthBEPriority
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthBE:priority managed object property"
+    ::= { cfprApQosclassEthBEEntry 11 }
+
+cfprApQosclassEthBEWeight OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthBE:weight managed object property"
+    ::= { cfprApQosclassEthBEEntry 12 }
+
+cfprApQosclassEthClassifiedTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApQosclassEthClassifiedEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthClassified managed object table"
+    ::= { cfprApQosclassObjects 6 }
+
+cfprApQosclassEthClassifiedEntry OBJECT-TYPE
+    SYNTAX           CfprApQosclassEthClassifiedEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApQosclassEthClassifiedTable table."
+    INDEX { cfprApQosclassEthClassifiedInstanceId }
+    ::= { cfprApQosclassEthClassifiedTable 1 }
+
+CfprApQosclassEthClassifiedEntry ::= SEQUENCE {
+    cfprApQosclassEthClassifiedInstanceId                            CfprApManagedObjectId,
+    cfprApQosclassEthClassifiedDn                                    CfprApManagedObjectDn,
+    cfprApQosclassEthClassifiedRn                                    SnmpAdminString,
+    cfprApQosclassEthClassifiedAdminState                            CfprApQosclassEthClassifiedAdminState,
+    cfprApQosclassEthClassifiedBwPercent                             Gauge32,
+    cfprApQosclassEthClassifiedCos                                   Gauge32,
+    cfprApQosclassEthClassifiedDrop                                  CfprApQosclassEthClassifiedDrop,
+    cfprApQosclassEthClassifiedMtu                                   SnmpAdminString,
+    cfprApQosclassEthClassifiedMulticastOptimize                     TruthValue,
+    cfprApQosclassEthClassifiedName                                  SnmpAdminString,
+    cfprApQosclassEthClassifiedPriority                              CfprApQosclassEthClassifiedPriority,
+    cfprApQosclassEthClassifiedWeight                                Gauge32
+}
+
+cfprApQosclassEthClassifiedInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApQosclassEthClassifiedEntry 1 }
+
+cfprApQosclassEthClassifiedDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthClassified:dn managed
+        object property"
+    ::= { cfprApQosclassEthClassifiedEntry 2 }
+
+cfprApQosclassEthClassifiedRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthClassified:rn managed
+        object property"
+    ::= { cfprApQosclassEthClassifiedEntry 3 }
+
+cfprApQosclassEthClassifiedAdminState OBJECT-TYPE
+    SYNTAX       CfprApQosclassEthClassifiedAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthClassified:adminState
+        managed object property"
+    ::= { cfprApQosclassEthClassifiedEntry 4 }
+
+cfprApQosclassEthClassifiedBwPercent OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthClassified:bwPercent
+        managed object property"
+    ::= { cfprApQosclassEthClassifiedEntry 5 }
+
+cfprApQosclassEthClassifiedCos OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthClassified:cos managed
+        object property"
+    ::= { cfprApQosclassEthClassifiedEntry 6 }
+
+cfprApQosclassEthClassifiedDrop OBJECT-TYPE
+    SYNTAX       CfprApQosclassEthClassifiedDrop
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthClassified:drop managed
+        object property"
+    ::= { cfprApQosclassEthClassifiedEntry 7 }
+
+cfprApQosclassEthClassifiedMtu OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthClassified:mtu managed
+        object property"
+    ::= { cfprApQosclassEthClassifiedEntry 8 }
+
+cfprApQosclassEthClassifiedMulticastOptimize OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthClassified:multicastOptimize
+        managed object property"
+    ::= { cfprApQosclassEthClassifiedEntry 9 }
+
+cfprApQosclassEthClassifiedName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthClassified:name managed
+        object property"
+    ::= { cfprApQosclassEthClassifiedEntry 10 }
+
+cfprApQosclassEthClassifiedPriority OBJECT-TYPE
+    SYNTAX       CfprApQosclassEthClassifiedPriority
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthClassified:priority
+        managed object property"
+    ::= { cfprApQosclassEthClassifiedEntry 11 }
+
+cfprApQosclassEthClassifiedWeight OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:EthClassified:weight
+        managed object property"
+    ::= { cfprApQosclassEthClassifiedEntry 12 }
+
+cfprApQosclassFcTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApQosclassFcEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Fc managed object table"
+    ::= { cfprApQosclassObjects 7 }
+
+cfprApQosclassFcEntry OBJECT-TYPE
+    SYNTAX           CfprApQosclassFcEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApQosclassFcTable table."
+    INDEX { cfprApQosclassFcInstanceId }
+    ::= { cfprApQosclassFcTable 1 }
+
+CfprApQosclassFcEntry ::= SEQUENCE {
+    cfprApQosclassFcInstanceId                                       CfprApManagedObjectId,
+    cfprApQosclassFcDn                                               CfprApManagedObjectDn,
+    cfprApQosclassFcRn                                               SnmpAdminString,
+    cfprApQosclassFcAdminState                                       CfprApQosclassFcAdminState,
+    cfprApQosclassFcBwPercent                                        Gauge32,
+    cfprApQosclassFcCos                                              Gauge32,
+    cfprApQosclassFcDrop                                             CfprApQosclassFcDrop,
+    cfprApQosclassFcMtu                                              SnmpAdminString,
+    cfprApQosclassFcName                                             SnmpAdminString,
+    cfprApQosclassFcPriority                                         CfprApQosclassFcPriority,
+    cfprApQosclassFcWeight                                           Gauge32
+}
+
+cfprApQosclassFcInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApQosclassFcEntry 1 }
+
+cfprApQosclassFcDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Fc:dn managed object property"
+    ::= { cfprApQosclassFcEntry 2 }
+
+cfprApQosclassFcRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Fc:rn managed object property"
+    ::= { cfprApQosclassFcEntry 3 }
+
+cfprApQosclassFcAdminState OBJECT-TYPE
+    SYNTAX       CfprApQosclassFcAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Fc:adminState managed object property"
+    ::= { cfprApQosclassFcEntry 4 }
+
+cfprApQosclassFcBwPercent OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Fc:bwPercent managed object property"
+    ::= { cfprApQosclassFcEntry 5 }
+
+cfprApQosclassFcCos OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Fc:cos managed object property"
+    ::= { cfprApQosclassFcEntry 6 }
+
+cfprApQosclassFcDrop OBJECT-TYPE
+    SYNTAX       CfprApQosclassFcDrop
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Fc:drop managed object property"
+    ::= { cfprApQosclassFcEntry 7 }
+
+cfprApQosclassFcMtu OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Fc:mtu managed object property"
+    ::= { cfprApQosclassFcEntry 8 }
+
+cfprApQosclassFcName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Fc:name managed object property"
+    ::= { cfprApQosclassFcEntry 9 }
+
+cfprApQosclassFcPriority OBJECT-TYPE
+    SYNTAX       CfprApQosclassFcPriority
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Fc:priority managed object property"
+    ::= { cfprApQosclassFcEntry 10 }
+
+cfprApQosclassFcWeight OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower qosclass:Fc:weight managed object property"
+    ::= { cfprApQosclassFcEntry 11 }
+
+END

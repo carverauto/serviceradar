@@ -1,0 +1,4028 @@
+-- MIB file created 03-Dec-2001 17:12:21, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ADSL-LINE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ADSL-LINE-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    transmission
+            FROM SNMPv2-SMI-v1
+    RowStatus, TruthValue, VariablePointer
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    PerfCurrentCount, PerfIntervalCount
+            FROM PerfHist-TC-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+adslMIB OBJECT IDENTIFIER ::= { transmission 94 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9811161200Z
+--  OrgName
+--    IETF ADSL MIB Working Group
+--  ContactInfo
+--    
+--     Gregory Bathrick
+--     AG Communication Systems
+--     2500 W Utopia Rd.
+--     Phoenix, AZ 85027 USA
+--     Tel: +1 602-582-7679
+--     Fax: +1 602-582-7697
+--     E-mail: bathricg@agcs.com
+--    
+--     Faye Ly
+--     Copper Mountain Networks
+--     Norcal Office
+--     2470 Embarcadero Way
+--     Palo Alto, CA 94303
+--     Tel: +1 650-858-8500
+--     Fax: +1 650-858-8085
+--     E-Mail: faye@norcal.coppermountain.com
+--    
+--     John Burgess
+--     Predictive Systems, Inc.
+--     25A Vreeland Rd.
+--     Florham Park, NJ 07932 USA
+--     Tel: +1 973-301-5610
+--     Fax: +1 973-301-5699
+--     E-mail: jtburgess@predictive.com
+--    
+--     IETF ADSL MIB Working Group (adsl@xlist.agcs.com)
+--  Descr
+--    The MIB module defining objects for the management of a pair of
+--    ADSL modems at each end of the ADSL line.  Each such line has
+--    an entry in an ifTable which may include multiple modem lines.
+--    An agent may reside at either end of the ADSL line however the
+--    MIB is designed to require no management communication between
+--    them beyond that inherent in the low-level ADSL line protocol.
+--    The agent may monitor and control this protocol for its needs.
+--    
+--    ADSL lines may support optional Fast or Interleaved channels.
+--    If these are supported, additional entries corresponding to the
+--    supported channels must be created in the ifTable. Thus an ADSL
+--    line that supports both channels will have three entries in the
+--    ifTable, one for each physical, fast, and interleaved, whose
+--    ifType values are equal to adsl(94), fast(125), and
+--    interleaved(124), respectively. The ifStackTable is used to
+--    represent the relationship between the entries.
+--    
+--    Naming Conventions:
+--              Atuc == (ATUC) modem at near (Central) end of line
+--              Atur == (ATUR) modem at Remote end of line
+--              Curr == Current
+--              Prev == Previous
+--              Atn == Attenuation
+--              ES  == Errored Second.
+--              LCS == Line Code Specific
+--              Lof == Loss of Frame
+--              Lol == Loss of Link
+--              Los == Loss of Signal
+--              Lpr == Loss of Power
+--              xxxs== interval of Seconds in which xxx occurs
+--                      (e.g., xxx=Lof, Los, Lpr)
+--              Max == Maximum
+--              Mgn == Margin
+--              Min == Minimum
+--              Psd == Power Spectral Density
+--              Snr == Signal to Noise Ratio
+--              Tx  == Transmit
+--              Blks== Blocks, a data unit, see
+--                     adslAtuXChanCrcBlockLength
+--      
+--  RevDate
+--    9808071200Z
+--  RevDescr
+--    Changes taken at the March 98 ADSL WG meeting:
+--        - Added  Conformance Statement
+--        - SNMPv3 conformance
+--        - RFC-2233 conformance
+--    
+--     Comments from Technical Advisors, Wijnen and Tesink:
+--        - DisplayString -> UTF-8 String
+--        - minimized # of mandatory performance counts
+--        - Corrected Syntax of current status objects.
+--        - Corrected use of SNMP SMI.
+--    
+--     Lessons learned through implementation of MIB (ADSLF TR006):
+--        - clarified definition of channel block size, SNR
+--          Interleave Delay, Attenuation, and Output power.
+--        - corrected UNITS and SYNTAX of adsl rate objects,
+--          Version#, VendorID.
+--        - added missing line activation objects.
+--    
+--     General editorial cleanup.
+--    
+--     Added Security Statement (Dave Allan)
+--  RevDate
+--    9808071200Z
+--  RevDescr
+--    General editorial cleanup.
+--  RevDate
+--    9810301200Z
+--  RevDescr
+--    
+--    Changes taken at the August 98 ADSL WG meeting:
+--       - Used PerfCurrentCount and PerfIntervalCount
+--         when appropriate.
+--       - Updated Security Statement to conform with
+--         current format.
+--       - Changed SYNTAX of Serial #, Vendor ID, and
+--         Version # to `OCTET STRING'.
+--    
+--    Comments taken from Jeff Johnson and other WG
+--    contributors:
+--       - Removed references to MIB-2 and RFC-1213.
+--       - Re-organized the `Use of IF-MIB' section for
+--         clarification and conformance reasons.
+--       - Changed definition of profile control objects:
+--         For the static profiles, they are read-only.
+--         Updated conformance statements in a likely
+--         manner.
+--       - Removed references to ifTestTypes.  IF-MIB does
+--         support at this time.
+--       - Minor changes to entity mib section.
+--       - Changed SYNTAX of SNR, Attenuation, Attainable rate,
+--         and Output power to `Gauge32`.
+--       - Changed SYNTAX of adslLineSpecific to VariablePointer.
+--       - Swapped lossOfLink(4) and lossOfSignalQuality(5) of
+--         Atuc Current Status to line up better with Atur
+--         Current Status.
+--       - Removed ifIndex from traps
+--       - and many additional and useful editorial comments.
+--  RevDate
+--    9811161200Z
+--  RevDescr
+--    
+--    Changes:
+--       - updated text and conformance statements to include
+--         CPE equipment view.
+--       - updated text and objects to change profile tables
+--         index to SnmpAdminString.
+--       - changed transmission xx to experimental 89.
+--       - resolved conflicting statements on when traps occur.
+--       - added Faye Ly as co-editor and Ted Soo-Hoo and
+--         Umberto Bonollo as contributors.
+--  RevDate
+--    9812211200Z
+--  RevDescr
+--    
+--    Group Last Call version:
+--    Changes (as agreed to made at the Orlando meeting).
+--       - editorial corrections related to past CPE view updates.
+--       - technical clarifications related to the use of profiles.
+
+adslLineMib     OBJECT IDENTIFIER ::= { adslMIB 1 }
+adslMibObjects  OBJECT IDENTIFIER ::= { adslLineMib 1 }
+adslLCSMib      OBJECT IDENTIFIER ::= { adslMibObjects 16 }
+adslTraps       OBJECT IDENTIFIER ::= { adslLineMib 2 }
+adslAtucTraps   OBJECT IDENTIFIER ::= { adslTraps 1 }
+adslAturTraps   OBJECT IDENTIFIER ::= { adslTraps 2 }
+adslConformance OBJECT IDENTIFIER ::= { adslLineMib 3 }
+adslGroups      OBJECT IDENTIFIER ::= { adslConformance 1 }
+adslCompliances OBJECT IDENTIFIER ::= { adslConformance 2 }
+
+AdslLineProfileName ::= SnmpAdminString(SIZE(1..32))
+-- Rsyntax OCTET STRING(SIZE(1..32))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This data type is used to uniquely identify a row in
+--    an ADSL Line Profile Table.
+
+adslLineTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslLineEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table includes common attributes describing
+        both ends of the line.  It is required for all ADSL
+        physical interfaces.  ADSL physical interfaces are
+        those ifEntries where ifType is equal to adsl(94)."
+    ::= { adslMibObjects 1 }
+
+adslLineEntry OBJECT-TYPE
+    SYNTAX AdslLineEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in adslLineTable."
+    INDEX { ifIndex }
+    ::= { adslLineTable 1 }
+
+AdslLineEntry ::= SEQUENCE {
+    adslLineCoding INTEGER,
+    adslLineType INTEGER,
+    adslLineSpecific VariablePointer,
+    adslLineConfProfile AdslLineProfileName,
+    adslLineAlarmConfProfile AdslLineProfileName
+    }
+
+adslLineCoding OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        dmt(2),
+        cap(3),
+        qam(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the ADSL coding type used on this line.
+        Other types may be added in the future."
+    ::= { adslLineEntry 1 }
+
+adslLineType OBJECT-TYPE
+    SYNTAX INTEGER {
+        noChannel(1),
+        fastOnly(2),
+        interleavedOnly(3),
+        fastOrInterleaved(4),
+        fastAndInterleaved(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Defines the type of ADSL physical line
+        entity that exists, by defining whether and how
+        the line is channelized.  If the line is channelized,
+        the value will be other than noChannel(1).  This
+        object defines which channel type(s) are supported.
+        
+        In the case that the line is channelized, the manager
+        can use the ifStackTable to determine the ifIndex for
+        the associated channel(s)."
+    ::= { adslLineEntry 2 }
+
+adslLineSpecific OBJECT-TYPE
+    SYNTAX VariablePointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "OID instance in vendor-specific MIB. The Instance may
+        be used to determine shelf/slot/port of the ATUC
+        interface in a DSLAM."
+    ::= { adslLineEntry 3 }
+
+adslLineConfProfile OBJECT-TYPE
+    SYNTAX AdslLineProfileName
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object identifies the row
+        in the ADSL Line Configuration Profile Table,
+        (adslLineConfProfileTable), which applies for this
+        ADSL line, and channels if applicable.
+        
+        For `dynamic' mode, in the case which the
+        configuration profile has not been set, the
+        value will be set to `DEFVAL'.
+        
+        If the implementator of this MIB has chosen not
+        to implement `dynamic assignment' of profiles, this
+        object's MIN-ACCESS is read-only."
+    ::= { adslLineEntry 4 }
+
+adslLineAlarmConfProfile OBJECT-TYPE
+    SYNTAX AdslLineProfileName
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object identifies the row
+        in the ADSL Line Alarm Configuration Profile Table,
+        (adslLineAlarmConfProfileTable), which applies to this
+        ADSL line, and channels if applicable.
+        
+        For `dynamic' mode, in the case which the
+        alarm profile has not been set, the
+        value will be set to `DEFVAL'.
+        
+        If the implementator of this MIB has chosen not
+        to implement `dynamic assignment' of profiles, this
+        object's MIN-ACCESS is read-only."
+    ::= { adslLineEntry 5 }
+
+adslAtucPhysTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAtucPhysEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each ATUC.
+        Each row contains the Physical Layer Parameters
+        table for that ATUC. ADSL physical interfaces are
+        those ifEntries where ifType is equal to adsl(94)."
+    ::= { adslMibObjects 2 }
+
+adslAtucPhysEntry OBJECT-TYPE
+    SYNTAX AdslAtucPhysEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the adslAtucPhysTable."
+    INDEX { ifIndex }
+    ::= { adslAtucPhysTable 1 }
+
+AdslAtucPhysEntry ::= SEQUENCE {
+    adslAtucInvSerialNumber OCTET STRING,
+    adslAtucInvVendorID OCTET STRING,
+    adslAtucInvVersionNumber OCTET STRING,
+    adslAtucCurrSnrMgn Gauge,
+    adslAtucCurrAtn Gauge,
+    adslAtucCurrStatus OCTET STRING,
+    adslAtucCurrOutputPwr Gauge,
+    adslAtucCurrAttainableRate Gauge
+    }
+
+adslAtucInvSerialNumber OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..32))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Vendor specific string that identifies the vendor
+        equipment."
+    ::= { adslAtucPhysEntry 1 }
+
+adslAtucInvVendorID OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The vendor ID assigned by T1E1.413 according to its
+        Annex D.[10]"
+    ::= { adslAtucPhysEntry 2 }
+
+adslAtucInvVersionNumber OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Vendor specific version number sent by this ATU as
+        part of the initialization messages."
+    ::= { adslAtucPhysEntry 3 }
+
+adslAtucCurrSnrMgn OBJECT-TYPE
+    SYNTAX Gauge(0..310)
+--  Units
+--    tenth dB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Noise Margin as seen by this ATU with respect to its
+        received signal in tenth dB."
+    ::= { adslAtucPhysEntry 4 }
+
+adslAtucCurrAtn OBJECT-TYPE
+    SYNTAX Gauge(0..630)
+--  Units
+--    tenth dB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Measured difference in the total power transmitted by
+        the peer ATU and the total power received by this ATU.
+        This value is determined in accordance with
+        T1.413[10]."
+    ::= { adslAtucPhysEntry 5 }
+
+adslAtucCurrStatus OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates current state of the ATUC line.  This is a
+        bit-map of possible conditions.  The various bit
+        positions are:
+        
+        0      noDefect             There no defects on the line
+        
+        1      lossOfFraming        ATUC failure due to not
+                             receiving valid frame.
+        
+        2      lossOfSignal         ATUC failure due to not
+                             receiving signal.
+        
+        3      lossOfPower          ATUC failure due to loss of
+                             power.
+                             Note: the Agent may still
+                             function.
+        
+        4      lossOfSignalQuality  Loss of Signal Quality is
+                             declared when the Noise Margin
+                             falls below the Minimum Noise
+                             Margin, or the bit-error-rate
+                             exceeds 10^-7.
+        
+        5      lossOfLink           ATUC failure due to inability
+                             to link with ATUR.
+        
+        6      dataInitFailure      ATUC failure during
+                             initialization due to bit
+                             errors corrupting startup
+                             exchange data.
+        
+        7      configInitFailure    ATUC failure during
+                             initialization due to peer
+                             ATU not able to support
+                             requested configuration
+        
+        8      protocolInitFailure  ATUC failure during
+                             initialization due to
+                             incompatible protocol used by
+                             the peer ATU.
+        
+        9      noPeerAtuPresent     ATUC failure during
+                             initialization due to no
+                             activation sequence detected
+                             from peer ATU.
+        
+        This is intended to supplement ifOperStatus."
+    ::= { adslAtucPhysEntry 6 }
+
+adslAtucCurrOutputPwr OBJECT-TYPE
+    SYNTAX Gauge(0..310)
+--  Units
+--    tenth dBm
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Measured total output power transmitted by this ATU.
+        This is the measurement that was reported during
+        the last activation sequence."
+    ::= { adslAtucPhysEntry 7 }
+
+adslAtucCurrAttainableRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bps
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the maximum currently attainable data rate
+        by the ATU.  This value will be equal or greater than
+        the current line rate."
+    ::= { adslAtucPhysEntry 8 }
+
+adslAturPhysTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAturPhysEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each ATUR
+        Each row contains the Physical Layer Parameters
+        table for that ATUR. ADSL physical interfaces are
+        those ifEntries where ifType is equal to adsl(94)."
+    ::= { adslMibObjects 3 }
+
+adslAturPhysEntry OBJECT-TYPE
+    SYNTAX AdslAturPhysEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the adslAturPhysTable."
+    INDEX { ifIndex }
+    ::= { adslAturPhysTable 1 }
+
+AdslAturPhysEntry ::= SEQUENCE {
+    adslAturInvSerialNumber OCTET STRING,
+    adslAturInvVendorID OCTET STRING,
+    adslAturInvVersionNumber OCTET STRING,
+    adslAturCurrSnrMgn Gauge,
+    adslAturCurrAtn Gauge,
+    adslAturCurrStatus OCTET STRING,
+    adslAturCurrOutputPwr Gauge,
+    adslAturCurrAttainableRate Gauge
+    }
+
+adslAturInvSerialNumber OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..32))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Vendor specific string that identifies the vendor
+        equipment."
+    ::= { adslAturPhysEntry 1 }
+
+adslAturInvVendorID OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The vendor ID assigned by T1E1.413 according to its
+        Annex D."
+    ::= { adslAturPhysEntry 2 }
+
+adslAturInvVersionNumber OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Vendor specific version number sent by this ATU as
+        part of the initialization messages."
+    ::= { adslAturPhysEntry 3 }
+
+adslAturCurrSnrMgn OBJECT-TYPE
+    SYNTAX Gauge(0..310)
+--  Units
+--    tenth dB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Noise Margin as seen by this ATU with respect to its
+        received signal.  This value is determined in
+        accordance with T1.413 [10]."
+    ::= { adslAturPhysEntry 4 }
+
+adslAturCurrAtn OBJECT-TYPE
+    SYNTAX Gauge(0..630)
+--  Units
+--    tenth dB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Measured difference in the total power transmitted by
+        the peer ATU and the total power received by this ATU.
+        This value is determined in accordance with
+        T1.413[10]."
+    ::= { adslAturPhysEntry 5 }
+
+adslAturCurrStatus OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates current state of the ATUR line.  This is a
+        bit-map of possible conditions.  Due to the isolation
+        of the ATUR when line problems occur, many state
+        conditions like loss of power, loss of quality signal,
+        and initialization errors,  can not be determined.
+        While trouble shooting ATUR, also use object,
+        adslAtucCurrStatus.  The various bit positions are:
+        
+        0      noDefect             There no defects on the line
+        
+        1      lossOfFraming        ATUR failure due to not
+                             receiving valid frame
+        
+        2      lossOfSignal         ATUR failure due to not
+                             receiving signal
+        
+        3      lossOfPower          ATUR failure due to loss of
+                             power
+        
+        4      lossOfSignalQuality  Loss of Signal Quality is
+                             declared when the Noise Margin
+                             falls below the Minimum Noise
+                             Margin, or the
+                             bit-error-rate exceeds 10^-7.
+        
+        This is intended to supplement ifOperStatus."
+    ::= { adslAturPhysEntry 6 }
+
+adslAturCurrOutputPwr OBJECT-TYPE
+    SYNTAX Gauge(0..310)
+--  Units
+--    tenth dBm
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Measured total output power transmitted by this ATU.
+        This is the measurement that was reported during
+        the last activation sequence."
+    ::= { adslAturPhysEntry 7 }
+
+adslAturCurrAttainableRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bps
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the maximum currently attainable data rate
+        by the ATU.  This value will be equal or greater than
+        the current line rate."
+    ::= { adslAturPhysEntry 8 }
+
+adslAtucChanTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAtucChanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each ATUC channel.
+        ADSL channel interfaces are those ifEntries
+        where ifType is equal to adslInterleave(124)
+        or adslFast(125)."
+    ::= { adslMibObjects 4 }
+
+adslAtucChanEntry OBJECT-TYPE
+    SYNTAX AdslAtucChanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the adslAtucChanTable."
+    INDEX { ifIndex }
+    ::= { adslAtucChanTable 1 }
+
+AdslAtucChanEntry ::= SEQUENCE {
+    adslAtucChanInterleaveDelay Gauge,
+    adslAtucChanCurrTxRate Gauge,
+    adslAtucChanPrevTxRate Gauge,
+    adslAtucChanCrcBlockLength Gauge
+    }
+
+adslAtucChanInterleaveDelay OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milli-seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Interleave Delay for this channel.
+        
+        Interleave delay applies only to the
+        interleave channel and defines the mapping
+        (relative spacing) between subsequent input
+        bytes at the interleaver input and their placement
+        in the bit stream at the interleaver output.
+        Larger numbers provide greater separation between
+        consecutive input bytes in the output bit stream
+        allowing for improved impulse noise immunity at
+        the expense of payload latency.
+        
+        In the case where the ifType is Fast(125), use
+        noSuchObject."
+    ::= { adslAtucChanEntry 1 }
+
+adslAtucChanCurrTxRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bps
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Actual transmit rate on this channel."
+    ::= { adslAtucChanEntry 2 }
+
+adslAtucChanPrevTxRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bps
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The rate at the time of the last
+        adslAtucRateChangeTrap event. It is also set at
+        initialization to prevent a trap being sent.
+        
+        Rate changes less than adslAtucThresh(*)RateDown
+        or less than adslAtucThresh(*)RateUp will not
+        cause a trap or cause this object to change.
+        (*) == Fast or Interleave.
+        See AdslLineAlarmConfProfileEntry."
+    ::= { adslAtucChanEntry 3 }
+
+adslAtucChanCrcBlockLength OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    byte
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the length of the channel data-block
+        on which the CRC operates.  Refer to Line Code
+        Specific MIBs, [11] and [12] for more
+        information."
+    ::= { adslAtucChanEntry 4 }
+
+adslAturChanTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAturChanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each ATUR channel.
+        ADSL channel interfaces are those ifEntries
+        where ifType is equal to adslInterleave(124)
+        or adslFast(125)."
+    ::= { adslMibObjects 5 }
+
+adslAturChanEntry OBJECT-TYPE
+    SYNTAX AdslAturChanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the adslAturChanTable."
+    INDEX { ifIndex }
+    ::= { adslAturChanTable 1 }
+
+AdslAturChanEntry ::= SEQUENCE {
+    adslAturChanInterleaveDelay Gauge,
+    adslAturChanCurrTxRate Gauge,
+    adslAturChanPrevTxRate Gauge,
+    adslAturChanCrcBlockLength Gauge
+    }
+
+adslAturChanInterleaveDelay OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milli-seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Interleave Delay for this channel.
+        
+        Interleave delay applies only to the
+        interleave channel and defines the mapping
+        (relative spacing) between subsequent input
+        bytes at the interleaver input and their placement
+        in the bit stream at the interleaver output.
+        Larger numbers provide greater separation between
+        consecutive input bytes in the output bit stream
+        allowing for improved impulse noise immunity at
+        the expense of payload latency.
+        
+        In the case where the ifType is Fast(125), use
+        noSuchObject."
+    ::= { adslAturChanEntry 1 }
+
+adslAturChanCurrTxRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bps
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Actual transmit rate on this channel."
+    ::= { adslAturChanEntry 2 }
+
+adslAturChanPrevTxRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bps
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The rate at the time of the last
+         adslAturRateChangeTrap event. It is also set at
+         initialization to prevent a trap being sent.
+        
+         Rate changes less than adslAturThresh(*)RateDown
+         or less than adslAturThresh(*)RateUp will not
+         cause a trap or cause this object to change.
+         (*) == Fast or Interleave.
+         See AdslLineAlarmConfProfileEntry."
+    ::= { adslAturChanEntry 3 }
+
+adslAturChanCrcBlockLength OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the length of the channel data-block
+        on which the CRC operates.  Refer to Line Code
+        Specific MIBs, [11] and [12] for more
+        information."
+    ::= { adslAturChanEntry 4 }
+
+adslAtucPerfDataTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAtucPerfDataEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each ATUC.
+        ADSL physical interfaces are
+        those ifEntries where ifType is equal to adsl(94)."
+    ::= { adslMibObjects 6 }
+
+adslAtucPerfDataEntry OBJECT-TYPE
+    SYNTAX AdslAtucPerfDataEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in adslAtucPerfDataTable."
+    INDEX { ifIndex }
+    ::= { adslAtucPerfDataTable 1 }
+
+AdslAtucPerfDataEntry ::= SEQUENCE {
+    adslAtucPerfLofs Counter,
+    adslAtucPerfLoss Counter,
+    adslAtucPerfLols Counter,
+    adslAtucPerfLprs Counter,
+    adslAtucPerfESs Counter,
+    adslAtucPerfInits Counter,
+    adslAtucPerfValidIntervals INTEGER,
+    adslAtucPerfInvalidIntervals INTEGER,
+    adslAtucPerfCurr15MinTimeElapsed PerfCurrentCount,
+    adslAtucPerfCurr15MinLofs PerfCurrentCount,
+    adslAtucPerfCurr15MinLoss PerfCurrentCount,
+    adslAtucPerfCurr15MinLols PerfCurrentCount,
+    adslAtucPerfCurr15MinLprs PerfCurrentCount,
+    adslAtucPerfCurr15MinESs PerfCurrentCount,
+    adslAtucPerfCurr15MinInits PerfCurrentCount,
+    adslAtucPerfCurr1DayTimeElapsed INTEGER,
+    adslAtucPerfCurr1DayLofs Gauge,
+    adslAtucPerfCurr1DayLoss Gauge,
+    adslAtucPerfCurr1DayLols Gauge,
+    adslAtucPerfCurr1DayLprs Gauge,
+    adslAtucPerfCurr1DayESs Gauge,
+    adslAtucPerfCurr1DayInits Gauge,
+    adslAtucPerfPrev1DayMoniSecs INTEGER,
+    adslAtucPerfPrev1DayLofs Gauge,
+    adslAtucPerfPrev1DayLoss Gauge,
+    adslAtucPerfPrev1DayLols Gauge,
+    adslAtucPerfPrev1DayLprs Gauge,
+    adslAtucPerfPrev1DayESs Gauge,
+    adslAtucPerfPrev1DayInits Gauge
+    }
+
+adslAtucPerfLofs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of Loss of Framing failures since
+        agent reset."
+    ::= { adslAtucPerfDataEntry 1 }
+
+adslAtucPerfLoss OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of Loss of Signal failures since
+        agent reset."
+    ::= { adslAtucPerfDataEntry 2 }
+
+adslAtucPerfLols OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of Loss of Link failures since
+        agent reset."
+    ::= { adslAtucPerfDataEntry 3 }
+
+adslAtucPerfLprs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of Loss of Power failures since
+        agent reset."
+    ::= { adslAtucPerfDataEntry 4 }
+
+adslAtucPerfESs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of Errored Seconds since agent
+        reset.  The errored second parameter is a count of
+        one-second intervals containing one or more crc
+        anomalies, or one or more los or sef defects."
+    ::= { adslAtucPerfDataEntry 5 }
+
+adslAtucPerfInits OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the line initialization attempts since
+        agent reset. Includes both successful and failed
+        attempts."
+    ::= { adslAtucPerfDataEntry 6 }
+
+adslAtucPerfValidIntervals OBJECT-TYPE
+    SYNTAX INTEGER(0..96)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of previous 15-minute intervals in the
+        adslAtucInterval Table for which valid data
+        has been stored. This value will be equal to the
+        maximum # of intervals that are kept (n) unless the
+        device was brought online within the last (nx15)
+        minutes. In the case where the agent is a proxy,
+        it is possible that some intervals are unavailable.
+        In this case, this interval is the maximum interval
+        for which valid data is available."
+    ::= { adslAtucPerfDataEntry 7 }
+
+adslAtucPerfInvalidIntervals OBJECT-TYPE
+    SYNTAX INTEGER(0..96)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of 15 minute intervals in which no valid
+        data is available."
+    ::= { adslAtucPerfDataEntry 8 }
+
+adslAtucPerfCurr15MinTimeElapsed OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total elapsed seconds in this interval.
+        A full interval is 900 seconds."
+    ::= { adslAtucPerfDataEntry 9 }
+
+adslAtucPerfCurr15MinLofs OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the current 15 minute interval
+        when there was Loss of Framing."
+    ::= { adslAtucPerfDataEntry 10 }
+
+adslAtucPerfCurr15MinLoss OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the current 15 minute interval
+        when there was Loss of Signal."
+    ::= { adslAtucPerfDataEntry 11 }
+
+adslAtucPerfCurr15MinLols OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the current 15 minute interval
+        when there was Loss of Link."
+    ::= { adslAtucPerfDataEntry 12 }
+
+adslAtucPerfCurr15MinLprs OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the current 15 minute interval
+        when there was Loss of Power."
+    ::= { adslAtucPerfDataEntry 13 }
+
+adslAtucPerfCurr15MinESs OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of Errored Seconds in the current 15 minute
+        interval.  The errored second parameter is a count of
+        one-second intervals containing one or more crc
+        anomalies, or one or more los or sef defects."
+    ::= { adslAtucPerfDataEntry 14 }
+
+adslAtucPerfCurr15MinInits OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the line initialization attempts in the
+        current 15 minute interval. Includes both successful
+        and failed attempts."
+    ::= { adslAtucPerfDataEntry 15 }
+
+adslAtucPerfCurr1DayTimeElapsed OBJECT-TYPE
+    SYNTAX INTEGER(0..86399)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of seconds that have elapsed since the
+        beginning of the current 1-day interval."
+    ::= { adslAtucPerfDataEntry 16 }
+
+adslAtucPerfCurr1DayLofs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of seconds when there was Loss of
+        Framing during the current day as measured by
+        adslAtucPerfCurr1DayTimeElapsed."
+    ::= { adslAtucPerfDataEntry 17 }
+
+adslAtucPerfCurr1DayLoss OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of seconds when there was Loss of
+        Signal during the current day as measured by
+        adslAtucPerfCurr1DayTimeElapsed."
+    ::= { adslAtucPerfDataEntry 18 }
+
+adslAtucPerfCurr1DayLols OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of seconds when there was Loss of
+        Link during the current day as measured by
+        adslAtucPerfCurr1DayTimeElapsed."
+    ::= { adslAtucPerfDataEntry 19 }
+
+adslAtucPerfCurr1DayLprs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of seconds when there was Loss of
+        Power during the current day as measured by
+        adslAtucPerfCurr1DayTimeElapsed."
+    ::= { adslAtucPerfDataEntry 20 }
+
+adslAtucPerfCurr1DayESs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of Errored Seconds during the current day as
+        measured by adslAtucPerfCurr1DayTimeElapsed.
+        The errored second parameter is a count of
+        one-second intervals containing one or more crc
+        anomalies, or one or more los or sef defects."
+    ::= { adslAtucPerfDataEntry 21 }
+
+adslAtucPerfCurr1DayInits OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the line initialization attempts in the
+        day as measured by adslAtucPerfCurr1DayTimeElapsed.
+        Includes both successful and failed attempts."
+    ::= { adslAtucPerfDataEntry 22 }
+
+adslAtucPerfPrev1DayMoniSecs OBJECT-TYPE
+    SYNTAX INTEGER(0..899)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time in the previous 1-day interval over which
+        the performance monitoring information is actually
+        counted. This value will normally be the same as the
+        total interval duration except in a situation where
+        performance monitoring data can not be collected
+        for any reason.  Typically Elapsed 1-day time will be
+        copied into Monitored Seconds when the 1-day roll-over
+        occurs."
+    ::= { adslAtucPerfDataEntry 23 }
+
+adslAtucPerfPrev1DayLofs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was
+        Loss of Framing within the most recent previous
+        1-day period."
+    ::= { adslAtucPerfDataEntry 24 }
+
+adslAtucPerfPrev1DayLoss OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was
+        Loss of Signal within the most recent previous
+        1-day period."
+    ::= { adslAtucPerfDataEntry 25 }
+
+adslAtucPerfPrev1DayLols OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was
+        Loss of Link within the most recent previous
+        1-day period."
+    ::= { adslAtucPerfDataEntry 26 }
+
+adslAtucPerfPrev1DayLprs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was
+        Loss of Power within the most recent previous
+        1-day period."
+    ::= { adslAtucPerfDataEntry 27 }
+
+adslAtucPerfPrev1DayESs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of Errored Seconds within the most recent
+        previous 1-day period. The errored second parameter is
+        a count of one-second intervals containing one or more
+        crc anomalies, or one or more los or sef defects."
+    ::= { adslAtucPerfDataEntry 28 }
+
+adslAtucPerfPrev1DayInits OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the line initialization attempts in the most
+        recent previous 1-day period. Includes both successful
+        and failed attempts."
+    ::= { adslAtucPerfDataEntry 29 }
+
+adslAturPerfDataTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAturPerfDataEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each ATUR.
+        ADSL physical interfaces are
+        those ifEntries where ifType is equal to adsl(94)."
+    ::= { adslMibObjects 7 }
+
+adslAturPerfDataEntry OBJECT-TYPE
+    SYNTAX AdslAturPerfDataEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in adslAturPerfDataTable."
+    INDEX { ifIndex }
+    ::= { adslAturPerfDataTable 1 }
+
+AdslAturPerfDataEntry ::= SEQUENCE {
+    adslAturPerfLofs Counter,
+    adslAturPerfLoss Counter,
+    adslAturPerfLprs Counter,
+    adslAturPerfESs Counter,
+    adslAturPerfValidIntervals INTEGER,
+    adslAturPerfInvalidIntervals INTEGER,
+    adslAturPerfCurr15MinTimeElapsed PerfCurrentCount,
+    adslAturPerfCurr15MinLofs PerfCurrentCount,
+    adslAturPerfCurr15MinLoss PerfCurrentCount,
+    adslAturPerfCurr15MinLprs PerfCurrentCount,
+    adslAturPerfCurr15MinESs PerfCurrentCount,
+    adslAturPerfCurr1DayTimeElapsed INTEGER,
+    adslAturPerfCurr1DayLofs Gauge,
+    adslAturPerfCurr1DayLoss Gauge,
+    adslAturPerfCurr1DayLprs Gauge,
+    adslAturPerfCurr1DayESs Gauge,
+    adslAturPerfPrev1DayMoniSecs INTEGER,
+    adslAturPerfPrev1DayLofs Gauge,
+    adslAturPerfPrev1DayLoss Gauge,
+    adslAturPerfPrev1DayLprs Gauge,
+    adslAturPerfPrev1DayESs Gauge
+    }
+
+adslAturPerfLofs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of Loss of Framing failures since
+        agent reset."
+    ::= { adslAturPerfDataEntry 1 }
+
+adslAturPerfLoss OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of Loss of Signal failures since
+        agent reset."
+    ::= { adslAturPerfDataEntry 2 }
+
+adslAturPerfLprs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of Loss of Power failures since
+        agent reset."
+    ::= { adslAturPerfDataEntry 3 }
+
+adslAturPerfESs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of Errored Seconds since agent
+        reset.  The errored second parameter is a count of
+        one-second intervals containing one or more crc
+        anomalies, or one or more los or sef defects."
+    ::= { adslAturPerfDataEntry 4 }
+
+adslAturPerfValidIntervals OBJECT-TYPE
+    SYNTAX INTEGER(0..96)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of previous 15-minute intervals in the
+        adslAturInterval Table for which valid data
+        has been stored. This value will be equal to the
+        maximum # of intervals that are kept (n) unless the
+        device was brought online within the last (nx15) min.
+        In the case where the agent is a proxy, it is possible
+        that some intervals are unavailable. In this case, this
+        interval is the maximum interval for which valid data
+        is available."
+    ::= { adslAturPerfDataEntry 5 }
+
+adslAturPerfInvalidIntervals OBJECT-TYPE
+    SYNTAX INTEGER(0..96)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of 15 minute intervals in which no valid
+        data is available."
+    ::= { adslAturPerfDataEntry 6 }
+
+adslAturPerfCurr15MinTimeElapsed OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total elapsed seconds in this interval.
+        A full interval is 900 seconds."
+    ::= { adslAturPerfDataEntry 7 }
+
+adslAturPerfCurr15MinLofs OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the current 15 minute interval
+        when there was Loss of Framing."
+    ::= { adslAturPerfDataEntry 8 }
+
+adslAturPerfCurr15MinLoss OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the current 15 minute interval
+        when there was Loss of Signal."
+    ::= { adslAturPerfDataEntry 9 }
+
+adslAturPerfCurr15MinLprs OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the current 15 minute interval
+        when there was Loss of Power."
+    ::= { adslAturPerfDataEntry 10 }
+
+adslAturPerfCurr15MinESs OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of Errored Seconds in the current 15 minute
+        interval.  The errored second parameter is a count of
+        one-second intervals containing one or more crc
+        anomalies, or one or more los or sef defects."
+    ::= { adslAturPerfDataEntry 11 }
+
+adslAturPerfCurr1DayTimeElapsed OBJECT-TYPE
+    SYNTAX INTEGER(0..86399)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of seconds that have elapsed since the
+        beginning of the current 1-day interval."
+    ::= { adslAturPerfDataEntry 12 }
+
+adslAturPerfCurr1DayLofs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of seconds when there was Loss
+        of Framing during the current day as measured by
+        adslAturPerfCurr1DayTimeElapsed."
+    ::= { adslAturPerfDataEntry 13 }
+
+adslAturPerfCurr1DayLoss OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of seconds when there was Loss
+        of Signal during the current day as measured by
+        adslAturPerfCurr1DayTimeElapsed."
+    ::= { adslAturPerfDataEntry 14 }
+
+adslAturPerfCurr1DayLprs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of seconds when there was Loss
+        of Power during the current day as measured by
+        adslAturPerfCurr1DayTimeElapsed."
+    ::= { adslAturPerfDataEntry 15 }
+
+adslAturPerfCurr1DayESs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of Errored Seconds during the current day as
+        measured by adslAturPerfCurr1DayTimeElapsed.
+        The errored second parameter is a count of
+        one-second intervals containing one or more crc
+        anomalies, or one or more los or sef defects."
+    ::= { adslAturPerfDataEntry 16 }
+
+adslAturPerfPrev1DayMoniSecs OBJECT-TYPE
+    SYNTAX INTEGER(0..899)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time in the previous 1-day interval over which
+        the performance monitoring information is actually
+        counted. This value will normally be the same as the
+        total interval duration except in a situation where
+        performance monitoring data can not be collected
+        for any reason.  Typically Elapsed 1-day time will be
+        copied into Monitored Seconds when the 1-day roll-over
+        occurs."
+    ::= { adslAturPerfDataEntry 17 }
+
+adslAturPerfPrev1DayLofs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was
+        Loss of Framing within the most recent previous
+        1-day period."
+    ::= { adslAturPerfDataEntry 18 }
+
+adslAturPerfPrev1DayLoss OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was
+        Loss of Signal within the most recent previous
+        1-day period."
+    ::= { adslAturPerfDataEntry 19 }
+
+adslAturPerfPrev1DayLprs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was
+        Loss of Power within the most recent previous
+        1-day period."
+    ::= { adslAturPerfDataEntry 20 }
+
+adslAturPerfPrev1DayESs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of Errored Seconds within the most recent
+        previous 1-day period. The errored second parameter is
+        a count of one-second intervals containing one or more
+        crc anomalies, or one or more los or sef defects."
+    ::= { adslAturPerfDataEntry 21 }
+
+adslAtucIntervalTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAtucIntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each ATUC
+        performance data collection interval.
+        ADSL physical interfaces are
+        those ifEntries where ifType is equal to adsl(94)."
+    ::= { adslMibObjects 8 }
+
+adslAtucIntervalEntry OBJECT-TYPE
+    SYNTAX AdslAtucIntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the adslAtucIntervalTable."
+    INDEX { ifIndex, adslAtucIntervalNumber }
+    ::= { adslAtucIntervalTable 1 }
+
+AdslAtucIntervalEntry ::= SEQUENCE {
+    adslAtucIntervalNumber INTEGER,
+    adslAtucIntervalLofs PerfIntervalCount,
+    adslAtucIntervalLoss PerfIntervalCount,
+    adslAtucIntervalLols PerfIntervalCount,
+    adslAtucIntervalLprs PerfIntervalCount,
+    adslAtucIntervalESs PerfIntervalCount,
+    adslAtucIntervalInits PerfIntervalCount,
+    adslAtucIntervalValidData TruthValue
+    }
+
+adslAtucIntervalNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..96)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Performance Data Interval number 1 is the
+        the most recent previous interval; interval
+        96 is 24 hours ago.  Intervals 2..96 are
+        optional."
+    ::= { adslAtucIntervalEntry 1 }
+
+adslAtucIntervalLofs OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was Loss
+        of Framing."
+    ::= { adslAtucIntervalEntry 2 }
+
+adslAtucIntervalLoss OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was Loss
+        of Signal."
+    ::= { adslAtucIntervalEntry 3 }
+
+adslAtucIntervalLols OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was Loss
+        of Link."
+    ::= { adslAtucIntervalEntry 4 }
+
+adslAtucIntervalLprs OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was Loss
+        of Power."
+    ::= { adslAtucIntervalEntry 5 }
+
+adslAtucIntervalESs OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of Errored Seconds in the interval.
+        The errored second parameter is a count of
+        one-second intervals containing one or more crc
+        anomalies, or one or more los or sef defects."
+    ::= { adslAtucIntervalEntry 6 }
+
+adslAtucIntervalInits OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the line initialization attempts
+        during the interval. Includes both successful
+        and failed attempts."
+    ::= { adslAtucIntervalEntry 7 }
+
+adslAtucIntervalValidData OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if there is valid data
+        for this interval."
+    ::= { adslAtucIntervalEntry 8 }
+
+adslAturIntervalTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAturIntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each ATUR
+        performance data collection interval.
+        ADSL physical interfaces are those
+        ifEntries where ifType is equal to adsl(94)."
+    ::= { adslMibObjects 9 }
+
+adslAturIntervalEntry OBJECT-TYPE
+    SYNTAX AdslAturIntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the adslAturIntervalTable."
+    INDEX { ifIndex, adslAturIntervalNumber }
+    ::= { adslAturIntervalTable 1 }
+
+AdslAturIntervalEntry ::= SEQUENCE {
+    adslAturIntervalNumber INTEGER,
+    adslAturIntervalLofs PerfIntervalCount,
+    adslAturIntervalLoss PerfIntervalCount,
+    adslAturIntervalLprs PerfIntervalCount,
+    adslAturIntervalESs PerfIntervalCount,
+    adslAturIntervalValidData TruthValue
+    }
+
+adslAturIntervalNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..96)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Performance Data Interval number 1 is the
+        the most recent previous interval; interval
+        96 is 24 hours ago.  Intervals 2..96 are
+        optional."
+    ::= { adslAturIntervalEntry 1 }
+
+adslAturIntervalLofs OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was
+        Loss of Framing."
+    ::= { adslAturIntervalEntry 2 }
+
+adslAturIntervalLoss OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was
+        Loss of Signal."
+    ::= { adslAturIntervalEntry 3 }
+
+adslAturIntervalLprs OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of seconds in the interval when there was
+        Loss of Power."
+    ::= { adslAturIntervalEntry 4 }
+
+adslAturIntervalESs OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of Errored Seconds in the interval.
+        The errored second parameter is a count of
+        one-second intervals containing one or more crc
+        anomalies, or one or more los or sef defects."
+    ::= { adslAturIntervalEntry 5 }
+
+adslAturIntervalValidData OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if there is valid data
+        for this interval."
+    ::= { adslAturIntervalEntry 6 }
+
+adslAtucChanPerfDataTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAtucChanPerfDataEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each ATUC channel.
+        ADSL channel interfaces are those ifEntries
+        where ifType is equal to adslInterleave(124)
+        or adslFast(125)."
+    ::= { adslMibObjects 10 }
+
+adslAtucChanPerfDataEntry OBJECT-TYPE
+    SYNTAX AdslAtucChanPerfDataEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in adslAtucChanPerfDataTable."
+    INDEX { ifIndex }
+    ::= { adslAtucChanPerfDataTable 1 }
+
+AdslAtucChanPerfDataEntry ::= SEQUENCE {
+    adslAtucChanReceivedBlks Counter,
+    adslAtucChanTransmittedBlks Counter,
+    adslAtucChanCorrectedBlks Counter,
+    adslAtucChanUncorrectBlks Counter,
+    adslAtucChanPerfValidIntervals INTEGER,
+    adslAtucChanPerfInvalidIntervals INTEGER,
+    adslAtucChanPerfCurr15MinTimeElapsed PerfCurrentCount,
+    adslAtucChanPerfCurr15MinReceivedBlks PerfCurrentCount,
+    adslAtucChanPerfCurr15MinTransmittedBlks PerfCurrentCount,
+    adslAtucChanPerfCurr15MinCorrectedBlks PerfCurrentCount,
+    adslAtucChanPerfCurr15MinUncorrectBlks PerfCurrentCount,
+    adslAtucChanPerfCurr1DayTimeElapsed INTEGER,
+    adslAtucChanPerfCurr1DayReceivedBlks Gauge,
+    adslAtucChanPerfCurr1DayTransmittedBlks Gauge,
+    adslAtucChanPerfCurr1DayCorrectedBlks Gauge,
+    adslAtucChanPerfCurr1DayUncorrectBlks Gauge,
+    adslAtucChanPerfPrev1DayMoniSecs INTEGER,
+    adslAtucChanPerfPrev1DayReceivedBlks Gauge,
+    adslAtucChanPerfPrev1DayTransmittedBlks Gauge,
+    adslAtucChanPerfPrev1DayCorrectedBlks Gauge,
+    adslAtucChanPerfPrev1DayUncorrectBlks Gauge
+    }
+
+adslAtucChanReceivedBlks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks received on this channel
+        since agent reset."
+    ::= { adslAtucChanPerfDataEntry 1 }
+
+adslAtucChanTransmittedBlks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks transmitted on this
+        channel since agent reset."
+    ::= { adslAtucChanPerfDataEntry 2 }
+
+adslAtucChanCorrectedBlks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with errors that were
+        corrected since agent reset.  These blocks are passed
+        on as good data."
+    ::= { adslAtucChanPerfDataEntry 3 }
+
+adslAtucChanUncorrectBlks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with uncorrectable
+        errors since agent reset."
+    ::= { adslAtucChanPerfDataEntry 4 }
+
+adslAtucChanPerfValidIntervals OBJECT-TYPE
+    SYNTAX INTEGER(0..96)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of previous 15-minute intervals in the
+        adslAtucChanIntervalTable Table for which valid data
+        has been stored. This value will be equal to the max
+        number of intervals that are kept (n) unless the device
+        was brought online within the last (nx15) minutes. In
+        the case where the agent is a proxy, it is possible
+        that some intervals are unavailable. In this case,
+        this interval is the maximum interval for which valid
+        data is available."
+    ::= { adslAtucChanPerfDataEntry 5 }
+
+adslAtucChanPerfInvalidIntervals OBJECT-TYPE
+    SYNTAX INTEGER(0..96)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of 15 minute intervals in which no valid
+        data is available."
+    ::= { adslAtucChanPerfDataEntry 6 }
+
+adslAtucChanPerfCurr15MinTimeElapsed OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total elapsed seconds in this interval.
+        A full interval is 900 seconds."
+    ::= { adslAtucChanPerfDataEntry 7 }
+
+adslAtucChanPerfCurr15MinReceivedBlks OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks received on this channel
+        within the current 15 minute interval."
+    ::= { adslAtucChanPerfDataEntry 8 }
+
+adslAtucChanPerfCurr15MinTransmittedBlks OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks transmitted on this
+        channel within the current 15 minute interval."
+    ::= { adslAtucChanPerfDataEntry 9 }
+
+adslAtucChanPerfCurr15MinCorrectedBlks OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with errors that were
+        corrected on this channel within the current 15 minute
+        interval."
+    ::= { adslAtucChanPerfDataEntry 10 }
+
+adslAtucChanPerfCurr15MinUncorrectBlks OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with uncorrectable
+        errors on this channel within the current 15 minute
+        interval."
+    ::= { adslAtucChanPerfDataEntry 11 }
+
+adslAtucChanPerfCurr1DayTimeElapsed OBJECT-TYPE
+    SYNTAX INTEGER(0..86399)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of seconds that have elapsed since the
+        beginning of the current 1-day interval."
+    ::= { adslAtucChanPerfDataEntry 12 }
+
+adslAtucChanPerfCurr1DayReceivedBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks received on this
+        channel during the current day as measured by
+        adslAtucChanPerfCurr1DayTimeElapsed."
+    ::= { adslAtucChanPerfDataEntry 13 }
+
+adslAtucChanPerfCurr1DayTransmittedBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks transmitted on this
+        channel during the current day as measured by
+        adslAtucChanPerfCurr1DayTimeElapsed."
+    ::= { adslAtucChanPerfDataEntry 14 }
+
+adslAtucChanPerfCurr1DayCorrectedBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with errors that were
+        corrected on this channel during the current day as
+        measured by adslAtucChanPerfCurr1DayTimeElapsed."
+    ::= { adslAtucChanPerfDataEntry 15 }
+
+adslAtucChanPerfCurr1DayUncorrectBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with uncorrectable
+        errors on this channel during the current day as
+        measured by adslAtucChanPerfCurr1DayTimeElapsed."
+    ::= { adslAtucChanPerfDataEntry 16 }
+
+adslAtucChanPerfPrev1DayMoniSecs OBJECT-TYPE
+    SYNTAX INTEGER(0..86399)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time in the previous 1-day interval over which
+        the performance monitoring information is actually
+        counted. This value will normally be the same as the
+        total interval duration except in a situation where
+        performance monitoring information can not be collected
+        for any reason.  Typically Elapsed 1-day time will be
+        copied into Monitored Seconds when the 1-day roll-over
+        occurs."
+    ::= { adslAtucChanPerfDataEntry 17 }
+
+adslAtucChanPerfPrev1DayReceivedBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks received on this
+        channel within the most recent previous 1-day
+        period."
+    ::= { adslAtucChanPerfDataEntry 18 }
+
+adslAtucChanPerfPrev1DayTransmittedBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks transmitted on this
+        channel within the most recent previous 1-day
+        period."
+    ::= { adslAtucChanPerfDataEntry 19 }
+
+adslAtucChanPerfPrev1DayCorrectedBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with errors that were
+        corrected on this channel within the most recent
+        previous 1-day period."
+    ::= { adslAtucChanPerfDataEntry 20 }
+
+adslAtucChanPerfPrev1DayUncorrectBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with uncorrectable
+        errors on this channel within the most recent previous
+        1-day period."
+    ::= { adslAtucChanPerfDataEntry 21 }
+
+adslAturChanPerfDataTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAturChanPerfDataEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each ATUR channel.
+        ADSL channel interfaces are those ifEntries
+        where ifType is equal to adslInterleave(124)
+        or adslFast(125)."
+    ::= { adslMibObjects 11 }
+
+adslAturChanPerfDataEntry OBJECT-TYPE
+    SYNTAX AdslAturChanPerfDataEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in adslAturChanPerfDataTable."
+    INDEX { ifIndex }
+    ::= { adslAturChanPerfDataTable 1 }
+
+AdslAturChanPerfDataEntry ::= SEQUENCE {
+    adslAturChanReceivedBlks Counter,
+    adslAturChanTransmittedBlks Counter,
+    adslAturChanCorrectedBlks Counter,
+    adslAturChanUncorrectBlks Counter,
+    adslAturChanPerfValidIntervals INTEGER,
+    adslAturChanPerfInvalidIntervals INTEGER,
+    adslAturChanPerfCurr15MinTimeElapsed PerfCurrentCount,
+    adslAturChanPerfCurr15MinReceivedBlks PerfCurrentCount,
+    adslAturChanPerfCurr15MinTransmittedBlks PerfCurrentCount,
+    adslAturChanPerfCurr15MinCorrectedBlks PerfCurrentCount,
+    adslAturChanPerfCurr15MinUncorrectBlks PerfCurrentCount,
+    adslAturChanPerfCurr1DayTimeElapsed INTEGER,
+    adslAturChanPerfCurr1DayReceivedBlks Gauge,
+    adslAturChanPerfCurr1DayTransmittedBlks Gauge,
+    adslAturChanPerfCurr1DayCorrectedBlks Gauge,
+    adslAturChanPerfCurr1DayUncorrectBlks Gauge,
+    adslAturChanPerfPrev1DayMoniSecs INTEGER,
+    adslAturChanPerfPrev1DayReceivedBlks Gauge,
+    adslAturChanPerfPrev1DayTransmittedBlks Gauge,
+    adslAturChanPerfPrev1DayCorrectedBlks Gauge,
+    adslAturChanPerfPrev1DayUncorrectBlks Gauge
+    }
+
+adslAturChanReceivedBlks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks received on this channel
+        since agent reset."
+    ::= { adslAturChanPerfDataEntry 1 }
+
+adslAturChanTransmittedBlks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks transmitted on this
+        channel since agent reset."
+    ::= { adslAturChanPerfDataEntry 2 }
+
+adslAturChanCorrectedBlks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with errors that were
+        corrected since agent reset.  These blocks are passed
+        on as good data."
+    ::= { adslAturChanPerfDataEntry 3 }
+
+adslAturChanUncorrectBlks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with uncorrectable
+        errors since agent reset."
+    ::= { adslAturChanPerfDataEntry 4 }
+
+adslAturChanPerfValidIntervals OBJECT-TYPE
+    SYNTAX INTEGER(0..96)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of previous 15-minute intervals in the
+        adslAturChanIntervalTable Table for which valid data
+        has been stored. This value will be equal to the
+        max # of intervals that are kept  (n) unless the device
+        was brought online within the last (nx15) minutes. In
+        the case where the agent is a proxy, it is possible
+        that some intervals are unavailable. In this case,
+        this interval is the maximum interval for which valid
+        data is available."
+    ::= { adslAturChanPerfDataEntry 5 }
+
+adslAturChanPerfInvalidIntervals OBJECT-TYPE
+    SYNTAX INTEGER(0..96)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of 15 minute intervals in which no valid
+        data is available."
+    ::= { adslAturChanPerfDataEntry 6 }
+
+adslAturChanPerfCurr15MinTimeElapsed OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total elapsed seconds in this interval.
+        A full interval is 900 seconds."
+    ::= { adslAturChanPerfDataEntry 7 }
+
+adslAturChanPerfCurr15MinReceivedBlks OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks received on this
+        channel within the current 15 minute interval."
+    ::= { adslAturChanPerfDataEntry 8 }
+
+adslAturChanPerfCurr15MinTransmittedBlks OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks transmitted on this
+        channel within the current 15 minute interval."
+    ::= { adslAturChanPerfDataEntry 9 }
+
+adslAturChanPerfCurr15MinCorrectedBlks OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with errors that were
+        corrected on this channel within the current 15 minute
+        interval."
+    ::= { adslAturChanPerfDataEntry 10 }
+
+adslAturChanPerfCurr15MinUncorrectBlks OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with uncorrectable
+        errors on this channel within the current 15 minute
+        interval."
+    ::= { adslAturChanPerfDataEntry 11 }
+
+adslAturChanPerfCurr1DayTimeElapsed OBJECT-TYPE
+    SYNTAX INTEGER(0..86399)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of seconds that have elapsed since the
+        beginning of the current 1-day interval."
+    ::= { adslAturChanPerfDataEntry 12 }
+
+adslAturChanPerfCurr1DayReceivedBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks received on this
+        channel during the current day as measured by
+        adslAturChanPerfCurr1DayTimeElapsed."
+    ::= { adslAturChanPerfDataEntry 13 }
+
+adslAturChanPerfCurr1DayTransmittedBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks transmitted on this
+        channel during the current day as measured by
+        adslAturChanPerfCurr1DayTimeElapsed."
+    ::= { adslAturChanPerfDataEntry 14 }
+
+adslAturChanPerfCurr1DayCorrectedBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with errors that were
+        corrected on this channel during the current day as
+        measured by adslAturChanPerfCurr1DayTimeElapsed."
+    ::= { adslAturChanPerfDataEntry 15 }
+
+adslAturChanPerfCurr1DayUncorrectBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with uncorrectable
+        errors on this channel during the current day as
+        measured by adslAturChanPerfCurr1DayTimeElapsed."
+    ::= { adslAturChanPerfDataEntry 16 }
+
+adslAturChanPerfPrev1DayMoniSecs OBJECT-TYPE
+    SYNTAX INTEGER(0..86399)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time in the previous 1-day interval over which
+        the performance monitoring information is actually
+        counted. This value will normally be the same as the
+        total interval duration except in a situation where
+        performance monitoring information can not be collected
+        for any reason.  Typically Elapsed 1-day time will be
+        copied into Monitored Seconds when the 1-day roll-over
+        occurs."
+    ::= { adslAturChanPerfDataEntry 17 }
+
+adslAturChanPerfPrev1DayReceivedBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks received on this
+        channel within the most recent previous 1-day
+        period."
+    ::= { adslAturChanPerfDataEntry 18 }
+
+adslAturChanPerfPrev1DayTransmittedBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks transmitted on this
+        channel within the most recent previous 1-day
+        period."
+    ::= { adslAturChanPerfDataEntry 19 }
+
+adslAturChanPerfPrev1DayCorrectedBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with errors that were
+        corrected on this channel within the most recent
+        previous 1-day period."
+    ::= { adslAturChanPerfDataEntry 20 }
+
+adslAturChanPerfPrev1DayUncorrectBlks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with uncorrectable
+        errors on this channel within the most recent previous
+        1-day period."
+    ::= { adslAturChanPerfDataEntry 21 }
+
+adslAtucChanIntervalTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAtucChanIntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each ATUC channel's
+        performance data collection interval.
+        ADSL channel interfaces are those ifEntries
+        where ifType is equal to adslInterleave(124)
+        or adslFast(125)."
+    ::= { adslMibObjects 12 }
+
+adslAtucChanIntervalEntry OBJECT-TYPE
+    SYNTAX AdslAtucChanIntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the adslAtucIntervalTable."
+    INDEX { ifIndex, adslAtucChanIntervalNumber }
+    ::= { adslAtucChanIntervalTable 1 }
+
+AdslAtucChanIntervalEntry ::= SEQUENCE {
+    adslAtucChanIntervalNumber INTEGER,
+    adslAtucChanIntervalReceivedBlks PerfIntervalCount,
+    adslAtucChanIntervalTransmittedBlks PerfIntervalCount,
+    adslAtucChanIntervalCorrectedBlks PerfIntervalCount,
+    adslAtucChanIntervalUncorrectBlks PerfIntervalCount,
+    adslAtucChanIntervalValidData TruthValue
+    }
+
+adslAtucChanIntervalNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..96)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Performance Data Interval number 1 is the
+        the most recent previous interval; interval
+        96 is 24 hours ago.  Intervals 2..96 are
+        optional."
+    ::= { adslAtucChanIntervalEntry 1 }
+
+adslAtucChanIntervalReceivedBlks OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks received on this channel
+        during this interval."
+    ::= { adslAtucChanIntervalEntry 2 }
+
+adslAtucChanIntervalTransmittedBlks OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks transmitted on this
+        channel during this interval."
+    ::= { adslAtucChanIntervalEntry 3 }
+
+adslAtucChanIntervalCorrectedBlks OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with errors that were
+        corrected on this channel during this interval."
+    ::= { adslAtucChanIntervalEntry 4 }
+
+adslAtucChanIntervalUncorrectBlks OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with uncorrectable
+        errors on this channel during this interval."
+    ::= { adslAtucChanIntervalEntry 5 }
+
+adslAtucChanIntervalValidData OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if there is valid data
+        for this interval."
+    ::= { adslAtucChanIntervalEntry 6 }
+
+adslAturChanIntervalTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAturChanIntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each ATUR channel's
+        performance data collection interval.
+        ADSL channel interfaces are those ifEntries
+        where ifType is equal to adslInterleave(124)
+        or adslFast(125)."
+    ::= { adslMibObjects 13 }
+
+adslAturChanIntervalEntry OBJECT-TYPE
+    SYNTAX AdslAturChanIntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the adslAturIntervalTable."
+    INDEX { ifIndex, adslAturChanIntervalNumber }
+    ::= { adslAturChanIntervalTable 1 }
+
+AdslAturChanIntervalEntry ::= SEQUENCE {
+    adslAturChanIntervalNumber INTEGER,
+    adslAturChanIntervalReceivedBlks PerfIntervalCount,
+    adslAturChanIntervalTransmittedBlks PerfIntervalCount,
+    adslAturChanIntervalCorrectedBlks PerfIntervalCount,
+    adslAturChanIntervalUncorrectBlks PerfIntervalCount,
+    adslAturChanIntervalValidData TruthValue
+    }
+
+adslAturChanIntervalNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..96)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Performance Data Interval number 1 is the
+        the most recent previous interval; interval
+        96 is 24 hours ago.  Intervals 2..96 are
+        optional."
+    ::= { adslAturChanIntervalEntry 1 }
+
+adslAturChanIntervalReceivedBlks OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks received on this channel
+        during this interval."
+    ::= { adslAturChanIntervalEntry 2 }
+
+adslAturChanIntervalTransmittedBlks OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all encoded blocks transmitted on this
+        channel during this interval."
+    ::= { adslAturChanIntervalEntry 3 }
+
+adslAturChanIntervalCorrectedBlks OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with errors that were
+        corrected on this channel during this interval."
+    ::= { adslAturChanIntervalEntry 4 }
+
+adslAturChanIntervalUncorrectBlks OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of all blocks received with uncorrectable
+        errors on this channel during this interval."
+    ::= { adslAturChanIntervalEntry 5 }
+
+adslAturChanIntervalValidData OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if there is valid data
+        for this interval."
+    ::= { adslAturChanIntervalEntry 6 }
+
+adslLineConfProfileTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslLineConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information on the ADSL line
+        configuration.  One entry in this table reflects a
+        profile defined by a manager which can be used to
+        configure the ADSL line."
+    ::= { adslMibObjects 14 }
+
+adslLineConfProfileEntry OBJECT-TYPE
+    SYNTAX AdslLineConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry consists of a list of parameters that
+        represents the configuration of an ADSL modem.
+        
+        When `dynamic' profiles are implemented, a
+        profile is created in one step with all necessary
+        parameter values and adslLineProfileRowStatus set to
+        createAndGo.  This RowStatus object is also used
+        to destroy profiles.
+        
+        Also when `dynamic' profiles are implemented, a default
+        profile will always exist.  This profile's name will
+        be set to `DEFVAL' and its parameters will be set to
+        vendor specific values, unless otherwise specified
+        in this document.
+        
+        When `static' profiles are implemented, profiles
+        are automically created or destroyed as ADSL
+        physical lines are discovered and removed by
+        the system.  The name of the profile will be
+        equivalent to the decimal value of the line's
+        interface index."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED adslLineConfProfileName }
+    ::= { adslLineConfProfileTable 1 }
+
+AdslLineConfProfileEntry ::= SEQUENCE {
+    adslLineConfProfileName AdslLineProfileName,
+    adslAtucConfRateMode INTEGER,
+    adslAtucConfRateChanRatio INTEGER,
+    adslAtucConfTargetSnrMgn INTEGER,
+    adslAtucConfMaxSnrMgn INTEGER,
+    adslAtucConfMinSnrMgn INTEGER,
+    adslAtucConfDownshiftSnrMgn INTEGER,
+    adslAtucConfUpshiftSnrMgn INTEGER,
+    adslAtucConfMinUpshiftTime INTEGER,
+    adslAtucConfMinDownshiftTime INTEGER,
+    adslAtucChanConfFastMinTxRate INTEGER,
+    adslAtucChanConfInterleaveMinTxRate INTEGER,
+    adslAtucChanConfFastMaxTxRate INTEGER,
+    adslAtucChanConfInterleaveMaxTxRate INTEGER,
+    adslAtucChanConfMaxInterleaveDelay INTEGER,
+    adslAturConfRateMode INTEGER,
+    adslAturConfRateChanRatio INTEGER,
+    adslAturConfTargetSnrMgn INTEGER,
+    adslAturConfMaxSnrMgn INTEGER,
+    adslAturConfMinSnrMgn INTEGER,
+    adslAturConfDownshiftSnrMgn INTEGER,
+    adslAturConfUpshiftSnrMgn INTEGER,
+    adslAturConfMinUpshiftTime INTEGER,
+    adslAturConfMinDownshiftTime INTEGER,
+    adslAturChanConfFastMinTxRate INTEGER,
+    adslAturChanConfInterleaveMinTxRate INTEGER,
+    adslAturChanConfFastMaxTxRate INTEGER,
+    adslAturChanConfInterleaveMaxTxRate INTEGER,
+    adslAturChanConfMaxInterleaveDelay INTEGER,
+    adslLineConfProfileRowStatus RowStatus
+    }
+
+adslLineConfProfileName OBJECT-TYPE
+    SYNTAX AdslLineProfileName
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used by the line configuration table
+        in order to identify a row of this table.
+        
+        When `dynamic' profiles are implemented, the profile
+        name is user specified.  Also, the system will always
+        provide a default profile whose name is `DEFVAL'.
+        
+        When `static' profiles are implemented, there is an
+        one-to-one relationship between each line and its
+        profile.  In which case, the profile name will
+        need to algorithmicly represent the Line's ifIndex.
+        Therefore, the profile's name is a decimalized string
+        of the ifIndex that is fixed-length (i.e., 10) with
+        leading zero(s).  For example, the profile name for
+        ifIndex which equals '15' will be '0000000015'."
+    ::= { adslLineConfProfileEntry 1 }
+
+adslAtucConfRateMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        fixed(1),
+        adaptAtStartup(2),
+        adaptAtRuntime(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Defines what form of transmit rate adaptation is
+        configured on this modem.  See ADSL Forum TR-005 [3]
+        for more information."
+    ::= { adslLineConfProfileEntry 2 }
+
+adslAtucConfRateChanRatio OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured allocation ratio of excess transmit
+        bandwidth between fast and interleaved channels.  Only
+        applies when two channel mode and RADSL are supported.
+        Distribute bandwidth on each channel in excess of the
+        corresponding ChanConfMinTxRate so that:
+        adslAtucConfRateChanRatio =
+        
+                [Fast / (Fast + Interleaved)] * 100
+        
+        In other words this value is the fast channel
+        percentage."
+    ::= { adslLineConfProfileEntry 3 }
+
+adslAtucConfTargetSnrMgn OBJECT-TYPE
+    SYNTAX INTEGER(0..310)
+--  Units
+--    tenth dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Target Signal/Noise Margin.
+        This is the Noise Margin the modem must achieve
+        with a BER of 10-7 or better to successfully complete
+        initialization."
+    ::= { adslLineConfProfileEntry 4 }
+
+adslAtucConfMaxSnrMgn OBJECT-TYPE
+    SYNTAX INTEGER(0..310)
+--  Units
+--    tenth dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Maximum acceptable Signal/Noise Margin.
+        If the Noise Margin is above this the modem should
+        attempt to reduce its power output to optimize its
+        operation."
+    ::= { adslLineConfProfileEntry 5 }
+
+adslAtucConfMinSnrMgn OBJECT-TYPE
+    SYNTAX INTEGER(0..310)
+--  Units
+--    tenth dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Minimum acceptable Signal/Noise Margin.
+        If the noise margin falls below this level, the modem
+        should attempt to increase its power output.  If that
+        is not possible the modem will attempt to
+        re-initialize or shut down."
+    ::= { adslLineConfProfileEntry 6 }
+
+adslAtucConfDownshiftSnrMgn OBJECT-TYPE
+    SYNTAX INTEGER(0..310)
+--  Units
+--    tenth dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Signal/Noise Margin for rate downshift.
+        If the noise margin falls below this level, the modem
+        should attempt to decrease its transmit rate.  In
+        the case that RADSL is not present, the value will
+        be `0'."
+    ::= { adslLineConfProfileEntry 7 }
+
+adslAtucConfUpshiftSnrMgn OBJECT-TYPE
+    SYNTAX INTEGER(0..310)
+--  Units
+--    tenth dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Signal/Noise Margin for rate upshift.
+        If the noise margin rises above this level, the modem
+        should attempt to increase its transmit rate.    In
+        the case that RADSL is not present, the value will
+        be `0'."
+    ::= { adslLineConfProfileEntry 8 }
+
+adslAtucConfMinUpshiftTime OBJECT-TYPE
+    SYNTAX INTEGER(0..16383)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum time that the current margin is above
+        UpshiftSnrMgn before an upshift occurs.
+        In the case that RADSL is not present, the value will
+        be `0'."
+    ::= { adslLineConfProfileEntry 9 }
+
+adslAtucConfMinDownshiftTime OBJECT-TYPE
+    SYNTAX INTEGER(0..16383)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum time that the current margin is below
+        DownshiftSnrMgn before a downshift occurs.
+        In the case that RADSL is not present, the value will
+        be `0'."
+    ::= { adslLineConfProfileEntry 10 }
+
+adslAtucChanConfFastMinTxRate OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Minimum Transmit rate for `Fast' channels,
+        in bps.  See adslAtucConfRateChanRatio for information
+        regarding RADSL mode and ATUR transmit rate for
+        ATUC receive rates."
+    ::= { adslLineConfProfileEntry 11 }
+
+adslAtucChanConfInterleaveMinTxRate OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Minimum Transmit rate for `Interleave'
+        channels, in bps.  See adslAtucConfRateChanRatio for
+        information regarding RADSL mode and see
+        ATUR transmit rate for receive rates."
+    ::= { adslLineConfProfileEntry 12 }
+
+adslAtucChanConfFastMaxTxRate OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Maximum Transmit rate for `Fast' channels,
+        in bps.  See adslAtucConfRateChanRatio for information
+        regarding RADSL mode and see ATUR transmit rate for
+        ATUC receive rates."
+    ::= { adslLineConfProfileEntry 13 }
+
+adslAtucChanConfInterleaveMaxTxRate OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Maximum Transmit rate for `Interleave'
+        channels, in bps.  See adslAtucConfRateChanRatio for
+        information regarding RADSL mode and ATUR transmit
+        rate for ATUC receive rates."
+    ::= { adslLineConfProfileEntry 14 }
+
+adslAtucChanConfMaxInterleaveDelay OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+--  Units
+--    milli-seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured maximum Interleave Delay for this channel.
+        
+        Interleave delay applies only to the interleave channel
+        and defines the mapping (relative spacing) between
+        subsequent input bytes at the interleaver input and
+        their placement in the bit stream at the interleaver
+        output.  Larger numbers provide greater separation
+        between consecutive input bytes in the output bit
+        stream allowing for improved impulse noise immunity
+        at the expense of payload latency."
+    ::= { adslLineConfProfileEntry 15 }
+
+adslAturConfRateMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        fixed(1),
+        adaptAtStartup(2),
+        adaptAtRuntime(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Defines what form of transmit rate adaptation is
+        configured on this modem.  See ADSL Forum TR-005 [3]
+        for more information."
+    ::= { adslLineConfProfileEntry 16 }
+
+adslAturConfRateChanRatio OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+--  Units
+--    %
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured allocation ratio of excess transmit
+        bandwidth between fast and interleaved channels.  Only
+        applies when two channel mode and RADSL are supported.
+        Distribute bandwidth on each channel in excess of the
+        corresponding ChanConfMinTxRate so that:
+        adslAturConfRateChanRatio =
+        
+                [Fast / (Fast + Interleaved)] * 100
+        
+        In other words this value is the fast channel
+        percentage."
+    ::= { adslLineConfProfileEntry 17 }
+
+adslAturConfTargetSnrMgn OBJECT-TYPE
+    SYNTAX INTEGER(0..310)
+--  Units
+--    tenth dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Target Signal/Noise Margin.
+        This is the Noise Margin the modem must achieve
+        with a BER of 10-7 or better to successfully complete
+        initialization."
+    ::= { adslLineConfProfileEntry 18 }
+
+adslAturConfMaxSnrMgn OBJECT-TYPE
+    SYNTAX INTEGER(0..310)
+--  Units
+--    tenth dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Maximum acceptable Signal/Noise Margin.
+        If the Noise Margin is above this the modem should
+        attempt to reduce its power output to optimize its
+        operation."
+    ::= { adslLineConfProfileEntry 19 }
+
+adslAturConfMinSnrMgn OBJECT-TYPE
+    SYNTAX INTEGER(0..310)
+--  Units
+--    tenth dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Minimum acceptable Signal/Noise Margin.
+        If the noise margin falls below this level, the modem
+        should attempt to increase its power output.  If that
+        is not possible the modem will attempt to
+        re-initialize or shut down."
+    ::= { adslLineConfProfileEntry 20 }
+
+adslAturConfDownshiftSnrMgn OBJECT-TYPE
+    SYNTAX INTEGER(0..310)
+--  Units
+--    tenth dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Signal/Noise Margin for rate downshift.
+        If the noise margin falls below this level, the modem
+        should attempt to decrease its transmit rate.  In
+        the case that RADSL is not present,
+        the value will be `0'."
+    ::= { adslLineConfProfileEntry 21 }
+
+adslAturConfUpshiftSnrMgn OBJECT-TYPE
+    SYNTAX INTEGER(0..310)
+--  Units
+--    tenth dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Signal/Noise Margin for rate upshift.
+        If the noise margin rises above this level, the modem
+        should attempt to increase its transmit rate.
+        In the case that RADSL is not present,
+        the value will be `0'."
+    ::= { adslLineConfProfileEntry 22 }
+
+adslAturConfMinUpshiftTime OBJECT-TYPE
+    SYNTAX INTEGER(0..16383)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum time that the current margin is above
+        UpshiftSnrMgn before an upshift occurs.
+        In the case that RADSL is not present, the value will
+        be `0'."
+    ::= { adslLineConfProfileEntry 23 }
+
+adslAturConfMinDownshiftTime OBJECT-TYPE
+    SYNTAX INTEGER(0..16383)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum time that the current margin is below
+        DownshiftSnrMgn before a downshift occurs.
+        In the case that RADSL is not present, the value will
+        be `0'."
+    ::= { adslLineConfProfileEntry 24 }
+
+adslAturChanConfFastMinTxRate OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Minimum Transmit rate for `Fast' channels,
+        in bps.  See adslAturConfRateChanRatio for information
+        regarding RADSL mode and ATUC transmit rate
+        for ATUR receive rates."
+    ::= { adslLineConfProfileEntry 25 }
+
+adslAturChanConfInterleaveMinTxRate OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Minimum Transmit rate for `Interleave'
+        channels, in bps.  See adslAturConfRateChanRatio for
+        information regarding RADSL mode and ATUC transmit rate
+        for ATUR receive rates."
+    ::= { adslLineConfProfileEntry 26 }
+
+adslAturChanConfFastMaxTxRate OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Maximum Transmit rate for `Fast' channels,
+        in bps.  See adslAturConfRateChanRatio for information
+        regarding RADSL mode and ATUC transmit rate
+        for ATUR receive rates."
+    ::= { adslLineConfProfileEntry 27 }
+
+adslAturChanConfInterleaveMaxTxRate OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Maximum Transmit rate for `Interleave'
+        channels, in bps.  See adslAturConfRateChanRatio for
+        information regarding RADSL mode and see
+        ATUC transmit rate for ATUR receive rates."
+    ::= { adslLineConfProfileEntry 28 }
+
+adslAturChanConfMaxInterleaveDelay OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+--  Units
+--    milli-seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured maximum Interleave Delay for this channel.
+        
+        Interleave delay applies only to the interleave channel
+        and defines the mapping (relative spacing) between
+        subsequent input bytes at the interleaver input and
+        their placement in the bit stream at the interleaver
+        output.  Larger numbers provide greater separation
+        between consecutive input bytes in the output bit
+        stream allowing for improved impulse noise immunity
+        at the expense of payload latency."
+    ::= { adslLineConfProfileEntry 29 }
+
+adslLineConfProfileRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table.
+        
+        A profile activated by setting this object to
+        `active'.  When `active' is set, the system
+        will validate the profile.
+        
+        Before a profile can be deleted or taken out of
+        service, (by setting this object to `destroy' or
+        `outOfService') it must be first unreferenced
+        from all associated lines.
+        
+        If the implementator of this MIB has chosen not
+        to implement `dynamic assignment' of profiles, this
+        object's MIN-ACCESS is read-only and its value
+        is always to be `active'."
+    ::= { adslLineConfProfileEntry 30 }
+
+adslLineAlarmConfProfileTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslLineAlarmConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information on the ADSL line
+        configuration.  One entry in this table reflects a
+        profile defined by a manager which can be used to
+        configure the modem for a physical line"
+    ::= { adslMibObjects 15 }
+
+adslLineAlarmConfProfileEntry OBJECT-TYPE
+    SYNTAX AdslLineAlarmConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry consists of a list of parameters that
+        represents the configuration of an ADSL modem.
+        
+        When `dynamic' profiles are implemented, a
+        profile is created in one step with all necessary
+        parameter values and adslLineProfileRowStatus set to
+        createAndGo.  This RowStatus object is also used
+        to destroy profiles.
+        
+        Also when `dynamic' profiles are implemented, a default
+        profile will always exist.  This profile's name will
+        be set to `DEFVAL' and its parameters will be set to
+        vendor specific values, unless otherwise specified
+        in this document.
+        
+        When `static' profiles are implemented, profiles
+        are automically created or destroyed as ADSL
+        physical lines are discovered and removed by
+        the system.  The name of the profile will be
+        equivalent to the decimal value of the line's
+        interface index."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED adslLineAlarmConfProfileName }
+    ::= { adslLineAlarmConfProfileTable 1 }
+
+AdslLineAlarmConfProfileEntry ::= SEQUENCE {
+    adslLineAlarmConfProfileName AdslLineProfileName,
+    adslAtucThresh15MinLofs INTEGER,
+    adslAtucThresh15MinLoss INTEGER,
+    adslAtucThresh15MinLols INTEGER,
+    adslAtucThresh15MinLprs INTEGER,
+    adslAtucThresh15MinESs INTEGER,
+    adslAtucThreshFastRateUp INTEGER,
+    adslAtucThreshInterleaveRateUp INTEGER,
+    adslAtucThreshFastRateDown INTEGER,
+    adslAtucThreshInterleaveRateDown INTEGER,
+    adslAtucInitFailureTrapEnable INTEGER,
+    adslAturThresh15MinLofs INTEGER,
+    adslAturThresh15MinLoss INTEGER,
+    adslAturThresh15MinLprs INTEGER,
+    adslAturThresh15MinESs INTEGER,
+    adslAturThreshFastRateUp INTEGER,
+    adslAturThreshInterleaveRateUp INTEGER,
+    adslAturThreshFastRateDown INTEGER,
+    adslAturThreshInterleaveRateDown INTEGER,
+    adslLineAlarmConfProfileRowStatus RowStatus
+    }
+
+adslLineAlarmConfProfileName OBJECT-TYPE
+    SYNTAX AdslLineProfileName
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used by the line alarm configuration
+        table in order to identify a row of this table.
+        
+        When `dynamic' profiles are implemented, the profile
+        name is user specified.  Also, the system will always
+        provide a default profile whose name is `DEFVAL'.
+        
+        When `static' profiles are implemented, there is an
+        one-to-one relationship between each line and its
+        profile.  In which case, the profile name will
+        need to algorithmicly represent the Line's ifIndex.
+        Therefore, the profile's name is a decimalized string
+        of the ifIndex that is fixed-length (i.e., 10) with
+        leading zero(s).  For example, the profile name for
+        ifIndex which equals '15' will be '0000000015'."
+    ::= { adslLineAlarmConfProfileEntry 1 }
+
+adslAtucThresh15MinLofs OBJECT-TYPE
+    SYNTAX INTEGER(0..900)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Loss of Frame Seconds
+        encountered by an ADSL interface within any given 15
+        minutes performance data collection period, which
+        causes the SNMP agent to send an
+        adslAtucPerfLofsThreshTrap.
+        
+        Limit of one trap will be sent for any one interval.  A
+        value of `0' will disable the trap."
+    ::= { adslLineAlarmConfProfileEntry 2 }
+
+adslAtucThresh15MinLoss OBJECT-TYPE
+    SYNTAX INTEGER(0..900)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Loss of Signal Seconds
+        encountered by an ADSL interface within any given 15
+        minutes performance data collection period, which
+        causes the SNMP agent to send an
+        adslAtucPerfLossThreshTrap.
+        
+        Limit of one trap will be sent for any one interval.
+        A value of `0' will disable the trap."
+    ::= { adslLineAlarmConfProfileEntry 3 }
+
+adslAtucThresh15MinLols OBJECT-TYPE
+    SYNTAX INTEGER(0..900)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Loss of Link Seconds
+        encountered by an ADSL interface within any given 15
+        minutes performance data collection period, which
+        causes the SNMP agent to send an
+        adslAtucPerfLolsThreshTrap.  Limit of one trap will
+        be sent for any one interval.  A value of `0' will
+        disable the trap."
+    ::= { adslLineAlarmConfProfileEntry 4 }
+
+adslAtucThresh15MinLprs OBJECT-TYPE
+    SYNTAX INTEGER(0..900)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Loss of Power Seconds
+        encountered by an ADSL interface within any given 15
+        minutes performance data collection period, which
+        causes the SNMP agent to send an
+        adslAtucPerfLprsThreshTrap.
+        Limit of one trap will be sent for any one interval.
+        A value of `0' will disable the trap."
+    ::= { adslLineAlarmConfProfileEntry 5 }
+
+adslAtucThresh15MinESs OBJECT-TYPE
+    SYNTAX INTEGER(0..900)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Errored Seconds
+        encountered by an ADSL interface within any given 15
+        minutes performance data collection period, which
+        causes the SNMP agent to send an
+        adslAtucPerfESsThreshTrap.
+        Limit of one trap will be sent for any one interval.
+        A value of `0' will disable the trap."
+    ::= { adslLineAlarmConfProfileEntry 6 }
+
+adslAtucThreshFastRateUp OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Applies to `Fast' channels only.
+        Configured change in rate causing an
+        adslAtucRateChangeTrap.  A trap is produced when:
+        ChanCurrTxRate >= ChanPrevTxRate plus the value of
+        this object. Set to `0' to disable."
+    ::= { adslLineAlarmConfProfileEntry 7 }
+
+adslAtucThreshInterleaveRateUp OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Applies to `Interleave' channels only.
+        Configured change in rate causing an
+        adslAtucRateChangeTrap.  A trap is produced when:
+        ChanCurrTxRate >= ChanPrevTxRate plus the value of
+        this object. Set to `0' to disable."
+    ::= { adslLineAlarmConfProfileEntry 8 }
+
+adslAtucThreshFastRateDown OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Applies to `Fast' channels only.
+        Configured change in rate causing an
+        adslAtucRateChangeTrap.  A trap is produced when:
+        ChanCurrTxRate <= ChanPrevTxRate minus the value of
+        this object. Set to `0' to disable."
+    ::= { adslLineAlarmConfProfileEntry 9 }
+
+adslAtucThreshInterleaveRateDown OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Applies to `Interleave' channels only.
+        Configured change in rate causing an
+        adslAtucRateChangeTrap.  A trap is produced when:
+        ChanCurrTxRate <= ChanPrevTxRate minus the value of
+        this object. Set to `0' to disable."
+    ::= { adslLineAlarmConfProfileEntry 10 }
+
+adslAtucInitFailureTrapEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Enables and disables the InitFailureTrap.  This
+        object is defaulted disable(2)."
+    DEFVAL { disable }
+    ::= { adslLineAlarmConfProfileEntry 11 }
+
+adslAturThresh15MinLofs OBJECT-TYPE
+    SYNTAX INTEGER(0..900)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Loss of Frame Seconds
+        encountered by an ADSL interface within any given 15
+        minutes performance data collection period, which
+        causes the SNMP agent to send an
+        adslAtucPerfLofsThreshTrap.
+        Limit of one trap will be sent for any one interval.
+        A value of `0' will disable the trap."
+    ::= { adslLineAlarmConfProfileEntry 12 }
+
+adslAturThresh15MinLoss OBJECT-TYPE
+    SYNTAX INTEGER(0..900)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Loss of Signal Seconds
+        encountered by an ADSL interface within any given 15
+        minutes performance data collection period, which
+        causes the SNMP agent to send an
+        adslAtucPerfLossThreshTrap.
+        Limit of one trap will be sent for any one interval.
+        A value of `0' will disable the trap."
+    ::= { adslLineAlarmConfProfileEntry 13 }
+
+adslAturThresh15MinLprs OBJECT-TYPE
+    SYNTAX INTEGER(0..900)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Loss of Power Seconds
+        encountered by an ADSL interface within any given 15
+        minutes performance data collection period, which
+        causes the SNMP agent to send an
+        adslAtucPerfLprsThreshTrap.
+        Limit of one trap will be sent for any one interval.
+        A value of `0' will disable the trap."
+    ::= { adslLineAlarmConfProfileEntry 14 }
+
+adslAturThresh15MinESs OBJECT-TYPE
+    SYNTAX INTEGER(0..900)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Errored Seconds
+        encountered by an ADSL interface within any given 15
+        minutes performance data collection period, which
+        causes the SNMP agent to send an
+        adslAtucPerfESsThreshTrap.
+        
+        Limit of one trap will be sent for any one interval.
+        A value of `0' will disable the trap."
+    ::= { adslLineAlarmConfProfileEntry 15 }
+
+adslAturThreshFastRateUp OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Applies to `Fast' channels only.
+        Configured change in rate causing an
+        adslAtucRateChangeTrap.  A trap is produced when:
+        ChanCurrTxRate >= ChanPrevTxRate plus the value of
+        this object. Set to `0' to disable."
+    ::= { adslLineAlarmConfProfileEntry 16 }
+
+adslAturThreshInterleaveRateUp OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Applies to `Interleave' channels only.
+        configured change in rate causing an
+        adslAtucRateChangeTrap.  A trap is produced when:
+        ChanCurrTxRate >= ChanPrevTxRate plus the value of
+        this object. Set to `0' to disable."
+    ::= { adslLineAlarmConfProfileEntry 17 }
+
+adslAturThreshFastRateDown OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Applies to `Fast' channels only.
+        Configured change in rate causing an
+        adslAtucRateChangeTrap.  A trap is produced when:
+        ChanCurrTxRate <= ChanPrevTxRate minus the value of
+        this object. Set to `0' to disable."
+    ::= { adslLineAlarmConfProfileEntry 18 }
+
+adslAturThreshInterleaveRateDown OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    bps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Applies to `Interleave' channels only.
+        Configured change in rate causing an
+        adslAtucRateChangeTrap.  A trap is produced when:
+        ChanCurrTxRate <= ChanPrevTxRate minus the value of
+        this object. Set to `0' to disable."
+    ::= { adslLineAlarmConfProfileEntry 19 }
+
+adslLineAlarmConfProfileRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table.
+        
+        A profile activated by setting this object to
+        `active'.  When `active' is set, the system
+        will validate the profile.
+        
+        Before a profile can be deleted or taken out of
+        service, (by setting this object to `destroy' or
+        `outOfService') it must be first unreferenced
+        from all associated lines.
+        
+        If the implementator of this MIB has chosen not
+        to implement `dynamic assignment' of profiles, this
+        object's MIN-ACCESS is read-only and its value
+        is always to be `active'."
+    ::= { adslLineAlarmConfProfileEntry 20 }
+
+adslAtucPerfLofsThreshTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE adslAtucTraps
+    VARIABLES {
+        adslAtucThresh15MinLofs }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Loss of Framing 15-minute interval threshold reached."
+    ::= 1
+
+adslAtucPerfLossThreshTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE adslAtucTraps
+    VARIABLES {
+        adslAtucThresh15MinLoss }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Loss of Signal 15-minute interval threshold reached."
+    ::= 2
+
+adslAtucPerfLprsThreshTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE adslAtucTraps
+    VARIABLES {
+        adslAtucThresh15MinLprs }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Loss of Power 15-minute interval threshold reached."
+    ::= 3
+
+adslAtucPerfESsThreshTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE adslAtucTraps
+    VARIABLES {
+        adslAtucThresh15MinESs }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Errored Second 15-minute interval threshold reached."
+    ::= 4
+
+adslAtucRateChangeTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE adslAtucTraps
+    VARIABLES {
+        adslAtucChanCurrTxRate, adslAtucChanPrevTxRate }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The ATUCs transmit rate has changed (RADSL mode only)"
+    ::= 5
+
+adslAtucPerfLolsThreshTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE adslAtucTraps
+    VARIABLES {
+        adslAtucThresh15MinLols }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Loss of Link 15-minute interval threshold reached."
+    ::= 6
+
+adslAtucInitFailureTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE adslAtucTraps
+    VARIABLES {
+        adslAtucCurrStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "ATUC initialization failed. See adslAtucCurrStatus
+        for potential reasons."
+    ::= 7
+
+adslAturPerfLofsThreshTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE adslAturTraps
+    VARIABLES {
+        adslAturThresh15MinLofs }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Loss of Framing 15-minute interval threshold reached."
+    ::= 1
+
+adslAturPerfLossThreshTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE adslAturTraps
+    VARIABLES {
+        adslAturThresh15MinLoss }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Loss of Signal 15-minute interval threshold reached."
+    ::= 2
+
+adslAturPerfLprsThreshTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE adslAturTraps
+    VARIABLES {
+        adslAturThresh15MinLprs }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Loss of Power 15-minute interval threshold reached."
+    ::= 3
+
+adslAturPerfESsThreshTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE adslAturTraps
+    VARIABLES {
+        adslAturThresh15MinESs }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Errored Second 15-minute interval threshold reached."
+    ::= 4
+
+adslAturRateChangeTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE adslAturTraps
+    VARIABLES {
+        adslAturChanCurrTxRate, adslAturChanPrevTxRate }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The ATURs transmit rate has changed (RADSL mode only)"
+    ::= 5
+
+adslLineGroup OBJECT IDENTIFIER ::= { adslGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing configuration
+--    information about an ADSL Line.
+--  objects
+--    adslLineCoding, adslLineType, adslLineSpecific
+
+adslPhysicalGroup OBJECT IDENTIFIER ::= { adslGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing physical
+--    configuration information of the ADSL Line.
+--  objects
+--    adslAtucInvSerialNumber, adslAtucInvVendorID, 
+--    adslAtucInvVersionNumber, adslAtucCurrSnrMgn, adslAtucCurrAtn, 
+--    adslAtucCurrStatus, adslAtucCurrOutputPwr, 
+--    adslAtucCurrAttainableRate, adslAturInvSerialNumber, 
+--    adslAturInvVendorID, adslAturInvVersionNumber, 
+--    adslAturCurrSnrMgn, adslAturCurrAtn, adslAturCurrStatus, 
+--    adslAturCurrOutputPwr, adslAturCurrAttainableRate
+
+adslChannelGroup OBJECT IDENTIFIER ::= { adslGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing configuration
+--    information about an ADSL channel.
+--  objects
+--    adslAtucChanInterleaveDelay, adslAtucChanCurrTxRate, 
+--    adslAtucChanPrevTxRate, adslAtucChanCrcBlockLength, 
+--    adslAturChanInterleaveDelay, adslAturChanCurrTxRate, 
+--    adslAturChanPrevTxRate, adslAturChanCrcBlockLength
+
+adslAtucPhysPerfRawCounterGroup OBJECT IDENTIFIER ::= { adslGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing raw performance
+--    counts on an ADSL Line (ATU-C end).
+--  objects
+--    adslAtucPerfLofs, adslAtucPerfLoss, adslAtucPerfLols, 
+--    adslAtucPerfLprs, adslAtucPerfESs, adslAtucPerfInits
+
+adslAtucPhysPerfIntervalGroup OBJECT IDENTIFIER ::= { adslGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing current 15-minute,
+--    1-day; and previous 1-day performance counts on
+--    ADSL Line (ATU-C end) .
+--  objects
+--    adslAtucPerfValidIntervals, adslAtucPerfInvalidIntervals, 
+--    adslAtucPerfCurr15MinTimeElapsed, adslAtucPerfCurr15MinLofs, 
+--    adslAtucPerfCurr15MinLoss, adslAtucPerfCurr15MinLols, 
+--    adslAtucPerfCurr15MinLprs, adslAtucPerfCurr15MinESs, 
+--    adslAtucPerfCurr15MinInits, adslAtucPerfCurr1DayLofs, 
+--    adslAtucPerfCurr1DayLoss, adslAtucPerfCurr1DayLols, 
+--    adslAtucPerfCurr1DayLprs, adslAtucPerfCurr1DayESs, 
+--    adslAtucPerfCurr1DayInits, adslAtucPerfPrev1DayMoniSecs, 
+--    adslAtucPerfPrev1DayLofs, adslAtucPerfPrev1DayLoss, 
+--    adslAtucPerfPrev1DayLols, adslAtucPerfPrev1DayLprs, 
+--    adslAtucPerfPrev1DayESs, adslAtucPerfPrev1DayInits, 
+--    adslAtucIntervalLofs, adslAtucIntervalLoss, 
+--    adslAtucIntervalLols, adslAtucIntervalLprs, 
+--    adslAtucIntervalESs, adslAtucIntervalInits, 
+--    adslAtucIntervalValidData
+
+adslAturPhysPerfRawCounterGroup OBJECT IDENTIFIER ::= { adslGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing raw performance
+--    counts on an ADSL Line (ATU-R end).
+--  objects
+--    adslAturPerfLofs, adslAturPerfLoss, adslAturPerfLprs, 
+--    adslAturPerfESs
+
+adslAturPhysPerfIntervalGroup OBJECT IDENTIFIER ::= { adslGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing current 15-minute,
+--    1-day; and previous 1-day performance counts on
+--    ADSL Line (ATU-R end).
+--  objects
+--    adslAturPerfValidIntervals, adslAturPerfInvalidIntervals, 
+--    adslAturPerfCurr15MinTimeElapsed, adslAturPerfCurr15MinLofs, 
+--    adslAturPerfCurr15MinLoss, adslAturPerfCurr15MinLprs, 
+--    adslAturPerfCurr15MinESs, adslAturPerfCurr1DayTimeElapsed, 
+--    adslAturPerfCurr1DayLofs, adslAturPerfCurr1DayLoss, 
+--    adslAturPerfCurr1DayLprs, adslAturPerfCurr1DayESs, 
+--    adslAturPerfPrev1DayMoniSecs, adslAturPerfPrev1DayLofs, 
+--    adslAturPerfPrev1DayLoss, adslAturPerfPrev1DayLprs, 
+--    adslAturPerfPrev1DayESs, adslAturIntervalLofs, 
+--    adslAturIntervalLoss, adslAturIntervalLprs, 
+--    adslAturIntervalESs, adslAturIntervalValidData
+
+adslAtucChanPerformanceGroup OBJECT IDENTIFIER ::= { adslGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing channel block
+--    performance information on an ADSL channel
+--    (ATU-C end).
+--  objects
+--    adslAtucChanReceivedBlks, adslAtucChanTransmittedBlks, 
+--    adslAtucChanCorrectedBlks, adslAtucChanUncorrectBlks, 
+--    adslAtucChanPerfValidIntervals, 
+--    adslAtucChanPerfInvalidIntervals, 
+--    adslAtucChanPerfCurr15MinTimeElapsed, 
+--    adslAtucChanPerfCurr15MinReceivedBlks, 
+--    adslAtucChanPerfCurr15MinTransmittedBlks, 
+--    adslAtucChanPerfCurr15MinCorrectedBlks, 
+--    adslAtucChanPerfCurr15MinUncorrectBlks, 
+--    adslAtucChanPerfCurr1DayTimeElapsed, 
+--    adslAtucChanPerfCurr1DayReceivedBlks, 
+--    adslAtucChanPerfCurr1DayTransmittedBlks, 
+--    adslAtucChanPerfCurr1DayCorrectedBlks, 
+--    adslAtucChanPerfCurr1DayUncorrectBlks, 
+--    adslAtucChanPerfPrev1DayMoniSecs, 
+--    adslAtucChanPerfPrev1DayReceivedBlks, 
+--    adslAtucChanPerfPrev1DayTransmittedBlks, 
+--    adslAtucChanPerfPrev1DayCorrectedBlks, 
+--    adslAtucChanPerfPrev1DayUncorrectBlks, 
+--    adslAtucChanIntervalReceivedBlks, 
+--    adslAtucChanIntervalTransmittedBlks, 
+--    adslAtucChanIntervalCorrectedBlks, 
+--    adslAtucChanIntervalUncorrectBlks, 
+--    adslAtucChanIntervalValidData
+
+adslAturChanPerformanceGroup OBJECT IDENTIFIER ::= { adslGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing channel block
+--    performance information on an ADSL channel
+--    (ATU-C end).
+--  objects
+--    adslAturChanReceivedBlks, adslAturChanTransmittedBlks, 
+--    adslAturChanCorrectedBlks, adslAturChanUncorrectBlks, 
+--    adslAturChanPerfValidIntervals, 
+--    adslAturChanPerfInvalidIntervals, 
+--    adslAturChanPerfCurr15MinTimeElapsed, 
+--    adslAturChanPerfCurr15MinReceivedBlks, 
+--    adslAturChanPerfCurr15MinTransmittedBlks, 
+--    adslAturChanPerfCurr15MinCorrectedBlks, 
+--    adslAturChanPerfCurr15MinUncorrectBlks, 
+--    adslAturChanPerfCurr1DayTimeElapsed, 
+--    adslAturChanPerfCurr1DayReceivedBlks, 
+--    adslAturChanPerfCurr1DayTransmittedBlks, 
+--    adslAturChanPerfCurr1DayCorrectedBlks, 
+--    adslAturChanPerfCurr1DayUncorrectBlks, 
+--    adslAturChanPerfPrev1DayMoniSecs, 
+--    adslAturChanPerfPrev1DayReceivedBlks, 
+--    adslAturChanPerfPrev1DayTransmittedBlks, 
+--    adslAturChanPerfPrev1DayCorrectedBlks, 
+--    adslAturChanPerfPrev1DayUncorrectBlks, 
+--    adslAturChanIntervalReceivedBlks, 
+--    adslAturChanIntervalTransmittedBlks, 
+--    adslAturChanIntervalCorrectedBlks, 
+--    adslAturChanIntervalUncorrectBlks, 
+--    adslAturChanIntervalValidData
+
+adslLineProfileGroup OBJECT IDENTIFIER ::= { adslGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing provisioning
+--    information about an ADSL Line.
+--  objects
+--    adslAtucConfRateMode, adslAtucConfRateChanRatio, 
+--    adslAtucConfTargetSnrMgn, adslAtucConfMaxSnrMgn, 
+--    adslAtucConfMinSnrMgn, adslAtucConfDownshiftSnrMgn, 
+--    adslAtucConfUpshiftSnrMgn, adslAtucConfMinUpshiftTime, 
+--    adslAtucConfMinDownshiftTime, adslAtucChanConfFastMinTxRate, 
+--    adslAtucChanConfInterleaveMinTxRate, 
+--    adslAtucChanConfFastMaxTxRate, 
+--    adslAtucChanConfInterleaveMaxTxRate, 
+--    adslAtucChanConfMaxInterleaveDelay, adslAturConfRateMode, 
+--    adslAturConfRateChanRatio, adslAturConfTargetSnrMgn, 
+--    adslAturConfMaxSnrMgn, adslAturConfMinSnrMgn, 
+--    adslAturConfDownshiftSnrMgn, adslAturConfUpshiftSnrMgn, 
+--    adslAturConfMinUpshiftTime, adslAturConfMinDownshiftTime, 
+--    adslAturChanConfFastMinTxRate, 
+--    adslAturChanConfInterleaveMinTxRate, 
+--    adslAturChanConfFastMaxTxRate, 
+--    adslAturChanConfInterleaveMaxTxRate, 
+--    adslAturChanConfMaxInterleaveDelay
+
+adslLineAlarmConfProfileGroup OBJECT IDENTIFIER ::= { adslGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing alarm provisioning
+--    information about an ADSL Line.
+--  objects
+--    adslAtucThresh15MinLofs, adslAtucThresh15MinLoss, 
+--    adslAtucThresh15MinLols, adslAtucThresh15MinLprs, 
+--    adslAtucThresh15MinESs, adslAtucThreshFastRateUp, 
+--    adslAtucThreshInterleaveRateUp, adslAtucThreshFastRateDown, 
+--    adslAtucThreshInterleaveRateDown, 
+--    adslAtucInitFailureTrapEnable, adslAturThresh15MinLofs, 
+--    adslAturThresh15MinLoss, adslAturThresh15MinLprs, 
+--    adslAturThresh15MinESs, adslAturThreshFastRateUp, 
+--    adslAturThreshInterleaveRateUp, adslAturThreshFastRateDown, 
+--    adslAturThreshInterleaveRateDown
+
+adslLineProfileControlGroup OBJECT IDENTIFIER ::= { adslGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing profile
+--    control for the ADSL system.
+--  objects
+--    adslLineConfProfile, adslLineAlarmConfProfile, 
+--    adslLineConfProfileRowStatus, 
+--    adslLineAlarmConfProfileRowStatus
+
+adslAturLineGroup OBJECT IDENTIFIER ::= { adslGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing configuration
+--    information about an ADSL Line on the ATU-R side.
+--  objects
+--    adslLineCoding
+
+adslAturPhysicalGroup OBJECT IDENTIFIER ::= { adslGroups 15 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing physical
+--    configuration information of the ADSL Line on the
+--    ATU-R side.
+--  objects
+--    adslAtucInvVendorID, adslAtucInvVersionNumber, 
+--    adslAtucCurrOutputPwr, adslAtucCurrAttainableRate, 
+--    adslAturInvSerialNumber, adslAturInvVendorID, 
+--    adslAturInvVersionNumber, adslAturCurrSnrMgn, adslAturCurrAtn, 
+--    adslAturCurrStatus, adslAturCurrOutputPwr, 
+--    adslAturCurrAttainableRate
+
+adslAturChannelGroup OBJECT IDENTIFIER ::= { adslGroups 16 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing configuration
+--    information about an ADSL channel on the ATU-R
+--    side.
+--  objects
+--    adslAtucChanInterleaveDelay, adslAtucChanCurrTxRate, 
+--    adslAtucChanPrevTxRate, adslAturChanInterleaveDelay, 
+--    adslAturChanCurrTxRate, adslAturChanPrevTxRate, 
+--    adslAturChanCrcBlockLength
+
+adslAturAtucPhysPerfRawCounterGroup OBJECT IDENTIFIER ::= { adslGroups 17 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing raw performance
+--    counts on an ADSL Line (ATU-C end) provided by the
+--    ATU-R agent.
+--  objects
+--    adslAtucPerfLofs, adslAtucPerfLoss, adslAtucPerfESs, 
+--    adslAtucPerfInits
+
+adslAturAtucPhysPerfIntervalGroup OBJECT IDENTIFIER ::= { adslGroups 18 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing current
+--    15-minute, 1-day; and previous 1-day performance
+--    counts on ADSL Line (ATU-C end) provided by the
+--    ATU-R agent.
+--  objects
+--    adslAtucPerfValidIntervals, adslAtucPerfInvalidIntervals, 
+--    adslAtucPerfCurr15MinTimeElapsed, adslAtucPerfCurr15MinLofs, 
+--    adslAtucPerfCurr15MinLoss, adslAtucPerfCurr15MinESs, 
+--    adslAtucPerfCurr15MinInits, adslAtucPerfCurr1DayTimeElapsed, 
+--    adslAtucPerfCurr1DayLofs, adslAtucPerfCurr1DayLoss, 
+--    adslAtucPerfCurr1DayESs, adslAtucPerfCurr1DayInits, 
+--    adslAtucPerfPrev1DayMoniSecs, adslAtucPerfPrev1DayLofs, 
+--    adslAtucPerfPrev1DayLoss, adslAtucPerfPrev1DayESs, 
+--    adslAtucPerfPrev1DayInits, adslAtucIntervalLofs, 
+--    adslAtucIntervalLoss, adslAtucIntervalESs, 
+--    adslAtucIntervalInits, adslAtucIntervalValidData
+
+adslAturAturPhysPerfRawCounterGroup OBJECT IDENTIFIER ::= { adslGroups 19 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing raw performance
+--    counts on an ADSL Line (ATU-R end) provided by the
+--    ATU-R agent.
+--  objects
+--    adslAturPerfLofs, adslAturPerfLoss, adslAturPerfLprs, 
+--    adslAturPerfESs
+
+adslAturAturPhysPerfIntervalGroup OBJECT IDENTIFIER ::= { adslGroups 20 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing current
+--    15-minute, 1-day; and previous 1-day performance
+--    counts on ADSL Line (ATU-R end) provided by the
+--    ATU-R agent.
+--  objects
+--    adslAturPerfValidIntervals, adslAturPerfInvalidIntervals, 
+--    adslAturPerfCurr15MinTimeElapsed, adslAturPerfCurr15MinLofs, 
+--    adslAturPerfCurr15MinLoss, adslAturPerfCurr15MinLprs, 
+--    adslAturPerfCurr15MinESs, adslAturPerfCurr1DayTimeElapsed, 
+--    adslAturPerfCurr1DayLofs, adslAturPerfCurr1DayLoss, 
+--    adslAturPerfCurr1DayLprs, adslAturPerfCurr1DayESs, 
+--    adslAturPerfPrev1DayMoniSecs, adslAturPerfPrev1DayLofs, 
+--    adslAturPerfPrev1DayLoss, adslAturPerfPrev1DayLprs, 
+--    adslAturPerfPrev1DayESs, adslAturIntervalLofs, 
+--    adslAturIntervalLoss, adslAturIntervalLprs, 
+--    adslAturIntervalESs, adslAturIntervalValidData
+
+adslAturAtucChanPerformanceGroup OBJECT IDENTIFIER ::= { adslGroups 21 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing channel block
+--    performance information on an ADSL channel
+--    (ATU-C end) provided by the ATU-R agent.
+--  objects
+--    adslAtucChanReceivedBlks, adslAtucChanTransmittedBlks, 
+--    adslAtucChanCorrectedBlks, adslAtucChanUncorrectBlks, 
+--    adslAtucChanPerfCurr15MinTimeElapsed, 
+--    adslAtucChanPerfCurr15MinReceivedBlks, 
+--    adslAtucChanPerfCurr15MinTransmittedBlks, 
+--    adslAtucChanPerfCurr15MinCorrectedBlks, 
+--    adslAtucChanPerfCurr15MinUncorrectBlks, 
+--    adslAtucChanPerfCurr1DayTimeElapsed, 
+--    adslAtucChanPerfCurr1DayReceivedBlks, 
+--    adslAtucChanPerfCurr1DayTransmittedBlks, 
+--    adslAtucChanPerfCurr1DayCorrectedBlks, 
+--    adslAtucChanPerfCurr1DayUncorrectBlks, 
+--    adslAtucChanPerfPrev1DayMoniSecs, 
+--    adslAtucChanPerfPrev1DayReceivedBlks, 
+--    adslAtucChanPerfPrev1DayTransmittedBlks, 
+--    adslAtucChanPerfPrev1DayCorrectedBlks, 
+--    adslAtucChanPerfPrev1DayUncorrectBlks, 
+--    adslAtucChanPerfValidIntervals, 
+--    adslAtucChanPerfInvalidIntervals, 
+--    adslAtucChanIntervalReceivedBlks, 
+--    adslAtucChanIntervalTransmittedBlks, 
+--    adslAtucChanIntervalCorrectedBlks, 
+--    adslAtucChanIntervalUncorrectBlks, 
+--    adslAtucChanIntervalValidData
+
+adslAturAturChanPerformanceGroup OBJECT IDENTIFIER ::= { adslGroups 22 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing channel block
+--    performance information on an ADSL channel
+--    (ATU-R end) provided by the ATU-R agent.
+--  objects
+--    adslAturChanReceivedBlks, adslAturChanTransmittedBlks, 
+--    adslAturChanCorrectedBlks, adslAturChanUncorrectBlks, 
+--    adslAturChanPerfValidIntervals, 
+--    adslAturChanPerfInvalidIntervals, 
+--    adslAturChanPerfCurr15MinTimeElapsed, 
+--    adslAturChanPerfCurr15MinReceivedBlks, 
+--    adslAturChanPerfCurr15MinTransmittedBlks, 
+--    adslAturChanPerfCurr15MinCorrectedBlks, 
+--    adslAturChanPerfCurr15MinUncorrectBlks, 
+--    adslAturChanPerfCurr1DayTimeElapsed, 
+--    adslAturChanPerfCurr1DayReceivedBlks, 
+--    adslAturChanPerfCurr1DayTransmittedBlks, 
+--    adslAturChanPerfCurr1DayCorrectedBlks, 
+--    adslAturChanPerfCurr1DayUncorrectBlks, 
+--    adslAturChanPerfPrev1DayMoniSecs, 
+--    adslAturChanPerfPrev1DayReceivedBlks, 
+--    adslAturChanPerfPrev1DayTransmittedBlks, 
+--    adslAturChanPerfPrev1DayCorrectedBlks, 
+--    adslAturChanPerfPrev1DayUncorrectBlks, 
+--    adslAturChanIntervalReceivedBlks, 
+--    adslAturChanIntervalTransmittedBlks, 
+--    adslAturChanIntervalCorrectedBlks, 
+--    adslAturChanIntervalUncorrectBlks, 
+--    adslAturChanIntervalValidData
+
+adslAturLineProfileGroup OBJECT IDENTIFIER ::= { adslGroups 23 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing provisioning
+--    information about an ADSL Line by the ATU-R agent.
+--  objects
+--    adslAturConfRateMode, adslAturConfRateChanRatio, 
+--    adslAturConfTargetSnrMgn, adslAturConfMaxSnrMgn, 
+--    adslAturConfMinSnrMgn, adslAturConfDownshiftSnrMgn, 
+--    adslAturConfUpshiftSnrMgn, adslAturConfMinUpshiftTime, 
+--    adslAturConfMinDownshiftTime, adslAturChanConfFastMinTxRate, 
+--    adslAturChanConfInterleaveMinTxRate, 
+--    adslAturChanConfFastMaxTxRate, 
+--    adslAturChanConfInterleaveMaxTxRate, 
+--    adslAturChanConfMaxInterleaveDelay
+
+adslAturLineAlarmConfProfileGroup OBJECT IDENTIFIER ::= { adslGroups 24 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing alarm provisioning
+--    information about an ADSL Line provided by the
+--    ATU-R agent.
+--  objects
+--    adslAtucThresh15MinLofs, adslAtucThresh15MinLoss, 
+--    adslAtucThresh15MinESs, adslAtucThreshFastRateUp, 
+--    adslAtucThreshInterleaveRateUp, adslAtucThreshFastRateDown, 
+--    adslAtucThreshInterleaveRateDown, 
+--    adslAtucInitFailureTrapEnable, adslAturThresh15MinLofs, 
+--    adslAturThresh15MinLoss, adslAturThresh15MinLprs, 
+--    adslAturThresh15MinESs, adslAturThreshFastRateUp, 
+--    adslAturThreshInterleaveRateUp, adslAturThreshFastRateDown, 
+--    adslAturThreshInterleaveRateDown
+
+adslAturLineProfileControlGroup OBJECT IDENTIFIER ::= { adslGroups 25 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing profile
+--    control for the ADSL system by the ATU-R agent.
+--  objects
+--    adslLineAlarmConfProfile, adslLineAlarmConfProfileRowStatus
+
+adslLineMibCompliance OBJECT IDENTIFIER ::= { adslCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP entities
+--    which have ADSL interfaces.
+--  Module
+--    >>current<<
+--   MandGroup
+--    adslLineGroup
+--   MandGroup
+--    adslPhysicalGroup
+--   MandGroup
+--    adslChannelGroup
+--   MandGroup
+--    adslAtucPhysPerfIntervalGroup
+--   MandGroup
+--    adslAturPhysPerfIntervalGroup
+--   MandGroup
+--    adslLineProfileGroup
+--   MandGroup
+--    adslLineAlarmConfProfileGroup
+--   MandGroup
+--    adslLineProfileControlGroup
+--   OptGroup
+--    adslAtucPhysPerfRawCounterGroup
+--   OptGroup
+--    adslAturPhysPerfRawCounterGroup
+--   OptGroup
+--    adslAtucChanPerformanceGroup
+--   OptGroup
+--    adslAturChanPerformanceGroup
+--   ObjVar
+--    adslLineConfProfile
+--   ObjVar
+--    adslLineConfProfileRowStatus
+--   ObjVar
+--    adslLineAlarmConfProfile
+--   ObjVar
+--    adslLineAlarmConfProfileRowStatus
+
+adslLineMibAturCompliance OBJECT IDENTIFIER ::= { adslCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP entities
+--     which manage ADSL ATU-R interfaces.
+--  Module
+--    >>current<<
+--   MandGroup
+--    adslAturLineGroup
+--   MandGroup
+--    adslAturPhysicalGroup
+--   MandGroup
+--    adslAturChannelGroup
+--   MandGroup
+--    adslAturAtucPhysPerfIntervalGroup
+--   MandGroup
+--    adslAturAturPhysPerfIntervalGroup
+--   MandGroup
+--    adslAturLineProfileGroup
+--   MandGroup
+--    adslAturLineAlarmConfProfileGroup
+--   MandGroup
+--    adslAturLineProfileControlGroup
+--   OptGroup
+--    adslAturAtucPhysPerfRawCounterGroup
+--   OptGroup
+--    adslAturAturPhysPerfRawCounterGroup
+--   OptGroup
+--    adslAturAtucChanPerformanceGroup
+--   OptGroup
+--    adslAturAturChanPerformanceGroup
+
+
+END
+

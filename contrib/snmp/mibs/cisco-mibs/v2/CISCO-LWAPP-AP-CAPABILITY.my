@@ -1,0 +1,1005 @@
+-- *******************************************************************
+-- CISCO-LWAPP-AP MIB CAPABILITY
+--
+-- November 19, 2020
+--
+-- Copyright (c) 2020, 2022 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-AP-CAPABILITY DEFINITIONS ::= BEGIN
+
+
+IMPORTS
+       MODULE-IDENTITY
+           FROM SNMPv2-SMI
+       AGENT-CAPABILITIES
+           FROM SNMPv2-CONF
+       ciscoAgentCapability
+           FROM CISCO-SMI;
+
+
+ciscoLwappApCapability  MODULE-IDENTITY
+
+       LAST-UPDATED         "202011190000Z"
+       ORGANIZATION         "Cisco Systems, Inc."
+       CONTACT-INFO
+               "Cisco Systems
+               Customer Service
+
+               Postal: 170 W Tasman Drive
+               San Jose, CA  95134
+               USA
+
+               Tel: +1 800 553-NETS
+
+               E-mail: cs-wnbu-snmp@cisco.com"
+
+       DESCRIPTION
+               "Agent capabilities for
+               CISCO-LWAPP-AP-MIB "
+       REVISION      "202011190000Z"
+       DESCRIPTION
+               "Initial version of this MIB module. "
+
+   ::= { ciscoAgentCapability 1168 }
+
+ciscoLwappApCapabilityCEV1R0 AGENT-CAPABILITIES
+
+       PRODUCT-RELEASE "Cisco EWLC 1.0"
+       STATUS          current
+       DESCRIPTION     "CISCO-LWAPP-AP--MIB capabilities."
+
+       SUPPORTS        CISCO-LWAPP-AP-MIB
+       INCLUDES        {
+                           cLApSysInfoTable,
+                           cLApLinkLatencyTable,
+                           cLApEnvInfoTable,
+                           cLApGlobalEthernetIfTable,
+                           cLAp802dot1xSupplicantTable,
+                           cLApCableModemIfStatsTable,
+                           cLApDot11IfTable,
+                           cLApVlanIfTable,
+                           cLApBleBeaconTable,
+                           cLApExtTable,
+                           cLAp11axRadioConfigTable,
+                           cLApGlobalDot11IfTable,
+                           cLApTable,
+                           cLApCredentialsTable,
+                           cLApFastHbTimerTable,
+                           cLApDot11IfAntennaTable,
+                           cLApVlanListTable,
+                           cLApCountryTable,
+                           cLApDot11RadioRssiTable,
+                           cLApDot11RadioRateStatsTable,
+                           cLApRadioWlanInfoTable,
+                           cLApCrashInfoTable,
+                           cLApGpsInfoTable,
+                           cLApWlanStatsTable,
+                           cLApDot11GlobalConfigTable,
+                           cLApLinkLatencyStatsTable,
+                           cLApIfSmtParamTable,
+                           cLApHyperlocationTable,
+                           cLApProfileTable,
+                           cLHaloBleBeaconTable,
+                           cLApWlanInfoTable,
+                           cLApEthernetIfTable,
+                           cLApSeClientTable,
+                           cLApDot11RadioSsidTable
+                       }
+
+       VARIATION       cLApSysInfoEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSysMemType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSysMemSize
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSysFlashSize
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSysCpuType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSysFlashType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApLinkLatencyEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApLinkLatencyEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApLinkLatencyReset
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEnvInfoEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEnvTemperatureDegree
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEnvTemperatureState
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEnvOrientation
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEnvPoeOutStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGlobalEthernetIfEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGlobalEthernetIfCdpEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApOeapDisableLocalAccess
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGlobalLEDState
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApRadioInterfaceShutdownEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEthernetInterfaceDowntime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLAPMulticastGroupAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLAPMulticastGroupAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLAPMulticastMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPrimedDiscoveryTimeout
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGlobalPreferMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLAp802dot1xSupplicantEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLAp802dot1xSupplicantOverrideEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLAp802dot1xSupplicantOverrideUsername
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLAp802dot1xSupplicantOverridePassword
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLAp802dot1xSupplicantOverrideEapType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCableModemIfStatsEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCmMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCmApMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCmSwVersion
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEthernetSpeed
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEthernetStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCmStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCmSerialNumber
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCmUsChannelStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCmDsChannelStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCmMaskBit
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfLinkChangeCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11MaxClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPromiscuousModeDwelling
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfStaKeepingTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfLinkSpeed
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfMtu
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfDesc
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLAPDot11IfMinTxPowerStep
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfMaxDataRate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfSensorReachability
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApFraCoverageOverlapFactor
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApFraSuggestedMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfDualRadioMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfDualRadioCapable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfRadioFRACapable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfDualRadioOperation
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfRadioRoleOperation
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfRadioRole
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApVlanIfEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApVlanIfEthernetId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApVlanIfMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApVlanIfEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApVlanIfNativeVlanId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApBleBeaconApplyGlobal
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPreferMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPreferModeApplied
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApWipsReason
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApWipsClear
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApAlarmSet
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioCurrentChannel
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSsidKeyConfSsidA
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSsidKeyConfKeyIdxA
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSsidKeyConfSsidB
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSsidKeyConfKeyIdxB
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPreviousChannel
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCurrentChannel
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApChannelCustomize
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApIfLoadChannelUtilization
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLAPGroupVlanName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGlobalDot11IfEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGlobalDot11IfCdpEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApAMSDUEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApNsiKey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApRetransmitCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApRetransmitTimeout
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApVenueConfigVenueGroup
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApVenueConfigVenueType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApVenueConfigVenueName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApVenueConfigLanguage
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSubMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApAssocCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApAssocFailResourceCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApRealTimeStatsModeEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApUpgradeFromVersion
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApUpgradeToVersion
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApUpgradeFailureCause
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApMaxClientLimitNumberTrap
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApMaxClientLimitCause
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApMaxClientLimitSet
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApFloorLabel
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApConnectCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApReassocSuccCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApReassocFailCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLAdjChannelRogueEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApAssocFailCountByRate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApAbnormalOfflineCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApAssocFailCountForRssiLow
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSysNetId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApAssocFailTimes
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApHeartBeatRspAvgTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEchoRequestCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEchoResponseLossCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEnableModule
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApIsMaster
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApBleFWDownloadStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCtsSxpDefaultPassword
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCtsSxpState
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCtsSxpMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCtsSxpListenerMinHoldtime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCtsSxpListenerMaxHoldtime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCtsSxpReconcilePeriod
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCtsSxpRetryPeriod
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCtsSxpSpeakerHoldTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCtsSxpSpeakerKeepAlive
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCtsInlineTagStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCtsSgaclStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCtsOverrideStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCredentialsEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCredentialUserName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCredentialPassword
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCredentialSecret
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCredentialEnableGlobalCredentials
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApFastHbTimerEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApFastHbTimerApType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApFastHbTimerTimeout
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApFastHbTimerEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfAntennaTxEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11IfAntennaRxEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApVlanListEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApVlanListVlanId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApVlanListRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGlobal802dot1xSupplicantEapType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLHaloGlobalBleBeaconInterval
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioRssiEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioRssiHighest
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioRssiLowest
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioRssiAverage
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioRateStatsEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioRate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioRateStatsRxPackets
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioRateStatsRxBytes
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioRateStatsTxPackets
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioRateStatsTxBytes
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioRateString
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPacketDumpFtpServerAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPacketDumpFtpServerAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPacketDumpFtpServerPath
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPacketDumpFtpUsername
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPacketDumpFtpPassword
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPacketDumpClassifier
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPacketDumpBufferSize
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPacketDumpCaptureTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPacketDumpTruncation
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPacketDumpApName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPacketDumpDeviceMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApPacketDumpStartStop
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCrashInfoEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCrashFileName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCrashFileSize
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApCrashFileTimeStamp
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGpsInfoEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGpsLocationPresent
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGpsLocationValid
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGpsLatitude
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGpsLongitude
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGpsAltitude
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApGpsCollectionTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApWlanStatsEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApWlanStatsTxPktNum
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApWlanStatsTxOctetNum
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApWlanStatsRxPktNum
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApWlanStatsRxOctetNum
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApWlanStatsRetransmitNum
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApWlanStatsAssocClientNum
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApWlanStatsOnlineUserNum
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApNwTxPowerThresholdVer2
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDataLinkLatencyStatsCurrent
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDataLinkLatencyStatsMin
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDataLinkLatencyStatsMax
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDataLinkLatencyTimeStamp
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApIfSmtParamEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApHyperlocationEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApHyperlocationAdminState
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApHyperlocationUnsetFlag
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       ciscoLwappApIfRegulatoryDomainMismatchNotifEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       ciscoLwappApCrashEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       ciscoLwappApUnsupportedEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       ciscoLwappApAssociatedEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       ciscoLwappXorRadioRoleChangeEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApProfileFastHbTimerEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApProfileBackupTertiaryControllerAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApProfileBackupTertiaryControllerAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApProfileBackupTertiaryControllerName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApProfileMulticastGroupAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApProfileMulticastGroupAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApProfileMulticastMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLHaloBleBeaconEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLHaloGlobalBleBeaconUuid
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLHaloGlobalBleBeaconTxPower
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLHaloGlobalBleBeaconEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApWlanInfoEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApWlanInfoMaxClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEthernetIfPOEPower
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEthernetIfCdpEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEthernetIfMtu
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEthernetIfType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApEthernetIfLinkChangeCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSeClientEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSeIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSeClientUserName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSeClientIPAddrType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSeClientIPAddr
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSeClientDuration
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSeClientPort
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioSsidEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApSsidIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLApDot11RadioSsidName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+   ::= { ciscoLwappApCapability 1 }
+
+END

@@ -1,0 +1,3463 @@
+-- 
+-- *****************************************************************
+-- C I S C O  A T M  R e s o u r c e  M a n a g e m e n t  M I B
+--
+-- December 1995, Michael Grobelch
+--
+-- Copyright (c) 1996-2001 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+CISCO-ATM-RM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, 
+    Counter32, Gauge32, Unsigned32   FROM SNMPv2-SMI 
+    TEXTUAL-CONVENTION,DisplayString,
+    TruthValue                       FROM SNMPv2-TC
+    ifIndex                          FROM RFC1213-MIB
+    ciscoExperiment                  FROM CISCO-SMI
+    MODULE-COMPLIANCE, OBJECT-GROUP  FROM SNMPv2-CONF;
+
+ciscoAtmRmMIB   MODULE-IDENTITY
+    LAST-UPDATED "200206030000Z"
+    ORGANIZATION "Cisco System Inc."
+    CONTACT-INFO
+            "           Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+ 
+                   Tel: +1 800 553-NETS
+ 
+                E-mail: cs-atm@cisco.com"
+    DESCRIPTION
+            "The MIB module which complements standard ATM MIBs for
+             Cisco devices, for Resource Management."
+
+    REVISION        "200206030000Z"
+    DESCRIPTION
+            "Added objects to support Per Class Overbooking for 
+             ATM interfaces."
+
+    REVISION        "200101290000Z"
+    DESCRIPTION
+            "Added a table that contains objects to manage ATM 
+             Traffic Shaper configuration and state information
+             for ATM interfaces."
+    
+    REVISION        "9912220000Z"
+    DESCRIPTION
+            "Fix the errors in the definition of cgrPerVcqAtmRmGroup."
+
+    REVISION        "9907270000Z"
+    DESCRIPTION
+            "Added object to support overbooking of equivalent bandwidth
+             of an ATM interface."
+
+    REVISION        "9904300000Z"
+    DESCRIPTION
+            " Added objects for the IMA interface support."
+
+    REVISION        "9904140000Z"
+    DESCRIPTION
+            "Added objects to instruct Connection Admission Control to
+             include framing overhead in the calculation of maximum cell
+             rate of an ATM interface."
+    REVISION        "9903110000Z"
+    DESCRIPTION
+            "Clarified the description for some of the objects that they
+             are applicable to logical port ATM interfaces too and made
+             appropriate changes to the Compliance section."
+    REVISION        "9811240000Z"
+    DESCRIPTION
+            "Added a table to manage global resources on the Catalyst8540MSR
+            platform. This was necessary because the Catalyst8540MSR,
+            has 8 switching modules internally, with each switching
+            module having its own independent cell memory. Each
+            switching module performs per-VC queueing for a specific
+            (fixed in hardware) group of ports, independent of 
+            any other switching module.
+
+            The Lightstream 1010 had only one global cell memory
+            for the entire device. "
+    REVISION        "9811030000Z"
+    DESCRIPTION
+            "Specify a range limiting Link Distance object."
+    REVISION        "9807260000Z"
+    DESCRIPTION
+            "Added an object to enable Hierarchical Scheduling."
+    REVISION        "9712030000Z"
+    DESCRIPTION
+            "Added object to configure Service Category support on
+             an interface." 
+    REVISION        "9705260000Z"
+    DESCRIPTION
+            "Added objects for management of new features made possible
+             on the LS1010 by the Feature Card Plus.  This includes 
+             support for per-VC queueing hardware structures,
+             enhanced UPC, non-zero MCR for ABR, and UBR+."
+    REVISION        "9611110000Z"
+    DESCRIPTION
+            "Added objects for management of Cell Loss Ratio for
+             CLP0+1 cell-streams. Added table for default tolerance."
+    ::= { ciscoExperiment 10 }
+
+--
+-- Caution.  This MIB is temporary and experimental.
+-- In the future willbe removed from products, 
+-- perhaps with short notice, in favor of more standard
+-- or generic MIBs.  Application developers should not
+-- depend on long-term access to this MIB.
+--
+
+ciscoAtmRmMIBObjects OBJECT IDENTIFIER ::= { ciscoAtmRmMIB 1 }
+
+ForceValue ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+            "This data type is used to provide a standard mechanism
+             for providing protection on writing to objects.
+             An object of type ForceValue is associated with the
+             protected object. If an set request is made for the 
+             protected object, the state of the system or the
+             value to be set may violate the intended protection.
+             The value of the associated object of type ForceValue
+             is then used to determine whether the set request
+             succeeds or fails: 
+                - value is forceChange, request succeeds.
+                - value is noForceChange, request fails.
+             An additional characteristic of the ForceValue type is
+             that the setting of the protected object resets the
+             value of the protection object to noForceChange. 
+               As an example, take an object limiting the number of 
+             network connections on an interface (named maxNetConn). 
+             If maxNetConn is set below the number of currently active 
+             connections, some of those connections will be cleared. 
+             An associated protection object of type ForceValue 
+             (named maxNetConnForce) is used to protect the setting 
+             of maxNetConn. If the setting of maxNetConn would cause
+             the clearing of connections, maxNetConnForce must
+             be set to forceChange. Whenever maxNetConn is successfully
+             set, maxNetConnForce assumes the value noForceChange."
+    SYNTAX  INTEGER {
+              forceChange(1), 
+              noForceChange(2)
+               }
+
+FineQueueThreshold ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+            "This data type is used to represent thresholds for
+             output-queues on a shared memory ATM switch."
+    SYNTAX  INTEGER {
+                    percent12(1),
+                    percent25(2),
+                    percent37(3),
+                    percent50(4),
+                    percent62(5),
+                    percent75(6),
+                    percent87(7),
+                    percent100(8)
+              }
+
+LsPerVcqServiceClass ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+            "This data type is used to represent one of the
+             Service Classes."
+    SYNTAX     INTEGER {
+                    c1(1),  -- Service class 1 (highest SP priority)
+                    c2(2),  -- Service class 2 (2nd highest SP priority)
+                    c3(3),  -- Service class 3
+                    c4(4),  -- Service class 4
+                    c5(5),  -- Service class 5 (lowest SP priority)
+                    c6(6),  -- reserved
+                    c7(7),  -- reserved
+                    c8(8)   -- reserved
+                   }
+
+LsPerVcqServiceClassNoC1 ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+            "This data type is used to represent one of the
+             Service Classes, omitting c1."
+    SYNTAX     INTEGER {
+                    c2(2),  -- Service class 2 (2nd highest SP priority)
+                    c3(3),  -- Service class 3
+                    c4(4),  -- Service class 4
+                    c5(5),  -- Service class 5 (lowest SP priority)
+                    c6(6),  -- reserved
+                    c7(7),  -- reserved
+                    c8(8)   -- reserved
+                   }
+
+LsPerVcqThresholdGroup ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+            "This data type is used to represent one of the
+             Threshold Groups."
+    SYNTAX     INTEGER {
+                    tg1(1),  -- Threshold Group 1
+                    tg2(2),  -- Threshold Group 2
+                    tg3(3),  -- Threshold Group 3
+                    tg4(4),  -- Threshold Group 4
+                    tg5(5),  -- Threshold Group 5
+                    tg6(6),  -- Threshold Group 6
+                    tg7(7),  -- reserved
+                    tg8(8),  -- reserved
+                    tg9(9),  -- reserved
+                    tg10(10), -- reserved
+                    tg11(11), -- reserved
+                    tg12(12), -- reserved
+                    tg13(13), -- reserved
+                    tg14(14), -- reserved
+                    tg15(15), -- reserved
+                    tg16(16)  -- reserved
+                   }
+
+LsPerVcqThresholdGroupService ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+            "This data type is used to specify how VC/VP
+             queues are assigned to Threshold Groups."
+    SYNTAX     INTEGER {
+                    cbr(1),
+                    vbrRt(2),
+                    vbrNrt(3),
+                    abr(4),
+                    ubr(5) 
+                   }
+
+CgrPerVcqModuleId ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "The Catalyst8540MSR has 8 switching modules. Each
+         module has its own cell memory, and performs 
+         its own congestion control, independent  of
+         the other switching modules."
+    SYNTAX     INTEGER {
+                   module1(1),
+                   module2(2),
+                   module3(3),
+                   module4(4),
+                   module5(5),
+                   module6(6),
+                   module7(7),
+                   module8(8)
+    }
+
+
+-- This MIB defines the following Groups:
+--
+--    1. the ATM Switch Resource Management Configuration Group
+--    2. the Shared-Memory architecture ATM Switch Resource Management Group
+--    3. the ATM Interface Resource Management Configuration Group
+--    4. the ATM Interface Resource Management State Group
+--    5. the ATM Interface Resource Management Statistics Group
+--    6. the Shared-Memory architecture ATM Interface Resource Management Group
+--    7. the Lightstream per-VC queueing chipset ATM Switch Resource
+--       Management Group
+--    8. the Lightstream per-VC queueing switch chipset ATM Interface Resource
+--       Management Group
+--    9. The Catalyst8540MSR per-VC queueing chipset ATM Switch Resource
+--       Management Group
+--   10. The ATM Traffic Shaper Interface Management Group
+
+ciscoAtmRmSwitchCfg       OBJECT IDENTIFIER ::= { ciscoAtmRmMIBObjects 1 }
+ciscoAtmRmSwitchSharedMem OBJECT IDENTIFIER ::= { ciscoAtmRmMIBObjects 2 }
+ciscoAtmRmIfCfg           OBJECT IDENTIFIER ::= { ciscoAtmRmMIBObjects 3 }
+ciscoAtmRmIfState         OBJECT IDENTIFIER ::= { ciscoAtmRmMIBObjects 4 }
+ciscoAtmRmIfStatistics    OBJECT IDENTIFIER ::= { ciscoAtmRmMIBObjects 5 }
+ciscoAtmRmIfSharedMem     OBJECT IDENTIFIER ::= { ciscoAtmRmMIBObjects 6 }
+ciscoLsPerVcqAtmRmSwitch   OBJECT IDENTIFIER ::= { ciscoAtmRmMIBObjects 7 }
+ciscoLsPerVcqAtmRmIf       OBJECT IDENTIFIER ::= { ciscoAtmRmMIBObjects 8 }
+ciscoCgrPerVcqAtmRmSwitch   OBJECT IDENTIFIER ::= { ciscoAtmRmMIBObjects 9 }
+ciscoAtmRmTrafShaperIf OBJECT IDENTIFIER ::= { ciscoAtmRmMIBObjects 10 }
+
+--
+-- The ATM Switch Resource Management Configuration Group
+--
+rmSwitchOverSubFactor OBJECT-TYPE
+    SYNTAX     INTEGER (1..32)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The Over Subscription Factor (OSF) is used on switch startup/OIR
+             to determine the maximum sizes of VBR-NRT and ABR/UBR queues.
+             In general, the larger the value of OSF specified, the
+             larger the queues are made at startup.
+             Denoting the maximum sizes of CBR,VBR-RT, VBR-NRT, and ABR/UBR
+             output queues for a physical interface as L1, L2, L3, and L4,
+             respectively, an example algorithm is:
+                L3 = .25 * (OSF*(2048-L1 -L2)
+                L4 = .75 * (OSF*(2048-L1 -L2)"
+    DEFVAL { 4 }
+    ::= { ciscoAtmRmSwitchCfg 1 }
+
+rmSwitchScrMarginFactor OBJECT-TYPE
+    SYNTAX     INTEGER (0..100)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The Sustained Cell Rate Margin Factor (SCRMF) is used in
+             Connection Admission Control (CAC) of VBR connections to
+             vary the weight given to the difference between Sustained
+             Cell Rate (scr) and Peak Cell Rate (pcr) specified in the
+             traffic contract. When calculating the equivalent bandwidth
+             offered by a connection, SCRMF is used as follows:
+                eqBw = scr + ((pcr - scr) * rcacVbrScrmf) / 100"
+    DEFVAL { 1 }
+    ::= { ciscoAtmRmSwitchCfg 2 }
+
+rmSwitchAbrCongNotify   OBJECT-TYPE
+    SYNTAX     INTEGER  {
+                 relativeRate(1),
+                 efci(2),
+                 efciAndRelativeRate(3)
+               }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The ABR Congestion Notification object determines
+             the type of congestion notification used on ABR connections
+             in the switch. This notification can be done either via
+             relative-rate or Explicit Forward Congestion Indication
+             marking in ATM cells, or both."
+    DEFVAL { relativeRate }
+    ::= { ciscoAtmRmSwitchCfg 3 }
+
+rmDefaultQosObjectiveTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF RmDefaultQosObjectiveEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing Resource Management
+             configuration information for default Quality of Service
+             objective values used when a signalling request is received
+             on a UNI interface."
+    ::= { ciscoAtmRmSwitchCfg 4 }
+ 
+rmDefaultQosObjectiveEntry OBJECT-TYPE
+    SYNTAX     RmDefaultQosObjectiveEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the
+             rmDefaultQosObjectiveTable containing Resource
+             Management configuration for the default UNI QOS objectives.
+             Rows are identified by Service Category."
+    INDEX      { rmDefaultQosServiceCategory }
+    ::= { rmDefaultQosObjectiveTable 1 }
+ 
+RmDefaultQosObjectiveEntry ::= SEQUENCE {
+    rmDefaultQosServiceCategory  INTEGER,
+    rmScDefaultQosMaxCtd         INTEGER,
+    rmScDefaultQosPeakToPeakCdv  INTEGER,
+    rmScDefaultQosClr            INTEGER,
+    rmScDefaultQosClrClp01       INTEGER
+}
+ 
+rmDefaultQosServiceCategory OBJECT-TYPE
+    SYNTAX     INTEGER {
+                    cbr(1),      --constant-bit-rate
+                    vbrRt(2),    --variable-bit-rate-real-time
+                    vbrNrt(3)    --variable-bit-rate-non-real-time
+                   }
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The Service Category to which the row applies."
+    ::= { rmDefaultQosObjectiveEntry 1 }
+ 
+rmScDefaultQosMaxCtd OBJECT-TYPE
+    SYNTAX     INTEGER (0..16777215) 
+    UNITS      "microseconds"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The default Maximum Cell Transfer Delay (ctd) for the
+             Service Category. It applies only to cbr and vbr-rt Service
+             Categories. Specifying a value of 16777215 signifies that
+             this parameter should not be checked during connection setup.
+             The units of this object are microseconds."
+    DEFVAL { 16777215 }
+    ::= { rmDefaultQosObjectiveEntry 2 }
+ 
+rmScDefaultQosPeakToPeakCdv OBJECT-TYPE
+    SYNTAX     INTEGER (0..16777215)
+    UNITS      "microseconds"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The default Peak-to-peak cell delay variation (cdv) for
+             the Service Category. It applies only to cbr and vbr-rt Service
+             Categories. Specifying a value of 16777215 signifies
+             that this parameter should not be checked during connection
+             setup. The units of this object are microseconds."
+    DEFVAL { 16777215 }
+    ::= { rmDefaultQosObjectiveEntry 3 }
+ 
+rmScDefaultQosClr     OBJECT-TYPE
+    SYNTAX     INTEGER (0..15)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The default cell-loss-ratio for the Service Category (for
+             CLP=0 cells only). Specifying a value of 0 signifies that
+             this parameter should not be checked during connection setup.
+             The units of this object are negative powers of ten (so
+             an object value of 8 means 10**(-8))."
+    DEFVAL { 0 }
+    ::= { rmDefaultQosObjectiveEntry 4 }
+
+rmScDefaultQosClrClp01 OBJECT-TYPE
+    SYNTAX     INTEGER (0..15)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The default cell-loss-ratio for the Service Category for
+             CLP=0+1 cells. Specifying a value of 0 signifies that
+             this parameter should not be checked during connection setup.
+             The units of this object are negative powers of ten (so
+             an object value of 8 means 10**(-8))."
+    DEFVAL { 0 }
+    ::= { rmDefaultQosObjectiveEntry 5 }
+
+--
+-- The cisco ATM Switch Shared Memory Architecture Resource Management Group        
+--
+sharedMemRmSwitchQueuedCellTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF SharedMemRmSwitchQueuedCellEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing Resource Management
+             information on the cells in the output queues of a
+             shared-memory output-queued ATM switch." 
+    ::= { ciscoAtmRmSwitchSharedMem 1 }
+ 
+sharedMemRmSwitchQueuedCellEntry OBJECT-TYPE
+    SYNTAX     SharedMemRmSwitchQueuedCellEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the
+             sharedMemRmSwitchQueuedCellTable containing Resource
+             Management information on the cells in the output 
+             queues of a shared-memory switch.  Rows are 
+             indexed by priority."
+    INDEX      { sharedMemRmCellPriority }
+    ::= { sharedMemRmSwitchQueuedCellTable 1 }
+ 
+SharedMemRmSwitchQueuedCellEntry ::= SEQUENCE {
+    sharedMemRmCellPriority          INTEGER,
+    sharedMemRmSwitchQueuedCellLimit INTEGER,
+    sharedMemRmSwitchQueuedCellCount Gauge32   
+}
+ 
+sharedMemRmCellPriority OBJECT-TYPE
+    SYNTAX     INTEGER {
+                    p1(1),  -- Priority 1 (highest priority)
+                    p2(2),  -- Priority 2 (2nd highest priority)
+                    p3(3),  -- Priority 3 (3rd highest priority)
+                    p4(4)   -- Priority 4 (lowest priority)
+                   }
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The cell priority. The cell priority maps one-to-one to the
+             per-interface queues specified by the sharedMemRmIfOutputQ
+             object. All cells of a connection of a particular Service 
+             Category are given a fixed priority. The Service Categories
+             allocated to a priority can be determined by querying the 
+             sharedMemRmIfOutputQServCategory object for any physical 
+             interface on the switch."
+    ::= { sharedMemRmSwitchQueuedCellEntry 1 }
+
+sharedMemRmSwitchQueuedCellLimit OBJECT-TYPE
+    SYNTAX     INTEGER (0..65535)
+    UNITS      "cells"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Configured limit on the number of cells on all output queues 
+             of the switch at any time of a particular priority."
+    DEFVAL { 65535 } 
+    ::= { sharedMemRmSwitchQueuedCellEntry 2 }
+
+sharedMemRmSwitchQueuedCellCount OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "cells"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "Count of the number of cells on all output queues 
+             of the switch at any time of a particular priority."
+    ::= { sharedMemRmSwitchQueuedCellEntry 3 }
+
+--
+-- The ATM Interface Resource Management Configuration Group
+--
+rmIfCfgTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF RmIfCfgEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing Resource Management
+             configuration information for whole ATM interfaces."
+    ::= { ciscoAtmRmIfCfg 3 }
+
+rmIfCfgEntry OBJECT-TYPE
+    SYNTAX     RmIfCfgEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the rmIfCfgTable
+             containing Resource Management configuration for an ATM
+            interface.  The particular interface is identified by the
+            value of MIB-II's ifIndex."
+    INDEX      { ifIndex }
+    ::= { rmIfCfgTable 1 }
+
+RmIfCfgEntry ::= SEQUENCE {
+    rmIfOutPacingRateRequested       Unsigned32,
+    rmIfOutPacingRateInstalled       Unsigned32,
+    rmIfOutPacingForce               ForceValue,
+    rmIfLinkDistance                 Unsigned32,
+    rmIfBestEffortLimit              Unsigned32,
+    rmIfCbrDefaultRxUpcTolerance     Unsigned32,
+    rmIfVbrRtDefaultRxUpcTolerance   Unsigned32,
+    rmIfVbrNrtDefaultRxUpcTolerance  Unsigned32,
+    rmIfAbrDefaultRxUpcTolerance     Unsigned32,
+    rmIfUbrDefaultRxUpcTolerance     Unsigned32,
+    rmIfVbrRtDefaultRxUpcCdvt        Unsigned32,
+    rmIfVbrNrtDefaultRxUpcCdvt       Unsigned32,
+    rmIfServCategorySupport          INTEGER,
+    rmIfFramingOverhead              TruthValue,
+    rmIfFramingOverheadForce         ForceValue,
+    rmIfOverBooking                  INTEGER,
+    rmIfVbrRtPerClassOverbooking     INTEGER,
+    rmIfVbrNrtPerClassOverbooking    INTEGER,
+    rmIfAbrPerClassOverbooking       INTEGER,
+    rmIfUbrPerClassOverbooking       INTEGER
+}
+
+rmIfOutPacingRateRequested OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "kilobits-per-second"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object reflects an explicit configuration of the
+             state of pacing for this interface. If the value of this 
+             object is 0, pacing is disabled on this interface. 
+             Prior to any user configuration, the value of this object 
+             is 0. If the value not 0, it represents the output pacing 
+             value, in kilobits per second. The hardware is not capable 
+             of providing all possible rates. The rate in place is available 
+             in rmIfOutPacingRateInstalled. If the value specified would
+             reduce the port rate below that currently allocated to 
+             Guaranteed Service bandwidth for the output flow, 
+             the rmIfOutPacingForce object must be set in conjunction with 
+             this object in order to cause the change to take effect."
+    DEFVAL { 0 }
+    ::= { rmIfCfgEntry 1 }
+
+rmIfOutPacingRateInstalled OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "kilobits-per-second"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The output pacing value, in kilobits per second, in effect. 
+             A value of 0 indicates output pacing is disabled. 
+             This object is not instantiated for interfaces to which it 
+             cannot be applied."
+    DEFVAL { 0 }
+    ::= { rmIfCfgEntry 2 }
+
+rmIfOutPacingForce OBJECT-TYPE
+    SYNTAX     ForceValue
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "A Set Request for rmIfOutPacingRateRequested that does not
+             reduce the port rate below the currently allocated bandwidth
+             guarantees for the output flow always succeeds irrespective
+             of the value of rmIfOutPacingForce.  But a Set Request for
+             rmIfOutPacingRateRequested that does reduce the port rate
+             below the currently allocated bandwidth guarantees for the
+             output flow will succeed only if rmIfOutPacingForce object
+             is also set to the value forceChange. In either of the above
+             cases, once rmIfOutPacingRateRequested object is set to the
+             appropriate value, rmIfOutPacingForce object assumes the
+             noForceChange value. This object is not instantiated for 
+             interfaces to which it cannot be applied."
+    DEFVAL { noForceChange }
+    ::= { rmIfCfgEntry 3 }
+
+rmIfLinkDistance     OBJECT-TYPE
+    SYNTAX     Unsigned32 (0..65535)
+    UNITS      "kilometers"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The link distance defined for the interface, expressed
+             in kilometers. This is then divided by the speed of light
+             to determine a propagation delay."
+    DEFVAL { 0 }
+    ::= { rmIfCfgEntry 4 }
+
+rmIfBestEffortLimit OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The limit on the number of Best Effort connections that
+             can be established on this interface. Note that a change
+             to this value affects subsequent connection setup, not
+             existing connections. A value of 4294967295 disables best-effort
+             limits."
+    DEFVAL { 4294967295 }
+    ::= { rmIfCfgEntry 5 }
+
+rmIfCbrDefaultRxUpcTolerance OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cell-times"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the GCRA limit parameter used for policing
+             of a receive cell-stream of a CBR connection on an interface,
+             if the limit parameter is not specified explicitly in the
+             connection setup request. It is specified
+             in cell-times. Note that a change to this value affects
+             subsequent connection setup, not existing connections."
+    DEFVAL { 1024 }
+    ::= { rmIfCfgEntry 6 }
+ 
+rmIfVbrRtDefaultRxUpcTolerance OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cell-times"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum burst size parameter used for policing
+             of a receive cell-stream of a VBR-RT connection on an
+             interface, if this parameter is not specified
+             explicitly in the connection setup request. It is
+             specified in cell-times. Note that a change to this value
+             affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 1024 }
+    ::= { rmIfCfgEntry 7 }
+ 
+rmIfVbrNrtDefaultRxUpcTolerance OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cell-times"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum burst size parameter used for policing
+             of a receive cell-stream of a VBR-NRT connection on an
+             interface, if this parameter is not specified
+             explicitly in the connection setup request. It is
+             specified in cell-times. Note that a change to this value
+             affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 1024 }
+    ::= { rmIfCfgEntry 8 }
+ 
+    rmIfAbrDefaultRxUpcTolerance  OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cell-times"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the GCRA limit parameter used for policing
+             of a receive cell-stream of an ABR connection on an interface,
+             if the limit parameter is not specified explicitly in the
+             connection setup request. It is specified
+             in cell-times. Note that a change to this value affects
+             subsequent connection setup, not existing connections."
+    DEFVAL { 1024 }
+    ::= { rmIfCfgEntry 9 }
+ 
+    rmIfUbrDefaultRxUpcTolerance  OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cell-times"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the GCRA limit parameter used for policing
+             of a receive cell-stream of a UBR connection on an interface,
+             if the limit parameter is not specified explicitly in the
+             connection setup request. It is specified
+             in cell-times. Note that a change to this value affects
+             subsequent connection setup, not existing connections."
+    DEFVAL { 1024 }
+    ::= { rmIfCfgEntry 10 }
+
+rmIfVbrRtDefaultRxUpcCdvt OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cell-times"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the GCRA limit parameter used for peak-rate
+             policing of a receive cell-stream of a VBR-RT connection
+             on an interface, if the CDVT parameter is not specified
+             explicitly in the connection setup request. It is
+             specified in cell-times. Note that a change to this value
+             affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 1024 }
+    ::= { rmIfCfgEntry 11 }
+
+rmIfVbrNrtDefaultRxUpcCdvt OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cell-times"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the GCRA limit parameter used for peak-rate
+             policing of a receive cell-stream of a VBR-NRT connection
+             on an interface, if the CDVT parameter is not specified
+             explicitly in the connection setup request. It is
+             specified in cell-times. Note that a change to this value
+             affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 1024 }
+    ::= { rmIfCfgEntry 12 }
+
+rmIfServCategorySupport OBJECT-TYPE
+    SYNTAX     INTEGER (0..31)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The value of this object controls and reflects the
+             Service Category(s) supported on this ATM interface.
+ 
+             If a bit is set, the corresponding Service Category
+             is supported on the interface, and CAC will allow
+             such connections. If a bit is reset, the corresponding
+             Service Category is not supported on the interface,
+             and CAC will reject such connections.
+ 
+             Write access may not be supported on all interfaces. 
+             Not all Service Categories may be supported on
+             an interface. For example, mixing of Service
+             Categories may not be allowed on a VP tunnel
+             interface. 
+ 
+                 The various bit positions are:
+                  1    constant bit rate (cbr)
+                  2    variable bit rate-real time (vbr-rt)
+                  4    variable bit rate-non real time (vbr-nrt)
+                  8    available bit rate (abr)
+                 16    unspecified bit rate (ubr)"
+    ::= { rmIfCfgEntry 13 }
+
+rmIfFramingOverhead OBJECT-TYPE
+    SYNTAX     TruthValue 
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "If this object is set to true, framing overhead will be taken
+             into account in determining the Maximum Cell Rate that is
+             possible on this interface. If this object is set to false,
+             framing overhead will not figure in the determination of the
+             Maximum Cell Rate that is possible on this interface. If
+             setting the value of this object to true results in reducing
+             the Maximum Guaranteed Services Bandwidth of this interface 
+             below the currently allocated bandwidth guarantees on this 
+             interface, the object rmIfFramingOverheadForce must also be 
+             set in order to cause the change to take effect. This object is
+             not instantiated for interfaces to which it cannot be applied."
+    DEFVAL { false }
+    ::= { rmIfCfgEntry 14 }
+
+rmIfFramingOverheadForce OBJECT-TYPE
+    SYNTAX     ForceValue 
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "A Set Request for rmIfFramingOverhead that does not reduce
+             the Maximum Guaranteed Services Bandwidth of this interface
+             below the currently allocated bandwidth guarantees always
+             succeeds irrespective of the value of rmIfFramingOverheadForce.
+             But a Set Request for rmIfFramingOverhead that does reduce the
+             Maximum Guaranteed Services Bandwidth of this interface below
+             the currently allocated bandwidth guarantees will succeed only
+             if rmIfFramingOverheadForce object is also set to the value
+             forceChange.  In either of the above cases, once the
+             rmIfFramingOverhead object is set to the appropriate value,
+             rmIfFramingOverheadForce object assumes the noForceChange 
+             value.  This object is not instantiated for interfaces to
+             which it cannot be applied."
+    DEFVAL { noForceChange }
+    ::= { rmIfCfgEntry 15 }
+
+rmIfOverBooking OBJECT-TYPE
+    SYNTAX     INTEGER (100..1000) 
+    UNITS      "percent"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object specifies overbooking on this interface as
+             a percentage of the Maximum Cell Rate that is possible
+             on this interface. If the value of this object is 100,
+             overbooking is disabled on this interface. A set request
+             for this object will succeed only if the value of the
+             ifAdminStatus object for this interface is 'down'. 
+             This object is not instantiated for interfaces to which 
+             it cannot be applied."
+    DEFVAL { 100 }
+    ::= { rmIfCfgEntry 16 }
+
+rmIfVbrRtPerClassOverbooking OBJECT-TYPE
+    SYNTAX     INTEGER (100..3200)
+    UNITS      "percent"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object specifies the Per Class Overbooking 
+             percentage for VBR-rt service category on this 
+             interface. If the value of this object is 100, 
+             Per Class Overbooking for VBR-rt is disabled on this 
+             interface. Specifying a value that is greater than 100 
+             causes the CAC to scale down the bandwidth allocated to
+             a VBR-rt VC on this interface by a factor that is equal 
+             to the inverse of the overbooking percentage specified by 
+             this object. A set request for this object will succeed 
+             only if the value of the ifAdminStatus object for this 
+             interface is 'down' and Interface overbooking 
+             (rmIfOverBooking object) is disabled. A set request for 
+             this object will not succeed if it specifies a value
+             that would cause the current bandwidth guarantees on 
+             this interface to exceed the maximum bandwidth available 
+             for guaranteed services on this interface."
+    DEFVAL { 100 }
+    ::= { rmIfCfgEntry 17 }
+
+rmIfVbrNrtPerClassOverbooking OBJECT-TYPE
+    SYNTAX     INTEGER (100..3200)
+    UNITS      "percent"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object specifies the Per Class Overbooking
+             percentage for VBR-Nrt service category on this
+             interface. If the value of this object is 100,
+             Per Class Overbooking for VBR-Nrt is disabled on this
+             interface. Specifying a value that is greater than 100
+             causes the CAC to scale down the bandwidth allocated to
+             a VBR-Nrt VC on this interface by a factor that is equal
+             to the inverse of the overbooking percentage specified by
+             this object. A set request for this object will succeed
+             only if the value of the ifAdminStatus object for this
+             interface is 'down' and Interface overbooking
+             (rmIfOverBooking object) is disabled. A set request for
+             this object will not succeed if it specifies a value
+             that would cause the current bandwidth guarantees on
+             this interface to exceed the maximum bandwidth available
+             for guaranteed services on this interface."
+    DEFVAL { 100 }
+    ::= { rmIfCfgEntry 18 }
+
+rmIfAbrPerClassOverbooking OBJECT-TYPE
+    SYNTAX     INTEGER (100..3200)
+    UNITS      "percent"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object specifies the Per Class Overbooking
+             percentage for ABR service category on this
+             interface. If the value of this object is 100,
+             Per Class Overbooking for ABR is disabled on this
+             interface. Specifying a value that is greater than 100
+             causes the CAC to scale down the bandwidth allocated to
+             a ABR VC on this interface by a factor that is equal
+             to the inverse of the overbooking percentage specified by
+             this object. A set request for this object will succeed
+             only if the value of the ifAdminStatus object for this
+             interface is 'down' and Interface overbooking
+             (rmIfOverBooking object) is disabled. A set request for
+             this object will not succeed if it specifies a value
+             that would cause the current bandwidth guarantees on
+             this interface to exceed the maximum bandwidth available
+             for guaranteed services on this interface."
+    DEFVAL { 100 }
+    ::= { rmIfCfgEntry 19 }
+
+rmIfUbrPerClassOverbooking OBJECT-TYPE
+    SYNTAX     INTEGER (100..3200)
+    UNITS      "percent"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object specifies the Per Class Overbooking
+             percentage for UBR service category on this
+             interface. If the value of this object is 100,
+             Per Class Overbooking for UBR is disabled on this
+             interface. Specifying a value that is greater than 100
+             causes the CAC to scale down the bandwidth allocated to
+             a UBR VC on this interface by a factor that is equal
+             to the inverse of the overbooking percentage specified by
+             this object. A set request for this object will succeed
+             only if the value of the ifAdminStatus object for this
+             interface is 'down' and Interface overbooking
+             (rmIfOverBooking object) is disabled. A set request for
+             this object will not succeed if it specifies a value
+             that would cause the current bandwidth guarantees on
+             this interface to exceed the maximum bandwidth available
+             for guaranteed services on this interface."
+    DEFVAL { 100 }
+    ::= { rmIfCfgEntry 20 }
+
+rmIfDirectionCfgTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF RmIfDirectionCfgEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing Resource Management
+             configuration information for a single direction of
+             traffic flow on ATM interfaces."
+    ::= { ciscoAtmRmIfCfg 4 }
+
+rmIfDirectionCfgEntry OBJECT-TYPE
+    SYNTAX     RmIfDirectionCfgEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the rmIfInOutCfgTable
+             containing Resource Management configuration for a
+             traffic direction on an ATM interface.  The particular
+             interface is identified by the value of MIB-II's ifIndex,
+             and the direction of flow."
+    INDEX      { ifIndex, rmIfDirection }
+    ::= { rmIfDirectionCfgTable 1 }
+
+RmIfDirectionCfgEntry ::= SEQUENCE {
+    rmIfDirection                   INTEGER,
+    rmIfDirControlLinkShareMaxAgg   INTEGER,
+    rmIfDirControlLinkShareMinCbr   INTEGER,
+    rmIfDirControlLinkShareMaxCbr   INTEGER,
+    rmIfDirControlLinkShareMinVbr   INTEGER,
+    rmIfDirControlLinkShareMaxVbr   INTEGER,
+    rmIfDirMaxCbrPcr                Unsigned32,
+    rmIfDirMaxCbrTolerance          Unsigned32,
+    rmIfDirMaxVbrPcr                Unsigned32,
+    rmIfDirMaxVbrScr                Unsigned32,
+    rmIfDirMaxVbrTolerance          Unsigned32,
+    rmIfDirMaxAbrPcr                Unsigned32,
+    rmIfDirMaxAbrTolerance          Unsigned32,
+    rmIfDirMaxUbrPcr                Unsigned32,
+    rmIfDirMaxUbrTolerance          Unsigned32,
+    rmIfDirMaxAbrMcr                Unsigned32,
+    rmIfDirMaxUbrMcr                Unsigned32,
+    rmIfDirMaxVbrCdvt               Unsigned32,
+    rmIfDirControlLinkShareMinAbr   INTEGER,
+    rmIfDirControlLinkShareMaxAbr   INTEGER,
+    rmIfDirControlLinkShareMinUbr   INTEGER,
+    rmIfDirControlLinkShareMaxUbr   INTEGER
+}
+
+rmIfDirection   OBJECT-TYPE
+    SYNTAX     INTEGER {
+                    receive(1),
+                    transmit(2)
+                   }
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "Selects the traffic direction for which subsequent row
+             parameters are read or written. In is received from
+             the port(into the device), Out is transmitted to the
+             port (from the device)."
+    ::= { rmIfDirectionCfgEntry 1 }
+
+rmIfDirControlLinkShareMaxAgg OBJECT-TYPE
+    SYNTAX     INTEGER (-1..95)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Configuration in the Controller Link Sharing (CLS) scheme.
+             Specifies the maximum aggregate Guaranteed Service
+             (CBR or VBR) traffic that can be allocated in a
+             traffic direction on an interface. It is expressed
+             as a percentage of the maximum traffic direction's
+             bandwidth (applies after output pacing, for example).
+             This object interacts with MaxVbr (if specified) such
+             that MaxVbr <= MaxAgg. 
+             This object interacts with MaxCbr (if specified) such
+             that MaxCbr <= MaxAgg. 
+             This object interacts with MaxAbr (if specified) such
+             that MaxAbr <= MaxAgg.
+             This object interacts with MaxUbr (if specified) such
+             that MaxUbr <= MaxAgg.
+             Note that a change to this value affects subsequent
+             connection setup, not existing connections.
+             If the object is set to -1, the object is considered
+             to be unspecified.
+             This object is not instantiated for interfaces to which it
+             cannot be applied." 
+    DEFVAL { -1 }
+    ::= { rmIfDirectionCfgEntry 2 }
+
+rmIfDirControlLinkShareMinCbr OBJECT-TYPE
+    SYNTAX     INTEGER (-1..95)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Configuration in the Controller Link Sharing (CLS) scheme.
+             Specifies a minimum amount of CBR traffic that can
+             be reserved in a traffic direction on an interface.
+             It is expressed as a percentage of the maximum traffic
+             direction's bandwidth (applies after output pacing,
+             for example).
+             This object interacts with MinVbr, MinAbr, MinUbr
+             (if specified) such that
+              MinVbr + MinCbr + MinAbr + MinUbr <= 95%.
+             This object interacts with MaxCbr (if specified) such that
+             MinCbr < MaxCbr.
+             Note that a change to this value affects subsequent
+             connection setup, not existing connections. If the object
+             is set to -1, the object is considered to be unspecified.
+             This object is not instantiated for interfaces to which it 
+             cannot be applied."
+    DEFVAL { -1 }
+    ::= { rmIfDirectionCfgEntry 3 }
+
+rmIfDirControlLinkShareMaxCbr OBJECT-TYPE
+    SYNTAX     INTEGER (-1..95)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Configuration in the Controller Link Sharing (CLS) scheme.
+             Specifies the maximum CBR traffic that can be allocated
+             in a traffic direction on an interface. It is expressed
+             as a percentage of the maximum traffic direction's
+             bandwidth (applies after output pacing, for example).
+             This object interacts with MinCbr (if specified) such that
+             MinCbr <= MaxCbr.
+             This object interacts with MaxAgg (if specified) such
+             that MaxCbr <= MaxAgg.
+             Note that a change to this value affects subsequent
+             connection setup, not existing connections. This object is
+             not instantiated for interfaces to which it cannot be applied."
+    DEFVAL { -1 }
+    ::= { rmIfDirectionCfgEntry 4 }
+
+rmIfDirControlLinkShareMinVbr OBJECT-TYPE
+    SYNTAX     INTEGER (-1..95)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Configuration in the Controller Link Sharing (CLS) scheme.
+             Specifies a minimum amount of VBR traffic that can
+             be reserved in a traffic direction on an interface.
+             It is expressed as a percentage of the maximum traffic
+             direction's bandwidth (applies after output pacing,
+             for example).
+             This object interacts with MinCbr, MinAbr, and MinUbr
+             (if specified), such that
+              MinVbr + MinCbr + MinAbr + MinUbr <= 95%.
+             This object interacts with MaxVbr (if specified) such that
+             MinVbr <= MaxVbr.
+             Note that a change to this value affects subsequent 
+             connection setup, not existing connections. If the object 
+             is set to -1, the object is considered to be unspecified.
+             This object is not instantiated for interfaces to which it 
+             cannot be applied."
+    DEFVAL { -1 }
+    ::= { rmIfDirectionCfgEntry 5 }
+
+rmIfDirControlLinkShareMaxVbr OBJECT-TYPE
+    SYNTAX     INTEGER (-1..95)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Configuration in the Controller Link Sharing (CLS) scheme.
+             Specifies the maximum VBR traffic that can be allocated
+             in a traffic direction on an interface. It is expressed
+             as a percentage of the maximum traffic direction's
+             bandwidth (applies after output pacing, for example).
+             This object interacts with MinVbr (if specified) such that
+             MinVbr <= MaxVbr.
+             This object interacts with MaxAgg (if specified) such
+             that MaxVbr <= MaxAgg.
+             Note that a change to this value affects subsequent
+             connection setup, not existing connections.
+             If the object is set to -1, the object is considered
+             to be unspecified.
+             This object is not instantiated for interfaces to which it 
+             cannot be applied."
+    DEFVAL { -1 }
+    ::= { rmIfDirectionCfgEntry 6 }
+
+rmIfDirMaxCbrPcr OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cells-per-second"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum Peak-cell-rate (pcr) traffic
+             parameter that can be specified for CBR connections
+             in a traffic direction on an interface. It is specified
+             in cells-per-second. A value of 4294967295 disables checking
+             of this parameter limit. Note that a change to this value
+             affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 4294967295 }
+    ::= { rmIfDirectionCfgEntry 7 }
+
+rmIfDirMaxCbrTolerance OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cell-times"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum limit parameter used in the GCRA
+             algorithm for traffic policing that can be specified
+             for CBR connections in a traffic direction on an interface.
+             It is specified in cell-times.  A value of 4294967295 disables 
+             checking of this parameter limit. Note that a change to this
+             value affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 4294967295 }
+    ::= { rmIfDirectionCfgEntry 8 }
+
+rmIfDirMaxVbrPcr OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cells-per-second"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum Peak-cell-rate (pcr) traffic
+             parameter that can be specified for VBR connections
+             in a traffic direction on an interface. It is specified
+             in cells-per-second.  A value of 4294967295 disables checking
+             of this parameter limit. Note that a change to this value
+             affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 4294967295 }
+    ::= { rmIfDirectionCfgEntry 9 }
+
+rmIfDirMaxVbrScr OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cells-per-second"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum Sustained-cell-rate (scr) traffic
+             parameter that can be specified for VBR connections
+             in a traffic direction on an interface. It is specified
+             in cells-per-second.  A value of 4294967295 disables checking
+             of this parameter limit. Note that a change to this value
+             affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 4294967295 }
+    ::= { rmIfDirectionCfgEntry 10 }
+
+rmIfDirMaxVbrTolerance OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cell-times"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum limit parameter used in the GCRA
+             algorithm for traffic policing that can be specified
+             for VBR connections in a traffic direction on an interface.
+             It is specified in cell-times.  A value of 4294967295 disables 
+             checking of this parameter limit. Note that a change to this
+             value affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 4294967295 }
+    ::= { rmIfDirectionCfgEntry 11 }
+
+rmIfDirMaxAbrPcr OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cells-per-second"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum Peak-cell-rate (pcr) traffic
+             parameter that can be specified for ABR connections
+             in a traffic direction on an interface. It is specified
+             in cells-per-second.  A value of 4294967295 disables checking
+             of this parameter limit. Note that a change to this value
+             affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 4294967295 }
+    ::= { rmIfDirectionCfgEntry 12 }
+
+rmIfDirMaxAbrTolerance OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cell-times"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum limit parameter used in the GCRA
+             algorithm for traffic policing that can be specified
+             for ABR connections in a traffic direction on an interface.
+             It is specified in cell-times.  A value of 4294967295 disables 
+             checking of this parameter limit. Note that a change to this
+             value affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 4294967295 }
+    ::= { rmIfDirectionCfgEntry 13 }
+
+rmIfDirMaxUbrPcr OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cells-per-second"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum Peak-cell-rate (pcr) traffic
+             parameter that can be specified for UBR connections
+             in a traffic direction on an interface. It is specified
+             in cells-per-second.  A value of 4294967295 disables checking
+             of this parameter limit. Note that a change to this value
+             affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 4294967295 }
+    ::= { rmIfDirectionCfgEntry 14 }
+
+rmIfDirMaxUbrTolerance OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cell-times"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum limit parameter used in the GCRA
+             algorithm for traffic policing that can be specified
+             for UBR connections in a traffic direction on an interface.
+             It is specified in cell-times.  A value of 4294967295 disables 
+             checking of this parameter limit. Note that a change to this
+             value affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 4294967295 }
+    ::= { rmIfDirectionCfgEntry 15 }
+
+rmIfDirMaxAbrMcr OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cells-per-second"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum Minimum-cell-rate (mcr) traffic
+             parameter that can be specified for ABR connections
+             in a traffic direction on an interface. It is specified
+             in cells-per-second.  A value of 4294967295 disables checking
+             of this parameter limit. Note that a change to this value
+             affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 4294967295 }
+    ::= { rmIfDirectionCfgEntry 16 }
+
+rmIfDirMaxUbrMcr OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cells-per-second"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum Minimum-cell-rate (mcr) traffic
+             parameter that can be specified for UBR plus (UBR with
+             an mcr guaranteed) connections in a traffic direction on
+             an interface. It is specified in cells-per-second.  A
+             value of 4294967295 disables checking of this parameter
+             limit. Note that a change to this value affects subsequent
+             connection setup, not existing
+             connections."
+    DEFVAL { 4294967295 }
+    ::= { rmIfDirectionCfgEntry 17 }
+
+rmIfDirMaxVbrCdvt OBJECT-TYPE
+    SYNTAX     Unsigned32
+    UNITS      "cell-times"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Specifies the maximum peak-rate CDVT parameter used in
+             the GCRA algorithm for traffic policing that can be specified
+             for VBR connections in a traffic direction on an interface.
+             It is specified in cell-times.  A value of 4294967295 disables
+             checking of this parameter limit. Note that a change to this
+             value affects subsequent connection setup, not existing
+             connections."
+    DEFVAL { 4294967295 }
+    ::= { rmIfDirectionCfgEntry 18 }
+
+rmIfDirControlLinkShareMinAbr OBJECT-TYPE
+    SYNTAX     INTEGER (-1..95)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Configuration in the Controller Link Sharing (CLS) scheme.
+             Specifies a minimum amount of ABR traffic that can
+             be reserved in a traffic direction on an interface.
+             It is expressed as a percentage of the maximum traffic
+             direction's bandwidth (applies after output pacing,
+             for example).
+             This object interacts with MinVbr, MinCbr, and MinUbr
+             (if specified) such that:
+               MinVbr + MinCbr + MinAbr + MinUbr <= 95%.
+             This object interacts with MaxAbr (if specified) such that
+             MinAbr < MaxAbr.
+             Note that a change to this value affects subsequent
+             connection setup, not existing connections. If the object
+             is set to -1, the object is considered to be unspecified.
+             This object is not instantiated for interfaces to which it 
+             cannot be applied."
+    DEFVAL { -1 }
+    ::= { rmIfDirectionCfgEntry 19 }
+
+rmIfDirControlLinkShareMaxAbr OBJECT-TYPE
+    SYNTAX     INTEGER (-1..95)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Configuration in the Controller Link Sharing (CLS) scheme.
+             Specifies the maximum ABR traffic that can be allocated
+             in a traffic direction on an interface. It is expressed
+             as a percentage of the maximum traffic direction's
+             bandwidth (applies after output pacing, for example).
+             This object interacts with MinAbr (if specified) such that
+               MinAbr <= MaxAbr.
+             This object interacts with MaxAgg (if specified) such
+             that MaxAbr <= MaxAgg.
+             Note that a change to this value affects subsequent
+             connection setup, not existing connections.
+             If the object is set to -1, the object is considered
+             to be unspecified.
+             This object is not instantiated for interfaces to which it 
+             cannot be applied."
+    DEFVAL { -1 }
+    ::= { rmIfDirectionCfgEntry 20 }
+
+rmIfDirControlLinkShareMinUbr OBJECT-TYPE
+    SYNTAX     INTEGER (-1..95)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Configuration in the Controller Link Sharing (CLS) scheme.
+             Specifies a minimum amount of UBR plus (UBR with
+             an mcr guaranteed) traffic that can be reserved in a
+             traffic direction on an interface.  It is expressed as
+             a percentage of the maximum traffic direction's bandwidth
+             (applies after output pacing, for example).
+             This object interacts with MinVbr, MinCbr, and
+             MinAbr (if specified)
+             such that:
+               MinVbr + MinCbr + MinAbr + MinUbr <= 95%.
+             This object interacts with MaxUbr (if specified) such that
+             MinUbr < MaxUbr.
+             Note that a change to this value affects subsequent
+             connection setup, not existing connections. If the object
+             is set to -1, the object is considered to be unspecified.
+             This object is not instantiated for interfaces to which it 
+             cannot be applied."
+    DEFVAL { -1 }
+    ::= { rmIfDirectionCfgEntry 21 }
+
+rmIfDirControlLinkShareMaxUbr OBJECT-TYPE
+    SYNTAX     INTEGER (-1..95)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Configuration in the Controller Link Sharing (CLS) scheme.
+             Specifies the maximum UBR plus traffic that can be allocated
+             in a traffic direction on an interface. It is expressed
+             as a percentage of the maximum traffic direction's
+             bandwidth (applies after output pacing, for example).
+             This object interacts with MinUbr (if specified) such that
+               MinUbr <= MaxUbr.
+             This object interacts with MaxAgg (if specified) such
+             that MaxUbr <= MaxAgg.
+             Note that a change to this value affects subsequent
+             connection setup, not existing connections.
+             If the object is set to -1, the object is considered
+             to be unspecified.
+             This object is not instantiated for interfaces to which it 
+             cannot be applied."
+    DEFVAL { -1 }
+    ::= { rmIfDirectionCfgEntry 22 }
+
+
+--
+-- The ATM Interface Resource Management State Group
+--
+rmIfServiceCategoryStateTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF RmIfServiceCategoryStateEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing Resource Management
+             state information for ATM interfaces by Service Category."
+    ::= { ciscoAtmRmIfState 1 }
+ 
+rmIfServiceCategoryStateEntry OBJECT-TYPE
+    SYNTAX     RmIfServiceCategoryStateEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the
+             rmIfServiceCategoryStateTable containing Resource
+             Management configuration for an ATM interface. Rows
+             are identified by the value of MIB-II's ifIndex, and
+             the Service Category."
+    INDEX      { ifIndex, rmIfSc }
+    ::= { rmIfServiceCategoryStateTable 1 }
+ 
+RmIfServiceCategoryStateEntry ::= SEQUENCE {
+    rmIfSc                       INTEGER,
+    rmIfScRxAcr                  Gauge32,
+    rmIfScTxAcr                  Gauge32,
+    rmIfScRxAlcr                 Gauge32,
+    rmIfScTxAlcr                 Gauge32,
+    rmIfScNumSvxConns            Gauge32,
+    rmIfScNumPvxConns            Gauge32,
+    rmIfScTxMaxCtd               Gauge32,
+    rmIfScTxP2PeakCdv            Gauge32,
+    rmIfScTxClr                  Gauge32,
+    rmIfScTxClrClp01             Gauge32,
+    rmIfScRxDynBwSvcAcr          Gauge32,
+    rmIfScTxDynBwSvcAcr          Gauge32
+}
+ 
+rmIfSc OBJECT-TYPE
+    SYNTAX     INTEGER {
+                    cbr(1),      --constant-bit-rate
+                    vbrRt(2),    --variable-bit-rate-real-time
+                    vbrNrt(3),   --variable-bit-rate-non-real-time
+                    abr(4),      --available-bit-rate
+                    ubr(5)       --unspecified-bit-rate
+                   }
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The Service Category to which the row applies."
+    ::= { rmIfServiceCategoryStateEntry 1 }
+ 
+rmIfScRxAcr OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "cells-per-second"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The Available Cell Rate (specified in cells per second) for
+             traffic received on the interface for this Service Category.
+             This is the bandwidth available for connections. For
+             CBR and VBR Service Categories, this value decreases as a
+             result of connection setup and increases as a result of
+             connection release. For ABR and UBR Service Categories,
+             this value changes as a result of connection setup
+             and teardown only if non-zero mcr is specified.."
+    ::= { rmIfServiceCategoryStateEntry 2 }
+ 
+rmIfScTxAcr OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "cells-per-second"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The Available Cell Rate (specified in cells per second) for
+             traffic sent out the interface for this Service Category.
+             This is the bandwidth available for connections. For
+             CBR and VBR Service Categories, this value decreases as a
+             result of connection setup and increases as a result of
+             connection release. For ABR and UBR Service Categories,
+             this value changes as a result of connection setup
+             and teardown only if non-zero mcr is specified."
+    ::= { rmIfServiceCategoryStateEntry 3 }
+ 
+rmIfScRxAlcr OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "cells-per-second"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The Allocated Cell Rate (specified in cells per second) for
+             traffic received on the interface for this Service Category.
+             This is the bandwidth allocated-to connections. For
+             CBR and VBR Service Categories, this value increases as a
+             result of connection setup and decreases as a result of
+             connection release. For ABR and UBR Service Categories,
+             this value changes as a result of connection setup
+             and teardown only if non-zero mcr is specified."
+    ::= { rmIfServiceCategoryStateEntry 4 }
+ 
+rmIfScTxAlcr OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "cells-per-second"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The Allocated Cell Rate (specified in cells per second) for
+             traffic sent out the interface for this Service Category.
+             This is the bandwidth allocated-to connections. For
+             Guaranteed Service Categories, this value increases as a
+             result of connection setup and decreases as a result of
+             connection release. For ABR and UBR Service Categories,
+             this value changes as a result of connection setup
+             and teardown only if non-zero mcr is specified."
+    ::= { rmIfServiceCategoryStateEntry 5 }
+ 
+rmIfScNumSvxConns OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "number of connections"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of signalled connections (VC or VP) of this
+             Service Category currently allocated on the interface."
+    ::= { rmIfServiceCategoryStateEntry 6 }
+ 
+rmIfScNumPvxConns OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "number of connections"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of permanent connections (VC or VP) of this
+             Service Category currently allocated on the interface."
+    ::= { rmIfServiceCategoryStateEntry 7 }
+ 
+rmIfScTxMaxCtd    OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "microseconds"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The maximum Cell Transfer Delay estimated to be experienced by
+             cells of connections transmitted out this interface of this
+             Service Category.  This is estimate does not distinguish between
+             clp0 and clp1 cells.  This object is valid for Service Category 
+             cbr and vbr-rt. For other Service Categories, the object is not 
+             defined."
+    ::= { rmIfServiceCategoryStateEntry 8 }
+ 
+rmIfScTxP2PeakCdv      OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "microseconds"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The Peak-to-Peak Cell Delay Variation estimated to be experienced
+             by cells of connections transmitted out this interface of this
+             Service Category.  This estimate does not distinguish between 
+             clp0 and clp1 cells.  This object is valid for Service Categories 
+             cbr and  vbr-rt. For other Service Categories, the object is not 
+             defined."
+    ::= { rmIfServiceCategoryStateEntry 9 }
+ 
+rmIfScTxClr        OBJECT-TYPE
+    SYNTAX     Gauge32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The Cell Loss Ratio estimated to be experienced by cells
+             of connections transmitted out this interface of this Service
+             Category.  This is an estimate for clp0 cells only.  The unit of 
+             this object is negative power of ten (so an object value of 8 
+             means 10**(-8)). This object is valid for Service Categories cbr, 
+             vbr-rt, and vbr-nrt. For other Service Categories, the object is 
+             not defined."
+    ::= { rmIfServiceCategoryStateEntry 10 }
+
+rmIfScTxClrClp01    OBJECT-TYPE
+    SYNTAX     Gauge32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The Cell Loss Ratio estimated to be experienced by cells
+             of connections transmitted out this interface of this Service
+             Category.  This is an estimate for clp0+1 cells.  The unit of 
+             this object is negative power of ten (so an object value of 8 
+             means 10**(-8)). This object is valid for Service Categories cbr, 
+             vbr-rt, and vbr-nrt. For other Service Categories, the object is 
+             not defined."
+    ::= { rmIfServiceCategoryStateEntry 11 }
+
+rmIfScRxDynBwSvcAcr OBJECT-TYPE
+       SYNTAX  Gauge32
+       UNITS   "cells-per-second"
+       MAX-ACCESS read-only
+       STATUS  current
+       DESCRIPTION
+            "The Available Cell Rate (specified in cells per second) for traffic
+             received on the interface for this Service Category.  This object 
+             is valid only for IMA physical interfaces.  This is the bandwidth 
+             available for SVC connections.  For CBR and VBR Service Categories,
+             this value decreases as a result of connection setup and increases 
+             as a result of connection release.  For ABR and UBR Service 
+             Categories, this value changes as a result of connection setup and 
+             teardown only if non-zero mcr is specified"
+       ::= { rmIfServiceCategoryStateEntry 12 }
+
+rmIfScTxDynBwSvcAcr OBJECT-TYPE
+       SYNTAX  Gauge32
+       UNITS   "cells-per-second"
+       MAX-ACCESS read-only
+       STATUS  current
+       DESCRIPTION
+            "The Available Cell Rate (specified in cells per second) for traffic
+             transmitted on the interface for this Service Category.  This 
+             object is valid only for IMA physical interfaces.  This is the 
+             bandwidth available for SVC connections on physical interfaces.  
+             For CBR and VBR Service Categories, this value decreases as a 
+             result of connection setup and increases as a result of connection 
+             release.  For ABR and UBR Service Categories, this value changes as
+             a result of connection setup and teardown only if non-zero mcr is 
+             specified"
+       ::= { rmIfServiceCategoryStateEntry 13 }
+
+
+
+--
+-- The ATM Interface Resource Management Statistics Group
+--
+rmIfServiceCategoryStatisticsTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF RmIfServiceCategoryStatisticsEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing Resource Management
+             statistics information for ATM interfaces by Service Category."
+    ::= { ciscoAtmRmIfStatistics 1 }
+ 
+rmIfServiceCategoryStatisticsEntry OBJECT-TYPE
+    SYNTAX     RmIfServiceCategoryStatisticsEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the
+             rmIfServiceCategoryStatisticsTable containing Resource
+             Management configuration for an ATM interface. Rows
+             are identified by the value of MIB-II's ifIndex, and
+             the Service Category."
+    INDEX      { ifIndex, rmIfSc }
+    ::= { rmIfServiceCategoryStatisticsTable 1 }
+ 
+RmIfServiceCategoryStatisticsEntry ::= SEQUENCE {
+    rmIfScRcacResultNumAdmit          Counter32,
+    rmIfScRcacResultNumTotalRequests  Counter32,
+    rmIfScRcacResultNumFailTraffComb  Counter32,
+    rmIfScRcacResultNumFailBw         Counter32,
+    rmIfScRcacResultNumFailLoss       Counter32,
+    rmIfScRcacResultNumFailDelay      Counter32,
+    rmIfScRcacResultNumFailCdv        Counter32,
+    rmIfScRcacResultNumFailBeLimit    Counter32,
+    rmIfScRcacResultNumFailParmLimit  Counter32,
+    rmIfScRcacResultNumFailOther      Counter32
+}
+
+rmIfScRcacResultNumAdmit OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of successful resource allocation requests for this
+             interface."
+    ::= { rmIfServiceCategoryStatisticsEntry 1 }
+ 
+rmIfScRcacResultNumTotalRequests OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The total number of resource allocation requests for this
+             interface."
+    ::= { rmIfServiceCategoryStatisticsEntry 2 }
+ 
+rmIfScRcacResultNumFailTraffComb OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of resource allocation requests which are considered
+             to be in error due to an unsupported combination of traffic
+             parameters. An example of this would be, for a VBR connection,
+             a zero maximum burst-size given a non-zero sustainable-cell-rate."
+    ::= { rmIfServiceCategoryStatisticsEntry 3 }
+ 
+rmIfScRcacResultNumFailBw OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of resource allocation requests which are considered
+             to be in error due to a lack of bandwidth. This will never
+             occur for Best Effort Service Categories."
+    ::= { rmIfServiceCategoryStatisticsEntry 4 }
+ 
+rmIfScRcacResultNumFailLoss OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of resource allocation requests which are considered
+             to be in error due to exceeding cell loss criterion."
+    ::= { rmIfServiceCategoryStatisticsEntry 5 }
+ 
+rmIfScRcacResultNumFailDelay OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of resource allocation requests which are considered
+             to be in error due to exceeding maximum delay criterion."
+    ::= { rmIfServiceCategoryStatisticsEntry 6 }
+ 
+rmIfScRcacResultNumFailCdv OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of resource allocation requests which are considered
+             to be in error due to exceeding cell delay variation criterion."
+    ::= { rmIfServiceCategoryStatisticsEntry 7 }
+ 
+rmIfScRcacResultNumFailBeLimit OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of resource allocation requests which are considered
+             to be in error due to exceeding a limit on the number of
+             Best-Effort connections."
+    ::= { rmIfServiceCategoryStatisticsEntry 8 }
+ 
+rmIfScRcacResultNumFailParmLimit OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of resource allocation requests which are considered
+             to be in error due to exceeding a traffic parameter limit 
+             criterion."
+    ::= { rmIfServiceCategoryStatisticsEntry 9 }
+ 
+rmIfScRcacResultNumFailOther OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of resource allocation requests which are considered
+             to be in error for a reason not enumerated by other counter
+             objects."
+    ::= { rmIfServiceCategoryStatisticsEntry 10 }
+ 
+--
+-- The Shared-Memory architecture ATM Interface Resource Management Group
+--
+sharedMemRmIfOutputQCfgTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF SharedMemRmIfOutputQCfgEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing configuration information
+             for ATM physical interface output queues. This table is not 
+             instantiated for interfaces to which it cannot be applied."
+    ::= { ciscoAtmRmIfSharedMem 1 }
+
+sharedMemRmIfOutputQCfgEntry OBJECT-TYPE
+    SYNTAX     SharedMemRmIfOutputQCfgEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the sharedMemRmIfOutputQCfgTable
+             containing Resource Management configuration for an ATM
+             interface.  A particular row is identified by the
+             value of MIB-II's ifIndex, and the output queue."
+    INDEX      { ifIndex, sharedMemRmIfOutputQ }
+    ::= { sharedMemRmIfOutputQCfgTable 1 }
+
+SharedMemRmIfOutputQCfgEntry ::= SEQUENCE {
+    sharedMemRmIfOutputQ                 INTEGER,
+    sharedMemRmIfOutputQServCategory     INTEGER,
+    sharedMemRmIfOutputQRequestedMaxSize INTEGER,
+    sharedMemRmIfOutputQInstalledMaxSize INTEGER,
+    sharedMemRmIfOutputQMaxSizeForce     ForceValue,
+    sharedMemRmIfOutputQCellCount        Gauge32
+}
+
+sharedMemRmIfOutputQ OBJECT-TYPE
+    SYNTAX     INTEGER {
+                    q1(1),  -- Priority 1 queue (highest priority)
+                    q2(2),  -- Priority 2 queue (2nd highest priority)
+                    q3(3),  -- Priority 3 queue (3rd highest priority)
+                    q4(4)   -- Priority 4 queue (lowest priority)
+                   }
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The output queue on this ATM interface."
+    ::= { sharedMemRmIfOutputQCfgEntry 1 }
+
+sharedMemRmIfOutputQServCategory OBJECT-TYPE
+    SYNTAX     INTEGER (1..31)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The service category(s) sharing this output queue on
+             this ATM interface.
+                 The various bit positions are:
+                  1    constant bit rate (cbr)
+                  2    variable bit rate-real time (vbr-rt)
+                  4    variable bit rate-non real time (vbr-nrt)
+                  8    available bit rate (abr)
+                 16    unspecified bit rate (ubr)"
+    ::= { sharedMemRmIfOutputQCfgEntry 2 }
+
+sharedMemRmIfOutputQRequestedMaxSize OBJECT-TYPE
+    SYNTAX     INTEGER (0..65504)
+    UNITS      "cells"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object reflects an explicit configuration of the 
+             maximum number of cells that may occupy this queue. 
+             If the value of this object is 0, the maximum size in effect
+             is a default value calculated by software.
+             Prior to any user configuration, the value of this object 
+             is 0. The actual maximum size is reflected in the object
+             sharedMemRmIfOutputQInstalledMaxSize (and is a default value 
+             calculated by software).  Setting this value to 0 causes the 
+             size to assume it's default value. When changing a port that 
+             is up, must be set in conjunction with the force object
+             (sharedMemRmIfOutputQMaxSizeForce) to take effect." 
+    DEFVAL { 0 }
+    ::= { sharedMemRmIfOutputQCfgEntry 3 }
+
+sharedMemRmIfOutputQInstalledMaxSize OBJECT-TYPE
+    SYNTAX     INTEGER (32..65504)
+    UNITS      "cells"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The maximum number of cells that may occupy this queue.
+             Will be a multiple of 32. Explicit configuration of maximum
+             size are made via the object sharedMemrmIfOutputQRequestedMaxSize.
+             Such requests are rounded up to the nearest multiple of 32
+             prior to installation." 
+    ::= { sharedMemRmIfOutputQCfgEntry 4 }
+
+sharedMemRmIfOutputQMaxSizeForce OBJECT-TYPE
+    SYNTAX     ForceValue
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Must be set to forceChange to allow changing of
+             sharedMemRmIfOutputQRequestedMaxSize for a queue on an 
+             interface that is 'up'. This is because such a change 
+             causes the interface to lose data while the size is 
+             changed. Once the change takes place, the force object 
+             assumes the noForceChange value."
+    DEFVAL { noForceChange }
+    ::= { sharedMemRmIfOutputQCfgEntry 5 }
+
+sharedMemRmIfOutputQCellCount   OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "cells"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "Count of the number of cells in the output queue."
+    ::= { sharedMemRmIfOutputQCfgEntry 6 }
+
+sharedMemRmIfThresholdCfgTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF SharedMemRmIfThresholdCfgEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing the output queue thresholds
+            used on ATM physical interface output queues. These are specified
+            per Service Category. This table is not instantiated for interfaces
+            to which it cannot be applied."
+    ::= { ciscoAtmRmIfSharedMem 2 }
+ 
+sharedMemRmIfThresholdCfgEntry OBJECT-TYPE
+    SYNTAX     SharedMemRmIfThresholdCfgEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the sharedMemRmIfThresholdCfgTable
+            containing Resource Management configuration for an ATM
+            interface.  A particular row is identified by the
+            value of MIB-II's ifIndex, and the Service Category."
+    INDEX      { ifIndex, rmIfSc}
+    ::= { sharedMemRmIfThresholdCfgTable 1 }
+ 
+SharedMemRmIfThresholdCfgEntry ::= SEQUENCE {
+    sharedMemRmIfDiscardThreshold         FineQueueThreshold,
+    sharedMemRmIfEfciThreshold            INTEGER,
+    sharedMemRmIfAbrRelativeRateThreshold FineQueueThreshold
+}
+
+sharedMemRmIfDiscardThreshold OBJECT-TYPE
+    SYNTAX     FineQueueThreshold
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The output queue CLP/EPD threshold for this Service 
+             Category on this ATM interface. This is expressed in 
+             percent-of-full. Note that 100% full effectively turns 
+             off the threshold."
+    DEFVAL { percent50 }
+    ::= { sharedMemRmIfThresholdCfgEntry 1 }
+ 
+sharedMemRmIfEfciThreshold OBJECT-TYPE
+    SYNTAX     INTEGER {
+                    percent12(1),
+                    percent25(2),
+                    percent50(3),
+                    percent100(4)
+                   }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The output queue EFCI marking threshold for this Service 
+              Category on this ATM interface. This is expressed in 
+              percent-of-full. Note that 100% full effectively turns off
+              the threshold."
+    DEFVAL { percent25 }
+    ::= { sharedMemRmIfThresholdCfgEntry 2 }
+
+sharedMemRmIfAbrRelativeRateThreshold OBJECT-TYPE
+    SYNTAX     FineQueueThreshold
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The ABR Relative-rate marking queue congestion threshold 
+             for the ABR queue on this ATM interface. This is expressed in
+             percent-of-full. Note that 100% full effectively turns off
+             the threshold. This object is only defined for the abr
+             service category."
+    DEFVAL { percent25 }
+    ::= { sharedMemRmIfThresholdCfgEntry 3 }
+
+--
+-- The Lightstream per-VC queueing chipset ATM Switch Resource
+-- Management Group
+--
+lsPerVcqRmThreshGrpTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF LsPerVcqRmThreshGrpEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing information
+             for Switch Threshold Groups. When cells are
+             queued in the switch for a direction of cell
+             traffic on an ATM connection (VC or VP), several
+             functions related to queueing are dictated
+             by the congestion state (fullness) of the Threshold
+             Group. Each connection queue is a member of
+             a Threshold Group.
+             These functions include:
+             - The limit on the number of cells that can
+               be queued. Cells exceeding this limit are
+               discarded.
+             - The discard threshold, used for CLP/EPD
+               discard when the fullness of the queue exceeds
+               the threshold.
+             - The marking threshold, used for EFCI
+               and ABR-RR marking.
+             Each Threshold Group has a maximum number of cells
+             that can be resident in it at any one time. The
+             number of cells in a Group consists of the number
+             of cells in all the queues that are a member of
+             the Group. As the number of cells in a Group
+             approaches the maximum number for the Group,
+             the queue limits may be decreased. This limits
+             the share of  buffering available to each
+             connection as cell-memory is used."
+    ::= { ciscoLsPerVcqAtmRmSwitch 1 }
+
+lsPerVcqRmThreshGrpEntry OBJECT-TYPE
+    SYNTAX     LsPerVcqRmThreshGrpEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the lsPerVcqRmThreshGrpTable
+             containing Resource Management configuration for a
+             Threshold Group. All entries ever in the table are 
+             present at startup, none are created dynamically."
+    INDEX      { lsPerVcqRmThreshGrp }
+    ::= { lsPerVcqRmThreshGrpTable 1 }
+
+LsPerVcqRmThreshGrpEntry ::= SEQUENCE {
+    lsPerVcqRmThreshGrp                   LsPerVcqThresholdGroup,
+    lsPerVcqRmThreshGrpMaxSize            INTEGER,
+    lsPerVcqRmThreshGrpQMaxSize           INTEGER,
+    lsPerVcqRmThreshGrpQMinSize           INTEGER,
+    lsPerVcqRmThreshGrpDiscThreshold      INTEGER,
+    lsPerVcqRmThreshGrpMarkThreshold      INTEGER,
+    lsPerVcqRmThreshGrpName               DisplayString,
+    lsPerVcqRmThreshGrpCellCount          Gauge32
+}
+
+lsPerVcqRmThreshGrp OBJECT-TYPE
+    SYNTAX     LsPerVcqThresholdGroup
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The Threshold Group specified by this entry."
+    ::= { lsPerVcqRmThreshGrpEntry 1 }
+
+lsPerVcqRmThreshGrpMaxSize OBJECT-TYPE
+    SYNTAX     INTEGER (-1..65535)
+    UNITS      "cells"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object specifies the maximum number of cells that may
+             occupy this Threshold Group. While any integer in the range
+             can be set, the hardware granularity is in 64-cell units. 
+             Therefore, the value installed is [(value / 64) * 64] + 63. 
+
+             If the value of this object is set to -1, the default
+             value for the threshold-group is restored."
+    DEFVAL { 65535 }
+    ::= { lsPerVcqRmThreshGrpEntry 2 }
+
+lsPerVcqRmThreshGrpQMaxSize OBJECT-TYPE
+    SYNTAX     INTEGER (31..16383)
+    UNITS      "cells"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object reflects an explicit configuration of the
+             maximum limit on the number of cells that may occupy
+             connection queues that are a member of this Threshold
+             Group. A connection queue that is a member of this
+             Threshold Group will never have more cells resident
+             in it than this limit. This is the queue limit applied
+             when the Threshold Group is uncongested.  The QMaxSize
+             must be greater than or equal to the Threshold Group 
+             QMinSize. QMaxSize should be less than MaxSize for the
+             Threshold Group.
+
+             While any integer in the range can be set, the hardware 
+             granularity is in 16-cell units. Therefore, the
+             largest possible queue size installed is: 
+             [(value / 16) * 16]+15"
+
+    ::= { lsPerVcqRmThreshGrpEntry 3 }
+
+lsPerVcqRmThreshGrpQMinSize OBJECT-TYPE
+    SYNTAX     INTEGER (1..1023)
+    UNITS      "cells"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object reflects an explicit configuration of the
+             minimum limit on the number of cells that may occupy
+             connection queues that are a member of this Threshold
+             Group. The Threshold Group at it's most congested will
+             not limit a connection queue to fewer than this number
+             of cells. The QMinSize must be less than or equal to 
+             the Threshold Group QMaxSize. The hardware granularity
+             is in units of one cell."
+    ::= { lsPerVcqRmThreshGrpEntry 4 }
+
+lsPerVcqRmThreshGrpDiscThreshold OBJECT-TYPE
+    SYNTAX     INTEGER (-1..100)
+    UNITS      "percentage"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The output queue CLP/EPD threshold for this Threshold
+             Group. This is expressed in percent-of-full. Note that
+             100% full effectively turns off the threshold. Setting
+             this object to -1 restores the default value for the
+             Threshold Group. The granularity of the fill-level of 
+             a queue installed in hardware is the same as that for 
+             queue limits."
+    ::= { lsPerVcqRmThreshGrpEntry 5 }
+
+lsPerVcqRmThreshGrpMarkThreshold OBJECT-TYPE
+    SYNTAX     INTEGER (-1..100)
+    UNITS      "percentage"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The output queue EFCI/ABR-RR marking threshold for
+             this Threshold Group. This is expressed in
+             percent-of-full. Note that 100% full effectively turns
+             off the threshold. Setting this object to -1 restores
+             the default value for the Threshold Group. The 
+             granularity of the fill-level of a queue installed in 
+             hardware is the same as that for queue limits."
+    ::= { lsPerVcqRmThreshGrpEntry 6 }
+
+lsPerVcqRmThreshGrpName OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..20))
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The name associated with the threshold-group. If
+             this is set to the null-string, the default
+             name for the Threshold Group is assigned."
+    ::= { lsPerVcqRmThreshGrpEntry 7 }
+
+lsPerVcqRmThreshGrpCellCount   OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "cells"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "Count of the number of cells in the Threshold
+             Group."
+    ::= { lsPerVcqRmThreshGrpEntry 8 }
+
+
+lsPerVcqRmThreshGrpServiceTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF LsPerVcqRmThreshGrpServiceEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table specifying which
+             VC or VP queues  are assigned to a Threshold
+             Group."
+    ::= { ciscoLsPerVcqAtmRmSwitch 2 }
+
+lsPerVcqRmThreshGrpServiceEntry OBJECT-TYPE
+    SYNTAX     LsPerVcqRmThreshGrpServiceEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the
+             lsPerVcqRmThreshGrpServiceTable.  All entries 
+             ever in the table are present at startup, none 
+             are created dynamically."
+    INDEX      { lsPerVcqRmThreshGrpService }
+    ::= { lsPerVcqRmThreshGrpServiceTable 1 }
+
+LsPerVcqRmThreshGrpServiceEntry ::= SEQUENCE {
+    lsPerVcqRmThreshGrpService      LsPerVcqThresholdGroupService,
+    lsPerVcqRmThreshGrpServGroup    LsPerVcqThresholdGroup
+}
+
+lsPerVcqRmThreshGrpService OBJECT-TYPE
+    SYNTAX     LsPerVcqThresholdGroupService
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The Service specified by this entry."
+    ::= { lsPerVcqRmThreshGrpServiceEntry 1 }
+
+lsPerVcqRmThreshGrpServGroup OBJECT-TYPE
+    SYNTAX     LsPerVcqThresholdGroup
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The Threshold Group to which VC/VP queues specified
+             by the service are assigned. Changing the assignment
+             of service to Threshold Group does not alter the
+             assignment for connections currently installed in
+             hardware, but those connections that are subsequently
+             installed."
+    ::= { lsPerVcqRmThreshGrpServiceEntry 2 }
+
+lsPerVcqRmHierarchicalSchedulingMode   OBJECT-TYPE
+        SYNTAX  INTEGER { enabled(1), disabled(2) }
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+        "On a LS1010 equipped with the Lightstream per-VC 
+         queueing chipset, the
+         user can define Hierarchical VP-Tunnels. Each such
+         tunnel has its own dedicated scheduler, programmed
+         to output data at a configurable maximum rate.
+         Therefore, the overall output of the Hierarchical
+         VP-tunnel is rate-limited. In addition, Virtual 
+         Circuits of different service categories can 
+         traverse through such a tunnel, and each of these
+         Virtual Circuits are guaranteed their individual
+         contracted bandwidth agreement.
+ 
+         This object must be set to enabled before any
+         Hierarchical VP-tunnels can be defined on the device.
+ 
+         Any setting of this variable requires a reload 
+         of the device to be effective.
+ 
+         Setting this object to enabled will cause the 
+         software to initialize the additional schedulers
+         needed by the Hierarchical VP-Tunnels. Other
+         limited scheduler resources are therefore used by a
+         larger number of schedulers (as compared to the case
+         when Hierarchical Scheduling is disabled on the device). 
+         This may result in fewer number of connections 
+         passing Connection Admission Control.
+ 
+         This object is therefore provided so that the 
+         user can make an informed decision as to whether
+         Hierarchical Scheduling is to be used.
+ 
+         This object is defined on a LS1010 only when 
+         the switch is equipped with the Lightstream
+         per-VC queueing chipset."
+        DEFVAL { disabled }
+::= { ciscoLsPerVcqAtmRmSwitch 3 }
+
+--
+-- The Catalyst8540MSR per-VC queueing chipset ATM Switch Resource
+-- Management Group
+--
+cgrPerVcqRmThreshGrpTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CgrPerVcqRmThreshGrpEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing information
+             for Switch Threshold Groups. When cells are
+             queued in the switch for a direction of cell
+             traffic on an ATM connection (VC or VP), several
+             functions related to queueing are dictated
+             by the congestion state (fullness) of the Threshold
+             Group. Each connection queue is a member of
+             a Threshold Group.
+             These functions include:
+             - The limit on the number of cells that can
+               be queued. Cells exceeding this limit are
+               discarded.
+             - The discard threshold, used for CLP/EPD
+               discard when the fullness of the queue exceeds
+               the threshold.
+             - The marking threshold, used for EFCI marking.
+             Each Threshold Group has a maximum number of cells
+             that can be resident in it at any one time. The
+             number of cells in a Group consists of the number
+             of cells in all the queues that are a member of
+             the Group. As the number of cells in a Group
+             approaches the maximum number for the Group,
+             the queue limits may be decreased. This limits
+             the share of  buffering available to each
+             connection as cell-memory is used.
+
+             On the Catalyst8540MSR platform, there are a
+             maximum of 8 switching modules. Each switching
+             module services a certain group of ports (this
+             mapping is fixed in hardware). Each module also
+             has its own cell memory (for per VC queueing),
+             and hence performs its own congestion control,
+             independent of any other switching module.
+             Each switching module has its own set of
+             Switch Threshold Groups, which are 
+             independently programmable and readable.
+
+             This table is supported only on the Catalyst8540MSR
+             platform."
+    ::= { ciscoCgrPerVcqAtmRmSwitch 1 }
+
+cgrPerVcqRmThreshGrpEntry OBJECT-TYPE
+    SYNTAX     CgrPerVcqRmThreshGrpEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the cgrPerVcqRmThreshGrpTable
+             containing Resource Management configuration for a
+             Threshold Group. All entries ever in the table are
+             present at startup, none are created dynamically."
+    INDEX      { cgrPerVcqModuleId, cgrPerVcqRmThreshGrp }
+    ::= { cgrPerVcqRmThreshGrpTable 1 }
+
+CgrPerVcqRmThreshGrpEntry ::= SEQUENCE {
+    cgrPerVcqModuleId                      CgrPerVcqModuleId,
+    cgrPerVcqRmThreshGrp                   LsPerVcqThresholdGroup,
+    cgrPerVcqRmThreshGrpMaxSize            INTEGER,
+    cgrPerVcqRmThreshGrpQMaxSize           INTEGER,
+    cgrPerVcqRmThreshGrpQMinSize           INTEGER,
+    cgrPerVcqRmThreshGrpDiscThreshold      INTEGER,
+    cgrPerVcqRmThreshGrpMarkThreshold      INTEGER,
+    cgrPerVcqRmThreshGrpName               DisplayString,
+    cgrPerVcqRmThreshGrpCellCount          Gauge32
+}
+ 
+cgrPerVcqModuleId OBJECT-TYPE
+    SYNTAX    CgrPerVcqModuleId
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+    "The switching module specified by this entry."
+    ::= { cgrPerVcqRmThreshGrpEntry 1 }
+
+cgrPerVcqRmThreshGrp OBJECT-TYPE
+    SYNTAX     LsPerVcqThresholdGroup
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The Threshold Group specified by this entry."
+    ::= { cgrPerVcqRmThreshGrpEntry 2 }
+ 
+cgrPerVcqRmThreshGrpMaxSize OBJECT-TYPE
+    SYNTAX     INTEGER (-1..131071)
+    UNITS      "cells"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object specifies the maximum number of cells that may
+             occupy this Threshold Group. While any integer in the range
+             can be set, the hardware granularity is in 64-cell units.
+             Therefore, the value installed is [(value / 64) * 64] + 63.
+ 
+             Even though the maximum value for this object is 131071,
+             the cell memory actually present in hardware can be
+             less.
+
+             The agent will allow values for this object not exceeding
+             the actual cell memory present in hardware.
+
+             If the value of this object is set to -1, the default
+             value for the threshold-group is restored."
+    DEFVAL { 131071 }
+    ::= { cgrPerVcqRmThreshGrpEntry 3 }
+
+cgrPerVcqRmThreshGrpQMaxSize OBJECT-TYPE
+    SYNTAX     INTEGER (31..16383)
+    UNITS      "cells"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object reflects an explicit configuration of the
+             maximum limit on the number of cells that may occupy
+             connection queues that are a member of this Threshold
+             Group. A connection queue that is a member of this
+             Threshold Group will never have more cells resident
+             in it than this limit. This is the queue limit applied
+             when the Threshold Group is uncongested.  The QMaxSize
+             must be greater than or equal to the Threshold Group
+             QMinSize. QMaxSize should be less than MaxSize for the
+             Threshold Group.
+ 
+             While any integer in the range can be set, the hardware
+             granularity is in 16-cell units. Therefore, the
+             largest possible queue size installed is:
+             [(value / 16) * 16]+15"
+ 
+    ::= { cgrPerVcqRmThreshGrpEntry 4 }
+ 
+cgrPerVcqRmThreshGrpQMinSize OBJECT-TYPE
+    SYNTAX     INTEGER (1..1023)
+    UNITS      "cells"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object reflects an explicit configuration of the
+             minimum limit on the number of cells that may occupy
+             connection queues that are a member of this Threshold
+             Group. The Threshold Group at it's most congested will
+             not limit a connection queue to fewer than this number
+             of cells. The QMinSize must be less than or equal to
+             the Threshold Group QMaxSize. The hardware granularity
+             is in units of one cell."
+    ::= { cgrPerVcqRmThreshGrpEntry 5 }
+ 
+cgrPerVcqRmThreshGrpDiscThreshold OBJECT-TYPE
+    SYNTAX     INTEGER (-1..100)
+    UNITS      "percentage"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The output queue CLP/EPD threshold for this Threshold
+             Group. This is expressed in percent-of-full. Note that
+             100% full effectively turns off the threshold. Setting
+             this object to -1 restores the default value for the
+             Threshold Group. The granularity of the fill-level of
+             a queue installed in hardware is the same as that for
+             queue limits."
+    ::= { cgrPerVcqRmThreshGrpEntry 6 }
+ 
+cgrPerVcqRmThreshGrpMarkThreshold OBJECT-TYPE
+    SYNTAX     INTEGER (-1..100)
+    UNITS      "percentage"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The output queue EFCI/ABR-RR marking threshold for
+             this Threshold Group. This is expressed in
+             percent-of-full. Note that 100% full effectively turns
+             off the threshold. Setting this object to -1 restores
+             the default value for the Threshold Group. The
+             granularity of the fill-level of a queue installed in
+             hardware is the same as that for queue limits."
+    ::= { cgrPerVcqRmThreshGrpEntry 7 }
+ 
+cgrPerVcqRmThreshGrpName OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE (0..20))
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The name associated with the threshold-group. If
+             this is set to the null-string, the default
+             name for the Threshold Group is assigned."
+    ::= { cgrPerVcqRmThreshGrpEntry 8 }
+ 
+cgrPerVcqRmThreshGrpCellCount   OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "cells"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "Count of the number of cells in the Threshold
+             Group."
+    ::= { cgrPerVcqRmThreshGrpEntry 9 }
+ 
+cgrPerVcqRmThreshGrpServiceTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CgrPerVcqRmThreshGrpServiceEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table specifying which
+             VC or VP queues  are assigned to a Threshold
+             Group.
+
+             This table is supported only on the Catalyst8540MSR
+             Platform."
+    ::= { ciscoCgrPerVcqAtmRmSwitch 2 }
+ 
+cgrPerVcqRmThreshGrpServiceEntry OBJECT-TYPE
+    SYNTAX     CgrPerVcqRmThreshGrpServiceEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the
+             cgrPerVcqRmThreshGrpServiceTable.  All entries
+             ever in the table are present at startup, none
+             are created dynamically."
+    INDEX      { cgrPerVcqRmThreshGrpService }
+    ::= { cgrPerVcqRmThreshGrpServiceTable 1 }
+ 
+CgrPerVcqRmThreshGrpServiceEntry ::= SEQUENCE {
+    cgrPerVcqRmThreshGrpService      LsPerVcqThresholdGroupService,
+    cgrPerVcqRmThreshGrpServGroup    LsPerVcqThresholdGroup
+}
+ 
+cgrPerVcqRmThreshGrpService OBJECT-TYPE
+    SYNTAX     LsPerVcqThresholdGroupService
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The Service specified by this entry."
+    ::= { cgrPerVcqRmThreshGrpServiceEntry 1 }
+ 
+cgrPerVcqRmThreshGrpServGroup OBJECT-TYPE
+    SYNTAX     LsPerVcqThresholdGroup
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The Threshold Group to which VC/VP queues specified
+             by the service are assigned. Changing the assignment
+             of service to Threshold Group does not alter the
+             assignment for connections currently installed in
+             hardware, but those connections that are subsequently
+             installed."
+    ::= { cgrPerVcqRmThreshGrpServiceEntry 2 }
+
+cgrPerVcqRmHierarchicalSchedulingMode   OBJECT-TYPE
+        SYNTAX  INTEGER { enabled(1), disabled(2) }
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+        "On a Catalyst8540 MSR, the user can define Hierarchical
+         VP-Tunnels. Each such tunnel has its own dedicated
+         scheduler, programmed to output data at a configurable
+         maximum rate. 
+
+         Therefore, the overall output of the Hierarchical
+         VP-tunnel is rate-limited. In addition, Virtual
+         Circuits of different service categories can
+         traverse through such a tunnel, and each of these
+         Virtual Circuits are guaranteed their individual
+         contracted bandwidth agreement.
+ 
+         This object must be set to enabled before any
+         Hierarchical VP-tunnels can be defined on the device.
+ 
+         Any setting of this variable requires a reload
+         of the device to be effective.
+ 
+         Setting this object to enabled will cause the
+         software to initialize the additional schedulers
+         needed by the Hierarchical VP-Tunnels. Other
+         limited scheduler resources are therefore used by a
+         larger number of schedulers (as compared to the case
+         when Hierarchical Scheduling is disabled on the device).
+         This may result in fewer number of connections
+         passing Connection Admission Control.
+ 
+         This object is therefore provided so that the
+         user can make an informed decision as to whether
+         Hierarchical Scheduling is to be used.
+
+         This object is supported only on the Catalyst8540MSR
+         platform."
+        DEFVAL { disabled }
+
+::= { ciscoCgrPerVcqAtmRmSwitch 3 }
+ 
+--
+-- The Lightstream per-VC queueing switch chipset ATM Interface Resource
+-- Management Group
+--
+lsPerVcqRmIfTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF LsPerVcqRmIfEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing configuration information
+             for ATM physical interfaces."
+    ::= { ciscoLsPerVcqAtmRmIf 1 }
+
+lsPerVcqRmIfEntry OBJECT-TYPE
+    SYNTAX     LsPerVcqRmIfEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the lsPerVcqRmIfTable
+             containing Resource Management configuration for an ATM
+             interface. An entry in the table is present when an 
+             entry in the ifTable is created for an ATM interface 
+             that uses the Lighstream per-VC queueing chipset."
+    INDEX      { ifIndex }
+    ::= { lsPerVcqRmIfTable 1 }
+
+LsPerVcqRmIfEntry ::= SEQUENCE {
+    lsPerVcqRmIfMinWrrServiceClass        LsPerVcqServiceClass
+}
+
+lsPerVcqRmIfMinWrrServiceClass OBJECT-TYPE
+    SYNTAX     LsPerVcqServiceClass
+    UNITS      "service class"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The service classes on an interface are partitioned
+             into two subsets, dictating how a service class
+             with a cell ready to transmit is chosen (subsequently
+             a connection is chosen within the selected service
+             class). There are two subsets: Strict Priority (SP),
+             and Weighted Round Robin (WRR). The SP subset
+             service classes are selected by strict priority (highest
+             priority with available cell wins). If there are any SP
+             service classes, they take precedence over any WRR
+             classes.
+             A WRR subset service class is chosen from among the
+             WRR service classes with an available cell using a
+             WRR algorithm.
+             The SP service classes (if any) include a contiguous
+             range of classes, starting with c2 (c1 is dedicated to
+             CBR, which doesn't use SP/WRR).  The WRR service
+             classes (if any) include a contiguous range of classes,
+             ending with c5.
+             This object specifies the break-point between SP and WRR
+             service classes. Note that (assuming all service classes
+             are used) specifying c2 indicates all service classes are
+             WRR, and specifying c5 indicates all service classes 
+             are SP."
+    ::= { lsPerVcqRmIfEntry 1 }
+
+
+
+lsPerVcqRmIfServiceClassTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF LsPerVcqRmIfServiceClassEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing configuration information
+             for ATM physical interface Service Classes (not
+             logical port ATM interfaces). An ATM connection (VC or VP)
+             on an interface is a member of a Service Class. The
+             Service Class is used in the scheduling discipline that
+             determines which cell is next transmitted on the
+             interface. If the rate scheduler has no cell
+             to be sent in the guaranteed cell-flow on an interface,
+             a decision is made between all Service Classes with
+             VCs with cells ready for transmit."
+    ::= { ciscoLsPerVcqAtmRmIf 2 }
+
+lsPerVcqRmIfServiceClassEntry OBJECT-TYPE
+    SYNTAX     LsPerVcqRmIfServiceClassEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the lsPerVcqRmIfServiceClassTable
+             containing Resource Management configuration for an ATM
+             interface.  A particular row is identified by the
+             value of MIB-II's ifIndex, and the output queue.
+             An entry in the table is present when an entry in 
+             the ifTable is created for an ATM interface that 
+             uses the Lighstream per-VC queueing chipset."
+    INDEX      { ifIndex, lsPerVcqRmIfServiceClass }
+    ::= { lsPerVcqRmIfServiceClassTable 1 }
+
+LsPerVcqRmIfServiceClassEntry ::= SEQUENCE {
+    lsPerVcqRmIfServiceClass              LsPerVcqServiceClass,
+    lsPerVcqRmIfServClassConnType         INTEGER,
+    lsPerVcqRmIfServClassWrrWeight        INTEGER
+}
+
+
+lsPerVcqRmIfServiceClass OBJECT-TYPE
+    SYNTAX     LsPerVcqServiceClass
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The service class on this ATM interface."
+    ::= { lsPerVcqRmIfServiceClassEntry 1 }
+
+lsPerVcqRmIfServClassConnType OBJECT-TYPE
+    SYNTAX     INTEGER (1..31)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The types of connections using this service class on
+             this ATM interface.
+                 The various bit positions are:
+                  1    constant bit rate (cbr)
+                  2    variable bit rate-real time (vbr-rt)
+                  4    variable bit rate-non real time (vbr-nrt)
+                  8    available bit rate (abr)
+                 16    unspecified bit rate (ubr)"
+    ::= { lsPerVcqRmIfServiceClassEntry 2 }
+
+lsPerVcqRmIfServClassWrrWeight OBJECT-TYPE
+    SYNTAX     INTEGER (1..15)
+    UNITS      "weight"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "Configure the weighting specified for a service class
+             to make the scheduling decision among active service
+             classes in the WRR subset."
+    ::= { lsPerVcqRmIfServiceClassEntry 3 }
+
+--
+-- The ATM Resource Management Traffic Shaper Interface Objects
+--
+rmTrafficShaperIfTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF RmTrafficShaperIfEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "The (conceptual) table containing ATM Traffic 
+             Shaper configuration  and state information for 
+             ATM interfaces."
+    ::= { ciscoAtmRmTrafShaperIf 1 }
+
+rmTrafficShaperIfEntry OBJECT-TYPE
+    SYNTAX     RmTrafficShaperIfEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry (conceptual row) in the rmTrafficShaperIfTable
+             containing Traffic Shaper configuration and state 
+             information for an ATM interface.  The particular 
+             interface is identified by the value of MIB-II's 
+             ifIndex."
+    INDEX      { ifIndex }
+    ::= { rmTrafficShaperIfTable 1 }
+
+RmTrafficShaperIfEntry ::= SEQUENCE {
+    rtsIfMaxThreshold                 Unsigned32,
+    rtsIfCellCount                    Gauge32,
+    rtsIfVbrCfgRequested              INTEGER,
+    rtsIfVbrCfgInstalled              INTEGER,
+    rtsIfBeCfgRequested               INTEGER,
+    rtsIfBeCfgInstalled               INTEGER, 
+    rtsIfVbrClassMaxThrshRequested    INTEGER,
+    rtsIfVbrClassMaxThrshInstalled    Unsigned32,
+    rtsIfBeClassMaxThrshRequested     INTEGER,
+    rtsIfBeClassMaxThrshInstalled     Unsigned32,
+    rtsIfVbrVcMaxThrshRequested       Unsigned32,
+    rtsIfVbrVcMaxThrshInstalled       Unsigned32,
+    rtsIfBeVcMaxThrshRequested        Unsigned32,
+    rtsIfBeVcMaxThrshInstalled        Unsigned32
+}
+
+rtsIfMaxThreshold OBJECT-TYPE
+    SYNTAX        Unsigned32 (0..4294967295)
+    UNITS         "cells"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+               "This object reflects the value of the Maximum 
+                Threshold installed in the traffic shaper hardware
+                for this interface.  This object is expressed in 
+                number of cell buffers.  This object is not 
+                instantiated for interfaces to which it cannot 
+                be applied." 
+    ::= { rmTrafficShaperIfEntry 1 }
+
+rtsIfCellCount OBJECT-TYPE
+    SYNTAX        Gauge32
+    UNITS         "cells"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+               "This object contains the count of cells queued to
+                this interface in the traffic shaping hardware. 
+                This object is not instantiated for interfaces to 
+                which it cannot be applied." 
+    ::= { rmTrafficShaperIfEntry 2 }
+
+rtsIfVbrCfgRequested OBJECT-TYPE
+    SYNTAX     INTEGER { 
+                  shapingDisable(1),    -- Shaping disabled
+                  shapeToPcr(2),        -- Shape to PCR only.
+                  shapeToScrAndPcr(3)   -- Shape to PCR, SCR and MBS
+                       } 
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "If this object is set to the value 'shapingDisable', 
+             VBR connections(VC or VP) on this interface will not 
+             be shaped.  If the object is set to the value 
+             'shapeToScrAndPcr', the VBR (VC or VP) connections on
+             this interface will be shaped to conform to their 
+             respective SCR, PCR and MBS traffic parameters.  If 
+             this object is set to the value 'shapeToPcr', the VBR 
+             (VC or VP) connections on this interface will be shaped
+             to conform to their respective PCR traffic parameter.
+             Depending on the capabilities of the traffic shaping 
+             hardware, the changes to the traffic shaping 
+             configuration may or may not take effect immediately 
+             and may require that the traffic shaping hardware be 
+             reset to effect the change.  The value of the object 
+             rtsIfVbrCfgInstalled will reflect the actual VBR 
+             Traffic Shaping configuration installed in the 
+             hardware currently.  Depending on the capabilities of 
+             the traffic shaping hardware, the value of this object 
+             may or may not apply to terminating VBR VPs on this 
+             interface.  This object is not instantiated for 
+             interfaces to which it cannot be applied."
+    DEFVAL { shapingDisable }
+    ::= { rmTrafficShaperIfEntry 3 }
+
+rtsIfVbrCfgInstalled OBJECT-TYPE
+    SYNTAX     INTEGER { 
+                  shapingDisable(1),    -- Shaping disabled
+                  shapeToPcr(2),        -- Shape to PCR only.
+                  shapeToScrAndPcr(3)   -- Shape to PCR, SCR and MBS
+                       } 
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "This object reflects the current VBR Traffic Shaping 
+             configuration installed in the hardware. This object 
+             is not instantiated for interfaces to which it cannot 
+             be applied."
+    ::= { rmTrafficShaperIfEntry 4 }
+
+rtsIfBeCfgRequested OBJECT-TYPE
+    SYNTAX     INTEGER { 
+                  shapingDisable(1),    -- Shaping disabled
+                  shapeToPcr(2)         -- Shape to PCR only.
+                       } 
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object reflects the traffic shaping configuration
+             applied to Best-Effort Connections(VC or VP) belonging 
+             to UBR and ABR service categories on this interface.  
+             If this object is set to the value 'shapingDisable',
+             best-effort connections(VC or VP) on this interface 
+             will not be shaped. If this object is set to the value 
+             'shapeToPcr', the best-effort connections(VC or VP) on
+             this interface will be shaped to conform to their 
+             respective PCR traffic parameter. Depending on the 
+             capabilities of the traffic shaping hardware, the
+             changes to the traffic shaping configuration may or
+             may not take effect immediately and may require that 
+             the traffic shaping hardware be reset to effect the 
+             change.  The object rtsIfBeCfgInstalled will reflect
+             the actual best-effort Traffic Shaping configuration 
+             installed in the hardware currently. Depending on the 
+             capabilities of the traffic shaping hardware, the value 
+             of this object may or may not apply to terminating 
+             best-effort VPs on this interface.  This object is
+             not instantiated for interfaces to which it cannot 
+             be applied."
+    DEFVAL { shapingDisable }
+    ::= { rmTrafficShaperIfEntry 5 }
+
+rtsIfBeCfgInstalled OBJECT-TYPE
+    SYNTAX     INTEGER { 
+                  shapingDisable(1),    -- Shaping disabled
+                  shapeToPcr(2)         -- Shape to PCR only.
+                       } 
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "This object reflects the current Best-Effort Traffic
+             Shaping configuration installed in the hardware. 
+             This object is not instantiated for interfaces to 
+             which it cannot be applied."
+    ::= { rmTrafficShaperIfEntry 6 }
+
+rtsIfVbrClassMaxThrshRequested OBJECT-TYPE
+    SYNTAX     INTEGER (1..95)
+    UNITS      "percent"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object specifies the Traffic Shaper Maximum
+             Cell Buffer Threshold for the VBR Traffic Class.
+             The value of this object is expressed as a percent
+             of the value of rtsIfMaxThreshold object.  A set 
+             request for this object will succeed only if the
+             value of the ifAdminStatus object for this 
+             interface is 'down'. The Traffic Shaping hardware 
+             may not have the support to represent all the 
+             values and hence the value installed in hardware 
+             could be different.  And the value installed in 
+             hardware will be available through the object 
+             rtsIfVbrClassMaxThrshInstalled. This object is 
+             not instantiated for interfaces to which 
+             it cannot be applied."
+    ::= { rmTrafficShaperIfEntry 7 }
+
+rtsIfVbrClassMaxThrshInstalled OBJECT-TYPE
+    SYNTAX     Unsigned32  (0..4294967295)
+    UNITS      "cells"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "This object reflects the value of Maximum Class 
+             Threshold for VBR Traffic Class, in number of
+             cell buffers, that is installed in the Traffic 
+             Shaping hardware. This object is not instantiated 
+             for interfaces to which it cannot be applied."
+    ::= { rmTrafficShaperIfEntry 8 }
+
+rtsIfBeClassMaxThrshRequested OBJECT-TYPE
+    SYNTAX     INTEGER (1..95)
+    UNITS      "percent"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object specifies the Traffic Shaper Maximum Cell
+             Buffer Threshold for the Best-Effort Traffic Class. 
+             The value of this object is expressed as a percent of
+             the value of rtsIfMaxThreshold object.  A set request 
+             for this object will succeed only if the value of the 
+             ifAdminStatus object for this interface is 'down'. 
+             The Traffic Shaping hardware may not have the support 
+             to represent all the values and hence the value 
+             installed in hardware could be different.  And this 
+             installed value will be available through the object 
+             rtsIfBeClassMaxThrshInstalled. This object is not 
+             instantiated for interfaces to which it cannot 
+             be applied."
+    ::= { rmTrafficShaperIfEntry 9 }
+
+rtsIfBeClassMaxThrshInstalled OBJECT-TYPE
+    SYNTAX     Unsigned32 (0..4294967295)
+    UNITS      "cells"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "This object reflects the value of Maximum Class 
+             Threshold for Best-Effort Traffic Class, in number 
+             of cell buffers, that is installed in the Traffic 
+             Shaping hardware. This object is not instantiated 
+             for interfaces to which it cannot be applied."
+    ::= { rmTrafficShaperIfEntry 10 }
+
+rtsIfVbrVcMaxThrshRequested OBJECT-TYPE
+    SYNTAX     Unsigned32  (0..4294967295)
+    UNITS      "cells"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object reflects the Maximum Threshold of the
+             per-connection queues of VBR connections(VCs or VPs) in 
+             the traffic shaping hardware. The value of this object 
+             is expressed in number of cell buffers.  Any change made
+             to the value of this object will only effect subsequently 
+             established VBR connections and will not impact already 
+             existing VBR connections.  The Traffic Shaping hardware 
+             may not have the support to represent all the values and 
+             hence the value installed in hardware could be different.
+             And the value installed in hardware will be available 
+             through the object rtsIfVbrVcMaxThrshInstalled. This 
+             object is not instantiated for interfaces to which it 
+             cannot be applied."
+    DEFVAL { 512 }
+    ::= { rmTrafficShaperIfEntry 11 }
+
+rtsIfVbrVcMaxThrshInstalled OBJECT-TYPE
+    SYNTAX     Unsigned32 (0..4294967295)
+    UNITS      "cells"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "This object reflects the Maximum Threshold for the 
+             per-connection queues of VBR connections(VCs or VPs)
+             that is installed in the Traffic Shaping hardware.
+             The value of this object is expressed in number of 
+             cell buffers.  This object is not instantiated for 
+             interfaces to which it cannot be applied."
+    ::= { rmTrafficShaperIfEntry 12 }
+
+rtsIfBeVcMaxThrshRequested OBJECT-TYPE
+    SYNTAX     Unsigned32 (0..4294967295)
+    UNITS      "cells"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "This object reflects the Maximum Threshold of the
+             per-connection queues of best-effort connections(VCs 
+             or VPs) in the traffic shaping hardware. The value 
+             of this object is expressed in number of cell
+             buffers.  Any change made to the value of this 
+             object will only effect subsequently established 
+             best-effort connections and will not impact already
+             existing best-effort connections. The Traffic Shaping
+             hardware may not have the support to represent all
+             the values and hence the value installed in hardware 
+             could be different. And the value installed in 
+             hardware will be available through the object 
+             rtsIfBeVcMaxThrshInstalled.  This object is not 
+             instantiated for interfaces to which it cannot
+             be applied."
+    DEFVAL { 1024 }
+    ::= { rmTrafficShaperIfEntry 13 }
+
+rtsIfBeVcMaxThrshInstalled OBJECT-TYPE
+    SYNTAX     Unsigned32 (0..4294967295)
+    UNITS      "cells"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "This object reflects the Maximum Threshold for the 
+             per-connection queues of Best-Effort connections(VCs
+             or VPs) that is installed in the Traffic Shaping 
+             hardware.  The value of this object is expressed 
+             in number of cell buffers.  This object is not 
+             instantiated for interfaces to which it cannot 
+             be applied."
+    ::= { rmTrafficShaperIfEntry 14 }
+
+-- conformance information
+
+ciscoAtmRmMIBConformance
+              OBJECT IDENTIFIER ::= { ciscoAtmRmMIB 3 }
+ciscoAtmRmMIBCompliances
+              OBJECT IDENTIFIER ::= { ciscoAtmRmMIBConformance 1 }
+ciscoAtmRmMIBGroups
+              OBJECT IDENTIFIER ::= { ciscoAtmRmMIBConformance 2 }
+
+-- compliance statements
+
+ciscoAtmRmMIBCompliance MODULE-COMPLIANCE
+    STATUS obsolete -- superceded by ciscoAtmRmMIBCompliance2 
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM Resource Management 
+             MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { atmRmSwitchCfgMIBGroup, atmRmPhyIfCfgMIBGroup,
+                       atmRmAllIfCfgMIBGroup, atmRmIfAllStateMIBGroup,
+                       atmRmIfStatsMIBGroup }
+    ::= { ciscoAtmRmMIBCompliances 1 }
+
+ciscoAtmRmMIBCompliance2 MODULE-COMPLIANCE
+    STATUS  obsolete -- superceded by ciscoAtmRmMIBCompliance3
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM Resource Management
+             MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { atmRmSwitchCfgMIBGroup2, atmRmPhyIfCfgMIBGroup2,
+                       atmRmAllIfCfgMIBGroup, atmRmIfAllStateMIBGroup2,
+                       atmRmIfStatsMIBGroup }
+    ::= { ciscoAtmRmMIBCompliances 2 }
+
+ciscoAtmRmMIBCompliance3 MODULE-COMPLIANCE
+    STATUS  obsolete  -- superceded by ciscoAtmRmMIBCompliance4
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM Resource Management
+             MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { atmRmSwitchCfgMIBGroup2, atmRmPhyIfCfgMIBGroup3,
+                       atmRmAllIfCfgMIBGroup2, atmRmIfAllStateMIBGroup2,
+                       atmRmIfStatsMIBGroup }
+    ::= { ciscoAtmRmMIBCompliances 3 }
+
+ciscoAtmRmMIBCompliance4 MODULE-COMPLIANCE
+    STATUS  obsolete  -- superceded by ciscoAtmRmMIBCompliance5
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM Resource Management
+             MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { atmRmSwitchCfgMIBGroup2, atmRmPhyIfCfgMIBGroup3,
+                       atmRmAllIfCfgMIBGroup3, atmRmIfAllStateMIBGroup2,
+                       atmRmIfStatsMIBGroup }
+    ::= { ciscoAtmRmMIBCompliances 4 }
+
+ciscoAtmRmMIBCompliance5 MODULE-COMPLIANCE
+    STATUS  obsolete
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM Resource Management
+             MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { atmRmSwitchCfgMIBGroup2, atmRmPhyIfCfgMIBGroup3,
+                       atmRmAllIfCfgMIBGroup3, atmRmIfAllStateMIBGroup2,
+                       atmRmIfStatsMIBGroup, lsPerVcqAtmRmGroup2 }
+    ::= { ciscoAtmRmMIBCompliances 5 }
+
+ciscoAtmRmMIBCompliance6 MODULE-COMPLIANCE
+    STATUS  obsolete -- superceded by ciscoAtmRmMIBCompliance7
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM Resource Management
+             MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { atmRmSwitchCfgMIBGroup2, atmRmPhyIfCfgMIBGroup3,
+                       atmRmAllIfCfgMIBGroup3, atmRmIfAllStateMIBGroup2,
+                       atmRmIfStatsMIBGroup, lsPerVcqAtmRmGroup2,
+                       cgrPerVcqAtmRmGroup }
+    ::= { ciscoAtmRmMIBCompliances 6 }
+
+ciscoAtmRmMIBCompliance7 MODULE-COMPLIANCE
+    STATUS  obsolete -- superceded by ciscoAtmRmMIBCompliance8
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM Resource Management
+             MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { atmRmSwitchCfgMIBGroup2, atmRmPhyIfCfgMIBGroup4,
+                       atmRmAllIfCfgMIBGroup4, atmRmIfAllStateMIBGroup2,
+                       atmRmIfStatsMIBGroup, lsPerVcqAtmRmGroup2,
+                       cgrPerVcqAtmRmGroup }
+    ::= { ciscoAtmRmMIBCompliances 7 }
+
+ciscoAtmRmMIBCompliance8 MODULE-COMPLIANCE
+    STATUS  obsolete -- superceded by ciscoAtmRmMIBCompliance9
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM Resource Management
+             MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { atmRmSwitchCfgMIBGroup2, atmRmPhyIfCfgMIBGroup5,
+                       atmRmAllIfCfgMIBGroup4, atmRmIfAllStateMIBGroup2,
+                       atmRmIfStatsMIBGroup, lsPerVcqAtmRmGroup2,
+                       cgrPerVcqAtmRmGroup }
+    ::= { ciscoAtmRmMIBCompliances 8 }
+
+ciscoAtmRmMIBCompliance9 MODULE-COMPLIANCE
+    STATUS  obsolete -- superceded by ciscoAtmRmMIBCompliance10
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM Resource Management
+             MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { atmRmSwitchCfgMIBGroup2, atmRmPhyIfCfgMIBGroup5,
+                       atmRmAllIfCfgMIBGroup4, atmRmIfAllStateMIBGroup3,
+                       atmRmIfStatsMIBGroup, lsPerVcqAtmRmGroup2,
+                       cgrPerVcqAtmRmGroup }
+    ::= { ciscoAtmRmMIBCompliances 9 }
+
+ciscoAtmRmMIBCompliance10 MODULE-COMPLIANCE
+    STATUS  obsolete -- superceded by ciscoAtmRmMIBCompliance11
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM Resource Management
+             MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { atmRmSwitchCfgMIBGroup2, atmRmPhyIfCfgMIBGroup5,
+                       atmRmAllIfCfgMIBGroup5, atmRmIfAllStateMIBGroup3,
+                       atmRmIfStatsMIBGroup, lsPerVcqAtmRmGroup2,
+                       cgrPerVcqAtmRmGroup }
+    ::= { ciscoAtmRmMIBCompliances 10 }
+
+ciscoAtmRmMIBCompliance11 MODULE-COMPLIANCE
+    STATUS  obsolete -- superceded by ciscoAtmRmMIBCompliance12
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM Resource Management
+             MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { atmRmSwitchCfgMIBGroup2, atmRmPhyIfCfgMIBGroup5,
+                       atmRmAllIfCfgMIBGroup5, atmRmIfAllStateMIBGroup3,
+                       atmRmIfStatsMIBGroup, lsPerVcqAtmRmGroup2,
+                       cgrPerVcqAtmRmGroup2 }
+    ::= { ciscoAtmRmMIBCompliances 11 }
+
+ciscoAtmRmMIBCompliance12 MODULE-COMPLIANCE
+    STATUS  deprecated -- superceded by ciscoAtmRmMIBCompliance13
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM Resource 
+             Management MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { atmRmSwitchCfgMIBGroup2, atmRmPhyIfCfgMIBGroup5,
+                       atmRmAllIfCfgMIBGroup5, atmRmIfAllStateMIBGroup3,
+                       atmRmIfStatsMIBGroup, lsPerVcqAtmRmGroup2,
+                       cgrPerVcqAtmRmGroup2, atmRmTrafficShaperIfGroup }
+    ::= { ciscoAtmRmMIBCompliances 12 }
+
+ciscoAtmRmMIBCompliance13 MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+            "The compliance statement for the Cisco ATM Resource
+             Management MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { atmRmSwitchCfgMIBGroup2, atmRmPhyIfCfgMIBGroup5,
+                       atmRmAllIfCfgMIBGroup6, atmRmIfAllStateMIBGroup3,
+                       atmRmIfStatsMIBGroup, lsPerVcqAtmRmGroup2,
+                       cgrPerVcqAtmRmGroup2, atmRmTrafficShaperIfGroup,
+                       sharedMemAtmRmSwitchMIBGroup,
+                       sharedMemAtmRmPhyIfMIBGroup }
+    ::= { ciscoAtmRmMIBCompliances 13 }
+
+
+-- units of conformance
+
+atmRmSwitchCfgMIBGroup  OBJECT-GROUP
+    OBJECTS { rmSwitchOverSubFactor, rmSwitchScrMarginFactor,
+              rmSwitchAbrCongNotify, rmScDefaultQosMaxCtd, 
+              rmScDefaultQosPeakToPeakCdv, rmScDefaultQosClr
+            }
+    STATUS  obsolete -- superceded by atmRmSwitchCfgMIBGroup2
+    DESCRIPTION
+            "A collection of objects which provide ATM Switch Resource
+             Management configuration."
+    ::= { ciscoAtmRmMIBGroups 1 }
+
+sharedMemAtmRmSwitchMIBGroup   OBJECT-GROUP
+    OBJECTS { sharedMemRmSwitchQueuedCellLimit, sharedMemRmSwitchQueuedCellCount 
+            }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects which provide ATM Switch Resource
+             Management information global to a shared-memory ATM switch."
+    ::= { ciscoAtmRmMIBGroups 2 }
+
+atmRmPhyIfCfgMIBGroup   OBJECT-GROUP
+    OBJECTS { rmIfOutPacingRateRequested, rmIfOutPacingRateInstalled, 
+              rmIfOutPacingForce, rmIfDirControlLinkShareMaxAgg, 
+              rmIfDirControlLinkShareMinCbr, rmIfDirControlLinkShareMaxCbr, 
+              rmIfDirControlLinkShareMinVbr, rmIfDirControlLinkShareMaxVbr
+            }
+    STATUS  obsolete -- superceded by atmRmPhyIfCfgMIBGroup2
+    DESCRIPTION
+            "A collection of objects which provide ATM interface
+             Resource Management configuration for physical interfaces."
+    ::= { ciscoAtmRmMIBGroups 3 }
+
+atmRmAllIfCfgMIBGroup   OBJECT-GROUP
+    OBJECTS { rmIfLinkDistance, rmIfBestEffortLimit, 
+              rmIfDirMaxCbrPcr, rmIfDirMaxCbrTolerance, rmIfDirMaxVbrPcr,
+              rmIfDirMaxVbrScr, rmIfDirMaxVbrTolerance, rmIfDirMaxAbrPcr, 
+              rmIfDirMaxAbrTolerance, rmIfDirMaxUbrPcr, rmIfDirMaxUbrTolerance
+            }
+    STATUS  obsolete -- superceded by atmRmAllIfCfgMIBGroup2
+    DESCRIPTION
+            "A collection of objects which provide ATM interface Resource
+             Management configuration for all interfaces."
+    ::= { ciscoAtmRmMIBGroups 4 }
+
+atmRmIfAllStateMIBGroup  OBJECT-GROUP
+    OBJECTS { rmIfScRxAcr, rmIfScTxAcr, rmIfScRxAlcr, rmIfScTxAlcr, 
+              rmIfScNumSvxConns, rmIfScNumPvxConns, rmIfScTxMaxCtd, 
+              rmIfScTxP2PeakCdv, rmIfScTxClr
+            }
+    STATUS  obsolete -- superceded by atmRmIfAllStateMIBGroup2
+    DESCRIPTION
+            "A collection of objects which provide ATM interface Resource
+             Management status for all interfaces."
+    ::= { ciscoAtmRmMIBGroups 5 }
+
+atmRmIfStatsMIBGroup   OBJECT-GROUP
+    OBJECTS { rmIfScRcacResultNumAdmit, rmIfScRcacResultNumTotalRequests,
+              rmIfScRcacResultNumFailTraffComb, rmIfScRcacResultNumFailBw,
+              rmIfScRcacResultNumFailLoss, rmIfScRcacResultNumFailDelay,
+              rmIfScRcacResultNumFailCdv, rmIfScRcacResultNumFailBeLimit,
+              rmIfScRcacResultNumFailParmLimit, rmIfScRcacResultNumFailOther 
+            }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects which provide ATM Switch Resource
+             Management statistics."
+    ::= { ciscoAtmRmMIBGroups 6 }
+
+sharedMemAtmRmPhyIfMIBGroup   OBJECT-GROUP
+    OBJECTS { sharedMemRmIfOutputQServCategory, sharedMemRmIfOutputQRequestedMaxSize,
+              sharedMemRmIfOutputQInstalledMaxSize, sharedMemRmIfOutputQMaxSizeForce,
+              sharedMemRmIfOutputQCellCount, sharedMemRmIfDiscardThreshold,
+              sharedMemRmIfEfciThreshold, sharedMemRmIfAbrRelativeRateThreshold
+            }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects which provide ATM interface
+             Resource Management information for physical interfaces
+             of a shared-memory ATM switch."
+    ::= { ciscoAtmRmMIBGroups 7 }
+
+atmRmSwitchCfgMIBGroup2  OBJECT-GROUP
+    OBJECTS { rmSwitchOverSubFactor, rmSwitchScrMarginFactor,
+              rmSwitchAbrCongNotify, rmScDefaultQosMaxCtd,
+              rmScDefaultQosPeakToPeakCdv, rmScDefaultQosClr,
+              rmScDefaultQosClrClp01
+            }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects which provide ATM Switch Resource
+             Management configuration."
+    ::= { ciscoAtmRmMIBGroups 8 }
+
+atmRmPhyIfCfgMIBGroup2  OBJECT-GROUP
+    OBJECTS { rmIfOutPacingRateRequested, rmIfOutPacingRateInstalled,
+              rmIfOutPacingForce, rmIfDirControlLinkShareMaxAgg,
+              rmIfDirControlLinkShareMinCbr, rmIfDirControlLinkShareMaxCbr,
+              rmIfDirControlLinkShareMinVbr, rmIfDirControlLinkShareMaxVbr,
+              rmIfCbrDefaultRxUpcTolerance, rmIfVbrRtDefaultRxUpcTolerance,
+              rmIfVbrNrtDefaultRxUpcTolerance, rmIfAbrDefaultRxUpcTolerance,
+              rmIfUbrDefaultRxUpcTolerance
+            }
+    STATUS  obsolete -- superceded by atmRmPhyIfCfgMIBGroup2
+    DESCRIPTION
+            "A collection of objects which provide ATM interface
+             Resource Management configuration for physical interfaces."
+    ::= { ciscoAtmRmMIBGroups 9 }
+
+atmRmIfAllStateMIBGroup2 OBJECT-GROUP
+    OBJECTS { rmIfScRxAcr, rmIfScTxAcr, rmIfScRxAlcr, rmIfScTxAlcr,
+              rmIfScNumSvxConns, rmIfScNumPvxConns, rmIfScTxMaxCtd,
+              rmIfScTxP2PeakCdv, rmIfScTxClr, rmIfScTxClrClp01
+            }
+    STATUS  obsolete -- superceded by atmRmIfAllStateMIBGroup3
+    DESCRIPTION
+            "A collection of objects which provide ATM interface Resource
+             Management status for all interfaces."
+    ::= { ciscoAtmRmMIBGroups 10 }
+
+lsPerVcqAtmRmGroup OBJECT-GROUP
+    OBJECTS { lsPerVcqRmIfMinWrrServiceClass, lsPerVcqRmIfServClassConnType,
+              lsPerVcqRmIfServClassWrrWeight, lsPerVcqRmThreshGrpMaxSize,
+              lsPerVcqRmThreshGrpQMaxSize, lsPerVcqRmThreshGrpQMinSize,
+              lsPerVcqRmThreshGrpDiscThreshold, lsPerVcqRmThreshGrpMarkThreshold,
+              lsPerVcqRmThreshGrpName, lsPerVcqRmThreshGrpCellCount,
+              lsPerVcqRmThreshGrpServGroup 
+            }
+    STATUS  obsolete
+    DESCRIPTION
+            "A collection of objects which provide ATM Resource
+             Management status on platforms using the Lightstream
+             per-VC queueing chipset."
+    ::= { ciscoAtmRmMIBGroups 11 }
+
+atmRmPhyIfCfgMIBGroup3  OBJECT-GROUP
+    OBJECTS { rmIfOutPacingRateRequested, rmIfOutPacingRateInstalled,
+              rmIfOutPacingForce, rmIfDirControlLinkShareMaxAgg,
+              rmIfDirControlLinkShareMinCbr, rmIfDirControlLinkShareMaxCbr,
+              rmIfDirControlLinkShareMinVbr, rmIfDirControlLinkShareMaxVbr,
+              rmIfCbrDefaultRxUpcTolerance, rmIfVbrRtDefaultRxUpcTolerance,
+              rmIfVbrNrtDefaultRxUpcTolerance, rmIfAbrDefaultRxUpcTolerance,
+              rmIfUbrDefaultRxUpcTolerance, rmIfVbrRtDefaultRxUpcCdvt,
+              rmIfVbrNrtDefaultRxUpcCdvt, rmIfDirControlLinkShareMinAbr,
+              rmIfDirControlLinkShareMaxAbr, rmIfDirControlLinkShareMinUbr,
+              rmIfDirControlLinkShareMaxUbr
+            }
+    STATUS  obsolete -- superceded by atmRmPhyIfCfgMIBGroup4
+    DESCRIPTION
+            "A collection of objects which provide ATM interface
+             Resource Management configuration for physical interfaces."
+    ::= { ciscoAtmRmMIBGroups 12 }
+
+atmRmAllIfCfgMIBGroup2   OBJECT-GROUP
+    OBJECTS { rmIfLinkDistance, rmIfBestEffortLimit,
+              rmIfDirMaxCbrPcr, rmIfDirMaxCbrTolerance, rmIfDirMaxVbrPcr,
+              rmIfDirMaxVbrScr, rmIfDirMaxVbrTolerance, rmIfDirMaxAbrPcr,
+              rmIfDirMaxAbrTolerance, rmIfDirMaxUbrPcr, rmIfDirMaxUbrTolerance,
+              rmIfDirMaxAbrMcr, rmIfDirMaxUbrMcr, rmIfDirMaxVbrCdvt
+            }
+    STATUS  obsolete -- superceded by atmRmAllIfCfgMIBGroup3
+    DESCRIPTION
+            "A collection of objects which provide ATM interface Resource
+             Management configuration for all interfaces."
+    ::= { ciscoAtmRmMIBGroups 13 }
+
+atmRmAllIfCfgMIBGroup3   OBJECT-GROUP
+    OBJECTS { rmIfLinkDistance, rmIfBestEffortLimit,
+              rmIfDirMaxCbrPcr, rmIfDirMaxCbrTolerance, rmIfDirMaxVbrPcr,
+              rmIfDirMaxVbrScr, rmIfDirMaxVbrTolerance, rmIfDirMaxAbrPcr,
+              rmIfDirMaxAbrTolerance, rmIfDirMaxUbrPcr, rmIfDirMaxUbrTolerance,
+              rmIfDirMaxAbrMcr, rmIfDirMaxUbrMcr, rmIfDirMaxVbrCdvt,
+              rmIfServCategorySupport
+            }
+    STATUS  obsolete -- superceded by atmRmAllIfCfgMIBGroup4
+    DESCRIPTION
+            "A collection of objects which provide ATM interface Resource
+             Management configuration for all interfaces."
+    ::= { ciscoAtmRmMIBGroups 14 }
+
+lsPerVcqAtmRmGroup2 OBJECT-GROUP
+    OBJECTS { lsPerVcqRmIfMinWrrServiceClass, lsPerVcqRmIfServClassConnType,
+              lsPerVcqRmIfServClassWrrWeight, lsPerVcqRmThreshGrpMaxSize,
+              lsPerVcqRmThreshGrpQMaxSize, lsPerVcqRmThreshGrpQMinSize,
+              lsPerVcqRmThreshGrpDiscThreshold, lsPerVcqRmThreshGrpMarkThreshold,
+              lsPerVcqRmThreshGrpName, lsPerVcqRmThreshGrpCellCount,
+              lsPerVcqRmThreshGrpServGroup,
+              lsPerVcqRmHierarchicalSchedulingMode
+            }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects which provide ATM Resource
+             Management status on platforms using the Lightstream
+             per-VC queueing chipset."
+    ::= { ciscoAtmRmMIBGroups 15 }
+
+cgrPerVcqAtmRmGroup OBJECT-GROUP
+    OBJECTS { cgrPerVcqRmThreshGrpQMaxSize, cgrPerVcqRmThreshGrpQMinSize,
+              cgrPerVcqRmThreshGrpDiscThreshold, cgrPerVcqRmThreshGrpMarkThreshold,
+              cgrPerVcqRmThreshGrpName, cgrPerVcqRmThreshGrpCellCount,
+              cgrPerVcqRmThreshGrpServGroup,
+              cgrPerVcqRmHierarchicalSchedulingMode
+            }
+    STATUS  obsolete -- superceded by cgrPerVcqAtmRmGroup2
+    DESCRIPTION
+            "A collection of objects which provide ATM Resource
+             Management status on the Catalyst8540MSR platform."
+    ::= { ciscoAtmRmMIBGroups 16 }
+
+atmRmAllIfCfgMIBGroup4   OBJECT-GROUP
+    OBJECTS { rmIfLinkDistance, rmIfBestEffortLimit,
+              rmIfDirMaxCbrPcr, rmIfDirMaxCbrTolerance, rmIfDirMaxVbrPcr,
+              rmIfDirMaxVbrScr, rmIfDirMaxVbrTolerance, rmIfDirMaxAbrPcr,
+              rmIfDirMaxAbrTolerance, rmIfDirMaxUbrPcr, rmIfDirMaxUbrTolerance,
+              rmIfDirMaxAbrMcr, rmIfDirMaxUbrMcr, rmIfDirMaxVbrCdvt,
+              rmIfServCategorySupport, rmIfCbrDefaultRxUpcTolerance, 
+              rmIfVbrRtDefaultRxUpcTolerance, rmIfVbrNrtDefaultRxUpcTolerance,
+              rmIfAbrDefaultRxUpcTolerance, rmIfUbrDefaultRxUpcTolerance, 
+              rmIfVbrRtDefaultRxUpcCdvt, rmIfVbrNrtDefaultRxUpcCdvt 
+            }
+    STATUS  obsolete -- superceded by atmRmAllIfCfgMIBGroup5
+    DESCRIPTION
+            "A collection of objects which provide ATM interface Resource
+             Management configuration for all interfaces."
+    ::= { ciscoAtmRmMIBGroups 17 }
+
+atmRmPhyIfCfgMIBGroup4  OBJECT-GROUP
+    OBJECTS { rmIfOutPacingRateRequested, rmIfOutPacingRateInstalled,
+              rmIfOutPacingForce, rmIfDirControlLinkShareMaxAgg,
+              rmIfDirControlLinkShareMinCbr, rmIfDirControlLinkShareMaxCbr,
+              rmIfDirControlLinkShareMinVbr, rmIfDirControlLinkShareMaxVbr,
+              rmIfDirControlLinkShareMinAbr, rmIfDirControlLinkShareMaxAbr,
+              rmIfDirControlLinkShareMinUbr, rmIfDirControlLinkShareMaxUbr
+            }
+    STATUS  obsolete -- superceded by atmRmPhyIfCfgMIBGroup5 
+    DESCRIPTION
+            "A collection of objects which provide ATM interface
+             Resource Management configuration for physical interfaces."
+    ::= { ciscoAtmRmMIBGroups 18 }
+
+atmRmPhyIfCfgMIBGroup5  OBJECT-GROUP
+    OBJECTS { rmIfOutPacingRateRequested, rmIfOutPacingRateInstalled,
+              rmIfOutPacingForce, rmIfDirControlLinkShareMaxAgg,
+              rmIfDirControlLinkShareMinCbr, rmIfDirControlLinkShareMaxCbr,
+              rmIfDirControlLinkShareMinVbr, rmIfDirControlLinkShareMaxVbr,
+              rmIfDirControlLinkShareMinAbr, rmIfDirControlLinkShareMaxAbr,
+              rmIfDirControlLinkShareMinUbr, rmIfDirControlLinkShareMaxUbr,
+              rmIfFramingOverhead, rmIfFramingOverheadForce
+            }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects which provide ATM interface
+             Resource Management configuration for physical interfaces."
+    ::= { ciscoAtmRmMIBGroups 19 }
+
+atmRmIfAllStateMIBGroup3  OBJECT-GROUP
+    OBJECTS { rmIfScRxAcr, rmIfScTxAcr, rmIfScRxAlcr, rmIfScTxAlcr, 
+              rmIfScNumSvxConns, rmIfScNumPvxConns, rmIfScTxMaxCtd, 
+              rmIfScTxP2PeakCdv, rmIfScTxClr,rmIfScTxClrClp01,
+              rmIfScRxDynBwSvcAcr, rmIfScTxDynBwSvcAcr
+            }
+    STATUS  current 
+    DESCRIPTION
+            "A collection of objects which provide ATM interface Resource
+             Management status for all interfaces."
+    ::= { ciscoAtmRmMIBGroups 20 }
+
+atmRmAllIfCfgMIBGroup5   OBJECT-GROUP
+    OBJECTS { rmIfLinkDistance, rmIfBestEffortLimit,
+              rmIfDirMaxCbrPcr, rmIfDirMaxCbrTolerance, rmIfDirMaxVbrPcr,
+              rmIfDirMaxVbrScr, rmIfDirMaxVbrTolerance, rmIfDirMaxAbrPcr,
+              rmIfDirMaxAbrTolerance, rmIfDirMaxUbrPcr, rmIfDirMaxUbrTolerance,
+              rmIfDirMaxAbrMcr, rmIfDirMaxUbrMcr, rmIfDirMaxVbrCdvt,
+              rmIfServCategorySupport, rmIfCbrDefaultRxUpcTolerance, 
+              rmIfVbrRtDefaultRxUpcTolerance, rmIfVbrNrtDefaultRxUpcTolerance,
+              rmIfAbrDefaultRxUpcTolerance, rmIfUbrDefaultRxUpcTolerance, 
+              rmIfVbrRtDefaultRxUpcCdvt, rmIfVbrNrtDefaultRxUpcCdvt,
+              rmIfOverBooking
+            }
+    STATUS  deprecated -- superceded by atmRmAllIfCfgMIBGroup6
+    DESCRIPTION
+            "A collection of objects which provide ATM interface Resource
+             Management configuration for all interfaces."
+    ::= { ciscoAtmRmMIBGroups 21 }
+
+cgrPerVcqAtmRmGroup2 OBJECT-GROUP
+    OBJECTS { cgrPerVcqRmThreshGrpQMaxSize, cgrPerVcqRmThreshGrpQMinSize,
+              cgrPerVcqRmThreshGrpDiscThreshold, cgrPerVcqRmThreshGrpMaxSize, 
+              cgrPerVcqRmThreshGrpMarkThreshold, cgrPerVcqRmThreshGrpName, 
+              cgrPerVcqRmThreshGrpCellCount, cgrPerVcqRmThreshGrpServGroup,
+              cgrPerVcqRmHierarchicalSchedulingMode
+            }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects which provide ATM Resource
+             Management status on the Catalyst8540MSR platform."
+    ::= { ciscoAtmRmMIBGroups 22 }
+
+
+atmRmTrafficShaperIfGroup  OBJECT-GROUP
+    OBJECTS { rtsIfMaxThreshold, rtsIfCellCount,
+              rtsIfVbrCfgRequested,
+              rtsIfVbrCfgInstalled,
+              rtsIfBeCfgRequested, 
+              rtsIfBeCfgInstalled,
+              rtsIfVbrClassMaxThrshRequested, 
+              rtsIfVbrClassMaxThrshInstalled,
+              rtsIfBeClassMaxThrshRequested, 
+              rtsIfBeClassMaxThrshInstalled,
+              rtsIfVbrVcMaxThrshRequested,
+              rtsIfVbrVcMaxThrshInstalled,
+              rtsIfBeVcMaxThrshRequested,
+              rtsIfBeVcMaxThrshInstalled
+            }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects which provide ATM Traffic Shaper 
+             configuration and state information for ATM interfaces."
+    ::= { ciscoAtmRmMIBGroups 23 }
+
+atmRmAllIfCfgMIBGroup6   OBJECT-GROUP
+    OBJECTS { rmIfLinkDistance, rmIfBestEffortLimit,
+              rmIfDirMaxCbrPcr, rmIfDirMaxCbrTolerance, 
+              rmIfDirMaxVbrPcr, rmIfDirMaxVbrScr, 
+              rmIfDirMaxVbrTolerance, rmIfDirMaxAbrPcr,
+              rmIfDirMaxAbrTolerance, rmIfDirMaxUbrPcr, 
+              rmIfDirMaxUbrTolerance, rmIfDirMaxAbrMcr, 
+              rmIfDirMaxUbrMcr, rmIfDirMaxVbrCdvt,
+              rmIfServCategorySupport, 
+              rmIfCbrDefaultRxUpcTolerance,
+              rmIfVbrRtDefaultRxUpcTolerance, 
+              rmIfVbrNrtDefaultRxUpcTolerance,
+              rmIfAbrDefaultRxUpcTolerance, 
+              rmIfUbrDefaultRxUpcTolerance,
+              rmIfVbrRtDefaultRxUpcCdvt, 
+              rmIfVbrNrtDefaultRxUpcCdvt,
+              rmIfOverBooking, 
+              rmIfVbrRtPerClassOverbooking,
+              rmIfVbrNrtPerClassOverbooking, 
+              rmIfAbrPerClassOverbooking,
+              rmIfUbrPerClassOverbooking
+            }
+    STATUS  current
+    DESCRIPTION
+            "A collection of objects which provide ATM 
+             interface Resource Management configuration 
+             for all interfaces."
+    ::= { ciscoAtmRmMIBGroups 24 }
+
+END

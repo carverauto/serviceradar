@@ -1,0 +1,732 @@
+-- *****************************************************************
+-- CISCO-CDSTV-STATS-MIB:  Cisco CDS-TV Statistics
+-- Management Information Base
+--   
+-- June 2010, Rajat Ahuja
+--   
+-- Copyright (c) 2010, 2012 by Cisco Systems Inc.
+--   
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-CDSTV-CS-STATS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter32,
+    Gauge32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCdstvCsStatsMIB MODULE-IDENTITY
+    LAST-UPDATED    "201205170000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-cds@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects describing the caching and
+        streaming statistics objects that facilitate the management of
+        the Cisco CDS-TV product family.
+
+        CDS-TV is a suite of products and software applications
+        providing ingest, storage, caching, streaming, playout and
+        on-demand delivery of video to television or STB
+        clients.
+
+        ACRONYMS
+
+        CCP     Content Control Protocol
+        CDN     Content Distribution Network
+        CDS     Content Delivery System
+        ISA     Interactive Services Architecture
+        ISV     Integrated Streamer-Vault
+        FSI     File Service Interface
+        FTP     File Transfer Protocol
+        HTTP    Hyper-Text Transfer Protocol
+        MPEG    Motion Picture Experts Group
+        MSA     Managed Services Architecture
+        NDVR    Network Digital Video Recorder
+        RTSP    Real-Time Streaming Protocol
+        STB     Set-Top Box
+        VOD     Video On Demand
+
+
+        GLOSSARY
+
+        Catcher: Device responsible for receiving content (typically
+        via
+        satellite dishes and antennae) from content providers or from a
+        Headend-In-The-Sky. 
+
+        Content Ingest: Acquisition of content (from a source such as a
+        catcher or an FTP server) for the purpose of storing it locally
+        in a vault and making it available to streamers and caching
+        nodes as needed.
+
+        Vault: Content delivery application responsible for ingesting
+        video content,  storing it, and making it available to
+        streamers.
+
+        Caching Node: Content delivery application responsible for
+        caching content from a vault and streaming it to other caching
+        nodes or streamers.
+
+        Streamer: Content delivery application responsible for
+        streaming video to STB's."
+    REVISION        "201205170000Z"
+    DESCRIPTION
+        "Added bandwidth reporting by content type support."
+    REVISION        "201007290000Z"
+    DESCRIPTION
+        "Added stream control message queue reporting support."
+    REVISION        "201006040000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 743 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+ciscoCdstvStatsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCdstvCsStatsMIB 0 }
+
+ciscoCdstvStatsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCdstvCsStatsMIB 1 }
+
+ciscoCdstvStatsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoCdstvCsStatsMIB 2 }
+
+ciscoCdstvCacheStats  OBJECT IDENTIFIER
+    ::= { ciscoCdstvStatsMIBObjects 1 }
+
+ciscoCdstvStreamStats  OBJECT IDENTIFIER
+    ::= { ciscoCdstvStatsMIBObjects 2 }
+
+
+cdstvCacheCapacity OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "kilobytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total cache capacity of this
+        streamer, caching node or ISV." 
+    ::= { ciscoCdstvCacheStats 1 }
+
+cdstvCacheLevel OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the used cache level for this streamer,
+        caching node or ISV." 
+    ::= { ciscoCdstvCacheStats 2 }
+
+cdstvFillReceiveStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "stream count"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of cache fills
+        this streamer, caching node or ISV gets from other devices. 
+        For a streamer or ISV, the source devices can be vaults, caching
+        nodes or neighboring streamers. For caching nodes, the source
+        can be vaults or neighboring caching nodes. For streamers, this
+        metric includes both CCP and HTTP streams." 
+    ::= { ciscoCdstvCacheStats 3 }
+
+cdstvFillStreamCommittedBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the committed bandwidth for cache fills
+        this streamer, caching node or ISV gets from other devices. For
+        a streamer or ISV , the other devices can
+        be vaults, caching nodes or neighboring streamers. For caching
+        nodes, the other devices can be vaults or neighboring caching
+        nodes. For streamers, this metric includes both CCP and HTTP
+        streams." 
+    ::= { ciscoCdstvCacheStats 4 }
+
+cdstvFillStreamActualBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the actual bandwidth of cache fills this
+        streamer, caching node or ISV gets from other devices. For a
+        streamer or ISV, the other devices can be vaults, caching nodes
+        or neighboring streamers. For caching nodes, the other devices
+        can be vaults or neighboring caching
+        nodes. For streamers, this metric includes both CCP and HTTP
+        streams." 
+    ::= { ciscoCdstvCacheStats 5 }
+
+cdstvDiskReadStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "stream count"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the disk-read stream count for this
+        streamer, caching node or ISV, i.e. the number of streams served
+        from this device's disks." 
+    ::= { ciscoCdstvCacheStats 6 }
+
+cdstvDiskReadBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "this object indicates the disk-read bandwidth for this
+        streamer, caching node or ISV, i.e. the bandwidth of the streams
+        read from this device's disk." 
+    ::= { ciscoCdstvCacheStats 7 }
+
+cdstvCCPInfromVaultStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "stream count"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of CCP streams from a vault
+        filling this device." 
+    ::= { ciscoCdstvCacheStats 8 }
+
+cdstvCCPInFromVaultStreamBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth of CCP streams from a
+        vault filling this device." 
+    ::= { ciscoCdstvCacheStats 9 }
+
+cdstvCCPInFromCacheStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "stream count"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of CCP streams from a caching
+        node filling this caching node or streamer." 
+    ::= { ciscoCdstvCacheStats 10 }
+
+cdstvCCPInFromCacheStreamBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth of CCP streams from a
+        caching node filling this device." 
+    ::= { ciscoCdstvCacheStats 11 }
+
+cdstvCCPInFromStreamerStreamCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "stream count"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of CCP streams from another
+        streamer filling this streamer." 
+    ::= { ciscoCdstvCacheStats 12 }
+
+cdstvCCPInFromStreamerStreamBW OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth of CCP streams from other
+        streamers filling this streamer." 
+    ::= { ciscoCdstvCacheStats 13 }
+
+cdstvActiveStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "stream count"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of active streams from this
+        device. For a streamer, this includes CCP streams going out to
+        other
+        streamers. For caching nodes and vaults, this includes CCP
+        streams going out to streamers or caching nodes. For vaults,
+        this includes mirroring traffic as well." 
+    ::= { ciscoCdstvStreamStats 1 }
+
+cdstvActiveStreamBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth of active streams from this
+        device. For a streamer, this includes CCP streams going out to
+        other streamers. For caching nodes and vaults, this includes
+        CCP
+        streams going out to streamers or caching nodes. For vaults,
+        this includes mirroring traffic as well." 
+    ::= { ciscoCdstvStreamStats 2 }
+
+cdstvUniqueStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "stream count"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of unique streams going out
+        from this device." 
+    ::= { ciscoCdstvStreamStats 3 }
+
+cdstvUniqueStreamBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth of unique streams going out
+        from this device." 
+    ::= { ciscoCdstvStreamStats 4 }
+
+cdstvCCPOutStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "stream count"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of CCP streams going out from
+        this device. For streamers, the destination is another
+        streamer.
+        For caching nodes, the destination is a streamer or another
+        caching node. For vaults, the destination can be a streamer,
+        caching node or vault." 
+    ::= { ciscoCdstvStreamStats 5 }
+
+cdstvCCPOutStreamBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth of CCP streams
+        going out from this device. For streamers, the destination is
+        another streamer. For caching nodes, the destination is a
+        streamer or another caching node. For vaults, the destination
+        can be a streamer, caching node or vault." 
+    ::= { ciscoCdstvStreamStats 6 }
+
+cdstvHTTPOutStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "stream count"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of HTTP streams going out from
+        this caching node to streamers in a CDN setup." 
+    ::= { ciscoCdstvStreamStats 7 }
+
+cdstvHTTPOutStreamBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth of HTTP streams going out
+        from this caching node to streamers in a CDN setup." 
+    ::= { ciscoCdstvStreamStats 8 }
+
+cdstvSessionSetupSuccess OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of successfully setup
+        sessions since the counter was reset (the reference). The 
+        seconds elapsed since the reference is indicated by 
+        cdstvSecondsSinceReference." 
+    ::= { ciscoCdstvStreamStats 9 }
+
+cdstvSessionSetupFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of unsuccessfully setup
+        (failed) sessions since the counter was reset (the reference).
+        The seconds elapsed since the
+        reference is indicated by cdstvSecondsSinceReference." 
+    ::= { ciscoCdstvStreamStats 10 }
+
+cdstvSecondsSinceReference OBJECT-TYPE
+    SYNTAX          TimeIntervalSec
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the seconds elapsed since the last time
+        the database was restarted and hence the cdstvSessionSetupSucess
+        and cdstvSessionSetupFailures counters were reset." 
+    ::= { ciscoCdstvStreamStats 11 }
+
+cdstvStreamControlMessageQueueMax OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "elements"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum size of the stream control
+        message queue used in CDS." 
+    ::= { ciscoCdstvStreamStats 12 }
+
+cdstvStreamControlMessageQueueSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "elements"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current size of the stream control
+        message queue, i.e. the number of elements in the queue." 
+    ::= { ciscoCdstvStreamStats 13 }
+
+cdstvSkippedPlaylistElements OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "elements"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of skipped playlist
+        elements." 
+    ::= { ciscoCdstvStreamStats 14 }
+
+cdstvStatsByContentTypeTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdstvStatsByContentTypeEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the fill (ingress) and stream (egress) counts
+        as well as the bandwidth used by the ingress fills and egress
+        streams on this streamer, differentiated by the content type."
+    ::= { ciscoCdstvStreamStats 15 }
+
+cdstvStatsByContentTypeEntry OBJECT-TYPE
+    SYNTAX          CdstvStatsByContentTypeEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cdstvStatsByContentTypeTable.
+        Each entry represents a content type and its active ingress and
+        egress counts, as well as the  bandwidth consumed by the active
+        fills and streams, for this streamer. A row is added for each
+        content type supported by a streamer and the number of rows does
+        not change for a particular streamer."
+    INDEX           { cdstvContentType } 
+    ::= { cdstvStatsByContentTypeTable 1 }
+
+CdstvStatsByContentTypeEntry ::= SEQUENCE {
+        cdstvContentType        INTEGER,
+        cdstvActiveEgressCount  Gauge32,
+        cdstvActiveEgressBW     Gauge32,
+        cdstvActiveIngressCount Gauge32,
+        cdstvActiveIngressBW    Gauge32
+}
+
+cdstvContentType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        legacyVod(1),
+                        ndvrUniqueCopy(2),
+                        ndvrCommonCopy(3)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of the content being ingested
+        into or streamed out of a streamer. Possible values are:
+
+        legacyVod(1)      - Legacy VOD Content
+        ndvrUniqueCopy(2) - NDVR Unique Copy Content
+        ndvrCommonCopy(3) - NDVR Common Copy Content" 
+    ::= { cdstvStatsByContentTypeEntry 1 }
+
+cdstvActiveEgressCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "stream count"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active egress streams from
+        this streamer for the type of content indicated by
+        cdstvContentType." 
+    ::= { cdstvStatsByContentTypeEntry 2 }
+
+cdstvActiveEgressBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth consumed by active egress
+        streams from this streamer for the type of content indicated by
+        cdstvContentType." 
+    ::= { cdstvStatsByContentTypeEntry 3 }
+
+cdstvActiveIngressCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "fill count"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active ingress fills into
+        this streamer for the type of content indicated by
+        cdstvContentType." 
+    ::= { cdstvStatsByContentTypeEntry 4 }
+
+cdstvActiveIngressBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth consumed by active ingress
+        fills into this streamer for the type of content indicated by
+        cdstvContentType." 
+    ::= { cdstvStatsByContentTypeEntry 5 }
+ 
+
+
+cdstvHTTPInStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "stream count"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of HTTP streams filling this
+        streamer." 
+    ::= { ciscoCdstvCacheStats 14 }
+
+cdstvHTTPInStreamBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth of HTTP streams filling
+        this streamer." 
+    ::= { ciscoCdstvCacheStats 15 }
+
+cdstvActiveIngestStreams OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "stream count"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active ingest streams
+        filling this vault." 
+    ::= { ciscoCdstvCacheStats 16 }
+
+cdstvActiveIngestStreamBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth of active ingest streams
+        filling this vault." 
+    ::= { ciscoCdstvCacheStats 17 }
+-- Conformance Information Definition
+
+ciscoCdstvStatsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCdstvStatsMIBConform 1 }
+
+ciscoCdstvStatsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCdstvStatsMIBConform 2 }
+
+
+ciscoCdstvStatsMIBModuleCompliance MODULE-COMPLIANCE
+    STATUS          obsolete
+    DESCRIPTION
+        "The compliance statement for the entities which
+        implement the CISCO-CDSTV-STATS-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoCdstvStatsMIBCacheObjectGroup,
+                        ciscoCdstvStatsMIBStreamObjectGroup
+                    }
+    ::= { ciscoCdstvStatsMIBCompliances 1 }
+
+ciscoCdstvStatsMIBModuleCompliance2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the entities which
+        implement the CISCO-CDSTV-STATS-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoCdstvStatsMIBCacheObjectGroup,
+                        ciscoCdstvStatsMIBStreamObjectGroup2
+                    }
+    ::= { ciscoCdstvStatsMIBCompliances 2 }
+
+ciscoCdstvStatsMIBModuleCompliance3 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the entities which
+        implement the CISCO-CDSTV-STATS-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoCdstvStatsMIBCacheObjectGroup,
+                        ciscoCdstvStatsMIBStreamObjectGroup3
+                    }
+    ::= { ciscoCdstvStatsMIBCompliances 3 }
+
+ciscoCdstvStatsMIBCacheObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvCacheCapacity,
+                        cdstvCacheLevel,
+                        cdstvFillReceiveStreams,
+                        cdstvFillStreamCommittedBW,
+                        cdstvFillStreamActualBW,
+                        cdstvDiskReadStreams,
+                        cdstvDiskReadBW,
+                        cdstvCCPInfromVaultStreams,
+                        cdstvCCPInFromVaultStreamBW,
+                        cdstvCCPInFromCacheStreams,
+                        cdstvCCPInFromCacheStreamBW,
+                        cdstvCCPInFromStreamerStreamCount,
+                        cdstvCCPInFromStreamerStreamBW,
+                        cdstvHTTPInStreams,
+                        cdstvHTTPInStreamBW,
+                        cdstvActiveIngestStreams,
+                        cdstvActiveIngestStreamBW
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing caching statistics."
+    ::= { ciscoCdstvStatsMIBGroups 1 }
+
+ciscoCdstvStatsMIBStreamObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvActiveStreams,
+                        cdstvActiveStreamBW,
+                        cdstvUniqueStreams,
+                        cdstvUniqueStreamBW,
+                        cdstvCCPOutStreams,
+                        cdstvCCPOutStreamBW,
+                        cdstvHTTPOutStreams,
+                        cdstvHTTPOutStreamBW,
+                        cdstvSessionSetupSuccess,
+                        cdstvSecondsSinceReference,
+                        cdstvSessionSetupFailures
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing streaming statistics.
+        ciscoCdstvStatsMIBStreamObjectGroup object is superseded by
+        ciscoCdstvStatsMIBStreamObjectGroup2."
+    ::= { ciscoCdstvStatsMIBGroups 2 }
+
+ciscoCdstvStatsMIBStreamObjectGroup2 OBJECT-GROUP
+    OBJECTS         {
+                        cdstvActiveStreams,
+                        cdstvActiveStreamBW,
+                        cdstvUniqueStreams,
+                        cdstvUniqueStreamBW,
+                        cdstvCCPOutStreams,
+                        cdstvCCPOutStreamBW,
+                        cdstvHTTPOutStreams,
+                        cdstvHTTPOutStreamBW,
+                        cdstvSessionSetupSuccess,
+                        cdstvSessionSetupFailures,
+                        cdstvSecondsSinceReference,
+                        cdstvStreamControlMessageQueueMax,
+                        cdstvStreamControlMessageQueueSize,
+                        cdstvSkippedPlaylistElements
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing streaming statistics.
+        ciscoCdstvStatsMIBStreamObjectGroup2 object is superseded by
+        ciscoCdstvStatsMIBStreamObjectGroup3."
+    ::= { ciscoCdstvStatsMIBGroups 3 }
+
+ciscoCdstvStatsMIBStreamObjectGroup3 OBJECT-GROUP
+    OBJECTS         {
+                        cdstvActiveStreams,
+                        cdstvActiveStreamBW,
+                        cdstvUniqueStreams,
+                        cdstvUniqueStreamBW,
+                        cdstvCCPOutStreams,
+                        cdstvCCPOutStreamBW,
+                        cdstvHTTPOutStreams,
+                        cdstvHTTPOutStreamBW,
+                        cdstvSessionSetupSuccess,
+                        cdstvSessionSetupFailures,
+                        cdstvSecondsSinceReference,
+                        cdstvStreamControlMessageQueueMax,
+                        cdstvStreamControlMessageQueueSize,
+                        cdstvSkippedPlaylistElements,
+                        cdstvActiveEgressCount,
+                        cdstvActiveEgressBW,
+                        cdstvActiveIngressCount,
+                        cdstvActiveIngressBW
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing streaming statistics."
+    ::= { ciscoCdstvStatsMIBGroups 4 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

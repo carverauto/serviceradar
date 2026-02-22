@@ -1,0 +1,60 @@
+-- *****************************************************************
+-- CISCO-ITP-SP2-CAPABILITY.my:  ITP Signalling Point Additional
+--                               Information capability MIB
+--
+-- March 2002, Shekhar Acharya, John Linton
+--
+-- Copyright (c) 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+CISCO-ITP-SP2-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+                
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+                
+        ciscoAgentCapability
+                FROM CISCO-SMI; 
+                
+
+ciscoItpSp2Capability MODULE-IDENTITY
+        LAST-UPDATED    "200206050000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                        "Cisco Systems
+                         Customer Service
+                        
+                         Postal: 170 West Tasman Drive
+                                 San Jose, CA  95134
+                                 USA
+                        
+                         Tel: +1 800 553-NETS
+                        
+                         E-mail: cs-ss7@cisco.com"
+        DESCRIPTION
+                "Agent capabilities for the CISCO-ITP-SP2-MIB."
+                        
+        REVISION        "200206050000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 272 }
+
+ciscoItpSp2CapabilityV12R0204MB4 AGENT-CAPABILITIES
+
+        PRODUCT-RELEASE "Cisco IOS 12.2(4)MB4"
+        STATUS          current
+        DESCRIPTION
+                "IOS 12.2(4)MB4 Cisco CISCO-ITP-SP2-MIB.my
+                 User Agent MIB capabilities."
+
+        SUPPORTS    CISCO-ITP-SP2-MIB
+        INCLUDES    { 
+                        ciscoItpSp2EventsGroup, 
+                        ciscoItpSp2QosGroup   
+                    }  
+        ::= { ciscoItpSp2Capability 1 }
+
+END

@@ -1,0 +1,78 @@
+The below MIBs are supported by the MGX8850 in release 2.0 and later.
+SNMP version 1 MIBs are in the v1 directory and SNMP version 2 MIBs are
+in the v2 directory.  Note that for most every MIB <foo>.my in the v2
+directory, there exists a SNMP version 1 conversion of the MIB
+<foo>-V1SMI.my in the v1 directory.  The exception is SNMPv2-TC.my.
+Thanks go to David T. Perkins for his package smicng which was used to
+produce most of the v1 conversions.
+
+================================================================
+
+The following support is available in Release 2.0 of the MGX8850
+software.
+
+MGX8850 Network Management MIBs :
+
+    1.1 Standard MIBs:
+          SNMPv2-MIB.my
+	  SNMPv2-SMI.my
+	  SNMPv2-TC.my
+	  SNMPv2-CONF.my
+	  IANAifType-MIB.my
+          IF-MIB.my
+          RFC1213-MIB.my
+	  RS-232-MIB.my
+	  ENTITY-MIB.my
+	  ATM-MIB.my
+          ATM-TC-MIB.my
+          SONET-MIB.my
+	  DS3-MIB.my
+  	  PerfHist-TC-MIB.my
+	  PNNI-MIB.my
+	  PNNI-MIB-NO-U32.my
+          
+    1.2 Cisco enterprise MIBs:
+          CISCO-TC.my
+	  CISCO-TC-NO-U32.my
+          CISCO-SMI.my
+          CISCO-PRODUCTS-MIB.my
+          CISCO-SYSTEM-MIB.my
+          CISCO-ENTITY-VENDORTYPE-OID-MIB.my
+          CISCO-ENTITY-FRU-CONTROL-MIB.my
+	  CISCO-ENTITY-SENSOR-MIB.my
+	  CISCO-SONET-MIB.my
+          CISCO-DS3-MIB.my
+	  CISCO-ATM-CELL-LAYER-MIB.my
+          CISCO-ATM-VIRTUAL-IF-MIB.my
+	  CISCO-WAN-MODULE-MIB.my
+	  CISCO-WAN-RSRC-PART-MIB.my
+	  CISCO-VSI-CONTROLLER-MIB.my
+
+    1.3 MGX8850 Specific MIBs ( MIBs under "stratacom" branch )
+	 These  Files are available Under Product Specific URL on Cisco Website
+
+	  CISCO-WAN-ATM-CONN-MIB.my
+	  CISCO-WAN-SCM-MIB.my
+	  CISCO-WAN-SONET-MIB.my
+	  CISCO-MGX8800-IF-MAPPING-MIB.my
+          CISCO-WAN-SVC-MIB.my
+	  CISCOWAN-SMI.my
+          CISCO-WAN-TRAP-VARS-MIB.my
+          rtm.my
+          errStatus.my
+          CISCO-MGX8800-TRAPS-MIB.my
+          CISCO-WAN-COMMON-TRAPS-MIB.my
+          BASIS-GENERIC1-MIB.my
+          BASIS-MIB.my
+          BASIS-SHELF-MIB.my
+          GENERICOBJECT-MIB.my
+
+MIBs Added in Version 2.0.02
+
+        RTM-MIB.my           ( replaces rtm.my )
+        ERR-STATUS-MIB.my    ( replaces errStatus.my )
+        BASIS-GENERIC-MIB.my ( replaces BASIS-GENERIC1-MIB.my )
+
+MIBs Added in Version 2.0.10
+
+	CISCO-WAN-FEEDER-MIB.my

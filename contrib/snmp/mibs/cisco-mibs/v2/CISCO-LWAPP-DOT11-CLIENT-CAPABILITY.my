@@ -1,0 +1,468 @@
+-- *******************************************************************
+-- CISCO-LWAPP-DOT11-CLIENT MIB CAPABILITY
+--
+-- November 18, 2020
+--
+-- Copyright (c) 2020, 2022 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-DOT11-CLIENT-CAPABILITY DEFINITIONS ::= BEGIN
+
+
+IMPORTS
+       MODULE-IDENTITY
+           FROM SNMPv2-SMI
+       AGENT-CAPABILITIES
+           FROM SNMPv2-CONF
+       ciscoAgentCapability
+           FROM CISCO-SMI;
+
+
+ciscoLwappDot11ClientCapability  MODULE-IDENTITY
+
+       LAST-UPDATED         "202011180000Z"
+       ORGANIZATION         "Cisco Systems, Inc."
+       CONTACT-INFO
+               "Cisco Systems
+               Customer Service
+
+               Postal: 170 W Tasman Drive
+               San Jose, CA  95134
+               USA
+
+               Tel: +1 800 553-NETS
+
+               E-mail: cs-wnbu-snmp@cisco.com"
+
+       DESCRIPTION
+               "Agent capabilities for
+               CISCO-LWAPP-DOT11-CLIENT-MIB "
+       REVISION      "202011180000Z"
+       DESCRIPTION
+               "Initial version of this MIB module. "
+
+   ::= { ciscoAgentCapability 1162 }
+
+ciscoLwappDot11ClientCapabilityCEV1R0 AGENT-CAPABILITIES
+
+       PRODUCT-RELEASE "Cisco EWLC 1.0"
+       STATUS          current
+       DESCRIPTION     "CISCO-LWAPP-DOT11-CLIENT--MIB capabilities."
+
+       SUPPORTS        CISCO-LWAPP-DOT11-CLIENT-MIB
+       INCLUDES        {
+                           cldccCcxVersionInfoTable,
+                           cldcClientTable,
+                           cldcSleepingClientTable,
+                           cldcClientStatisticTable,
+                           cldcClientByIpTable
+                       }
+
+       VARIATION       cldccCcxVersionInfoEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldccCcxFoundationServiceVersion
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldccCcxLocationServiceVersion
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldccCcxVoiceServiceVersion
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldccCcxManagementServiceVersion
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcKeyDecryptErrorEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcAssocNacAlertEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcDisassocNacAlertEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcMovedToRunStateEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       ciscoLwappDot11ClientStaticIpFailTrapEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientRSSI
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientSNR
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcDOT11ClientReasonCode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcDOT11ClientTxDataPackets
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcDOT11ClientTxDataBytes
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcDOT11ClientRxDataPackets
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcDOT11ClientRxDataBytes
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientVlanId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPolicyType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientEapType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientAID
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientAuthenticationAlgorithm
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientWepState
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientEncryptionCipher
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPortNumber
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientAnchorAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientAnchorAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientEssIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientCcxVersion
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientE2eVersion
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientInterface
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientMobilityStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientStatusCode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientDeleteAction
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientSecurityPolicyStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientTrapEventTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPolicyManagerState
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientAssocTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPmipDataValid
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientMobilityExtDataValid
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPolicyErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientSessionId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPmipNai
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPmipState
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPmipInterface
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPmipHomeAddrType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPmipHomeAddr
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPmipAtt
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPmipLocalLinkId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPmipLmaName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPmipLifeTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPmipDomainName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPmipUpKey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPmipDownKey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientQuarantineVLAN
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientAccessVLAN
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientSecurityTagId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientTypeKTS
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientIpv6AclName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientIpv6AclApplied
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientChannel
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientAuthMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientReasonCode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientSessionID
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientApRoamMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientMdnsProfile
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientMdnsAdvCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientPolicyName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientAAARole
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientDeviceType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcUserAuthType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientTunnelType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientMaxDataRate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientHtCapable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientVhtCapable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcSleepingClientRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientStatisticEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientRaPacketsDropped
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientInterimUpdatesCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientDataBytesReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientRealtimeBytesReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientRxDataBytesDropped
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientRxRealtimeBytesDropped
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientDataBytesSent
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientRealtimeBytesSent
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientTxDataBytesDropped
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientTxRealtimeBytesDropped
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientDataPacketsReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientRealtimePacketsReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientRxDataPacketsDropped
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientRxRealtimePacketsDropped
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientDataPacketsSent
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientRealtimePacketsSent
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientTxDataPacketsDropped
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientTxRealtimePacketsDropped
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientTxDataPackets
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientTxDataBytes
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientRxDataPackets
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientRxDataBytes
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientByIpAddressLastSeen
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cldcClientCurrentTxRate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+   ::= { ciscoLwappDot11ClientCapability 1 }
+
+END

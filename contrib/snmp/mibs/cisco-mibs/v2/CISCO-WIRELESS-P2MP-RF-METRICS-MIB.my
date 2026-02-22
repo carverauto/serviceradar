@@ -1,0 +1,1529 @@
+-- *********************************************************************
+-- CISCO-WIRELESS-P2MP-RF-METRICS-MIB.my:  Cisco Wireless Radio Point to
+--                                         MultiPoint RF Metrics MIB.
+--
+-- November 1999, Allan Figueredo
+--
+-- Copyright (c) 1998-2000 by Cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+--
+-- *********************************************************************
+--
+--
+-- 1.0 Glossary
+--
+-- The following terms are used in the MIB definitions below.
+--
+-- Radio Interface:   The interface that provides wireless communication
+--                    features.
+-- Radio Link:   The bi-directional wireless link that exists between 
+--               two communicating radios.
+-- Radio PHY:    Represents the transmission characteristics of the 
+--               Radio Link.
+-- RF Unit:      The Radio Frequency components and the associated 
+--               antennas.
+--
+--
+--
+-- 2.0 Cisco Wireless RF Metrics MIB Organization
+--
+-- 
+--     This MIB contains information about the radio signal(s) that were
+--     received or attributes of the radio signals computed from 
+--     received signals. This group models the real-time data that is 
+--     collected.
+--
+--     The key characteristics are:
+--     1. The amount of information captured in these parameters is 
+--        large and cannot be modeled as single values.
+--
+--     2. They represent real-time information, which cannot be polled
+--
+--     3. Hardware captures this information.
+--        Radio signal characteristics are modeled in three ways:
+--        1. Histogram
+--        2. Timelines
+--        3. Snapshots
+--
+--
+-- o.  History Group
+--        This group contains information about the radio system
+--        characteristics which are inherently modeled as histograms.
+--        Certain characteristics of the radio system may be captured
+--        as histograms by the hardware.
+--
+--        The user may configure these histograms as needed.
+--
+--        It exists for the following reasons:
+--
+--        1. The amount of information contained in these parameters is
+--           large and cannot be modeled as single values.
+--
+--        2. They represent real-time information, which cannot be
+--           polled for as well.
+--
+--        3. Key signal processing information cannot be captured by 
+--           normal SNMP (say 1 sec poll interval) monitoring.
+--
+--        4. Hardware captures this information as histograms.
+--
+--        5. In wireless environments this is key information that needs
+--           to be captured for management.
+--
+-- o.  Timeline Group
+--        This group contains information about how raw radio signal
+--        characteristics that may be captured.  Timelines are normally
+--        associated with a threshold defined in the threshold group.
+--
+-- o.  Threshold Group  
+--        This provides provides facilities to define thresholds
+--        on the raw signal attributes that are processed by the
+--        hardware. Normally thresholds are used in conjunction
+--        with Timelines to capture specific radio signal behavior.
+--
+-- o.  Snapshot Group   
+--        This group provides facilities that may be used to capture
+--        multiple radio signal attributes keyed to a single user
+--        initiated trigger. Simultaneous capture of multiple real-time
+--        attributes keyed to a single trigger provides indepth
+--        information about the behavior of the system.
+--
+--
+-- 
+-- 3.0   MIB Definitions
+--
+--
+ 
+
+CISCO-WIRELESS-P2MP-RF-METRICS-MIB DEFINITIONS ::= BEGIN
+
+	IMPORTS
+	MODULE-IDENTITY, OBJECT-TYPE,
+	Integer32, NOTIFICATION-TYPE
+		FROM SNMPv2-SMI
+	RowStatus, TruthValue,
+	TimeInterval, MacAddress 
+		FROM SNMPv2-TC
+	MODULE-COMPLIANCE, OBJECT-GROUP
+		FROM SNMPv2-CONF
+        ifIndex, OwnerString
+		FROM IF-MIB
+	CwrCollectionAction, 
+	CwrCollectionStatus, CwrThreshLimitType,
+	P2mpRadioSignalAttribute,
+        CwrFixedPointScale, CwrFixedPointPrecision,
+        CwrFixedPointValue, P2mpSnapshotAttribute,
+        CwrUpdateTime 
+		FROM CISCO-WIRELESS-TC-MIB
+	ciscoMgmt
+		FROM CISCO-SMI;
+
+	ciscoWirelessRfMetricsMIB MODULE-IDENTITY
+           LAST-UPDATED "200004191910Z"
+           ORGANIZATION "Cisco Systems Inc."
+           CONTACT-INFO
+	   "	Cisco Systems
+		Customer Service
+
+	   Postal: 170 W Tasman Drive
+		   San Jose, CA  95134
+		   USA
+
+		   Tel: +1 800 553-NETS
+	           E-mail: wireless-nms@cisco.com"
+            DESCRIPTION
+	        "This is the MIB Module for the Cisco Wireless Radio 
+                 Point to MultiPoint interface specification."
+       ::= { ciscoMgmt 180}
+
+--
+-- The Cisco Wireless P2MP Radio RF Metrics MIB Tree
+-- 
+
+p2mpRadioHistoryGroup   OBJECT IDENTIFIER ::= 
+                                         { ciscoWirelessRfMetricsMIB 1 }
+p2mpRadioTimelineGroup  OBJECT IDENTIFIER ::= 
+                                         { ciscoWirelessRfMetricsMIB 2 }
+p2mpRadioThresholdGroup OBJECT IDENTIFIER ::= 
+                                         { ciscoWirelessRfMetricsMIB 3 }
+p2mpRadioSnapshotGroup  OBJECT IDENTIFIER ::= 
+                                         { ciscoWirelessRfMetricsMIB 4 }
+
+
+
+--
+-- p2mpRadioHistoryGroup.
+--
+-- The Histogram Table. This table contains information about the set of
+-- histograms that the hardware can be programmed to maintain.
+--
+-- These histograms are generated as follows :
+-- Radio signal data is sampled.
+-- Occurrences of values of the radio signal data is counted.
+-- This count is maintained as discrete sets. Each set represented by
+-- one bin.
+--
+-- Note that the raw radio signal data is not stored in the bins. It is 
+-- the count of the occurrence of the radio signal sample that gets 
+-- stored.
+--
+
+p2mpHistCtrlTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF P2mpHistCtrlEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This table contains information about histograms configured in
+	hardware."
+        ::= { p2mpRadioHistoryGroup 1 }
+
+p2mpHistCtrlEntry OBJECT-TYPE
+        SYNTAX P2mpHistCtrlEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This represents one entry in the p2mpHistCtrlTable.  This table
+        is indexed by ifIndex, p2mpHistSuMacAddress, and p2mpHistClass.
+ 
+        At the head end:
+        Histograms can be created on each upstream channel either on a 
+        per channel or per subscriber unit basis.
+        
+        When histograms are created on a per subscriber unit basis, the 
+        user must specify the subscriber unit's MAC address and the 
+        ifIndex of the MAC layer (propDocsWirelessMaclayer) at the 
+        head end.
+
+        When histograms are created on a per channel basis, the user
+        must set the MAC address to zero(00 00 00 00 00 00).  The 
+        channel ID is specified by the ifIndex of the upstream channel.
+        Hence, when creating histograms on a per channel basis, the 
+        ifIndex must be set to the ifIndex of the upstream channel 
+        (propDocsWirelessUpstream) on which the histogram is to be 
+        created.
+
+        At the subscriber end:
+        Histograms can only be created on the downstream channel.  Since
+        there is only one downstream channel, histograms cannot be 
+        created per channel ID.  Hence, when a histogram is created, the
+        user must set the MAC address (p2mpHistSuMacAdress) to 
+        zero(00 00 00 00 00 00).  The ifIndex must be set to the ifIndex
+        of the downstream channel (propDocsWirelessDownstream)."
+
+        INDEX { ifIndex, p2mpHistSuMacAddress, p2mpHistClass }
+        ::= { p2mpHistCtrlTable 1 }
+
+P2mpHistCtrlEntry ::= SEQUENCE {
+        p2mpHistSuMacAddress    MacAddress,
+        p2mpHistClass           P2mpRadioSignalAttribute,
+        p2mpHistSize            INTEGER,
+        p2mpHistSumScale        CwrFixedPointScale,
+        p2mpHistSumPrecision    CwrFixedPointPrecision,
+        p2mpStartBinValue       Integer32,
+        p2mpEndBinValue         Integer32,
+        p2mpCollDuration        CwrUpdateTime,
+        p2mpUpdateRate          CwrUpdateTime,
+        p2mpPeriodicSum         TruthValue,
+        p2mpHistOwner           OwnerString,
+        p2mpHistAction          CwrCollectionAction,
+        p2mpHistStatus          CwrCollectionStatus,
+        p2mpHistRowStatus       RowStatus
+        }
+
+p2mpHistSuMacAddress OBJECT-TYPE
+        SYNTAX MacAddress
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This object is used to index this table.
+        At the head end:
+           When a histogram is created on a per subscriber unit basis,
+           this object should reflect the MAC address of the subscriber
+           unit.
+           When a histogram is created on a per channel basis, this 
+           object must be set to zero(00 00 00 00 00 00).
+        At the subscriber end:
+           When creating a histogram, this object must always be set to
+           zero (00 00 00 00 00 00)."
+        ::= { p2mpHistCtrlEntry 1 }
+ 
+p2mpHistClass OBJECT-TYPE
+        SYNTAX P2mpRadioSignalAttribute
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This objects used to index this table.  It represents the
+         attribute that is being histogrammed."
+        ::= { p2mpHistCtrlEntry 2 }
+
+p2mpHistSize OBJECT-TYPE
+        SYNTAX INTEGER {
+                  fine(1),
+                  coarse(2)
+               }
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object lets the user select the granularity of the 
+        histogram. The number of bins used for the capture in 
+        each category is hardware dependent."
+        ::= { p2mpHistCtrlEntry 3 }
+
+p2mpHistSumScale OBJECT-TYPE
+        SYNTAX        CwrFixedPointScale
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "This variable indicates the exponent to apply to the 
+        fixed-point values in the histogram summary table."
+        ::= { p2mpHistCtrlEntry 4 }
+ 
+p2mpHistSumPrecision OBJECT-TYPE
+        SYNTAX        CwrFixedPointPrecision
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "This variable indicates the number of decimal places used for 
+        precision when interpreting the fixed-point values in the 
+        histogram summary table."
+        ::= { p2mpHistCtrlEntry 5 }
+
+p2mpStartBinValue OBJECT-TYPE
+        SYNTAX Integer32 (-2147483647..2147483647)
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object represents the maximum of the values that will be
+        collected in the first bin of the histogram.
+        All values <= p2mpStartBinValue are kept in the first histogram
+        bin."
+        ::= { p2mpHistCtrlEntry 6 }
+
+p2mpEndBinValue OBJECT-TYPE
+        SYNTAX Integer32 (-2147483647..2147483647)
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object represents the minimum of the values that will be
+        collected in the last bin of the histogram.
+        All values >= p2mpEndBinValue are kept in the last histogram 
+        bin."
+        ::= { p2mpHistCtrlEntry 7 }
+
+p2mpCollDuration OBJECT-TYPE
+        SYNTAX CwrUpdateTime
+        UNITS "seconds"
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object specifies the duration for which this histogram 
+        must be accumulated. After successfully accumulating data for 
+        this amount of time the collection stops and the p2mpHistStatus
+        changes to statusCaptured."
+        ::= { p2mpHistCtrlEntry 8 }
+
+p2mpUpdateRate OBJECT-TYPE
+        SYNTAX CwrUpdateTime
+        UNITS "seconds"
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object represents rate at which snapshots of the histogram
+        will be available." 
+        ::= { p2mpHistCtrlEntry 9 }
+
+p2mpPeriodicSum OBJECT-TYPE
+        SYNTAX TruthValue
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "The histogram data is updated every p2mpUpdateRate seconds.
+        When set to true(1), the latest histogram data set is summed
+        with the previous histogram data set and the
+        p2mpHistSummaryTable will reflect cumulative values.
+
+        When set to false(2), only the latest data set is made available
+        and the p2mpHistSummarytable will reflect the latest values."
+        ::= { p2mpHistCtrlEntry 10 }
+
+p2mpHistOwner OBJECT-TYPE
+        SYNTAX OwnerString
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+	"This object identifies management station that created this
+	histogram specification."
+        ::= { p2mpHistCtrlEntry 11 }
+
+p2mpHistAction OBJECT-TYPE
+        SYNTAX CwrCollectionAction
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object represents the action to be carried out on this 
+        histogram specification. If a histogram has been successfully
+        captured then it must be cleared before an other capture
+        may be initiated."
+        ::= { p2mpHistCtrlEntry 12 }
+
+p2mpHistStatus OBJECT-TYPE
+        SYNTAX CwrCollectionStatus
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the current state of this histogram. 
+        Once the histogram collection is complete the status changes to
+        statusCaptured and the data is available for use.
+        None of the parameters of a histogram specification may be 
+        modified when the specification is in statusInProgress.
+
+        A statusCaptured or statusStopped histogram must be 
+        actionClear'ed before it can be restarted.
+
+        The histogram may be read accurately between the p2mpUpdateRate
+        intervals. If the read spans across the update time data from 
+        the previous and current updates can be mingled."
+        ::= { p2mpHistCtrlEntry 13 }
+
+p2mpHistRowStatus OBJECT-TYPE
+        SYNTAX RowStatus
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object may be used to create or delete a histogram control
+        specification."
+        ::= { p2mpHistCtrlEntry 14 }
+
+--
+--      The Histogram Summary Table. This table contains summary Data
+--	about the histograms collected as per the specifications in the
+--	p2mpHistCtrlTable.
+-- 
+--      This table MUST be supported on the head end and at the 
+--      subscriber unit if the p2mpHistCtrlTable is supported.
+
+p2mpHistSummaryTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF P2mpHistSummaryEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This table contains histogram Summary collected based on the
+        specifications in the p2mpHistCtrlTable."
+        ::= { p2mpRadioHistoryGroup 2 }
+
+p2mpHistSummaryEntry OBJECT-TYPE
+        SYNTAX P2mpHistSummaryEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This represents one entry in the p2mpHistSummaryTable.
+        
+        At the head end:
+        When viewing the summary of a histogram that was created for a 
+        specific subscriber unit, the user must specify the subscriber 
+        unit's MAC address and the ifIndex of the MAC layer at the 
+        head end.
+        When viewing the summary of a histogram created for a specific 
+        channel, the user must set the MAC address to zero
+        (00 00 00 00 00 00).  The ifIndex is the upstream channel on 
+        which the histogram was created.
+
+        At the subscriber end:
+        The user sets the MAC address (p2mpHistSuMacAdress) to 
+        zero(00 00 00 00 00 00). The ifIndex is the channel ID of the 
+        downstream channel."
+
+        INDEX { ifIndex, p2mpHistSuMacAddress, p2mpHistClass }
+        ::= { p2mpHistSummaryTable 1 }
+
+        P2mpHistSummaryEntry ::= SEQUENCE {
+        p2mpHistUpdateTime   CwrUpdateTime,
+        p2mpHistMin          CwrFixedPointValue,
+        p2mpHistMax          CwrFixedPointValue,
+        p2mpHistMean         CwrFixedPointValue 
+        }
+
+p2mpHistUpdateTime OBJECT-TYPE
+        SYNTAX CwrUpdateTime
+        UNITS "seconds"
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the sysUpTime when this histogram
+        was retrieved from hardware."
+        ::= { p2mpHistSummaryEntry 1 }
+
+p2mpHistMin OBJECT-TYPE
+        SYNTAX CwrFixedPointValue
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents minimum value seen in this histogram."
+        ::= { p2mpHistSummaryEntry 2 }
+
+p2mpHistMax OBJECT-TYPE
+        SYNTAX CwrFixedPointValue
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents maximum value seen in this histogram."
+        ::= { p2mpHistSummaryEntry 3 }
+
+p2mpHistMean OBJECT-TYPE
+        SYNTAX CwrFixedPointValue
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents mean of the values in this histogram."
+        ::= { p2mpHistSummaryEntry 4 }
+
+--
+--      The Histogram Data Table. This table contains the Data
+--	about the histograms collected as per the specifications in the
+--	p2mpHistCtrlTable.
+-- 
+--      This table MUST be supported on the head end and at the 
+--      subscriber unit if the p2mpHistCtrlTable is supported.
+
+p2mpHistDataTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF P2mpHistDataEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This table contains histogram values collected based on the
+        specifications in the p2mpHistCtrlTable."
+        ::= { p2mpRadioHistoryGroup 3 }
+
+p2mpHistDataEntry OBJECT-TYPE
+        SYNTAX P2mpHistDataEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This represents one entry in the p2mpHistDataTable. 
+
+        At the head end:
+        When viewing the data of a histogram that was created for a 
+        specific subscriber unit, the user must specify the subscriber 
+        unit's MAC address and the ifIndex of the MAC layer at the 
+        head end.
+        When viewing the data of a histogram created for a specific 
+        channel, the user must set the MAC address to zero
+        (00 00 00 00 00 00).  The ifIndex is the upstream channel on 
+        which the histogram was created.
+
+        At the subscriber end:
+        The user sets the MAC address (p2mpHistSuMacAdress) to 
+        zero(00 00 00 00 00 00). The ifIndex is the channel ID of the 
+        downstream channel."
+
+        INDEX {ifIndex, p2mpHistSuMacAddress, p2mpHistClass, 
+               p2mpHistBinIndex }
+        ::= { p2mpHistDataTable 1 }
+
+        P2mpHistDataEntry ::= SEQUENCE {
+        p2mpHistBinIndex     Integer32,
+        p2mpValue            Integer32
+        }
+
+p2mpHistBinIndex OBJECT-TYPE
+        SYNTAX Integer32(1..50)
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This object represents the histogram bin number for the value
+        in p2mpValue."
+        ::= { p2mpHistDataEntry 1 }
+
+p2mpValue OBJECT-TYPE
+        SYNTAX Integer32 (0..2147483647)
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the value in the histogram bin
+        p2mpHistBinIndex."
+        ::= { p2mpHistDataEntry 2 }
+
+--
+-- The Timeline Group. 
+--
+-- This group includes the following tables:
+-- p2mpTlCtrlTable, p2mpTlSummaryTable and p2mpTlDataTable.
+--
+-- A radio timeline is raw radio signal data captured based on the
+-- specifications.
+
+p2mpTlCtrlTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF P2mpTlCtrlEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This table contains information about timelines configured in
+        hardware. When radio signal data is collected it will be stored 
+        in a buffer of size p2mpTlNumDataValues which may be later 
+        retrieved."
+        ::= { p2mpRadioTimelineGroup 1 }
+ 
+p2mpTlCtrlEntry OBJECT-TYPE
+        SYNTAX P2mpTlCtrlEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This represents one entry in the p2mpTlCtrlTable.  This table
+        is indexed by ifIndex, p2mpTlSuMacAddress, and p2mpTlClass.
+
+        At the head end:
+        Timelines can be created on each upstream channel either on a
+        per channel or per subscriber unit basis.
+        
+        When timelines are created on a per subscriber unit basis, the 
+        user must specify the subscriber unit's MAC address and the 
+        ifIndex of the MAC layer (propDocsWirelessMaclayer) at the 
+        head end.
+
+        When timelines are created on a per channel basis, the user
+        must set the MAC address to zero(00 00 00 00 00 00).  The channel
+        ID is specified by the ifIndex of the upstream channel.  Hence,
+        when creating timelines on a per channel basis, the ifIndex must
+        be set to the ifIndex of the upstream channel on which the 
+        timeline is to be created
+
+        At the subscriber end:
+        Timelines can only be created on the downstream channel.  Since 
+        there is only one downstream channel, timelines cannot be 
+        created per channel ID.  Hence, when a timeline is created, the  
+        user must set the MAC address (p2mpTlSuMacAdress) to
+        zero(00 00 00 00 00 00).  The ifIndex must be set to the ifIndex
+        of the downstream channel (propDocsWirelessDownstream)."
+
+        INDEX { ifIndex, p2mpTlSuMacAddress, p2mpTlClass}
+        ::= { p2mpTlCtrlTable 1 }
+ 
+P2mpTlCtrlEntry ::= SEQUENCE {
+        p2mpTlSuMacAddress       MacAddress,
+        p2mpTlClass              P2mpRadioSignalAttribute,
+        p2mpTlThreshAttribute    P2mpRadioSignalAttribute,
+        p2mpTlThreshType         CwrThreshLimitType,
+        p2mpTlNumDataValues      Integer32,
+        p2mpTlDataScale          CwrFixedPointScale,
+        p2mpTlDataPrecision      CwrFixedPointPrecision,
+        p2mpTlSamplePeriod       Integer32,
+        p2mpTlAction             CwrCollectionAction,
+        p2mpTlPostTrigBufMgmt    INTEGER,
+        p2mpTlOwner              OwnerString,
+        p2mpTlStatus             CwrCollectionStatus,
+        p2mpTlRowStatus          RowStatus
+        }
+
+p2mpTlSuMacAddress OBJECT-TYPE
+        SYNTAX MacAddress
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This object is used to index this table.
+        At the head end:
+           When a timeline is created on a per subscriber unit basis,
+           this object should reflect the MAC address of the subscriber 
+           unit.
+           When a timeline is created on a per channel basis, this object
+           must be set to zero(00 00 00 00 00 00).
+
+        At the subscriber end:
+           When creating a timeline, this object must always be set to 
+           zero (00 00 00 00 00 00)."
+        ::= { p2mpTlCtrlEntry 1 }
+
+p2mpTlClass OBJECT-TYPE
+        SYNTAX P2mpRadioSignalAttribute
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This object represents the attribute for which a timline capture
+        is requested.
+        When a timeline is requested p2mpBufSize worth of data will be
+        captured."
+        ::= { p2mpTlCtrlEntry 2 }
+ 
+p2mpTlThreshAttribute OBJECT-TYPE
+        SYNTAX  P2mpRadioSignalAttribute
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object, along with p2mpTlThreshType, identifies the 
+        threshold in the p2mpThresholdTable responsible for trigerring 
+        this timeline. When this object's value is none(0), it implies 
+        that there is no threshold associated with this timeline."
+        ::= { p2mpTlCtrlEntry 3 }
+
+p2mpTlThreshType OBJECT-TYPE
+        SYNTAX CwrThreshLimitType
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object, along with p2mpTlThreshAttribute, identifies the 
+        threshold in the p2mpThresholdTable responsible for trigerring 
+        this timeline.  When this object's value is none(0), it implies 
+        that there is no threshold associated with this timeline."
+        ::= { p2mpTlCtrlEntry 4 }
+ 
+p2mpTlNumDataValues OBJECT-TYPE
+        SYNTAX Integer32(1..2147483647)
+        UNITS "number of data values"
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object indicates the number of data values to be captured 
+        for this timeline.  The captured data can be viewed by reading 
+        the p2mpTlDataTable."
+        ::= { p2mpTlCtrlEntry 5 }
+
+p2mpTlDataScale OBJECT-TYPE
+        SYNTAX        CwrFixedPointScale
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "This variable indicates the exponent to apply to the
+        fixed-point values in the timeline data table."
+        ::= { p2mpTlCtrlEntry 6 }
+ 
+p2mpTlDataPrecision OBJECT-TYPE
+        SYNTAX        CwrFixedPointPrecision
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "This variable indicates the number of decimal places used for 
+        precision when interpreting the fixed-point values in the 
+        timeline data table."
+        ::= { p2mpTlCtrlEntry 7 }
+
+p2mpTlSamplePeriod OBJECT-TYPE
+        SYNTAX Integer32(0..2147483647)
+	UNITS "milliseconds"
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This lets the user specify the time in milliseconds between
+        consecutive timeline samples.
+        The special value of '0' indicates that the timeline will be 
+        sampled on every burst of data.  The number of bursts in one
+        milliseconds depends on the modulation profile."
+        ::= { p2mpTlCtrlEntry 8 }
+ 
+p2mpTlAction OBJECT-TYPE
+        SYNTAX CwrCollectionAction
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object represents the action to be carried out on this
+        timeline specification. If a timeline has been successfully
+        captured then it must be cleared before another capture
+        may be initiated."
+        ::= { p2mpTlCtrlEntry 9 }
+ 
+p2mpTlPostTrigBufMgmt OBJECT-TYPE
+        SYNTAX INTEGER {
+                preTrigger(1),
+                postTrigger(2)
+        }
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "Once a trigger fires, this object determines which portion of 
+        the collected data to capture for use. If it is:
+        preTrigger(1) : Then most of the data collected prior to trigger
+                        is captured.
+        postTrigger(2): Then most of the data collected after the trigger
+                        is captured."
+        ::= { p2mpTlCtrlEntry 10 }
+ 
+p2mpTlOwner OBJECT-TYPE
+        SYNTAX OwnerString
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+	"This object identifies the management station that created this
+	timeline specification."
+        ::= { p2mpTlCtrlEntry 11 }
+
+p2mpTlStatus OBJECT-TYPE
+        SYNTAX CwrCollectionStatus
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the current state of this timeline. 
+        Once the timeline collection is complete the status changes to
+        statusCaptured and the data is available for use.
+        None of the parameters of a timeline specification may be 
+        modified when the specification is in statusInProgress.
+
+        A statusCaptured or statusStopped timeline must be actionClear'ed
+        before it can be restarted."
+        ::= { p2mpTlCtrlEntry 12 }
+ 
+p2mpTlRowStatus OBJECT-TYPE
+        SYNTAX RowStatus
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object may be used to create or delete a timeline control
+        specification.  Once created data sampling starts based on the
+        value of p2mpTlAction."
+        ::= { p2mpTlCtrlEntry 13 }
+ 
+
+--
+--      The Timeline Summary Table. This table contains summary Data
+--      about the timeline collected as per the specifications in the
+--      p2mpTlCtrlTable.
+--
+ 
+p2mpTlSummaryTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF P2mpTlSummaryEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This table contains Timeline Summary collected based on the
+        specifications in the p2mpTlCtrlTable."
+        ::= { p2mpRadioTimelineGroup 2 }
+ 
+p2mpTlSummaryEntry OBJECT-TYPE
+        SYNTAX P2mpTlSummaryEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This represents one entry in the p2mpTlSummaryTable.
+        
+        At the head end:
+        When viewing the summary of a timeline created for a specific 
+        subscriber unit, the user must specify the subscriber unit's 
+        MAC address and the ifIndex of the MAC layer at the head end. 
+        When viewing the summary of a timeline created for a specific 
+        channel, the user must set the MAC address to 
+        zero(00 00 00 00 00 00).  The ifIndex is the upstream channel on
+        which the timeline was created.
+
+        At the subscriber end:
+        The user sets the MAC address (p2mpTlSuMacAdress) to 
+        zero(00 00 00 00 00 00). The ifIndex is the channel ID of the 
+        downstream channel."
+
+        INDEX { ifIndex, p2mpTlSuMacAddress, p2mpTlClass}
+        ::= { p2mpTlSummaryTable 1 }
+ 
+P2mpTlSummaryEntry ::= SEQUENCE {
+        p2mpTlUpdateTime         CwrUpdateTime,
+        p2mpTlNumValues          Integer32,
+        p2mpTlTriggerLoc         Integer32
+        }
+ 
+p2mpTlUpdateTime OBJECT-TYPE
+        SYNTAX CwrUpdateTime
+        UNITS "seconds"
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the sysUpTime when this timeline
+        capture was completed."
+        ::= { p2mpTlSummaryEntry 1 }
+ 
+p2mpTlNumValues OBJECT-TYPE
+        SYNTAX Integer32 (0..2147483647)
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the number of values available in the 
+        timeline"
+        ::= { p2mpTlSummaryEntry 2 }
+ 
+p2mpTlTriggerLoc OBJECT-TYPE
+        SYNTAX Integer32 (0..2147483647)
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object contains the value of p2mpTlValueIndex which 
+        represents the entry in the p2mpTlDataTable that caused the stop
+        trigger to fire, thereby resulting in this timeline to be 
+        collected."
+        ::= { p2mpTlSummaryEntry 3 }
+ 
+
+--
+--      The Timeline Data Table. This table contains the Data
+--      about the timelines collected as per the specifications in the
+--      p2mpTlCtrlTable.
+--
+ 
+p2mpTlDataTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF P2mpTlDataEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This table contains timeline values collected based on the
+        specifications in the p2mpTlCtrlTable."
+        ::= { p2mpRadioTimelineGroup 3 }
+ 
+p2mpTlDataEntry OBJECT-TYPE
+        SYNTAX P2mpTlDataEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This represents one entry in the p2mpTlDataTable. 
+
+        At the head end:
+        When viewing the data of a timeline created for a specific
+        subscriber unit, the user must specify the subscriber unit's 
+        MAC address and the ifIndex of the MAC layer at the head end.
+
+        When viewing the data of a timeline created for a specific 
+        channel, the user must set the MAC address to 
+        zero(00 00 00 00 00 00).  The ifIndex is the upstream channel
+        on which the timeline was created.
+
+        At the subscriber end:
+        The user sets the MAC address (p2mpTlSuMacAdress) to 
+        zero(00 00 00 00 00 00). The ifIndex is the channel ID of the 
+        downstream channel."
+
+        INDEX { ifIndex, p2mpTlSuMacAddress, p2mpTlClass, p2mpTlValueIndex}
+        ::= { p2mpTlDataTable 1 }
+ 
+P2mpTlDataEntry ::= SEQUENCE {
+        p2mpTlValueIndex         Integer32,
+        p2mpTlValue              CwrFixedPointValue
+        }
+ 
+p2mpTlValueIndex OBJECT-TYPE
+        SYNTAX Integer32 (1..2147483647)
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This object is the index into the timeline data."
+        ::= { p2mpTlDataEntry 1 }
+ 
+p2mpTlValue OBJECT-TYPE
+        SYNTAX CwrFixedPointValue
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the radio signal data sampled."
+        ::= { p2mpTlDataEntry 2 }
+ 
+
+--
+-- The Threshold table. This table enables the user to define thresholds.
+-- 
+
+p2mpThresholdTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF P2mpThresholdEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This table enables the user to establish thresholds for the 
+        radio signals analyzed on the radio interface." 
+        ::= { p2mpRadioThresholdGroup 1 }
+
+
+p2mpThresholdEntry OBJECT-TYPE
+        SYNTAX P2mpThresholdEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This represents one entry in the p2mpThresholdTable.
+ 
+        At the head end:
+        Thresholds can be created on each upstream channel either on a
+        per channel or per subscriber unit basis.
+        
+        When creating thresholds on a per subscriber unit basis, the 
+        user must specify the subscriber unit's MAC address and the 
+        ifIndex of the MAC layer (propDocsWirelessMaclayer) at the 
+        head end.
+
+        When creating thresholds on a per channel basis, the user
+        must set the MAC address to zero(00 00 00 00 00 00).  The channel
+        ID is specified by the ifIndex of the upstream channel.  Hence,
+        when creating thresholds on a per channel basis, the ifIndex must
+        be set to the ifIndex of the upstream channel
+        (propDocsWirelessUpstream) on which the threshold is created.  
+
+        At the subscriber end:
+        Thresholds can only be created on the downstream channel.  Since 
+        there is only one downstream channel, thresholds cannot be 
+        created per channel ID.  Hence, when a thresholds is created, the
+        users sets the MAC address (p2mpThreshSuMacAdress) to 
+        zero(00 00 00 00 00 00).  The ifIndex must be set to the ifIndex
+        of the downstream channel (propDocsWirelessDownstream)."  
+
+        INDEX {ifIndex,p2mpThreshSuMacAddr,p2mpThreshAttribute,p2mpThreshType}
+        ::= { p2mpThresholdTable 1 }
+
+P2mpThresholdEntry ::= SEQUENCE {
+	p2mpThreshSuMacAddr          MacAddress,
+        p2mpThreshAttribute          P2mpRadioSignalAttribute,
+        p2mpThreshType               CwrThreshLimitType,
+        p2mpThreshValue              Integer32,
+        p2mpThreshHysteresisTime     TimeInterval,
+        p2mpThreshLimitTime          TimeInterval,
+        p2mpThreshRowStatus          RowStatus
+        }
+
+p2mpThreshSuMacAddr    OBJECT-TYPE
+        SYNTAX MacAddress
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This object is used to index this table.
+ 
+        At the head end:
+           When a threshold is created on a per subscriber unit basis,
+           this object should reflect the MAC address of the subscriber 
+           unit.
+           When a threshold is created on a per channel basis, this 
+           object must be set to zero(00 00 00 00 00 00).
+        At the subscriber end:
+           When creating a threshold , this object must always be set
+           to zero (00 00 00 00 00 00)."
+        ::= { p2mpThresholdEntry 1 }
+ 
+p2mpThreshAttribute OBJECT-TYPE
+        SYNTAX  P2mpRadioSignalAttribute
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This represents the attribute of a radio link which needs to be
+        thresholded. For each of these attributes, the p2mpThreshType 
+        identifies the type of change to monitor. When that threshold is
+        exceeded a Trap with appropriate parameters will be generated."
+        ::= { p2mpThresholdEntry 2 }
+ 
+p2mpThreshType OBJECT-TYPE
+        SYNTAX CwrThreshLimitType
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This object represents the kind of change that needs to be 
+        monitored for the p2mpThreshAttribute. An event is generated
+        when the specified condition is met."
+        ::= { p2mpThresholdEntry 3 }
+ 
+p2mpThreshValue OBJECT-TYPE
+        SYNTAX Integer32 (-2147483647..2147483647)
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object represents the value to be compared against. The
+        p2mpThreshType determines the way in which it is used.
+        It is used as follows:
+        if p2mpThreshType is ..
+        highThresh : Notify if data sample exceeds the p2mpThreshValue.
+        lowThresh  : Notify if data sample recedes below the 
+                     p2mpThreshValue.
+        upChange   : Notify if data sample increases by more than
+                     p2mpThreshValue.
+        downChange : Notify if data sample decreases by more than
+                     p2mpThreshValue.
+        upLimit    : Notify if data sample crosses p2mpThreshValue while
+                     increasing in value.
+        lowLimit   : Notify if data sample crosses p2mpThreshValue while
+                     decreasing in value."
+        ::= { p2mpThresholdEntry 4 }
+
+p2mpThreshHysteresisTime OBJECT-TYPE
+        SYNTAX TimeInterval
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "When radio signals oscillate around threshold values, they 
+        potentially flood the system with notifications. This object 
+        specifies the amount of time to wait before sending an identical
+        notification if the oscillations continue."
+        ::= { p2mpThresholdEntry 5 }
+
+p2mpThreshLimitTime OBJECT-TYPE
+        SYNTAX TimeInterval
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "It is desirable to know when a radio signal has stabilized. This
+        object specifies the amount of time that the radio signal should
+        stay below the threshold after crossing it. If it does then a 
+        'clear' notification is sent."
+        ::= { p2mpThresholdEntry 6 }
+
+p2mpThreshRowStatus OBJECT-TYPE
+        SYNTAX RowStatus
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object represents the status of this threshold entry. It 
+        may be used to create a new threshold specification.
+        For every p2mpThreshAttribute one threshold of p2mpThreshType on
+        one DSP may be created."
+        ::= { p2mpThresholdEntry 7 }
+
+--
+--  This table enables the user to capture upto 4 synchronized 
+--  raw radio signal attributes simultaneously.  The user initiates the
+--  snapshot capture by setting p2mpSnapshotAction to 'actionStart'
+--
+--  Some attributes in this group are represented by complex numbers
+--  Each such attribute is indicated as value(I, q).
+--
+ 
+p2mpSnapshotCtrlTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF P2mpSnapshotCtrlEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This table contains information about the snapshots configured 
+        in hardware. When data is collected it will be stored in
+        p2mpSnapDataTable. Snapshots can only be captured per DSP."
+        ::= { p2mpRadioSnapshotGroup 1 }
+ 
+p2mpSnapshotCtrlEntry OBJECT-TYPE
+        SYNTAX P2mpSnapshotCtrlEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This represents one entry in the p2mpSnapshotCntrlTable
+        It is indexed by the ifIndex of the MAC layer 
+        (propDocsWirelessMaclayer) and p2mpSnapshotDspNum."
+        INDEX { ifIndex, p2mpSnapshotDspNum}
+        ::= { p2mpSnapshotCtrlTable 1 }
+ 
+P2mpSnapshotCtrlEntry ::= SEQUENCE {
+        p2mpSnapshotDspNum           Integer32,
+        p2mpSnapshotType             P2mpSnapshotAttribute,
+        p2mpSnapshotDataScale        CwrFixedPointScale,
+        p2mpSnapshotDataPrecision    CwrFixedPointPrecision,
+	p2mpSnapshotOwner            OwnerString,
+        p2mpSnapshotAction           CwrCollectionAction,
+        p2mpSnapshotStatus           CwrCollectionStatus,
+        p2mpSnapshotRowStatus        RowStatus
+        }
+ 
+p2mpSnapshotDspNum OBJECT-TYPE
+        SYNTAX Integer32(1..8)
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This object represents the DSP on which the snapshot needs to
+        be collected."
+        ::= { p2mpSnapshotCtrlEntry 1 }
+ 
+p2mpSnapshotType OBJECT-TYPE
+        SYNTAX P2mpSnapshotAttribute
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This identfies the set of radio signal attributes being 
+        monitored in this snapshot."
+        ::= { p2mpSnapshotCtrlEntry 2 }
+ 
+p2mpSnapshotDataScale OBJECT-TYPE
+        SYNTAX        CwrFixedPointScale
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "This variable indicates the exponent to apply to the 
+        fixed-point values in the snapshot data table."
+        ::= { p2mpSnapshotCtrlEntry 3 }
+ 
+p2mpSnapshotDataPrecision OBJECT-TYPE
+        SYNTAX        CwrFixedPointPrecision
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+        "This variable indicates the number of decimal places used for 
+        precision when interpreting the fixed-point values in the 
+        snapshot data table."
+        ::= { p2mpSnapshotCtrlEntry 4 }
+
+p2mpSnapshotOwner OBJECT-TYPE
+        SYNTAX OwnerString
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+	"This object identifies management station that created this
+	snapshot specification."
+        ::= { p2mpSnapshotCtrlEntry 5 }
+
+p2mpSnapshotAction OBJECT-TYPE
+        SYNTAX CwrCollectionAction
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object represents the action to be carried out on this
+        snapshot specification. If a snapshot has been successfully
+        captured then it must be cleared before another capture
+        may be initiated."
+        ::= { p2mpSnapshotCtrlEntry 6 }
+ 
+p2mpSnapshotStatus OBJECT-TYPE
+        SYNTAX CwrCollectionStatus
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the current status of this snapshot
+        specification. When the status in statusInProgress none of the
+        snapshot parameters can be configured. When the status is
+        statusCaptured then data is available for use."
+        ::= { p2mpSnapshotCtrlEntry 7 }
+ 
+p2mpSnapshotRowStatus OBJECT-TYPE
+        SYNTAX RowStatus
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+        "This object may be used to create or delete this snapshot
+        specification."
+        ::= { p2mpSnapshotCtrlEntry 8 }
+ 
+--
+--      The Snapshot Summary Table. This table contains summary 
+--      information for the data captured by a snapshot specification
+--
+--  This table is supported on the head end and at the subscriber unit.
+ 
+p2mpSnapSummaryTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF P2mpSnapSummaryEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This table contains summary information for captured snapshots
+        defined in p2mpSnapshotCtrlTable."
+        ::= { p2mpRadioSnapshotGroup 2 }
+ 
+p2mpSnapSummaryEntry OBJECT-TYPE
+        SYNTAX P2mpSnapSummaryEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This represents one entry in the p2mpSnapSummaryTable. It is 
+        indexed by the ifIndex of the MAC layer 
+        (propDocsWirelessMaclayer) and p2mpSnapshotDspNum."
+        INDEX { ifIndex, p2mpSnapshotDspNum}
+        ::= { p2mpSnapSummaryTable 1 }
+ 
+P2mpSnapSummaryEntry ::= SEQUENCE {
+        p2mpSnapAttr1Id          Integer32,
+        p2mpSnapAttr1Size        Integer32,
+        p2mpSnapAttr2Id          Integer32,
+        p2mpSnapAttr2Size        Integer32,
+        p2mpSnapAttr3Id          Integer32,
+        p2mpSnapAttr3Size        Integer32,
+        p2mpSnapAttr4Id          Integer32,
+        p2mpSnapAttr4Size        Integer32
+        }
+ 
+p2mpSnapAttr1Id OBJECT-TYPE
+        SYNTAX Integer32 (1..2147483647)
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the bit in the P2mpSnapshotAttribute
+        bitmask that identifies the first attribute value."
+        ::= { p2mpSnapSummaryEntry 2 }
+ 
+p2mpSnapAttr1Size OBJECT-TYPE
+        SYNTAX Integer32 (0..4096)
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the number of values captured for the 
+        snapshot p2mpSnapAttr1Id."
+        ::= { p2mpSnapSummaryEntry 3 }
+ 
+p2mpSnapAttr2Id OBJECT-TYPE
+        SYNTAX Integer32 (1..2147483647)
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the bit in the P2mpSnapshotAttribute
+        bitmask that identifies the second attribute value."
+        ::= { p2mpSnapSummaryEntry 4 }
+ 
+p2mpSnapAttr2Size OBJECT-TYPE
+        SYNTAX Integer32 (0..4096)
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the number of values captured for the 
+        snapshot p2mpSnapAttr2Id."
+        ::= { p2mpSnapSummaryEntry 5 }
+ 
+p2mpSnapAttr3Id OBJECT-TYPE
+        SYNTAX Integer32 (1..2147483647)
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the bit in the P2mpSnapshotAttribute
+        bitmask that identifies the third attribute value."
+        ::= { p2mpSnapSummaryEntry 6 }
+ 
+p2mpSnapAttr3Size OBJECT-TYPE
+        SYNTAX Integer32 (0..4096)
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the number of values captured for the 
+        snapshot p2mpSnapAttr3Id."
+        ::= { p2mpSnapSummaryEntry 7 }
+ 
+p2mpSnapAttr4Id OBJECT-TYPE
+        SYNTAX Integer32 (1..2147483647)
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the bit in the P2mpSnapshotAttribute
+        bitmask that identifies the fourth attribute value."
+        ::= { p2mpSnapSummaryEntry 8 }
+ 
+p2mpSnapAttr4Size OBJECT-TYPE
+        SYNTAX Integer32 (0..4096)
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "This object represents the number of values captured for the 
+        snapshot p2mpSnapAttr4Id."
+        ::= { p2mpSnapSummaryEntry 9 }
+ 
+ 
+--
+--      The Snapshot Data Table. This table contains the Data
+--      about the snapshots collected as per the specifications in the
+--      p2mpSnapshotCtrlTable.
+--
+--  This table is supported on the head end and at the subscriber unit.
+ 
+p2mpSnapDataTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF P2mpSnapDataEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This table contains snapshot values collected based on the
+        specifications in the p2mpSnapshotCtrlTable."
+        ::= { p2mpRadioSnapshotGroup 3 }
+ 
+p2mpSnapDataEntry OBJECT-TYPE
+        SYNTAX P2mpSnapDataEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This represents one entry in the P2mpSnapDataTable. It is 
+        indexed by ifIndex of the MAC layer (propDocsWirelessMaclayer), 
+        p2mpSnapshotIndex, and p2mpSnapValueIndex.
+ 
+        The values in this table represent real and complex numbers.
+        If they are real numbers then p2mpRealPart contains the data and
+        p2mpImaginaryPart is undefined."
+        INDEX { ifIndex, p2mpSnapshotDspNum, p2mpSnapValueIndex }
+        ::= { p2mpSnapDataTable 1 }
+ 
+P2mpSnapDataEntry ::= SEQUENCE {
+        p2mpSnapValueIndex        Integer32,
+        p2mpRealPart              CwrFixedPointValue,
+        p2mpImaginaryPart         CwrFixedPointValue
+        }
+ 
+p2mpSnapValueIndex OBJECT-TYPE
+        SYNTAX Integer32(1..4096)
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+        "This object represents the snapshot entry value number.  The 
+        hardware provides a maximum of 1024 data points for any snapshot
+        attribute.  Since we can capture a maximum of 4 attributes in a 
+        single snapshot, this object can have a maximum value of 
+        4096 (1024 * 4)."
+        ::= { p2mpSnapDataEntry 1 }
+ 
+p2mpRealPart OBJECT-TYPE
+        SYNTAX CwrFixedPointValue
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "The data sample value. Real part."
+        ::= { p2mpSnapDataEntry 2 }
+ 
+ 
+p2mpImaginaryPart OBJECT-TYPE
+        SYNTAX CwrFixedPointValue
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+        "The data sample value. Imaginary part of the attribute is 
+        represented by a complex number."
+        ::= { p2mpSnapDataEntry 3 }
+
+ 
+-- The following two OBJECT IDENTIFIERS are used to define SNMPv2
+-- Notifications that are backward compatible with SNMPv1 Traps.
+
+p2mpRfMetricsMIBNotificationPrefix  
+                OBJECT IDENTIFIER ::= { p2mpRadioThresholdGroup 2 }
+p2mpRfMetricsMIBNotification 
+            OBJECT IDENTIFIER ::= {p2mpRfMetricsMIBNotificationPrefix 0}
+
+--
+-- The following trap is generated in response to a threshold defined
+-- in p2mpThreshTable.  
+
+p2mpTrapThresh NOTIFICATION-TYPE
+	OBJECTS {p2mpThreshValue, 
+                 p2mpThreshHysteresisTime, 
+                 p2mpThreshLimitTime }
+        STATUS current
+        DESCRIPTION
+        "The radio subsystem generates this trap when a threshold crosses
+        its specified limit. The parameters identify the following:
+        p2mpThreshValue          - The value that was crossed.
+        p2mpThreshHysteresisTime - The specified hysteresis time 
+        p2mpThreshLimitTime      - The specified limit time "
+        ::= { p2mpRfMetricsMIBNotification 1 }
+
+
+
+-- ============================================================================
+--
+-- Compliance Statements
+--
+ 
+p2mpRadioRfConformance 
+                    OBJECT IDENTIFIER ::= {ciscoWirelessRfMetricsMIB 5}
+p2mpRadioRfCompliances OBJECT IDENTIFIER ::= { p2mpRadioRfConformance 1 }
+p2mpRadioRfGroups      OBJECT IDENTIFIER ::= { p2mpRadioRfConformance 2 }
+ 
+p2mpRadioRfCompliance MODULE-COMPLIANCE
+        STATUS      current
+        DESCRIPTION
+            "The compliance statement for devices that are Point to 
+            MultiPoint wireless interfaces."
+ 
+        MODULE  -- ciscoWirelessRfMetricsMIB 
+
+        MANDATORY-GROUPS {
+              p2mpComplianceHistogramGroup
+              }
+
+        GROUP p2mpComplianceThresholdGroup
+                DESCRIPTION
+                "This group is mandatory for a system that supports the
+                radio head end feature. It is optional at the
+                Subscriber Unit."
+
+        GROUP p2mpComplianceTimelineGroup
+                DESCRIPTION
+                "This group is optional at the head end and the
+                Subscriber Unit."
+
+        GROUP p2mpComplianceSnapshotGroup
+                DESCRIPTION
+                "This group is optional at the head end and the
+                Subscriber Unit."
+
+        ::= { p2mpRadioRfCompliances 1 }
+
+--
+--
+p2mpComplianceHistogramGroup OBJECT-GROUP
+        OBJECTS {
+	        p2mpHistSize,
+                p2mpHistSumScale,
+                p2mpHistSumPrecision,
+                p2mpStartBinValue,
+                p2mpEndBinValue,
+                p2mpUpdateRate,
+                p2mpCollDuration,
+	        p2mpPeriodicSum,
+                p2mpHistOwner,
+                p2mpHistAction,
+                p2mpHistStatus,
+                p2mpHistRowStatus,
+                p2mpHistUpdateTime,
+                p2mpHistMin,
+                p2mpHistMax,
+                p2mpHistMean,
+                p2mpValue
+                }
+        STATUS      current
+        DESCRIPTION
+        "Group of objects implemented in the point to multipoint wireless
+         system for capturing histograms and snapshots of radio signal 
+         parameters on the radio interface."
+        ::= { p2mpRadioRfGroups 1 }
+ 
+--
+--
+p2mpComplianceThresholdGroup OBJECT-GROUP
+        OBJECTS {
+                p2mpThreshValue,
+                p2mpThreshHysteresisTime,
+                p2mpThreshLimitTime,
+                p2mpThreshRowStatus
+                }
+        STATUS      current
+        DESCRIPTION
+        "Group of objects implemented in the point to multipoint 
+         wireless system to set thresholds on the radio interface." 
+        ::= { p2mpRadioRfGroups 2 }
+ 
+--
+-- Optional Timeline Group
+--
+p2mpComplianceTimelineGroup OBJECT-GROUP
+        OBJECTS {
+                p2mpTlThreshAttribute,
+                p2mpTlThreshType,
+                p2mpTlNumDataValues,
+                p2mpTlDataScale,
+                p2mpTlDataPrecision,
+                p2mpTlSamplePeriod,
+                p2mpTlAction,
+                p2mpTlPostTrigBufMgmt,
+                p2mpTlOwner,
+                p2mpTlStatus,
+                p2mpTlRowStatus,
+                p2mpTlUpdateTime,
+                p2mpTlNumValues,
+                p2mpTlTriggerLoc,
+                p2mpTlValue
+                }
+        STATUS      current
+        DESCRIPTION
+        "Group of objects implemented in the point to point wireless
+        system for establishing thresholds and capturing timeline data."
+        ::= { p2mpRadioRfGroups 3 }
+ 
+--
+-- Optional Snapshot Group
+--
+p2mpComplianceSnapshotGroup OBJECT-GROUP
+        OBJECTS {
+                p2mpSnapshotType,
+                p2mpSnapshotDataScale,
+                p2mpSnapshotDataPrecision,
+                p2mpSnapshotOwner,
+                p2mpSnapshotAction,
+                p2mpSnapshotStatus,
+                p2mpSnapshotRowStatus,
+                p2mpSnapAttr1Id,
+                p2mpSnapAttr1Size,
+                p2mpSnapAttr2Id,
+                p2mpSnapAttr2Size,
+                p2mpSnapAttr3Id,
+                p2mpSnapAttr3Size,
+                p2mpSnapAttr4Id,
+                p2mpSnapAttr4Size,
+                p2mpRealPart,
+                p2mpImaginaryPart
+                }
+        STATUS      current
+        DESCRIPTION
+        "Group of objects implemented in the point to multi point 
+         wireless system for capturing snapshots of various parameters
+         on the radio interface."
+        ::= { p2mpRadioRfGroups 4 }
+ 
+END

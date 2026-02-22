@@ -1,0 +1,278 @@
+-- *****************************************************************
+-- CISCO-MGX82XX-ENVMON-MIB - Environmental monitoring MIB in MGX82xx.
+--
+-- April 2003, Subra.Hegde
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-MGX82XX-ENVMON-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32
+                               FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP               FROM SNMPv2-CONF
+    basisAsm                   FROM BASIS-MIB
+    ciscoWan                   FROM CISCOWAN-SMI;
+
+ciscoMgx82xxEnvmonMIB MODULE-IDENTITY
+        LAST-UPDATED    "200304170000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB module to describe the status of the 
+        Environmental Monitoring devices in
+        MGX82xx products."
+
+    REVISION    "200304170000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in CISCO-WAN-AXIPOP-MIB defined using SMIv1.
+        The applicable objects from CISCO-WAN-AXIPOP-MIB
+        are defined using SMIv2 in this MIB. Also the
+        descriptions of some of the objects have been 
+        modified."
+    ::= { ciscoWan 70 }
+
+
+-- ****************************************************************
+--  Environmental alarm tables
+-- 
+-- ****************************************************************
+
+asmAlarmTable OBJECT-TYPE
+    SYNTAX	SEQUENCE OF AsmAlarmEntry
+    MAX-ACCESS	not-accessible
+    STATUS	current
+    DESCRIPTION
+        "The ASM Alarm table. The table size is
+        given by the value of ASMNumOfValidEntries."
+    ::= { basisAsm 1 }
+
+asmAlarmEntry OBJECT-TYPE
+    SYNTAX	AsmAlarmEntry
+    MAX-ACCESS	not-accessible
+    STATUS	current
+    DESCRIPTION
+        "An entry in the Basis ASM Alarm Table."
+    INDEX	{ asmAlarmNum }
+    ::= { asmAlarmTable 1 }
+
+AsmAlarmEntry ::=
+    SEQUENCE {
+        asmAlarmNum             Integer32,
+        asmAlarmType            INTEGER,
+        asmAlarmUnitNum         Integer32,
+        asmAlarmThreshold       Integer32,
+        asmAlarmSeverity        INTEGER,
+        asmUnitMeasurable       INTEGER,
+        asmUnitMeasuredValue    Integer32,
+        asmPhysicalAlarmState   Integer32,
+        asmClrButton            INTEGER
+         		}
+asmAlarmNum OBJECT-TYPE
+    SYNTAX	Integer32(1..100)
+    MAX-ACCESS	read-only
+    STATUS	current
+    DESCRIPTION
+        "This object is the identifier of a ASM alarm
+        entry. The Alarm is further identified by the 
+        objects ASMAlarmType & ASMAlarmUnitNum."
+    ::= { asmAlarmEntry 1 }
+
+asmAlarmType OBJECT-TYPE
+    SYNTAX INTEGER {
+               alarmOther       (1),
+               alarmTemperature (2),
+               alarmPSU         (3),
+               alarmDCLevel     (4),
+               alarmFanUnit     (5)
+           }
+    MAX-ACCESS	read-only
+    STATUS	current
+    DESCRIPTION
+        "The value for this object indicates the type
+        of device for which alarm is applicable.
+
+        The possible values are :
+
+         alarmOther      (1) : Other than specified below
+         alarmTemperature(2) : Temperature sensor
+         alarmPSU        (3) : Power Supply Unit
+         alarmDCLevel    (4) : DC Level Sensor
+         alarmFanUnit    (5) : FAN speed sensor."
+    ::= { asmAlarmEntry 2 }
+
+asmAlarmUnitNum OBJECT-TYPE
+    SYNTAX      Integer32 (1..16)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object identifies one unit among a number of
+        identical units represented in this table having the
+        same asmAlarmType."
+    ::= { asmAlarmEntry 3 }
+
+asmAlarmThreshold OBJECT-TYPE
+    SYNTAX     Integer32 (1..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object specifies the threshold beyond which
+        the alarmable unit is said to be in an abnormal state."
+    ::= { asmAlarmEntry 4 }
+
+asmAlarmSeverity OBJECT-TYPE
+    SYNTAX  INTEGER{
+                alarmMinor (1),
+                alarmMajor (2)
+            }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This variable specifies the severity of the alarm
+        to be declared when the asmAlarmThreshold specified is
+        exceeded."
+    ::= { asmAlarmEntry 5 }
+
+asmUnitMeasurable OBJECT-TYPE
+    SYNTAX  INTEGER{
+                no  (1),
+                yes (2)
+            }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object indicates if the alarm unit is measurable
+        by the switch/system."
+    ::= { asmAlarmEntry 6 }
+
+asmUnitMeasuredValue OBJECT-TYPE
+    SYNTAX     Integer32(0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object gives the measured value of the entity
+        addressed by asmAlarmNum. The value in this object
+        is valid only if asmUnitMeasurable is set to 'yes'.
+        This object contains value zero for asmUnitMeasurable
+        value of 'no'."
+    ::= { asmAlarmEntry 7 }
+
+asmPhysicalAlarmState OBJECT-TYPE
+    SYNTAX     Integer32(0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object indicates the status of the ASM alarm
+        represented in this entry. It is a bitmap where a
+        set bit indicates an abnormal condition. A reset bit
+        signifies normal operation."
+    ::= { asmAlarmEntry 8 }
+
+asmClrButton OBJECT-TYPE
+    SYNTAX  INTEGER{
+                asmAlarmNoAction(1),
+                asmAlarmClear(2)
+            }
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+        "This object when set to asmAlarmClear(2),causes the
+        alarm to be cleared."
+    ::= { asmAlarmEntry 9 }
+
+asmNumOfValidEntries OBJECT-TYPE
+    SYNTAX	Integer32(0..100)
+    MAX-ACCESS	read-only
+    STATUS	current
+    DESCRIPTION
+        "The number of valid asmAlarmTable entries (regardless
+        of how many are actually configured) in the table."
+    ::= { basisAsm 2 }
+
+asmShelfAlarmState OBJECT-TYPE
+    SYNTAX	INTEGER{
+                    alarmOff(1),
+                    alarmOn(2)
+                }
+    MAX-ACCESS	read-only
+    STATUS	current
+    DESCRIPTION
+        "This object indicates whether any Shelf/Node Alarm has been 
+        declared in the system."
+    ::= { basisAsm 3 }
+
+-- conformance information
+
+cmEnvmonMIBConformance  OBJECT IDENTIFIER ::= 
+                           { ciscoMgx82xxEnvmonMIB 2 }
+
+cmEnvmonMIBGroups       OBJECT IDENTIFIER ::= 
+                                   { cmEnvmonMIBConformance 1 }
+
+cmEnvmonMIBCompliances  OBJECT IDENTIFIER ::= 
+                                   { cmEnvmonMIBConformance 2 }
+
+-- compliance statements
+
+cmEnvmonCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for objects related
+        to MGX82xx Environmental monitoring MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS {
+        cmEnvmonInfoGroup,
+        cmEnvmonGeneralGroup
+    }
+    ::= { cmEnvmonMIBCompliances 1 }
+
+cmEnvmonInfoGroup OBJECT-GROUP
+    OBJECTS {
+        asmAlarmNum,
+        asmAlarmType,
+        asmAlarmUnitNum,
+        asmAlarmThreshold,
+        asmAlarmSeverity,
+        asmUnitMeasurable,
+        asmUnitMeasuredValue,
+        asmPhysicalAlarmState,
+        asmClrButton
+      }
+      STATUS current
+      DESCRIPTION
+          "The collection of objects which are used for
+          providing information on environmental monitoring
+          devices."
+      ::= { cmEnvmonMIBGroups 1 }
+
+cmEnvmonGeneralGroup OBJECT-GROUP
+    OBJECTS {
+        asmNumOfValidEntries,
+        asmShelfAlarmState
+      }
+      STATUS current
+      DESCRIPTION
+          "The collection of objects which are used for
+          providing information on shelf level objects
+          related to environmental monitoring devices."
+      ::= { cmEnvmonMIBGroups 2 }
+
+END

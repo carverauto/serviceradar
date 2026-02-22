@@ -1,0 +1,78 @@
+-- *****************************************************************
+-- CISCO-DOT11-RADIO-DIAGNOSTIC-CAPABILITY.my:  Cisco DOT11 
+-- RADIO DIAGNOSTIC MIB AGENT CAPABILITIES
+--
+-- September 2003 - Parthasarathy Venkatavaradhan,
+-- Prasanna Viswakumar
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-DOT11-RADIO-DIAGNOSTIC-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+
+ciscoDot11RadioDiagCapability  MODULE-IDENTITY  
+        LAST-UPDATED    "200309030000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-dot11@cisco.com"
+        DESCRIPTION
+                "Agent capabilities for
+                     CISCO-DOT11-RADIO-DIAGNOSTIC-MIB"
+        ::= { ciscoAgentCapability 335 }
+
+ciscoDot11RadioDiagCapabilityV1 AGENT-CAPABILITIES
+    
+PRODUCT-RELEASE "Cisco IOS 12.2"
+        STATUS          current
+        DESCRIPTION     "Cisco Dot11 RADIO DIAGNOSTIC MIB capabilities"
+
+        SUPPORTS        CISCO-DOT11-RADIO-DIAGNOSTIC-MIB
+        INCLUDES        { cDot11RadioDiagConfigGlobalGroup }
+
+        VARIATION       cDot11RadioDiagTempChannel
+        DESCRIPTION     "The read-write operations on this object
+                         are supported only for 802.11b
+                         interfaces. "
+           
+        VARIATION       cDot11RadioDiagTempTxPowerLevel
+        DESCRIPTION     "The read-write operations on this object
+                         are supported only for 802.11b
+                         interfaces.
+
+                         Only six power levels are currently
+                         supported.  Hence, the maximum value this
+                         object can be set to is 6. "
+
+        VARIATION       cDot11RadioDiagMode
+        DESCRIPTION     "The read-write operations on this object
+                         are supported only for 802.11b
+                         interfaces. "
+
+        VARIATION       cDot11RadioDiagSettingsEnabled
+        DESCRIPTION     "The read-write operations on this object
+                         are supported only for 802.11b
+                         interfaces. "
+
+::= { ciscoDot11RadioDiagCapability 1 }
+
+END

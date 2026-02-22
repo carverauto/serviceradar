@@ -1,0 +1,51 @@
+Prior to IOS 10.2, there is a single MIB object used to perform pings
+via SNMP.  This object is:
+               ping OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Supplies a way to ping a host from this
+                           entity. The ping variable takes the following
+                           instance identifiers: 1 - IP protocol ping.
+                           IP - address to ping. integer - count of
+                           packets to send. integer - size of ping
+                           packet. integer - timeout delay between
+                           packets."
+                   ::= { lsystem 7 }
+
+The instance identifier for the ping object is:
+
+        proto.addr.count.size.timeout
+
+where
+
+        proto   1 for IP, 2 for Appletalk
+        addr    an IP address
+        count   the number of echo requests to send
+        size    bytes in each echo request packet
+        timeout seconds to wait for a reply to each echo request
+
+For example, setting
+
+  iso.org.dod.inet.priv.enter.cisco.local.lsystem.ping.1.131.108.2.238.45.64.2
+
+to any value will cause 45 64-byte IP pings to be sent to
+131.108.2.238, with a timeout value of 2 seconds.
+
+The value returned from a SNMP Set is an integer specifying the number
+of echo replies received.  The value returned from a SNMP Get is 0, as
+no pings are done.  SNMP GetNext skips this object.
+
+The implementation of this object is marginal, so expect it to misbehave
+if you don't invoke it correctly.  Also note that since the result is
+sent in the response packet, the response is not sent until the pings
+complete, which may cause management applications to timeout.
+Futhermore, the only information that is returned is the number of
+repliess that were received; round-trip time information is not
+available.  Finally, while the pings are running, the snmp server is
+unable to process other requests.  For all of these reasons, and
+probably a few more, the ping object is not supported as of IOS 10.2.
+In its place is a new, full-function, multi-protocol ping MIB.  Look for
+cisco-ping-mib on ftp.cisco.com, cio.cisco.com, or www.cisco.com
+

@@ -1,0 +1,963 @@
+-- *****************************************************************
+-- CISCO-LISP-EXT-MIB.my
+--   
+-- April 2015, Michael Bassin
+--   
+-- Copyright (c) 2015 by cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-LISP-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter64,
+    Integer32,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    TimeStamp
+        FROM SNMPv2-TC
+    AddressFamilyNumbers
+        FROM IANA-ADDRESS-FAMILY-NUMBERS-MIB
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    LispAddressType,
+    lispGlobalStatsEntry,
+    lispUseMapResolverState,
+    lispFeaturesEntry,
+    lispUseMapServerState,
+    lispUseProxyEtrState,
+    lispEidRegistrationSiteName,
+    lispMappingDatabaseTimeStamp,
+    lispFeaturesMapCacheLimit
+        FROM LISP-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoLispExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "201505130000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: lisp-support@cisco.com"
+    DESCRIPTION
+        "This MIB is an extension to the IETF LISP-MIB module defined
+        in RFC 7052. It contains Cisco defined managed objects and 
+        traps to support monitoring devices that support the Locator/ID
+        Separation Protocol (LISP)."
+    REVISION        "201505130000Z"
+    DESCRIPTION
+        "Initial version of the CISCO-LISP-EXT-MIB module."
+    ::= { ciscoMgmt 825 }
+
+
+-- Top-level components of this MIB.
+
+ciscoLispExtNotifications  OBJECT IDENTIFIER
+    ::= { ciscoLispExtMIB 0 }
+
+ciscoLispExtObjects  OBJECT IDENTIFIER
+    ::= { ciscoLispExtMIB 1 }
+
+ciscoLispExtConformance  OBJECT IDENTIFIER
+    ::= { ciscoLispExtMIB 2 }
+
+
+clispExtEidRegRlocMembershipTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClispExtEidRegRlocMembershipEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the RLOC address gleaned from the map-server
+        registration database for the purpose of RLOC membership.
+        Entry on this table can also be added from configuration."
+    REFERENCE
+        "LISP RLOC Membership Distribution
+            http://tools.ietf.org/html/draft-kouvelas-lisp-rloc-membership"
+    ::= { ciscoLispExtObjects 1 }
+
+clispExtEidRegRlocMembershipEntry OBJECT-TYPE
+    SYNTAX          ClispExtEidRegRlocMembershipEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes an RLOC address gleaned from the map-server
+        registration database."
+    INDEX           {
+                        clispExtEidRegRlocMembershipInstanceID,
+                        clispExtEidRegRlocMembershipEidAfi,
+                        clispExtEidRegRlocMembershipRlocLength,
+                        clispExtEidRegRlocMembershipRloc
+                    } 
+    ::= { clispExtEidRegRlocMembershipTable 1 }
+
+ClispExtEidRegRlocMembershipEntry ::= SEQUENCE {
+        clispExtEidRegRlocMembershipInstanceID  Unsigned32,
+        clispExtEidRegRlocMembershipEidAfi      AddressFamilyNumbers,
+        clispExtEidRegRlocMembershipRlocLength  Integer32,
+        clispExtEidRegRlocMembershipRloc        LispAddressType,
+        clispExtEidRegRlocMembershipMemberSince TimeStamp,
+        clispExtEidRegRlocMembershipGleaned     TruthValue,
+        clispExtEidRegRlocMembershipConfigured  TruthValue
+}
+
+clispExtEidRegRlocMembershipInstanceID OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..16777215)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the instance ID of the RLOC address." 
+    ::= { clispExtEidRegRlocMembershipEntry 1 }
+
+clispExtEidRegRlocMembershipEidAfi OBJECT-TYPE
+    SYNTAX          AddressFamilyNumbers
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IANA Address Family Identifier of
+        the RLOC address." 
+    ::= { clispExtEidRegRlocMembershipEntry 2 }
+
+clispExtEidRegRlocMembershipRlocLength OBJECT-TYPE
+    SYNTAX          Integer32 (5..39)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the length of the RLOC address." 
+    ::= { clispExtEidRegRlocMembershipEntry 3 }
+
+clispExtEidRegRlocMembershipRloc OBJECT-TYPE
+    SYNTAX          LispAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of the RLOC address." 
+    ::= { clispExtEidRegRlocMembershipEntry 4 }
+
+clispExtEidRegRlocMembershipMemberSince OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sysUpTime when this RLOC address
+        was registered.
+
+        If this information was present at the most recent 
+        reinitialization of the local management subsystem, 
+        then this object contains a zero value."
+    DEFVAL          { 0 } 
+    ::= { clispExtEidRegRlocMembershipEntry 5 }
+
+clispExtEidRegRlocMembershipGleaned OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the RLOC address was gleaned
+        from a received EID prefix registration. If this object is true,
+        then it means the RLOC address was gleaned." 
+    ::= { clispExtEidRegRlocMembershipEntry 6 }
+
+clispExtEidRegRlocMembershipConfigured OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the RLOC address was added by
+        configuration. If this object is true, then it means the RLOC
+        address was configured." 
+    ::= { clispExtEidRegRlocMembershipEntry 7 }
+ 
+
+
+clispExtRlocMembershipTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClispExtRlocMembershipEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the RLOC membership learned by the xTR.
+        Entry can be learned from the map-server or from configuration."
+    REFERENCE
+        "LISP RLOC Membership Distribution
+            http://tools.ietf.org/html/draft-kouvelas-lisp-rloc-membership"
+    ::= { ciscoLispExtObjects 2 }
+
+clispExtRlocMembershipEntry OBJECT-TYPE
+    SYNTAX          ClispExtRlocMembershipEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes the RLOC membership learned by the xTR."
+    INDEX           {
+                        clispExtRlocMembershipInstanceID,
+                        clispExtRlocMembershipEidAfi,
+                        clispExtRlocMembershipRlocLength,
+                        clispExtRlocMembershipRloc
+                    } 
+    ::= { clispExtRlocMembershipTable 1 }
+
+ClispExtRlocMembershipEntry ::= SEQUENCE {
+        clispExtRlocMembershipInstanceID  Unsigned32,
+        clispExtRlocMembershipEidAfi      AddressFamilyNumbers,
+        clispExtRlocMembershipRlocLength  Integer32,
+        clispExtRlocMembershipRloc        LispAddressType,
+        clispExtRlocMembershipMemberSince TimeStamp,
+        clispExtRlocMembershipDiscovered  TruthValue,
+        clispExtRlocMembershipConfigured  TruthValue
+}
+
+clispExtRlocMembershipInstanceID OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..16777215)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the instance ID of the RLOC membership." 
+    ::= { clispExtRlocMembershipEntry 1 }
+
+clispExtRlocMembershipEidAfi OBJECT-TYPE
+    SYNTAX          AddressFamilyNumbers
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IANA Address Family Identifier
+        of the RLOC membership." 
+    ::= { clispExtRlocMembershipEntry 2 }
+
+clispExtRlocMembershipRlocLength OBJECT-TYPE
+    SYNTAX          Integer32 (5..39)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the length of the RLOC membership." 
+    ::= { clispExtRlocMembershipEntry 3 }
+
+clispExtRlocMembershipRloc OBJECT-TYPE
+    SYNTAX          LispAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of the RLOC membership." 
+    ::= { clispExtRlocMembershipEntry 4 }
+
+clispExtRlocMembershipMemberSince OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sysUpTime when the RLOC membership
+        was added.
+
+        If this information was present at the most recent 
+        reinitialization of the local management subsystem, 
+        then this object contains a zero value."
+    DEFVAL          { 0 } 
+    ::= { clispExtRlocMembershipEntry 5 }
+
+clispExtRlocMembershipDiscovered OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the RLOC membership was learned
+        from the map-server. If this object is true, then it means the 
+        RLOC membership was learned." 
+    ::= { clispExtRlocMembershipEntry 6 }
+
+clispExtRlocMembershipConfigured OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the RLOC membership was added by
+        configuration. If this object is true, then it means the RLOC 
+        membership was configured." 
+    ::= { clispExtRlocMembershipEntry 7 }
+ 
+
+
+clispExtReliableTransportSessionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClispExtReliableTransportSessionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the reliable transport sessions.  The session
+        may or may not be in established state."
+    REFERENCE
+        "LISP Reliable Transport
+            http://tools.ietf.org/html/draft-kouvelas-lisp-reliable-transport"
+    ::= { ciscoLispExtObjects 3 }
+
+clispExtReliableTransportSessionEntry OBJECT-TYPE
+    SYNTAX          ClispExtReliableTransportSessionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes the reliable transport session."
+    INDEX           {
+                        clispExtReliableTransportSessionPeerAddressLength,
+                        clispExtReliableTransportSessionPeerAddress,
+                        clispExtReliableTransportSessionPeerPort,
+                        clispExtReliableTransportSessionLocalAddressLength,
+                        clispExtReliableTransportSessionLocalAddress,
+                        clispExtReliableTransportSessionLocalPort
+                    } 
+    ::= { clispExtReliableTransportSessionTable 1 }
+
+ClispExtReliableTransportSessionEntry ::= SEQUENCE {
+        clispExtReliableTransportSessionPeerAddressLength   Integer32,
+        clispExtReliableTransportSessionPeerAddress         LispAddressType,
+        clispExtReliableTransportSessionPeerPort            InetPortNumber,
+        clispExtReliableTransportSessionLocalAddressLength  Integer32,
+        clispExtReliableTransportSessionLocalAddress        LispAddressType,
+        clispExtReliableTransportSessionLocalPort           InetPortNumber,
+        clispExtReliableTransportSessionState               INTEGER,
+        clispExtReliableTransportSessionLastStateChangeTime TimeStamp,
+        clispExtReliableTransportSessionEstablishmentRole   INTEGER,
+        clispExtReliableTransportSessionMessagesIn          Counter64,
+        clispExtReliableTransportSessionMessagesOut         Counter64,
+        clispExtReliableTransportSessionBytesIn             Counter64,
+        clispExtReliableTransportSessionBytesOut            Counter64
+}
+
+clispExtReliableTransportSessionPeerAddressLength OBJECT-TYPE
+    SYNTAX          Integer32 (5..39)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the length of the reliable transport session
+        peer address." 
+    ::= { clispExtReliableTransportSessionEntry 1 }
+
+clispExtReliableTransportSessionPeerAddress OBJECT-TYPE
+    SYNTAX          LispAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the peer address of the reliable transport
+        session." 
+    ::= { clispExtReliableTransportSessionEntry 2 }
+
+clispExtReliableTransportSessionPeerPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the peer port of the reliable transport
+        session." 
+    ::= { clispExtReliableTransportSessionEntry 3 }
+
+clispExtReliableTransportSessionLocalAddressLength OBJECT-TYPE
+    SYNTAX          Integer32 (5..39)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the length of the reliable transport
+        session local address." 
+    ::= { clispExtReliableTransportSessionEntry 4 }
+
+clispExtReliableTransportSessionLocalAddress OBJECT-TYPE
+    SYNTAX          LispAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the local address of the reliable transport
+        session." 
+    ::= { clispExtReliableTransportSessionEntry 5 }
+
+clispExtReliableTransportSessionLocalPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the local port of the reliable transport
+        session." 
+    ::= { clispExtReliableTransportSessionEntry 6 }
+
+clispExtReliableTransportSessionState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        up(1),
+                        down(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the state of the reliable transport session." 
+    ::= { clispExtReliableTransportSessionEntry 7 }
+
+clispExtReliableTransportSessionLastStateChangeTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sysUpTime of the last UP/DOWN state
+        transition on the reliable transport session."
+    DEFVAL          { 0 } 
+    ::= { clispExtReliableTransportSessionEntry 8 }
+
+clispExtReliableTransportSessionEstablishmentRole OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        passive(1),
+                        active(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the role of the reliable transport
+        session.
+
+          'active' 
+              Connection was initiated locally by the LISP router. 
+
+          'passive' 
+              Connection was accepted by the LISP router listening 
+              on the well-known local transport port." 
+    ::= { clispExtReliableTransportSessionEntry 9 }
+
+clispExtReliableTransportSessionMessagesIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of messages received on this
+        reliable transport session." 
+    ::= { clispExtReliableTransportSessionEntry 10 }
+
+clispExtReliableTransportSessionMessagesOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of messages sent on this
+        reliable transport session." 
+    ::= { clispExtReliableTransportSessionEntry 11 }
+
+clispExtReliableTransportSessionBytesIn OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of bytes received on this
+        reliable transport session." 
+    ::= { clispExtReliableTransportSessionEntry 12 }
+
+clispExtReliableTransportSessionBytesOut OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of bytes sent on this
+        reliable transport session." 
+    ::= { clispExtReliableTransportSessionEntry 13 }
+ 
+
+-- Cisco Global Stats Table
+
+clispExtGlobalStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClispExtGlobalStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists statistic to augment the lispGlobalStatsTable."
+    ::= { ciscoLispExtObjects 4 }
+
+clispExtGlobalStatsEntry OBJECT-TYPE
+    SYNTAX          ClispExtGlobalStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing additional global statistics information."
+    AUGMENTS           { lispGlobalStatsEntry  } 
+    ::= { clispExtGlobalStatsTable 1 }
+
+ClispExtGlobalStatsEntry ::= SEQUENCE {
+        clispExtGlobalStatsEidRegMoreSpecificEntryCount Unsigned32
+}
+
+clispExtGlobalStatsEidRegMoreSpecificEntryCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of EID prefix registration
+        that are accepted as a result of the accept-more-specific
+        configuration." 
+    ::= { clispExtGlobalStatsEntry 1 }
+ 
+
+-- Cisco Features Table
+
+clispExtFeaturesTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClispExtFeaturesEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains additional LISP feature entries for
+        lispFeaturesTable."
+    ::= { ciscoLispExtObjects 5 }
+
+clispExtFeaturesEntry OBJECT-TYPE
+    SYNTAX          ClispExtFeaturesEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing additional LISP feature information."
+    AUGMENTS           { lispFeaturesEntry  } 
+    ::= { clispExtFeaturesTable 1 }
+
+ClispExtFeaturesEntry ::= SEQUENCE {
+        clispExtFeaturesEidRegMoreSpecificWarningThreshold Unsigned32,
+        clispExtFeaturesEidRegMoreSpecificLimit            Unsigned32,
+        clispExtFeaturesMapCacheWarningThreshold           Unsigned32
+}
+
+clispExtFeaturesEidRegMoreSpecificWarningThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the warning threshold for the
+        accept-more-specific registration count on the map-server." 
+    ::= { clispExtFeaturesEntry 1 }
+
+clispExtFeaturesEidRegMoreSpecificLimit OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the accept-more-specific registration limit
+        on the map-server." 
+    ::= { clispExtFeaturesEntry 2 }
+
+clispExtFeaturesMapCacheWarningThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the map-cache warning threshold on the xTR." 
+    ::= { clispExtFeaturesEntry 3 }
+ 
+
+-- Trap Supported Objects
+
+clispExtNotificationObjects  OBJECT IDENTIFIER
+    ::= { ciscoLispExtObjects 6 }
+
+
+clispExtEidRegFailureCause OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        noEidPrefixConfiguration(1),
+                        authenticationFailure(2),
+                        allowedLocatorMismatch(3)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the cause of the map registration failure
+        on the map-server.
+
+          'noEidPrefixConfiguration' 
+              No site configuration to accept registration for 
+              EID prefix.
+
+          'authenticationFailure' 
+              Failed to authenticate map-register for EID prefix.
+
+          'allowedLocatorMismatch' 
+              map-register contains RLOC that is not in the site's
+              allowed locator list." 
+    ::= { clispExtNotificationObjects 1 }
+
+clispExtEidRegMapRequestDroppedCause OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        malformedRequest(1),
+                        noMatchingEidRegistration(2),
+                        allowedLocatorPolicyViolation(3)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the cause of the map-request drop on the
+        map-resolver.
+
+          'malformedRequest' 
+              map-request is not valid.
+
+          'noMatchingEidRegistration' 
+              could not find matching EID registration for 
+              the map-request.
+
+          'allowedLocatorPolicyViolation' 
+              map request does not conform to the configured 
+              allowed-locator policy." 
+    ::= { clispExtNotificationObjects 2 }
+-- ciscoLispExtObjects not associated with tables
+
+clispExtGlobalObjects  OBJECT IDENTIFIER
+    ::= { ciscoLispExtObjects 7 }
+
+
+clispExtEidRegMoreSpecificWarningThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the warning threshold for the
+        accept-more-specific registration count on the map-server.
+        This warning threshold is applicable to all EID instances." 
+    ::= { clispExtGlobalObjects 1 }
+
+clispExtEidRegMoreSpecificLimit OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the accept-more-specific registration limit
+        on the map-server.  This is applicable to all EID instances." 
+    ::= { clispExtGlobalObjects 2 }
+
+clispExtEidRegMoreSpecificCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of map registrations accepted
+        as a result of accept-more-specific configuration.  This is
+        applicable to all EID instances." 
+    ::= { clispExtGlobalObjects 3 }
+
+-- Notifications
+
+clispExtUseMapResolverStateChange NOTIFICATION-TYPE
+    OBJECTS         { lispUseMapResolverState }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the map-resolver
+        reachability state changes. The lispUseMapResolverAddressLength
+        and lispUseMapResolverAddress values are attached to the notification 
+        object ID."
+   ::= { ciscoLispExtNotifications 1 }
+
+clispExtReliableTransportStateChange NOTIFICATION-TYPE
+    OBJECTS         { clispExtReliableTransportSessionState }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the reliable transport
+        session state changes. The clispReliableTransportSessionPeerAddressLength,
+        clispReliableTransportSessionPeerAddress,
+        clispReliableTransportSessionPeerPort,
+        clispReliableTransportSessionLocalAddressLength, 
+        clispReliableTransportSessionLocalAddress,
+        clispReliableTransportSessionLocalPort values are attached to the
+        notification object ID."
+   ::= { ciscoLispExtNotifications 2 }
+
+clispExtMappingDatabaseEidRegFailure NOTIFICATION-TYPE
+    OBJECTS         {
+                        lispMappingDatabaseTimeStamp,
+                        lispUseMapServerState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the xTR fails to
+        register a database mapping with the map-server. 
+        The lispMappingDatabaseEidLength, lispMappingDatabaseEid,
+        lispUseMapServerAddressLength, lispUseMapServerAddress values 
+        are attached to the notification object ID."
+   ::= { ciscoLispExtNotifications 3 }
+
+clispExtUseMapServerStateChange NOTIFICATION-TYPE
+    OBJECTS         { lispUseMapServerState }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the map-server
+        reachability state changes. The lispUseMapServerAddressLength
+        and lispUseMapServerAddress values are attached to the notification
+        object ID."
+   ::= { ciscoLispExtNotifications 4 }
+
+clispExtUseProxyEtrStateChange NOTIFICATION-TYPE
+    OBJECTS         { lispUseProxyEtrState }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the proxy ETR
+        reachability state changes. The lispUseProxyEtrAddressLength and
+        lispUseProxyEtrAddress values are attached to the notification
+        object ID."
+   ::= { ciscoLispExtNotifications 5 }
+
+clispExtEidRegSiteAllRegistrationsExpired NOTIFICATION-TYPE
+    OBJECTS         { lispEidRegistrationSiteName }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when all the registration
+        for a site expires on the map-server. The lispEidRegistrationEidLength
+        and lispEidRegistrationEid values are attached to the notification
+        object ID."
+   ::= { ciscoLispExtNotifications 6 }
+
+clispExtEidRegFailure NOTIFICATION-TYPE
+    OBJECTS         {
+                        lispEidRegistrationSiteName,
+                        clispExtEidRegFailureCause
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the map-server fails
+        to accept a map registration. The lispEidRegistrationEidLength
+        and lispEidRegistrationEid values are attached to the notification
+        object ID.
+         If clispExtEidRegFailureCause value is noEidPrefixConfiguration(1) the
+        lispEidRegistrationSiteName object in the notification will be empty."
+   ::= { ciscoLispExtNotifications 7 }
+
+clispExtFeaturesEidRegMoreSpecificLimitReached NOTIFICATION-TYPE
+    OBJECTS         { clispExtFeaturesEidRegMoreSpecificLimit }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the map-server has
+        reached the limit of the number of map registrations it can accept
+        as a result of the accept-more-specific configuration.  This
+        notification is instance specific. The lispFeaturesInstanceID and
+        lispFeaturesAddressFamily values are attached to the notification
+        object ID."
+   ::= { ciscoLispExtNotifications 8 }
+
+clispExtFeaturesEidRegMoreSpecificWarningThresholdReached NOTIFICATION-TYPE
+    OBJECTS         { clispExtFeaturesEidRegMoreSpecificWarningThreshold }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the map-server has
+        reached the threshold of the number of map registrations it can
+        accept as a result of accept-more-specific configuration.  This
+        notification is instance specific. The lispFeaturesInstanceID and
+        lispFeaturesAddressFamily values are attached to the notification
+        object ID."
+   ::= { ciscoLispExtNotifications 9 }
+
+clispExtEidRegMapRequestDropped NOTIFICATION-TYPE
+    OBJECTS         {
+                        lispEidRegistrationSiteName,
+                        clispExtEidRegMapRequestDroppedCause
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the map-resolver
+        drops a map-request because the map-request does not conform to
+        configured policy. The lispEidRegistrationEidLength and 
+        lispEidRegistrationEid values are attached to the notification
+        object ID."
+   ::= { ciscoLispExtNotifications 10 }
+
+clispExtEidRegMoreSpecificLimitReached NOTIFICATION-TYPE
+    OBJECTS         { clispExtEidRegMoreSpecificLimit }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the map-server has
+        reached the limit of the number of map registrations it can accept
+        as a result of the accept-more-specific configuration.  This
+        notification is router LISP instance specific."
+   ::= { ciscoLispExtNotifications 11 }
+
+clispExtEidRegMoreSpecificWarningThresholdReached NOTIFICATION-TYPE
+    OBJECTS         { clispExtEidRegMoreSpecificWarningThreshold }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the map-server has
+        reached the threshold of the number of map registrations it can
+        accept as a result of accept-more-specific configuration.  This
+        notification is router LISP instance specific."
+   ::= { ciscoLispExtNotifications 12 }
+
+clispExtFeaturesMapCacheLimitReached NOTIFICATION-TYPE
+    OBJECTS         { lispFeaturesMapCacheLimit }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the xTR has reached
+        the limit of the number of map-cache it can create.  This
+        notification is instance specific. The lispFeaturesInstanceID and
+        lispFeaturesAddressFamily values are attached to the notification
+        object ID."
+   ::= { ciscoLispExtNotifications 13 }
+
+clispExtFeaturesMapCacheWarningThresholdReached NOTIFICATION-TYPE
+    OBJECTS         { clispExtFeaturesMapCacheWarningThreshold }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the xTR has reached
+        the threshold of the number of map-cache it can create.  This
+        notification is instance specific. The lispFeaturesInstanceID and
+        lispFeaturesAddressFamily values are attached to the notification
+        object ID."
+   ::= { ciscoLispExtNotifications 14 }
+-- Conformance Information
+
+ciscoLispExtCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLispExtConformance 1 }
+
+ciscoLispExtGroups  OBJECT IDENTIFIER
+    ::= { ciscoLispExtConformance 2 }
+
+
+-- Compliance Statements
+
+ciscoLispExtMIBComplianceAll MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Compliance requirement for implementations of CISCO-LISP-EXT-MIB
+        by all LISP (P)xTR devices. Map-server database of gleaned RLOC
+        addresses only need to be supported on LISP Map Server."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        clispExtRlocMembershipGroup,
+                        clispExtReliableTransportSessionGroup,
+                        clispExtNotificationsGroup,
+                        clispExtGlobalStatsGroup,
+                        clispExtFeaturesGroup,
+                        clispExtNotificationSupportGroup,
+                        clispExtEidRegMoreSpecificValuesGroup
+                    }
+    ::= { ciscoLispExtCompliances 1 }
+
+ciscoLispExtMIBComplianceMapServer MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Compliance requirement for implementations of CISCO-LISP-EXT-MIB
+        by LISP Map Server devices."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        clispExtEidRegRlocMembershipGroup,
+                        clispExtReliableTransportSessionGroup,
+                        clispExtNotificationsGroup,
+                        clispExtGlobalStatsGroup,
+                        clispExtFeaturesGroup,
+                        clispExtNotificationSupportGroup,
+                        clispExtEidRegMoreSpecificValuesGroup
+                    }
+    ::= { ciscoLispExtCompliances 2 }
+
+-- Units of Conformance
+
+clispExtNotificationsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        clispExtUseMapResolverStateChange,
+                        clispExtReliableTransportStateChange,
+                        clispExtMappingDatabaseEidRegFailure,
+                        clispExtUseMapServerStateChange,
+                        clispExtUseProxyEtrStateChange,
+                        clispExtEidRegSiteAllRegistrationsExpired,
+                        clispExtEidRegFailure,
+                        clispExtEidRegMoreSpecificLimitReached,
+                        clispExtEidRegMoreSpecificWarningThresholdReached,
+                        clispExtEidRegMapRequestDropped,
+                        clispExtFeaturesEidRegMoreSpecificLimitReached,
+                        clispExtFeaturesEidRegMoreSpecificWarningThresholdReached,
+                        clispExtFeaturesMapCacheLimitReached,
+                        clispExtFeaturesMapCacheWarningThresholdReached
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Objects required for LISP notifications."
+    ::= { ciscoLispExtGroups 1 }
+
+clispExtEidRegRlocMembershipGroup OBJECT-GROUP
+    OBJECTS         {
+                        clispExtEidRegRlocMembershipMemberSince,
+                        clispExtEidRegRlocMembershipGleaned,
+                        clispExtEidRegRlocMembershipConfigured
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to support reporting
+        MapServer database of RLOC membership."
+    ::= { ciscoLispExtGroups 2 }
+
+clispExtRlocMembershipGroup OBJECT-GROUP
+    OBJECTS         {
+                        clispExtRlocMembershipMemberSince,
+                        clispExtRlocMembershipDiscovered,
+                        clispExtRlocMembershipConfigured
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to support reporting
+        RLOC membership information."
+    ::= { ciscoLispExtGroups 3 }
+
+clispExtReliableTransportSessionGroup OBJECT-GROUP
+    OBJECTS         {
+                        clispExtReliableTransportSessionState,
+                        clispExtReliableTransportSessionLastStateChangeTime,
+                        clispExtReliableTransportSessionEstablishmentRole,
+                        clispExtReliableTransportSessionMessagesIn,
+                        clispExtReliableTransportSessionMessagesOut,
+                        clispExtReliableTransportSessionBytesIn,
+                        clispExtReliableTransportSessionBytesOut
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to support reporting \
+        ReliableTransportSession information."
+    ::= { ciscoLispExtGroups 4 }
+
+clispExtGlobalStatsGroup OBJECT-GROUP
+    OBJECTS         { clispExtGlobalStatsEidRegMoreSpecificEntryCount }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to support reporting \
+        Cisco define augments to the lispGlobalStatsTable"
+    ::= { ciscoLispExtGroups 5 }
+
+clispExtFeaturesGroup OBJECT-GROUP
+    OBJECTS         {
+                        clispExtFeaturesEidRegMoreSpecificWarningThreshold,
+                        clispExtFeaturesEidRegMoreSpecificLimit,
+                        clispExtFeaturesMapCacheWarningThreshold
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to support reporting \
+        Cisco define augments to the lispFeaturesTable."
+    ::= { ciscoLispExtGroups 6 }
+
+clispExtNotificationSupportGroup OBJECT-GROUP
+    OBJECTS         {
+                        clispExtEidRegFailureCause,
+                        clispExtEidRegMapRequestDroppedCause,
+                        clispExtEidRegMoreSpecificWarningThreshold,
+                        clispExtEidRegMoreSpecificLimit
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to be supplied within notifications."
+    ::= { ciscoLispExtGroups 7 }
+
+clispExtEidRegMoreSpecificValuesGroup OBJECT-GROUP
+    OBJECTS         {
+                        clispExtEidRegMoreSpecificWarningThreshold,
+                        clispExtEidRegMoreSpecificLimit,
+                        clispExtEidRegMoreSpecificCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to be supplied within notifications."
+    ::= { ciscoLispExtGroups 8 }
+
+END
+

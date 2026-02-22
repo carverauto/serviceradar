@@ -1,0 +1,915 @@
+-- *****************************************************************
+-- CISCO-ENHANCED-MEMPOOL-CAPABILITY.my: CISCO-ENHANCED-MEMPOOL-MIB
+-- AGENT-CAPABILITIES
+--   
+-- October 2005, Sreenivasulu Chalamcharla
+--   
+-- Copyright (c) 2004-2005, 2007, 2009-2011 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-ENHANCED-MEMPOOL-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+cempCapability MODULE-IDENTITY
+    LAST-UPDATED    "201109210000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail:    cs-memory@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-ENHANCED-MEMPOOL-MIB."
+    REVISION        "201109210000Z"
+    DESCRIPTION
+        "Added cempCapabilityNXOSV06R0001 agent
+        capabilities for Cisco Nexus NX-OS 6.0(1)."
+    REVISION        "201101310000Z"
+    DESCRIPTION
+        "Added cempCapabilityASA for 8.4.x version."
+    REVISION        "201010280000Z"
+    DESCRIPTION
+        "Added cempCapabilityNXOSV05R0201 agent
+        capabilities for NX-OS release 5.2(1)."
+    REVISION        "200908210000Z"
+    DESCRIPTION
+        "fixed/removed extra-unwanted comma in
+        cempCapabilityNXOS501 agent capabilities"
+    REVISION        "200904230000Z"
+    DESCRIPTION
+        "Added cempCapabilityNXOS501 agent
+        capabilities for NX-OS release 5.0."
+    REVISION        "200705090000Z"
+    DESCRIPTION
+        "The following capability statements have been added:
+        1. cempCapabilityV12R05TP184x
+        2. cempCapabilityV12R05TP2801."
+    REVISION        "200512290000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoEmpCapCatOSV08R0601Cat6K."
+    REVISION        "200510260000Z"
+    DESCRIPTION
+        "Added cempCapabilityIOSXRV2R0CRS1 agent
+        capabilities for IOS XR release 2.0 CRS1"
+    REVISION        "200501270000Z"
+    DESCRIPTION
+        "Added agent capabilities for 38xx, 37xx,
+        26xx, 28xx, VG224 and IAD243x platforms."
+    REVISION        "200410010000Z"
+    DESCRIPTION
+        "Added cempCapabilityV12R03TP5000 for
+        Cisco IOS 12.3T"
+    REVISION        "200406150000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 462 }
+
+
+
+cempCapabilityV12R03T AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.3T"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroup,
+                        cempMemPoolExtGroup,
+                        cempMemBufferGroup,
+                        cempMemBufferExtGroup,
+                        cempMemBufferNotifyEnableGroup,
+                        cempMemBufferNotifyGroup,
+                        cempMemPoolExtGroupRev1
+                    }
+    VARIATION       cempMemBufferSize
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access not implemented."
+
+    VARIATION       cempMemBufferMin
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access not implemented."
+
+    VARIATION       cempMemBufferMax
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access not implemented."
+
+    VARIATION       cempMemBufferPermanent
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access not implemented."
+
+    VARIATION       cempMemBufferTransient
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access not implemented."
+
+    VARIATION       cempMemBufferNotifyEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access not implemented. Default
+        value is FALSE"
+
+    VARIATION       cempMemPoolUsedLowWaterMark
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemBufferFreeHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemBufferFreeMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    ::= { cempCapability 1 }
+
+cempCapabilityV12R03TP5000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.3T for AS5350, AS5400 and AS5850
+                        platforms"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroup,
+                        cempMemBufferNotifyEnableGroup,
+                        cempMemPoolExtGroupRev1
+                    }
+    VARIATION       cempMemPoolUsedLowWaterMark
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemBufferNotifyEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access not implemented."
+
+    ::= { cempCapability 2 }
+
+cempCapabilityV12R04TP37xx AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T for c3725 and c3745
+                        platforms"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroup,
+                        cempMemBufferNotifyEnableGroup,
+                        cempMemPoolExtGroupRev1
+                    }
+    VARIATION       cempMemPoolUsedLowWaterMark
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemBufferNotifyEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access not implemented."
+
+    ::= { cempCapability 3 }
+
+cempCapabilityV12R04TP26xx AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T for c26xx and c2691
+                        platforms"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroup,
+                        cempMemBufferNotifyEnableGroup,
+                        cempMemPoolExtGroupRev1
+                    }
+    VARIATION       cempMemPoolUsedLowWaterMark
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemBufferNotifyEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access not implemented."
+
+    ::= { cempCapability 4 }
+
+cempCapabilityV12R04TP38xx AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T for c3825 and c3845
+                        platforms"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroup,
+                        cempMemBufferNotifyEnableGroup,
+                        cempMemPoolExtGroupRev1
+                    }
+    VARIATION       cempMemPoolUsedLowWaterMark
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemBufferNotifyEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access not implemented."
+
+    ::= { cempCapability 5 }
+
+cempCapabilityV12R04TP28xx AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T for c28xx platforms"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroup,
+                        cempMemBufferNotifyEnableGroup,
+                        cempMemPoolExtGroupRev1
+                    }
+    VARIATION       cempMemPoolUsedLowWaterMark
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemBufferNotifyEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access not implemented."
+
+    ::= { cempCapability 6 }
+
+cempCapabilityV12R04TPVG224 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T for VG224 platforms"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroup,
+                        cempMemBufferNotifyEnableGroup,
+                        cempMemPoolExtGroupRev1
+                    }
+    VARIATION       cempMemPoolUsedLowWaterMark
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemBufferNotifyEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access not implemented."
+
+    ::= { cempCapability 7 }
+
+cempCapabilityV12R04TPIAD243x AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4T for IAD243x platforms"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroup,
+                        cempMemBufferNotifyEnableGroup,
+                        cempMemPoolExtGroupRev1
+                    }
+    VARIATION       cempMemPoolUsedLowWaterMark
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemBufferNotifyEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access not implemented."
+
+    ::= { cempCapability 8 }
+
+cempCapabilityIOSXRV2R0CRS1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS XR 2.0 for CRS-1"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL-MIB capabilities for
+        IOS XR release 2.0"
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        { cempMemPoolGroup }
+    ::= { cempCapability 9 }
+
+cempCapabilityCatOSV08R0601 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.6(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL-MIB capabilities."
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroup,
+                        cempMemPoolExtGroup
+                    }
+    VARIATION       cempMemPoolType
+    SYNTAX          INTEGER  {
+                        processorMemory(2),
+                        ioMemory(3),
+                        imageMemory(12),
+                        nvram(14),
+                        mbuf(15),
+                        cluster(16),
+                        malloc(17)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    ::= { cempCapability 10 }
+
+cempCapabilityV12R05TP184x AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.5T for 184x platforms"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroup,
+                        cempMemBufferNotifyEnableGroup,
+                        cempMemPoolExtGroupRev1
+                    }
+    VARIATION       cempMemPoolUsedLowWaterMark
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemBufferNotifyEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation on this object is not supported in
+        this implementation."
+
+    ::= { cempCapability 11 }
+
+cempCapabilityV12R05TP2801 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.5T for the 2801 platform"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroup,
+                        cempMemBufferNotifyEnableGroup,
+                        cempMemPoolExtGroupRev1
+                    }
+    VARIATION       cempMemPoolUsedLowWaterMark
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolAllocMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeHit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolFreeMiss
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemBufferNotifyEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation on this object is not supported in
+        this implementation."
+
+    ::= { cempCapability 12 }
+
+cempCapabilityNXOS501 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco MDS & Nexus NX-OS 5.0 and above"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL MIB capabilities"
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        { cempMemPoolGroupRev1 }
+    VARIATION       cempMemPoolType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    VARIATION       cempMemPoolShared
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in the current
+        MIB implementation."
+
+    ::= { cempCapability 13 }
+
+cempCapabilityNXOSV05R0201 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Nexus NX-OS 5.2(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL MIB capabilities to
+        support 64bit values."
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroupRev1,
+                        cempMemPoolExtGroupRev1,
+                        cempMemPoolHCGroup,
+                        cempMemPoolOvrflwGroup
+                    }
+    VARIATION       cempMemPoolLargestFree
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolLowestFree
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolUsedLowWaterMark
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolAllocHit
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolAllocMiss
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolFreeHit
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolFreeMiss
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolName
+    DESCRIPTION
+        "Always returns zero-length string."
+
+    VARIATION       cempMemPoolHCLargestFree
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolHCLowestFree
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolHCUsedLowWaterMark
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolHCShared
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolUsedOvrflw
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolFreeOvrflw
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolLargestFreeOvrflw
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolLowestFreeOvrflw
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolUsedLowWaterMarkOvrflw
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolSharedOvrflw
+    DESCRIPTION
+        "Always returns 0."
+
+    ::= { cempCapability 14 }
+
+cempCapabilityASA AGENT-CAPABILITIES
+    PRODUCT-RELEASE "8.4.x"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL MIB capabilities to
+        support 64 bit values in ASA for 8.4.x release."
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroup,
+                        cempMemPoolHCGroup,
+                        cempMemPoolExtGroup
+                    }
+    VARIATION       cempMemPoolName
+    DESCRIPTION
+        "Always returns zero-length string."
+
+    VARIATION       cempMemPoolType
+    DESCRIPTION
+        "Always returns 2 (Processor memory type)."
+
+    VARIATION       cempMemPoolAlternate
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolValid
+    DESCRIPTION
+        "Always returns 1."
+
+    VARIATION       cempMemPoolUsed
+    DESCRIPTION
+        "Returns 32 bit LSB value of used memory."
+
+    VARIATION       cempMemPoolFree
+    DESCRIPTION
+        "Returns 32 bit LSB value of free memory."
+
+    VARIATION       cempMemPoolUsedOvrflw
+    DESCRIPTION
+        "Returns 32 bit MSB value of used memory."
+
+    VARIATION       cempMemPoolFreeOvrflw
+    DESCRIPTION
+        "Returns 32 bit MSB value of free memory."
+
+    VARIATION       cempMemPoolHCUsed
+    DESCRIPTION
+        "Returns 64 bit used memory value."
+
+    VARIATION       cempMemPoolHCFree
+    DESCRIPTION
+        "Returns 64 bit free memory value."
+
+    ::= { cempCapability 15 }
+
+cempCapabilityNXOSV06R0001 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco Nexus NX-OS 6.0(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENHANCED-MEMPOOL-MIB capabilities."
+
+    SUPPORTS        CISCO-ENHANCED-MEMPOOL-MIB
+    INCLUDES        {
+                        cempMemPoolGroupRev1,
+                        cempMemPoolExtGroupRev1,
+                        cempMemPoolHCGroup,
+                        cempMemPoolOvrflwGroup
+                    }
+    VARIATION       cempMemPoolLargestFree
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolLowestFree
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolUsedLowWaterMark
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolAllocHit
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolAllocMiss
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolFreeHit
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolFreeMiss
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolName
+    DESCRIPTION
+        "Always returns zero-length string."
+
+    VARIATION       cempMemPoolHCLargestFree
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolHCLowestFree
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolHCUsedLowWaterMark
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolHCShared
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolLargestFreeOvrflw
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolLowestFreeOvrflw
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolUsedLowWaterMarkOvrflw
+    DESCRIPTION
+        "Always returns 0."
+
+    VARIATION       cempMemPoolSharedOvrflw
+    DESCRIPTION
+        "Always returns 0."
+
+    ::= { cempCapability 16 }
+
+END
+
+
+

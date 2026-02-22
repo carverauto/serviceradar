@@ -1,0 +1,231 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-MAPPINGS-MIB.my
+-- 
+-- Three mappings are defined:
+-- parent managed object to child managed object,
+-- child managed object to parent managed object,
+-- and managed object distinguished name to OID.
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-MAPPINGS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIB,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB;
+
+cfprApMappingsObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "Three mappings are defined:
+        parent managed object to child managed object,
+        child managed object to parent managed object,
+        and managed object distinguished name to OID."
+    ::= { ciscoFirepowerApMIB 3 }
+
+cfprApMappingsMoContainmentTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMappingsMoContainmentEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Maps parent managed objects to their children using
+        instance id indices. The distinguished names (Dns)
+        of parent and child are accessible."
+    ::= { cfprApMappingsObjects 1 }
+
+cfprApMappingsMoContainmentEntry OBJECT-TYPE
+    SYNTAX           CfprApMappingsMoContainmentEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMappingsMoContainmentTable table."
+    INDEX { cfprApMappingsMoContainmentParentInstanceId, cfprApMappingsMoContainmentChildInstanceId }
+    ::= { cfprApMappingsMoContainmentTable 1 }
+
+CfprApMappingsMoContainmentEntry ::= SEQUENCE {
+    cfprApMappingsMoContainmentParentInstanceId                      CfprApManagedObjectId,
+    cfprApMappingsMoContainmentChildInstanceId                       CfprApManagedObjectId,
+    cfprApMappingsMoContainmentParentDn                              CfprApManagedObjectDn,
+    cfprApMappingsMoContainmentChildDn                               CfprApManagedObjectDn
+}
+
+cfprApMappingsMoContainmentParentInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Parent instance id."
+    ::= { cfprApMappingsMoContainmentEntry 1 }
+
+cfprApMappingsMoContainmentChildInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Child instance id."
+    ::= { cfprApMappingsMoContainmentEntry 2 }
+
+cfprApMappingsMoContainmentParentDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Parent distinguished name (Dn)."
+    ::= { cfprApMappingsMoContainmentEntry 3 }
+
+cfprApMappingsMoContainmentChildDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Child distinguished name (Dn)."
+    ::= { cfprApMappingsMoContainmentEntry 4 }
+
+
+cfprApMappingsMoInverseContainmentTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMappingsMoInverseContainmentEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Maps child managed objects to their parent using
+        instance id indices. The distinguished names (Dns)
+        of parent and child are accessible."
+    ::= { cfprApMappingsObjects 2 }
+
+cfprApMappingsMoInverseContainmentEntry OBJECT-TYPE
+    SYNTAX           CfprApMappingsMoInverseContainmentEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMappingsMoInverseContainmentTable table."
+    INDEX { cfprApMappingsMoInverseContainmentChildInstanceId, cfprApMappingsMoInverseContainmentParentInstanceId }
+    ::= { cfprApMappingsMoInverseContainmentTable 1 }
+
+CfprApMappingsMoInverseContainmentEntry ::= SEQUENCE {
+    cfprApMappingsMoInverseContainmentChildInstanceId                CfprApManagedObjectId,
+    cfprApMappingsMoInverseContainmentParentInstanceId               CfprApManagedObjectId,
+    cfprApMappingsMoInverseContainmentParentDn                       CfprApManagedObjectDn,
+    cfprApMappingsMoInverseContainmentChildDn                        CfprApManagedObjectDn
+}
+
+cfprApMappingsMoInverseContainmentChildInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Child instance id."
+    ::= { cfprApMappingsMoInverseContainmentEntry 1 }
+
+cfprApMappingsMoInverseContainmentParentInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Parent instance id."
+    ::= { cfprApMappingsMoInverseContainmentEntry 2 }
+
+cfprApMappingsMoInverseContainmentParentDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Parent distinguished name (Dn)."
+    ::= { cfprApMappingsMoInverseContainmentEntry 3 }
+
+cfprApMappingsMoInverseContainmentChildDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Child distinguished name (Dn)."
+    ::= { cfprApMappingsMoInverseContainmentEntry 4 }
+
+
+cfprApMappingsDnToOidTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApMappingsDnToOidEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Maps the distinguished name (Dn) of a managed object
+        to its object id (OID)."
+    ::= { cfprApMappingsObjects 3 }
+
+cfprApMappingsDnToOidEntry OBJECT-TYPE
+    SYNTAX           CfprApMappingsDnToOidEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApMappingsDnToOidTable table."
+    INDEX { cfprApMappingsDnToOidDn }
+    ::= { cfprApMappingsDnToOidTable 1 }
+
+CfprApMappingsDnToOidEntry ::= SEQUENCE {
+    cfprApMappingsDnToOidDn                                          CfprApManagedObjectDn,
+    cfprApMappingsDnToOidOid                                         RowPointer
+}
+
+cfprApMappingsDnToOidDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Managed object distinguished name (Dn)."
+    ::= { cfprApMappingsDnToOidEntry 1 }
+
+cfprApMappingsDnToOidOid OBJECT-TYPE
+    SYNTAX       RowPointer
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Managed object id (OID)."
+    ::= { cfprApMappingsDnToOidEntry 2 }
+
+END

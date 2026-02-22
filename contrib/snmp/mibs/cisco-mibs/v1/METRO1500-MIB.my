@@ -1,0 +1,2481 @@
+--
+-- METRO1500-MIB.my:  Metro1500 device-specific MIB
+--
+-- February 2000, Gabriel Lee
+--
+-- Copyright (c) 2000, 2001 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- This mib is modified from fsp_II.mib
+
+METRO1500-MIB DEFINITIONS ::= BEGIN 
+
+IMPORTS  
+    OBJECT-TYPE
+        FROM RFC-1212
+    TRAP-TYPE
+        FROM RFC-1215
+    DisplayString
+        FROM RFC1213-MIB;
+
+
+org             OBJECT IDENTIFIER ::= { iso 3 }
+dod             OBJECT IDENTIFIER ::= { org 6 }
+internet        OBJECT IDENTIFIER ::= { dod 1 }
+private         OBJECT IDENTIFIER ::= { internet 4 }
+enterprises     OBJECT IDENTIFIER ::= { private 1 }
+
+adva            OBJECT IDENTIFIER ::= { enterprises  2544 }
+advaProducts        OBJECT IDENTIFIER ::= { adva  1 }
+
+-----------------------------------------------------------
+-----------------------------------------------------------
+
+metro1500   OBJECT IDENTIFIER
+--      LAST-UPDATED "200106120600Z"
+--      ORGANIZATION "Cisco Systems, Inc."
+--      CONTACT-INFO
+--      "Cisco Systems
+--        Customer Service
+--
+--        Postal: 170 W Tasman Drive
+--        San Jose, CA  95134
+--        USA
+--
+--        Tel: +1 800 553-NETS
+--
+--        E-mail: cs-snmp@cisco.com"
+--      DESCRIPTION
+--      "The MIB module for Cisco Metro 1500."
+--       History:
+--          16.03.1999  Release 1.0
+--          30.03.1999  Release 2.0
+--                          Added Switch functionality
+--          09.06.1999  Release 3.0
+--                          Added Message of the Day
+--                          Added Trap Sink Table
+--                          Added Logfile Table     
+--          15.06.1999  Release 3.1
+--                          Added Software control to Lasers 
+--          04.08.1999  Release 3.11
+--                          Delete Commas at the End of declarations  
+--          11.08.1999  Release 3.2
+--                          Added EPLD Software Version
+--          08.09.1999  Release 3.21
+--                          Delete Commas at the end of Enumeration     
+--                          Add new Slot Type Numbers
+--                          Change Trap Sink Priority to 1..20
+--                          Change Range of EPLD Version to 0..255  
+--          01.10.1999  Release 3.22
+--                          Change Comment of Clock Frequency from
+--                          MHz to Mbit/s (sorry)
+--          27.08.2000  Release 3.23
+--                          Change Name for NEMI Slave to DEMI 
+--                          Change Name of Trap #50 from Buffer Overflow to 
+--                              Repeated Message 
+--          30.08.2000  Release 3.24
+--                          Add SlotTypes for TRL converter  
+--          13.09.2000  Release 3.25
+--                          Add Traps for NEMI interconnection down and up
+--          14.09.2000  Release 3.26
+--                          Add Clock Types
+--          29.09.2000  Release 3.27
+--                          Change INC (inter NEMI connection) to
+--                          INNC (Inter NEMI network connection)
+--          04.11.2000  Release 3.28
+--                          Add Variables and Traps for TDM Cards and 
+--                          Ethernet Hubs
+--          10.11.2000  Release 3.29
+--                          Add slot type for Ethernet Hubs and TDM Cards
+--          18.12.2000  Release 3.30
+--                          Add clock type 11
+--                          Change Limit of Slot Numbers to 1..79
+--          11.06.2001  Release 3.31
+--                          Changed TRAP-TYPE metro1500TDMLocModuleEnable1 to metro1500TDMLocModuleEnabled1,
+--                          metro1500TDMLocModuleEnable2 to metro1500TDMLocModuleEnabled2,
+--                          metro1500TDMLocModuleEnable3 to metro1500TDMLocModuleEnabled3,
+--                          metro1500TDMLocModuleEnable4 to metro1500TDMLocModuleEnabled4
+       ::= { advaProducts 3 }
+
+
+-----------------------------------------------------------
+-----------------------------------------------------------
+
+-----------------------------------------------------------               
+-- Main Tree defines the METRO1500 housing and the 
+--     installed Components
+-----------------------------------------------------------
+metro1500Main   OBJECT IDENTIFIER ::= { metro1500 1 }
+
+-----------------------------------------------------------
+-- Starting with the Definition of the Device-Master
+-----------------------------------------------------------
+metro1500Housing    OBJECT IDENTIFIER ::= { metro1500Main 1 }
+
+metro1500Manufacturer OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Manufacturer of the METRO1500 System"
+    ::= { metro1500Housing  1 }
+
+metro1500MainType OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Type of the METRO1500 System"
+    ::= { metro1500Housing  2 }
+
+metro1500MainSerialNumber OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Serial Number of the METRO1500 System"
+    ::= { metro1500Housing  3 }
+
+metro1500MainHardwareVersion OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Hardware Version of the METRO1500 System"
+    ::= { metro1500Housing  4 }
+
+metro1500MainSoftwareVersion OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Software Version of the METRO1500 System (Device Master)."
+    ::= { metro1500Housing  5 }
+
+metro1500MainBusMessages OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Number of received internal Messages. This Number gives
+        Information on the internal Activity of the METRO1500
+        System. This should be a large integer Number except when the
+        System has just started.  The Value is updated every five
+        Seconds."
+    ::= { metro1500Housing  6 }
+
+metro1500MainBusErrors OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Number of dropped received internal Messages. This value
+        should be 0 or a very small Integer."
+    ::= { metro1500Housing  7 }  
+    
+-- Last Event will be implemented later
+metro1500MainLastEvent OBJECT-TYPE
+    SYNTAX  INTEGER (0..65535)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Since SNMP Traps are not reliable, this Number can be polled
+        periodically. The Value is set to a nonzero Integer when an
+        Event occurs and cleared ten Minutes after the last Event."
+     ::= { metro1500Housing  8 }  
+
+-- Display the Message Of the Day
+metro1500MainMotd OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Message Of The Day is the greeting when login via telnet.  It
+        shows the actual Kernel Version and the Software Update
+        State. With the MOTD you get Information on the actual
+        installed Software Packets."
+    ::= { metro1500Housing 9 }
+    
+-- Define a Table with all used Trapsinks
+metro1500MainTrapsinkTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF Metro1500MainTrapsinkEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "Table of Trapsinks"
+    ::= { metro1500Housing 10 }
+    
+metro1500MainTrapsinkEntry OBJECT-TYPE
+    SYNTAX  Metro1500MainTrapsinkEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "Entries in the Trapsink Table"                    
+    INDEX { metro1500MainTrapsinkNumber }
+    ::= { metro1500MainTrapsinkTable 1 }
+    
+Metro1500MainTrapsinkEntry ::=
+    SEQUENCE {
+        metro1500MainTrapsinkNumber
+            INTEGER,
+        metro1500MainTrapsinkAddress
+            DisplayString,
+        metro1500MainTrapsinkCommunity
+            DisplayString,
+        metro1500MainTrapsinkPriority
+            INTEGER
+    }                       
+    
+metro1500MainTrapsinkNumber  OBJECT-TYPE
+    SYNTAX  INTEGER (1..10)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Number of Trapsink"
+    ::= { metro1500MainTrapsinkEntry 1 }            
+
+metro1500MainTrapsinkAddress OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "IP Address of the Management System which should receive SNMP
+        Traps. The Logfiles are also shown in this Table"
+    ::= { metro1500MainTrapsinkEntry 2 }
+    
+metro1500MainTrapsinkCommunity OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Community String which is sent with a SNMP Trap to the
+        Management Station"
+    ::= { metro1500MainTrapsinkEntry 3 }
+    
+metro1500MainTrapsinkPriority OBJECT-TYPE
+    SYNTAX  INTEGER (1..20)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION                                    
+        "Priority of the Trapsink (lower level gets less Traps)" 
+    ::= { metro1500MainTrapsinkEntry 4 }    
+    
+-- Define a Table with all Log Files
+metro1500MainLogfileTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF Metro1500MainLogfileEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "Table of Log Files"
+    ::= { metro1500Housing 11 }
+    
+metro1500MainLogfileEntry OBJECT-TYPE
+    SYNTAX  Metro1500MainLogfileEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "Entries in the Logfile Table"                    
+    INDEX { metro1500MainLogfileNumber }
+    ::= { metro1500MainLogfileTable 1 }
+    
+Metro1500MainLogfileEntry ::=
+    SEQUENCE {
+        metro1500MainLogfileNumber
+            INTEGER,
+        metro1500MainLogfileName
+            DisplayString,
+        metro1500MainLogfileSize
+            INTEGER,
+        metro1500MainLogfilePriority
+            INTEGER
+    }                       
+    
+metro1500MainLogfileNumber OBJECT-TYPE
+    SYNTAX  INTEGER (1..2)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Number of Logfile"
+    ::= { metro1500MainLogfileEntry 1 }
+    
+metro1500MainLogfileName OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Name of Logfile"
+    ::= { metro1500MainLogfileEntry 2 }
+
+metro1500MainLogfileSize OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Size of Logfile"
+    ::= { metro1500MainLogfileEntry 3 }
+    
+metro1500MainLogfilePriority OBJECT-TYPE
+    SYNTAX  INTEGER (1..20)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Priority of Logfile"
+    ::= { metro1500MainLogfileEntry 4 }            
+         
+
+-----------------------------------------------------------
+-- Definition of the Slot Table
+-----------------------------------------------------------
+metro1500SlotTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF Metro1500SlotEntry
+    ACCESS  not-accessible
+    STATUS  mandatory 
+    DESCRIPTION
+        "Table of installed METRO1500 Components. Since METRO1500 can
+        handle many different Components, in this Section only the
+        common Information is displayed.  Component specific
+        Information is stored in different Subtrees."
+    ::= { metro1500Main 2 }                               
+    
+metro1500SlotEntry OBJECT-TYPE
+    SYNTAX  Metro1500SlotEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "Installed METRO1500 Components"
+    INDEX   { metro1500SlotNumber }        
+    ::= { metro1500SlotTable 1 }
+    
+Metro1500SlotEntry ::=
+    SEQUENCE {
+        metro1500SlotNumber
+            INTEGER,
+        metro1500Type
+            DisplayString,
+        metro1500SlotTypeNumber
+            INTEGER,            
+        metro1500SerialNumber
+            DisplayString,
+        metro1500HardwareVersion
+            DisplayString,
+        metro1500SoftwareVersion
+            DisplayString,
+        metro1500Temperature
+            INTEGER,
+        metro1500BoardVoltage
+            INTEGER,
+        metro1500DetailInfo
+            OBJECT IDENTIFIER,
+        metro1500EPLDVersion
+            INTEGER
+            
+    }            
+    
+metro1500SlotNumber OBJECT-TYPE
+    SYNTAX  INTEGER (1..79)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Slot Number of installed Component. The Device
+        Master has always Slot Number 0 and is shown in the
+        Main section."    
+    ::= { metro1500SlotEntry 1 }    
+    
+metro1500Type OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Type of installed Component"    
+    ::= { metro1500SlotEntry 2 }      
+
+metro1500SlotTypeNumber OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {  
+--          hotStandbyConverter (0),
+            metro1500Converter (1),
+            metro1000Converter (2),
+            metro1000EthernetConverter (3),  
+            metro1500-2-5GbConverter (5),
+            metro1500-TRL-Converter (7),
+            metro1500-4PortTDMCard (10),
+            nemi (32),
+            demi (33),
+            metro1500-EthernetHubCard (39), 
+            switch (64),
+            other (255)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Integer Number between 0 and 255 unique for a 
+        specific type of installed Component. This 
+        Number can be used for management Systems to 
+        handle automatically the different Options 
+        of installed Components."    
+    ::= { metro1500SlotEntry 3 }        
+
+metro1500SerialNumber OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Serial Number of installed Component"    
+    ::= { metro1500SlotEntry 4 }    
+
+metro1500HardwareVersion OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Hardware Version of installed Component"    
+    ::= { metro1500SlotEntry 5 }    
+
+metro1500SoftwareVersion OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "SoftwareVersion of installed Component"    
+    ::= { metro1500SlotEntry 6 }
+    
+metro1500Temperature OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Temperature of installed Component in 
+        Celsius"    
+    ::= { metro1500SlotEntry 7}
+    
+metro1500BoardVoltage OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Voltage measured directly on the board in mV"    
+    ::= { metro1500SlotEntry 8 }            
+
+metro1500DetailInfo OBJECT-TYPE
+    SYNTAX  OBJECT IDENTIFIER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A Reference to the MIB Definition where the special 
+        Options of the Component are described with more Details"    
+    ::= { metro1500SlotEntry 9 } 
+    
+metro1500EPLDVersion OBJECT-TYPE
+    SYNTAX  INTEGER (0..255)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Software Version on the programmable Logic Circuit"    
+    ::= { metro1500SlotEntry 10 }    
+
+-----------------------------------------------------------
+-- Table of installed Power Supplies
+-----------------------------------------------------------
+metro1500PSTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF Metro1500PSEntry
+    ACCESS  not-accessible
+    STATUS  mandatory 
+    DESCRIPTION
+            "Table of installed Power Supplies"
+    ::= {metro1500Main 3 }
+
+metro1500PSEntry OBJECT-TYPE
+    SYNTAX  Metro1500PSEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "Installed METRO1500 Power Supplies"
+    INDEX        { metro1500PSNumber }        
+    ::= {metro1500PSTable 1 }
+    
+Metro1500PSEntry ::=
+    SEQUENCE 
+    {
+        metro1500PSNumber
+            INTEGER,
+        metro1500PSOn
+            INTEGER
+    }            
+    
+metro1500PSNumber OBJECT-TYPE
+    SYNTAX  INTEGER (1..32)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Number of installed Power Supply"    
+    ::= { metro1500PSEntry 1 }    
+
+metro1500PSOn OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            on(1),
+            off(2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Is installed Power Supply On or Off"    
+    ::= { metro1500PSEntry 2 }    
+
+-----------------------------------------------------------
+-- Table of installed Fans 
+-----------------------------------------------------------
+metro1500FanTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF Metro1500FanEntry
+    ACCESS  not-accessible
+    STATUS  mandatory 
+    DESCRIPTION
+            "Table of installed Fans"
+    ::= { metro1500Main 4 }
+
+metro1500FanEntry OBJECT-TYPE
+    SYNTAX  Metro1500FanEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "Installed METRO1500 Fans"
+    INDEX        { metro1500FanNumber }        
+    ::= { metro1500FanTable 1 }
+    
+Metro1500FanEntry ::=
+    SEQUENCE 
+    {
+        metro1500FanNumber
+            INTEGER,
+        metro1500FanOn
+            INTEGER
+    }            
+    
+metro1500FanNumber OBJECT-TYPE
+    SYNTAX  INTEGER (1..16)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Number of installed Fan"    
+    ::= { metro1500FanEntry 1 }    
+
+metro1500FanOn OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            on(1),
+            off(2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Is installed Fan On or Off"    
+    ::= { metro1500FanEntry 2 }    
+
+
+-----------------------------------------------------------
+-- Description of installed Converter Cards
+-----------------------------------------------------------
+metro1500Converter  OBJECT IDENTIFIER ::= { metro1500 5 }
+
+metro1500ConverterTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF Metro1500ConverterEntry
+    ACCESS  not-accessible
+    STATUS  mandatory 
+    DESCRIPTION
+        "Table of installed METRO1500 Converters"
+    ::= { metro1500Converter 1 }                               
+    
+metro1500ConverterEntry OBJECT-TYPE
+    SYNTAX  Metro1500ConverterEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "Installed METRO1500 Converters"
+    INDEX   { metro1500ConverterNumber }        
+    ::= { metro1500ConverterTable 1 }
+    
+Metro1500ConverterEntry ::=
+    SEQUENCE 
+    {
+        metro1500ConverterNumber
+            INTEGER,
+        metro1500RxLoc
+            INTEGER,
+        metro1500TxLoc
+            INTEGER,
+        metro1500TxLocC
+            INTEGER,
+        metro1500TxLocTemp
+            INTEGER,
+        metro1500RxRem
+            INTEGER,
+        metro1500TxRem
+            INTEGER,
+        metro1500TxRemC
+            INTEGER,
+        metro1500TxRemTemp
+            INTEGER,
+        metro1500RxRem2
+            INTEGER,
+        metro1500ClockState
+            INTEGER,
+        metro1500ClockFreq
+            INTEGER,
+        metro1500LocLoop
+            INTEGER,
+        metro1500RemLoop
+            INTEGER,
+        metro1500ClockType
+            INTEGER            
+    }            
+    
+metro1500ConverterNumber OBJECT-TYPE
+    SYNTAX INTEGER (1..79)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Slot Number of installed Converter Card"    
+    ::= { metro1500ConverterEntry 1 }    
+
+metro1500RxLoc OBJECT-TYPE
+    SYNTAX INTEGER
+        {
+            on (1),
+            off (2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Local Receiver has Signal (On) or Loss 
+        of Signal (Off)"    
+    ::= { metro1500ConverterEntry 2 }    
+
+metro1500TxLoc OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            on (1),
+            off (2),
+            alwaysOn (3),
+            alwaysOff (4)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Local Transmitter is On or Off"    
+    ::= { metro1500ConverterEntry 3 }
+
+metro1500TxLocC OBJECT-TYPE
+    SYNTAX  INTEGER (0..200)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Current of the local Transmitter in mA.
+        This Entry is only available if a Current Sensor is 
+        installed"    
+    ::= { metro1500ConverterEntry 4 }
+
+metro1500TxLocTemp OBJECT-TYPE
+    SYNTAX  INTEGER (-50..100)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Temperature of the local Transmitter in Celsius.
+        This Entry is only available if the Laser is cooled"    
+    ::= { metro1500ConverterEntry 5 }
+
+metro1500RxRem OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            on (1),
+            off (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Remote Receiver has Signal (On) or Loss 
+        of Signal (Off)"    
+    ::= { metro1500ConverterEntry 6 }
+
+metro1500TxRem OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            on (1),
+            off (2),
+            alwaysOn (3),
+            alwaysOff (4)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Remote Transmitter is On or Off"    
+    ::= { metro1500ConverterEntry 7 }
+
+metro1500TxRemC OBJECT-TYPE
+    SYNTAX  INTEGER (0..200)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Current of the Remote Transmitter in Milli Ampere.
+        This Entry is only available if a Current Sensor is 
+        installed"    
+    ::= { metro1500ConverterEntry 8 }
+
+metro1500TxRemTemp OBJECT-TYPE
+    SYNTAX  INTEGER (-50..100)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Temperature of the Remote Transmitter in Celsius
+        This Entry is only available if the Laser is cooled"    
+    ::= { metro1500ConverterEntry 9 }
+
+metro1500RxRem2 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            on (1),
+            off (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "2nd Remote receiver has Signal (On) or Loss 
+        of Signal (Off).
+        (Only available if a 2nd Remote Receiver is
+        installed)"    
+    ::= { metro1500ConverterEntry 10 }
+
+metro1500ClockState OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            on (1),
+            off (2),
+            fail (3)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Status of the Clock. This Entry is only available
+        if a Clock is installed. If the Clock is enabled, 
+        and has an error output, and cannot synchronize to
+        the Signal, the Clock fails."    
+    ::= { metro1500ConverterEntry 11 }
+
+metro1500ClockFreq OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Frequency of the Clock in MBit/s. Only available if 
+        a Clock is installed."
+    ::= { metro1500ConverterEntry 12 }
+
+metro1500LocLoop OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            on (1),
+            off (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Local Loop is set to On or to Off"    
+    ::= { metro1500ConverterEntry 13 }
+    
+metro1500RemLoop OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            on (1),
+            off (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Remote Loop is set to On or to Off"    
+    ::= { metro1500ConverterEntry 14 }
+    
+metro1500ClockType OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            -- Low speed Multi Clock
+            multiClockLSModule (1),
+            multiClockLS (2), 
+                                       
+            -- Multi Clock Fibre Channel / Gbit Ethernet
+            multiClockFCGbE (3),
+            
+            -- Multi Clock OCx / Gbit Ethernet
+            multiClockOCxGbE (5),
+            
+            -- Multi Clock OCx / Fibre Channel
+            multiClockOCxFC (7),
+            
+            -- Multi Clock OCx / Gbit Ethernet / Fibre Channel
+            multiClockOCxGbEFC (9),
+            
+            -- Multi Clock Fibre Channel / Gbit Ethernet on Board
+            multiClockFCGbEOnBoard (11),
+            
+            -- fixed Clocks
+            fixedClock125MbpsModule (21),
+            fixedClock125Mbps (22),
+            fixedClock155MbpsModule (31),
+            fixedClock155Mbps (32), 
+            fixedClock200MbpsModule (41),
+            fixedClock200Mbps (42),
+            fixedClock266MbpsModule (51),
+            fixedClock266Mbps (52),
+            fixedClock622MbpsModule (61),
+            fixedClock622Mbps (62),
+            fixedClock1062MbpsModule (71),
+            fixedClock1062Mbps (72), 
+            fixedClock1250MbpsModule (75),
+            fixedClock1250Mbps (76),
+            fixedClock2500MbpsModule (81),
+            fixedClock2500Mbps (82),
+            other (255)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "Type of the Clock. Only available, if a Clock is installed."
+    ::= { metro1500ConverterEntry 15 }    
+    
+    
+-----------------------------------------------------------
+-- Description of installed Switches
+-- We start at #10 to leave some Space for different 
+--    Converters Cards
+-----------------------------------------------------------
+metro1500Switch    OBJECT IDENTIFIER ::= { metro1500 10 }
+
+metro1500SwitchTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF Metro1500SwitchEntry
+    ACCESS  not-accessible
+    STATUS  mandatory 
+    DESCRIPTION
+        "Table of installed METRO1500 Switches"
+    ::= { metro1500Switch 1 }                               
+    
+metro1500SwitchEntry OBJECT-TYPE
+    SYNTAX  Metro1500SwitchEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "Installed METRO1500 Switches"
+    INDEX        { metro1500SwitchNumber }        
+    ::= { metro1500SwitchTable 1 }
+    
+Metro1500SwitchEntry ::=
+    SEQUENCE 
+    {
+        metro1500SwitchNumber
+            INTEGER,
+        metro1500SwitchLine
+            INTEGER,
+        metro1500SwitchMode
+            INTEGER,
+        metro1500SwitchLaserOn 
+            INTEGER,
+        metro1500SwitchLineAavail
+            INTEGER,
+        metro1500SwitchLineBavail
+            INTEGER
+    }            
+    
+metro1500SwitchNumber OBJECT-TYPE
+    SYNTAX  INTEGER (1..79)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Slot Number of installed Remote Optical Switch Card"    
+    ::= { metro1500SwitchEntry 1 }    
+
+metro1500SwitchLine OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            lineA(1),
+            lineB(2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Active Line of Remote Optical Switch"
+    ::= { metro1500SwitchEntry 2 }
+
+metro1500SwitchMode OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            automatic(1),
+            locked(2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Mode of Transmit Line of Remote Optical Switch"
+    ::= { metro1500SwitchEntry 3 }
+
+metro1500SwitchLaserOn OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            on(1),
+            off(2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Shows if the reference Laser is On or Off"
+    ::= { metro1500SwitchEntry 4 }
+
+metro1500SwitchLineAavail OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            available(1),
+            notAvailable(2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Is Line A of Remote Optical Switch available?"
+    ::= { metro1500SwitchEntry 5 }
+
+metro1500SwitchLineBavail OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            available(1),
+            notAvailable(2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Is Line B of Remote Optical Switch available"
+    ::= { metro1500SwitchEntry 6 }
+    
+-----------------------------------------------------------
+-- Description of installed Ethernet Hub Cards
+-----------------------------------------------------------
+metro1500EthernetHub   OBJECT IDENTIFIER ::= { metro1500 14 }
+
+metro1500EthernetHubTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF Metro1500EthernetHubEntry
+    ACCESS  not-accessible
+    STATUS  mandatory 
+    DESCRIPTION
+            "Table of installed FSP-II Hub Cards"
+    ::= { metro1500EthernetHub 1 }                               
+    
+metro1500EthernetHubEntry OBJECT-TYPE
+    SYNTAX  Metro1500EthernetHubEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+            "Installed FSP-II Hub Cards"
+    INDEX       { metro1500EthernetHubNumber }     
+    ::= { metro1500EthernetHubTable 1 }
+    
+Metro1500EthernetHubEntry ::=
+    SEQUENCE 
+        {
+            -- Slot number of Hub Card
+            metro1500EthernetHubNumber
+                INTEGER,
+            
+            -- values for Port 1    
+            metro1500EthernetHubPortEnable1
+                INTEGER,
+            metro1500EthernetHubPortPartitionStatus1
+                INTEGER,
+            metro1500EthernetHubPortLinkStatus1
+                INTEGER,
+            metro1500EthernetHubPortPolarity1
+                INTEGER,
+            
+            -- values for Port 2    
+            metro1500EthernetHubPortEnable2
+                INTEGER,
+            metro1500EthernetHubPortPartitionStatus2
+                INTEGER,
+            metro1500EthernetHubPortLinkStatus2
+                INTEGER,
+            metro1500EthernetHubPortPolarity2
+                INTEGER,
+
+            -- values for Port 3
+            metro1500EthernetHubPortEnable3
+                INTEGER,
+            metro1500EthernetHubPortPartitionStatus3
+                INTEGER,
+            metro1500EthernetHubPortLinkStatus3
+                INTEGER,
+            metro1500EthernetHubPortPolarity3
+                INTEGER,
+
+            -- values for Port 4
+            metro1500EthernetHubPortEnable4
+                INTEGER,
+            metro1500EthernetHubPortPartitionStatus4
+                INTEGER,
+            metro1500EthernetHubPortLinkStatus4
+                INTEGER,
+            metro1500EthernetHubPortPolarity4
+                INTEGER,
+
+            -- values for Port 5
+            metro1500EthernetHubPortEnable5
+                INTEGER,
+            metro1500EthernetHubPortPartitionStatus5
+                INTEGER,
+            metro1500EthernetHubPortLinkStatus5
+                INTEGER,
+            metro1500EthernetHubPortPolarity5
+                INTEGER                
+        }            
+    
+-- Slot Number of Hub Card    
+metro1500EthernetHubNumber OBJECT-TYPE
+    SYNTAX  INTEGER (1..79)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "Slot Number of installed Hub Card"   
+    ::= { metro1500EthernetHubEntry 1 }    
+
+-- values for Port 1
+metro1500EthernetHubPortEnable1 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            enable (1),
+            disable (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is Hub Port 1 enabled ?"   
+    ::= { metro1500EthernetHubEntry 10 } 
+    
+metro1500EthernetHubPortPartitionStatus1 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            partitioned (1),
+            notPartitioned (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is Port 1 partitioned ?"   
+    ::= { metro1500EthernetHubEntry 11 } 
+    
+metro1500EthernetHubPortLinkStatus1 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            linked (1),
+            notLinked (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "does Port 1 receive Link Pulses ?"   
+    ::= { metro1500EthernetHubEntry 12 } 
+    
+metro1500EthernetHubPortPolarity1 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            positive (1),
+            negative (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "polarity of input signal at Port 1"   
+    ::= { metro1500EthernetHubEntry 13 }             
+
+-- values for Port 2
+metro1500EthernetHubPortEnable2 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            enable (1),
+            disable (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is Hub Port 2 enabled ?"   
+    ::= { metro1500EthernetHubEntry 20 } 
+    
+metro1500EthernetHubPortPartitionStatus2 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            partitioned (1),
+            notPartitioned (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is Port 2 partitioned ?"   
+    ::= { metro1500EthernetHubEntry 21 } 
+    
+metro1500EthernetHubPortLinkStatus2 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            linked (1),
+            notLinked (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "does Port 2 receive Link Pulses ?"   
+    ::= { metro1500EthernetHubEntry 22 } 
+    
+metro1500EthernetHubPortPolarity2 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            positive (1),
+            negative (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "polarity of input signal at Port 2"   
+    ::= { metro1500EthernetHubEntry 23 }             
+    
+-- values for Port 3
+metro1500EthernetHubPortEnable3 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            enable (1),
+            disable (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is Hub Port 3 enabled ?"   
+    ::= { metro1500EthernetHubEntry 30 } 
+    
+metro1500EthernetHubPortPartitionStatus3 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            partitioned (1),
+            notPartitioned (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is Port 3 partitioned ?"   
+    ::= { metro1500EthernetHubEntry 31 } 
+    
+metro1500EthernetHubPortLinkStatus3 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            linked (1),
+            notLinked (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "does Port 3 receive Link Pulses ?"   
+    ::= { metro1500EthernetHubEntry 32 } 
+    
+metro1500EthernetHubPortPolarity3 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            positive (1),
+            negative (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "polarity of input signal at Port 3"   
+    ::= { metro1500EthernetHubEntry 33 }             
+
+-- values for Port 4
+metro1500EthernetHubPortEnable4 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            enable (1),
+            disable (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is Hub Port 4 enabled ?"   
+    ::= { metro1500EthernetHubEntry 40 } 
+    
+metro1500EthernetHubPortPartitionStatus4 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            partitioned (1),
+            notPartitioned (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is Port 4 partitioned ?"   
+    ::= { metro1500EthernetHubEntry 41 } 
+    
+metro1500EthernetHubPortLinkStatus4 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            linked (1),
+            notLinked (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "does Port 4 receive Link Pulses ?"   
+    ::= { metro1500EthernetHubEntry 42 } 
+    
+metro1500EthernetHubPortPolarity4 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            positive (1),
+            negative (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "polarity of input signal at Port 4"   
+    ::= { metro1500EthernetHubEntry 43 }             
+    
+-- values for Port 5
+metro1500EthernetHubPortEnable5 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            enable (1),
+            disable (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is Hub Port 5 enabled ?"   
+    ::= { metro1500EthernetHubEntry 50 } 
+    
+metro1500EthernetHubPortPartitionStatus5 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            partitioned (1),
+            notPartitioned (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is Port 5 partitioned ?"   
+    ::= { metro1500EthernetHubEntry 51 } 
+    
+metro1500EthernetHubPortLinkStatus5 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            linked (1),
+            notLinked (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "does Port 5 receive Link Pulses ?"   
+    ::= { metro1500EthernetHubEntry 52 } 
+    
+metro1500EthernetHubPortPolarity5 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            positive (1),
+            negative (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "polarity of input signal at Port 5"   
+    ::= { metro1500EthernetHubEntry 53 }                     
+    
+-----------------------------------------------------------
+-- Description of installed TDM (Time Division Multiplex)
+--  cards.
+-- We start with #15
+-----------------------------------------------------------
+metro1500TDM   OBJECT IDENTIFIER ::= { metro1500 15 }
+
+metro1500TDMTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF Metro1500TDMEntry
+    ACCESS  not-accessible
+    STATUS  mandatory 
+    DESCRIPTION
+            "Table of installed FSP-II TDM Cards"
+    ::= { metro1500TDM 1 }                               
+    
+metro1500TDMEntry OBJECT-TYPE
+    SYNTAX  Metro1500TDMEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+            "Installed FSP-II TDM Cards"
+    INDEX       { metro1500TDMNumber }     
+    ::= { metro1500TDMTable 1 }
+    
+Metro1500TDMEntry ::=
+    SEQUENCE 
+        {
+            -- Slot Number of the TDM Card
+            metro1500TDMNumber
+                INTEGER,
+                
+            -- values for the remote side
+            metro1500TDMRxRem
+                INTEGER,
+            metro1500TDMRxSync
+                INTEGER,
+            metro1500TDMTxRem
+                INTEGER,
+            metro1500TDMTxRemC
+                INTEGER,
+            metro1500TDMTxRemTemp
+                INTEGER,
+                
+            -- common values
+            metro1500TDMLocLoop
+                INTEGER,
+                
+            -- local module 1
+            metro1500TDMLocModuleInst1
+                INTEGER,
+            metro1500TDMLocModuleEnable1
+                INTEGER,
+            metro1500TDMLocModuleRx1
+                INTEGER,
+            metro1500TDMLocModuleTx1
+                INTEGER,
+            metro1500TDMLocModuleRemoteData1
+                INTEGER,
+            metro1500TDMLocModuleClockFrequency1
+                INTEGER,
+            metro1500TDMLocModuleClockError1
+                INTEGER,
+                
+            -- local module 2
+            metro1500TDMLocModuleInst2
+                INTEGER,
+            metro1500TDMLocModuleEnable2
+                INTEGER,
+            metro1500TDMLocModuleRx2
+                INTEGER,
+            metro1500TDMLocModuleTx2
+                INTEGER,
+            metro1500TDMLocModuleRemoteData2
+                INTEGER,
+            metro1500TDMLocModuleClockFrequency2
+                INTEGER,
+            metro1500TDMLocModuleClockError2
+                INTEGER,
+                
+            -- local module 3
+            metro1500TDMLocModuleInst3
+                INTEGER,
+            metro1500TDMLocModuleEnable3
+                INTEGER,
+            metro1500TDMLocModuleRx3
+                INTEGER,
+            metro1500TDMLocModuleTx3
+                INTEGER,
+            metro1500TDMLocModuleRemoteData3
+                INTEGER,
+            metro1500TDMLocModuleClockFrequency3
+                INTEGER,
+            metro1500TDMLocModuleClockError3
+                INTEGER,
+                
+            -- local module 4
+            metro1500TDMLocModuleInst4
+                INTEGER,
+            metro1500TDMLocModuleEnable4
+                INTEGER,
+            metro1500TDMLocModuleRx4
+                INTEGER,
+            metro1500TDMLocModuleTx4
+                INTEGER,
+            metro1500TDMLocModuleRemoteData4
+                INTEGER,
+            metro1500TDMLocModuleClockFrequency4
+                INTEGER,
+            metro1500TDMLocModuleClockError4
+                INTEGER                
+        } 
+        
+-- Slot number of the TDM Card
+metro1500TDMNumber OBJECT-TYPE
+    SYNTAX  INTEGER (1..79)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "Slot Number of installed TDM Card"   
+    ::= { metro1500TDMEntry 1 } 
+    
+    
+-- Values for the remote side    
+metro1500TDMRxRem OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            on (1),
+            off (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "Does the remote receiver receive Light (on) or not
+                (off)?"
+    ::= { metro1500TDMEntry 4 } 
+    
+metro1500TDMRxSync OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            sync (1),
+            noSync (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "Is the input signal synchronized with the corresponding
+            TDM card?"
+    ::= { metro1500TDMEntry 5 }                   
+
+metro1500TDMTxRem OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            on (1),
+            off (2),
+            alwaysOn (3),
+            alwaysOff (4)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "State of the Remote Transmitter"
+    ::= { metro1500TDMEntry 6 }                   
+    
+metro1500TDMTxRemC OBJECT-TYPE
+    SYNTAX  INTEGER (0..200)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "Current of the remote Transmitter in mA"
+    ::= { metro1500TDMEntry 7 }                   
+
+metro1500TDMTxRemTemp OBJECT-TYPE
+    SYNTAX  INTEGER (-50..100)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "Temperature of the remote Transmitter in Celsius"
+    ::= { metro1500TDMEntry 8 }
+    
+      
+-- common values    
+metro1500TDMLocLoop OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            on (1),
+            off (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "Loop for all Local Inputs enabled (on) or disabled (off)"
+    ::= { metro1500TDMEntry 9 }  
+
+-- values for local module 1    
+metro1500TDMLocModuleInst1 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            installed (1),
+            notInstalled (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is local Module 1 installed ?"
+    ::= { metro1500TDMEntry 20 } 
+    
+metro1500TDMLocModuleEnable1 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            enabled (1),
+            notEnabled (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is local Module 1 enabled ?"
+    ::= { metro1500TDMEntry 21 }                 
+
+metro1500TDMLocModuleRx1 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            on (1),
+            off (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "local receiver 1 gets signal (on)"
+    ::= { metro1500TDMEntry 22 }
+    
+metro1500TDMLocModuleTx1 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            on (1),
+            off (2),
+            alwaysOn (3),
+            alwaysOff (4)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "state of the local transmitter"
+    ::= { metro1500TDMEntry 23 }
+    
+metro1500TDMLocModuleRemoteData1 OBJECT-TYPE
+    SYNTAX INTEGER
+        {
+            data (1),
+            noData (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION 
+            "receiving data for this module from the remote side"
+    ::= { metro1500TDMEntry 24 }    
+
+metro1500TDMLocModuleClockFrequency1 OBJECT-TYPE
+    SYNTAX  INTEGER 
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "data rate of the clock installed on local Module 1
+            in MBit/s"
+    ::= { metro1500TDMEntry 25 } 
+    
+metro1500TDMLocModuleClockError1 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            error (1),
+            noError (2)
+        } 
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "data rate and clock frequency are not synchronized"
+    ::= { metro1500TDMEntry 26 }     
+
+-- values for local module 2
+metro1500TDMLocModuleInst2 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            installed (1),
+            notInstalled (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is local Module 2 installed ?"
+    ::= { metro1500TDMEntry 30 } 
+    
+metro1500TDMLocModuleEnable2 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            enabled (1),
+            notEnabled (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is local Module 2 enabled ?"
+    ::= { metro1500TDMEntry 31 }                 
+
+metro1500TDMLocModuleRx2 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            on (1),
+            off (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "local receiver 2 gets signal (on)"
+    ::= { metro1500TDMEntry 32 }     
+
+metro1500TDMLocModuleTx2 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            on (1),
+            off (2),
+            alwaysOn (3),
+            alwaysOff (4)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "state of the local transmitter"
+    ::= { metro1500TDMEntry 33 }
+    
+metro1500TDMLocModuleRemoteData2 OBJECT-TYPE
+    SYNTAX INTEGER
+        {
+            data (1),
+            noData (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION 
+            "receiving data for this module from the remote side"
+    ::= { metro1500TDMEntry 34 }
+
+metro1500TDMLocModuleClockFrequency2 OBJECT-TYPE
+    SYNTAX  INTEGER 
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "data rate of the clock installed on local Module 2
+            in MBit/s"
+    ::= { metro1500TDMEntry 35 } 
+    
+metro1500TDMLocModuleClockError2 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            error (1),
+            noError (2)
+        } 
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "data rate and clock frequency are not synchronized"
+    ::= { metro1500TDMEntry 36 }     
+
+-- values for local module 3
+metro1500TDMLocModuleInst3 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            installed (1),
+            notInstalled (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is local Module 3 installed ?"
+    ::= { metro1500TDMEntry 40 } 
+    
+metro1500TDMLocModuleEnable3 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            enabled (1),
+            notEnabled (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is local Module 3 enabled ?"
+    ::= { metro1500TDMEntry 41 }                 
+
+metro1500TDMLocModuleRx3 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            on (1),
+            off (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "local receiver 3 gets signal (on)"
+    ::= { metro1500TDMEntry 42 }     
+    
+metro1500TDMLocModuleTx3 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            on (1),
+            off (2),
+            alwaysOn (3),
+            alwaysOff (4)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "state of the local transmitter"
+    ::= { metro1500TDMEntry 43 }
+    
+metro1500TDMLocModuleRemoteData3 OBJECT-TYPE
+    SYNTAX INTEGER
+        {
+            data (1),
+            noData (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION 
+            "receiving data for this module from the remote side"
+    ::= { metro1500TDMEntry 44 }    
+    
+metro1500TDMLocModuleClockFrequency3 OBJECT-TYPE
+    SYNTAX  INTEGER 
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "data rate of the clock installed on local Module 3
+            in MBit/s"
+    ::= { metro1500TDMEntry 45 } 
+    
+metro1500TDMLocModuleClockError3 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            error (1),
+            noError (2)
+        } 
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "data rate and clock frequency are not synchronized"
+    ::= { metro1500TDMEntry 46 }     
+
+-- values for local module 4    
+metro1500TDMLocModuleInst4 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            installed (1),
+            notInstalled (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is local Module 4 installed ?"
+    ::= { metro1500TDMEntry 50 } 
+    
+metro1500TDMLocModuleEnable4 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            enabled (1),
+            notEnabled (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "is local Module 4 enabled ?"
+    ::= { metro1500TDMEntry 51 }                 
+
+metro1500TDMLocModuleRx4 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            on (1),
+            off (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "local receiver 4 gets signal (on)"
+    ::= { metro1500TDMEntry 52 } 
+    
+metro1500TDMLocModuleTx4 OBJECT-TYPE
+    SYNTAX  INTEGER 
+        {
+            on (1),
+            off (2),
+            alwaysOn (3),
+            alwaysOff (4)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "state of the local transmitter"
+    ::= { metro1500TDMEntry 53 }
+    
+metro1500TDMLocModuleRemoteData4 OBJECT-TYPE
+    SYNTAX INTEGER
+        {
+            data (1),
+            noData (2)
+        }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION 
+            "receiving data for this module from the remote side"
+    ::= { metro1500TDMEntry 54 }    
+    
+metro1500TDMLocModuleClockFrequency4 OBJECT-TYPE
+    SYNTAX  INTEGER 
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "data rate of the clock installed on local Module 4
+            in MBit/s"
+    ::= { metro1500TDMEntry 55 } 
+    
+metro1500TDMLocModuleClockError4 OBJECT-TYPE
+    SYNTAX  INTEGER
+        {
+            error (1),
+            noError (2)
+        } 
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "data rate and clock frequency are not synchronized"
+    ::= { metro1500TDMEntry 56 }     
+    
+
+
+-----------------------------------------------------------
+-- The List of all Events which may occur during
+--        operation
+--    The List is added at 100 in the MIB Tree list to
+--        leave a lot of space for many installed 
+--        components.
+-----------------------------------------------------------
+metro1500Trap   OBJECT IDENTIFIER ::= { metro1500 100}
+
+-----------------------------------------------------------
+-- Traps which are generated by the Main System
+--        (Housing, Power Supplies, Fans, internal Bus ...)
+-----------------------------------------------------------
+metro1500HardwareAdded TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when a new Module is inserted
+        into the FSP-I Box"
+    ::= 1
+
+metro1500HardwareDeleted TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when a Module is removed
+        from the FSP-I Box"
+    ::= 2
+
+metro1500PSNotFail TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500PSNumber }
+    DESCRIPTION
+        "Trap is sent when a Power Supply 
+        starts working"
+    ::= 3
+
+metro1500PSFail TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500PSNumber }
+    DESCRIPTION
+        "Trap is sent when a Power Supply fails"
+    ::= 4
+
+metro1500FanNotFail TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500FanNumber }
+    DESCRIPTION
+        "Trap is sent when a Fan starts working"
+    ::= 5
+
+metro1500FanFail TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500FanNumber }
+    DESCRIPTION
+        "Trap is sent when a Fan fails"
+    ::= 6
+
+metro1500BusNotFail TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    DESCRIPTION
+        "Trap is sent when the internal Bus starts 
+        working again"
+    ::= 7
+
+metro1500BusFail TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    DESCRIPTION
+        "Trap is sent when an internal Bus Failure occurs"
+    ::= 8
+
+-----------------------------------------------------------
+-- Traps which are generated by the Converter Boards
+--        start with #20
+-----------------------------------------------------------
+metro1500RxLocOn TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the local Receiver gets Signal"
+    ::= 20
+
+metro1500RxLocOff TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the local Receiver has Loss of Signal"
+    ::= 21
+
+metro1500TxLocOn TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the local Transmitter is switched on, 
+        Either this trap or Trap #20 should be disabled in the
+        Configuration because they are typically sent at the same Time."
+    ::= 22
+
+metro1500TxLocOff TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the local Transmitter is switched off, 
+        Either this trap or Trap #21 should be disabled in the
+        Configuration because they are typically sent at the same Time."
+    ::= 23
+
+metro1500RxRemOn TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the remote Receiver gets Signal"
+    ::= 24
+
+metro1500RxRemOff TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the remote Receiver has Loss of Signal"
+    ::= 25
+
+metro1500TxRemOn TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the remote Transmitter is switched on, 
+        Either this trap or Trap #24 should be disabled in the
+        Configuration because they are typically sent at the same Time."
+    ::= 26
+
+metro1500TxRemOff TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the remote Transmitter is switched off, 
+        Either this trap or Trap #25 should be disabled in the
+        Configuration because they are typically sent at the same Time."
+    ::= 27
+
+metro1500RxRem2On TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the 2nd remote Receiver gets Signal.
+        This Trap is only sent if there is a 2nd remote Receiver."
+    ::= 28
+
+metro1500RxRem2Off TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the 2nd remote Receiver has Loss of Signal.
+        This Trap is only sent if there is a 2nd remote Receiver."
+    ::= 29
+
+metro1500TxRem2On TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the 2nd remote Transmitter is switched on, 
+        Either this Trap or Trap #28 should be disabled in the
+        Configuration because they are typically sent at the same Time.
+        This Trap is only sent if there is a 2nd remote Receiver."
+    ::= 30
+
+metro1500TxRem2Off TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the 2nd remote Transmitter is switched off, 
+        Either this trap or Trap #29 should be disabled in the
+        Configuration because they are typically sent at the same Time."
+    ::= 31
+
+metro1500ClockNoFail TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent if a Clock is installed and can 
+        synchronize with the input Signal. This Trap is not sent
+        if the installed Clock does not have an error Output"
+    ::= 32
+
+metro1500ClockFail TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent if a Clock is installed and can not 
+        synchronize with the input Signal. This trap is not sent
+        if the installed Clock does not have an error Output"
+    ::= 33
+
+metro1500ClockChangeFrequency TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent if a multi frequency Clock is installed and
+        changes its frequency."
+    ::= 34  
+
+metro1500LocLoopOn TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent if Local Loop is set to On."
+    ::= 35 
+
+metro1500LocLoopOff TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+      "Trap is sent if Local Loop is set to Off."
+    ::= 36    
+    
+metro1500RemLoopOn TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent if Remote Loop is set to On."
+    ::= 37 
+
+metro1500RemLoopOff TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent if Remote Loop is set to Off."
+    ::= 38            
+
+-----------------------------------------------------------
+-- Traps which are generated by the Remote Optical Switch
+-- They start at #40 to leave Space for other Traps
+--    Traps for the Remote Optical Switch are only sent, if
+-- one switch is installed
+-----------------------------------------------------------
+metro1500switchReferenceLaserOn TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the Reference Laser is switched on"
+    ::= 40
+
+metro1500switchReferenceLaserOff TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the Reference Laser is switched off"
+    ::= 41
+
+metro1500switchToA TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the Switch switches to Line A"
+    ::= 42
+
+metro1500switchToB TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the Switch switches to Line B"
+    ::= 43
+
+metro1500switchAutomatic TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+       "Trap is sent when the Switch is going to Automatic State"
+    ::= 44
+
+metro1500switchLocked TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the Switch is going to Locked State"
+    ::= 45
+
+metro1500switchLineAavail TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the Switch Line A is available"
+    ::= 46
+
+metro1500switchLineANotAvail TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the Switch Line A is not available"
+    ::= 47
+
+metro1500switchLineBavail TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the Switch Line B is available"
+    ::= 48
+
+metro1500switchLineBNotAvail TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent when the Switch Line B is not available"
+    ::= 49     
+    
+metro1500repeatedMessage TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES {metro1500SlotNumber}
+    DESCRIPTION
+        "Trap is sent, after three times the same trap is sent (instead of 
+        the fourth one). The original trap is suppressed for one minute." 
+    ::= 50 
+
+-----------------------------------------------------------
+--  Traps for the NEMI Netcork Connection
+----------------------------------------------------------- 
+metro1500INNCDown TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    DESCRIPTION
+        "Trap is sent, when the Inter NEMI Network Connection (INNC) is down."
+    ::= 51  
+    
+metro1500INNCUp TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    DESCRIPTION
+        "Trap is sent, when the Inter NEMI Network Connection (INNC) is up."
+    ::= 52
+    
+-----------------------------------------------------------
+-- Traps for the Ethernet Hub Card
+-- (starting with #60)
+-----------------------------------------------------------
+metro1500EthernetHubPortEnable TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when one of the ports of the Ethernet Hub is
+        enabled by the management software (default). Use SNMP Get 
+        to get the Port Number."
+    ::= 60
+    
+metro1500EthernetHubPortDisable TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when one of the ports of the Ethernet Hub is
+        disabled by the management Software. Use SNMP Get to get 
+        the Port number."
+    ::= 61
+    
+metro1500EthernetHubPortPartitioned TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when a Hub Port is disabled by the Hub Hardware.
+        Use SNMP Get to get the Port Number."    
+    ::= 62
+    
+metro1500EthernetHubPortNotPartitioned TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when a Hub Port is enabled by the Hub Hardware
+        (default). Use SNMP Get to get the Port Number."    
+    ::= 63
+
+metro1500EthernetHubPortLinkPulses TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when a Hub Port starts receiving Link Pulses. 
+        Use SNMP Get to get the Port Number"    
+    ::= 64
+    
+metro1500EthernetHubPortNoLinkPulses TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when a Hub Port stops receiving Link Pulses. 
+        Use SNMP Get to get the Port Number"    
+    ::= 65    
+                
+-----------------------------------------------------------
+-- Traps for the TDM Card
+-- (we start with #70)
+-----------------------------------------------------------
+-- the remote side
+metro1500TDMRemoteSyncLoss TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the synchronisation of the incoming
+        remote data stream is lost"    
+    ::= 70
+
+metro1500TDMRemoteSync TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the synchronisation of the incoming
+        remote data stream is established"    
+    ::= 71
+    
+    
+-- module enable / disable for every port    
+metro1500TDMLocModuleEnabled1 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when local module 1 is enabled by software"    
+    ::= 72
+    
+metro1500TDMLocModuleDisable1 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when local module 1 is disabled by software"    
+    ::= 73 
+    
+metro1500TDMLocModuleEnabled2 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when local module 2 is enabled by software"    
+    ::= 74
+    
+metro1500TDMLocModuleDisable2 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when local module 2 is disabled by software"    
+    ::= 75
+    
+metro1500TDMLocModuleEnabled3 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when local module 3 is enabled by software"    
+    ::= 76
+    
+metro1500TDMLocModuleDisable3 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when local module 3 is disabled by software"    
+    ::= 77   
+    
+metro1500TDMLocModuleEnabled4 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when local module 4 is enabled by software"    
+    ::= 78
+    
+metro1500TDMLocModuleDisable4 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when local module 4 is disabled by software"    
+    ::= 79 
+    
+-- leave space for 8 channel TDM ...
+
+-- local receive for every port
+metro1500TDMLocModuleRxOn1 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the local receiver 1 of a TDM card gets 
+        modulated signal"    
+    ::= 88
+    
+metro1500TDMLocModuleRxOff1 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the local receiver 1 of a TDM card doesn't 
+        get modulated signal"    
+    ::= 89
+    
+metro1500TDMLocModuleRxOn2 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the local receiver 2 of a TDM card gets 
+        modulated signal"    
+    ::= 90
+    
+metro1500TDMLocModuleRxOff2 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the local receiver 2 of a TDM card doesn't 
+        get modulated signal"    
+    ::= 91
+
+metro1500TDMLocModuleRxOn3 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the local receiver 3 of a TDM card gets 
+        modulated signal"    
+    ::= 92
+    
+metro1500TDMLocModuleRxOff3 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the local receiver 3 of a TDM card doesn't 
+        get modulated signal"    
+    ::= 93
+    
+metro1500TDMLocModuleRxOn4 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the local receiver 4 of a TDM card gets 
+        modulated signal"    
+    ::= 94
+    
+metro1500TDMLocModuleRxOff4 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the local receiver 4 of a TDM card doesn't 
+        get modulated signal"    
+    ::= 95
+    
+-- leave space for 8 channel TDM ...
+
+-- data from the remote side for every local channel
+metro1500TDMLocModuleData1 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when data from the remote side is available for
+        this TDM channel"    
+    ::= 104
+    
+metro1500TDMLocModuleNoData1 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when no data from the remote side is available for
+        this TDM channel"    
+    ::= 105
+    
+metro1500TDMLocModuleData2 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when data from the remote side is available for
+        this TDM channel"    
+    ::= 106
+    
+metro1500TDMLocModuleNoData2 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when no data from the remote side is available for
+        this TDM channel"    
+    ::= 107
+    
+metro1500TDMLocModuleData3 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when data from the remote side is available for
+        this TDM channel"    
+    ::= 108
+    
+metro1500TDMLocModuleNoData3 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when no data from the remote side is available for
+        this TDM channel"    
+    ::= 109
+    
+metro1500TDMLocModuleData4 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when data from the remote side is available for
+        this TDM channel"    
+    ::= 110
+    
+metro1500TDMLocModuleNoData4 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when no data from the remote side is available for
+        this TDM channel"    
+    ::= 111
+    
+-- leave space for 8 channel TDM
+
+-- failures of the local clocks
+metro1500TDMLocModuleClockFail1 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the Data Rate of the local input signal doesn't
+        match the Data Rate of the local clock"    
+    ::= 120
+
+metro1500TDMLocModuleClockNoFail1 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the Data Rate of the local input signal matches
+        the Data Rate of the local clock"    
+    ::= 121
+    
+metro1500TDMLocModuleClockFail2 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the Data Rate of the local input signal doesn't
+        match the Data Rate of the local clock"    
+    ::= 122
+
+metro1500TDMLocModuleClockNoFail2 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the Data Rate of the local input signal matches
+        the Data Rate of the local clock"    
+    ::= 123
+    
+metro1500TDMLocModuleClockFail3 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the Data Rate of the local input signal doesn't
+        match the Data Rate of the local clock"    
+    ::= 124
+
+metro1500TDMLocModuleClockNoFail3 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the Data Rate of the local input signal matches
+        the Data Rate of the local clock"    
+    ::= 125
+    
+metro1500TDMLocModuleClockFail4 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the Data Rate of the local input signal doesn't
+        match the Data Rate of the local clock"    
+    ::= 126
+
+metro1500TDMLocModuleClockNoFail4 TRAP-TYPE
+    ENTERPRISE metro1500Trap
+    VARIABLES { metro1500SlotNumber }
+    DESCRIPTION
+        "Trap is sent, when the Data Rate of the local input signal matches
+        the Data Rate of the local clock"    
+    ::= 127        
+    
+                
+END
+

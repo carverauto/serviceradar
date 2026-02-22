@@ -1,0 +1,2063 @@
+-- *****************************************************************
+-- CISCO-WAN-ATM-CONN-CAPABILITY MIB
+--
+-- AGENT-CAPABILITIES MIB for CISCO-WAN-ATM-CONN-MIB.
+--
+-- February 2004, Rajesh Goudar
+--
+-- Copyright(c) 2002,2004 by Cisco Systems,Inc.
+--
+-- *****************************************************************
+
+CISCO-WAN-ATM-CONN-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        Unsigned32
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;   
+
+ciscoWanAtmConnCapability MODULE-IDENTITY
+        LAST-UPDATED    "200402070000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+        DESCRIPTION
+                "The agent capabilities for CISCO-WAN-ATM-CONN-MIB
+		 in MGX8800 Series.
+                 - The capability cwAtmConnCapabilityAxsmV2R0160
+                   is for AXSM in MGX Release 2.1.60.
+                 - The capability cwAtmConnCapabilityAxsmeV2R0160
+                   is for AXSM-E in MGX Release 2.1.60.
+                 - The capability cwAtmConnCapabilityRpmprV2R0160
+                   is for RPM-PR in MGX Release 2.1.60.
+                 - The capability cwAtmConnCapabilityBpxsesV3R00 
+                   is for AXSM in MGX Release 3.0.00.
+                 - The capability cwAtmConnCapabilityAxsmV3R00 
+                   is for AXSM in MGX Release 3.0.00.
+                 - The capability cwAtmConnCapabilityAxsmeV3R00 
+                   is for AXSM-E in MGX Release 3.0.00.
+                 - The capability cwAtmConnCapabilityPxm1eV3R00 
+                   is for AXSM-E in MGX Release 3.0.00.
+                 - The capability cwAtmConnCapabilityRpmprV3R00
+                   is for RPM-PR in MGX Release 3.0.00.
+                 - The capability cwAtmConnCapabilityRpmxfV12R02
+                   is for RPM-XF in MGX Release 3.0.00.
+                 - The capability cwAtmConnCapabilityV5R00
+                   is for MPSM155 & VXSM in MGX Release 5.0.00."
+
+        REVISION    "200402070000Z"
+        DESCRIPTION
+            "Added cwAtmConnCapabilityV5R00 for MPSM155 & VXSM cards"
+
+        REVISION    "200203260000Z"
+        DESCRIPTION
+            "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 380 }
+
+cwAtmConnCapabilityAxsmV2R0160 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 2.1.60."
+    STATUS               current
+    DESCRIPTION          "Agent capabilities for ATM Switch
+                         Service Module(AXSM)."
+
+    SUPPORTS CISCO-WAN-ATM-CONN-MIB
+    INCLUDES { ciscoWanAtmConnChan2MIBGroup,
+               ciscoWanAtmConnStateGroup }
+
+    VARIATION   cwAtmChanCnfgEntry
+    CREATION-REQUIRES {
+            cwaChanServiceCategory,
+            cwaChanVpcFlag,
+            cwaChanRoutingMastership,
+            cwaChanRemoteVpi, 
+            cwaChanRemoteVci, 
+            cwaChanRemoteNSAPAddr
+    }
+    DESCRIPTION
+        "Refer description of cwaChanRowStatus."
+
+    VARIATION   cwaChanControllerId
+    DESCRIPTION 
+        "The value specified in write operation is
+	 ignored. The read operation returns the controller
+	 id configured in the shelf."
+
+    VARIATION   cwaChanPCR
+    SYNTAX      Unsigned32 (7..5651320)
+    DESCRIPTION
+	"Write supported with restricted range."
+
+    VARIATION   cwaChanMCR
+    SYNTAX      Unsigned32 (7..5651320)
+    DESCRIPTION
+	"Write supported with restricted range."
+
+    VARIATION   cwaChanSCR
+    SYNTAX      Unsigned32 (7..5651320)
+    DESCRIPTION
+	"Write supported with restricted range."
+
+    VARIATION   cwaChanRemotePCR
+    SYNTAX      Unsigned32 (7..5651320)
+    DESCRIPTION
+	"Write supported with restricted range."
+
+    VARIATION   cwaChanRemoteMCR
+    SYNTAX      Unsigned32 (7..5651320)
+    DESCRIPTION
+	"Write supported with restricted range."
+
+    VARIATION   cwaChanRemoteSCR
+    SYNTAX      Unsigned32 (7..5651320)
+    DESCRIPTION
+	"Write supported with restricted range."
+
+    VARIATION   cwaChanAbrICR
+    SYNTAX      Unsigned32 (7..5651320)
+    DESCRIPTION
+	"Write supported with restricted range."
+
+    VARIATION   cwaChanCDVT
+    SYNTAX      Unsigned32(0..5360000)
+    DESCRIPTION
+	"Write supported with restricted range."
+
+    VARIATION   cwaChanPercentUtil
+    DESCRIPTION 
+        "The value specified in write operation is
+	 ignored. The read operation returns the default value."
+	
+    VARIATION   cwaChanRemotePercentUtil
+    DESCRIPTION 
+        "The value specified in write operation is
+	 ignored. The read operation returns the default value."
+	
+    VARIATION   cwaChanRowStatus
+    SYNTAX      INTEGER {
+			active(1),
+			notInService(2),
+			createAndGo(4),
+			destroy(6)
+		}
+    DESCRIPTION "Does not support createAndWait(5)."
+
+    VARIATION   cwaChanIntAbrVSVD
+    DESCRIPTION 
+        "The value specified in write operation is ignored.
+	 The read operation returns the default value."
+
+    VARIATION   cwaChanExtAbrVSVD
+    DESCRIPTION 
+        "The value specified in write operation is ignored.
+	 The read operation returns the default value."
+	
+    VARIATION   cwaChanAisIWCapability
+    DESCRIPTION 
+        "The value specified in write operation is ignored.
+	 The read operation returns the default value."
+	
+    VARIATION   cwaChanCLR
+    DESCRIPTION 
+        "The value specified in write operation is ignored.
+	 The read operation returns the default value."
+
+    VARIATION   cwaChanRemoteCLR
+    DESCRIPTION 
+        "The value specified in write operation is ignored.
+	 The read operation returns the default value."
+
+    VARIATION  cwaChanTestType
+    SYNTAX     INTEGER { noLpbk(1), nonDestructive(3) }
+    DESCRIPTION 
+        "Does not support the value destructive(2)."
+
+    VARIATION  cwaChanTestIterations
+    SYNTAX     Unsigned32 (1..1)
+    DESCRIPTION "Only supported value is 1."
+    ::= { ciscoWanAtmConnCapability 1 }
+
+cwAtmConnCapabilityAxsmeV2R0160 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 2.1.60"
+    STATUS               current
+    DESCRIPTION          "Agent capabilities for Enhanced AXSM(AXSM-E)."
+
+    SUPPORTS CISCO-WAN-ATM-CONN-MIB
+        INCLUDES { ciscoWanAtmConnChan2MIBGroup,
+                   ciscoWanAtmConnStateGroup }
+
+        VARIATION   cwAtmChanCnfgEntry
+        CREATION-REQUIRES {
+            cwaChanServiceCategory, cwaChanVpcFlag,
+            cwaChanRoutingMastership,
+            cwaChanRemoteVpi, cwaChanRemoteVci, cwaChanRemoteNSAPAddr
+        }
+        DESCRIPTION
+            "Refer description of cwaChanRowStatus."
+          
+        VARIATION   cwaChanControllerId
+        DESCRIPTION 
+            "The value specified in write operation is
+             ignored. The read operation returns the controller
+             id configured in the shelf."
+
+        VARIATION   cwaChanPCR
+        SYNTAX      Unsigned32 (7..1412830)
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanMCR
+        SYNTAX      Unsigned32 (7..1412830)
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanSCR
+        SYNTAX      Unsigned32 (7..1412830)
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanRemotePCR
+        SYNTAX      Unsigned32 (7..1412830)
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanRemoteMCR
+        SYNTAX      Unsigned32 (7..1412830)
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanRemoteSCR
+        SYNTAX      Unsigned32 (7..1412830)
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanAbrICR
+        SYNTAX      Unsigned32 (7..1412830)
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanCDVT
+        SYNTAX      Unsigned32(0..5360000)
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanPercentUtil
+        DESCRIPTION 
+            "The value specified in write operation is
+             ignored. The read operation returns the default value."
+        
+        VARIATION   cwaChanRemotePercentUtil
+        DESCRIPTION 
+            "The value specified in write operation is
+             ignored. The read operation returns the default value."
+        
+        VARIATION   cwaChanRowStatus
+        SYNTAX      INTEGER {
+                        active(1),
+                        notInService(2),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+        DESCRIPTION "Does not support createAndWait(5)."
+
+        VARIATION   cwaChanAbrVSVDEnable   
+        ACCESS      not-implemented      
+        DESCRIPTION "Not supported."
+
+        VARIATION   cwaChanAbrERS
+        DESCRIPTION 
+            "The value specified in write operation is
+             ignored. The read operation returns the default value."
+        
+        VARIATION   cwaChanAisIWCapability
+        DESCRIPTION 
+            "The value specified in write operation is ignored.
+             The read operation returns the default value."
+        
+        VARIATION   cwaChanCLR
+        DESCRIPTION 
+            "The value specified in write operation is ignored.
+             The read operation returns the default value."
+
+        VARIATION   cwaChanRemoteCLR
+        DESCRIPTION 
+            "The value specified in write operation is ignored.
+             The read operation returns the default value."
+
+        VARIATION  cwaChanTestType
+        SYNTAX     INTEGER { noLpbk(1), nonDestructive(3) }
+        DESCRIPTION "Does not support the value destructive(2)."
+
+        VARIATION  cwaChanTestIterations
+        SYNTAX     Unsigned32 (1..1)
+        DESCRIPTION "Only supported value is 1."
+
+    ::= { ciscoWanAtmConnCapability 2 }
+
+cwAtmConnCapabilityRpmprV2R0160 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 2.1.60"
+    STATUS               current
+    DESCRIPTION          "Agent capabilities for RPM-PR module."
+
+    SUPPORTS CISCO-WAN-ATM-CONN-MIB
+
+        INCLUDES { ciscoWanAtmConnChan2MIBGroup,
+                   ciscoWanAtmConnStateGroup }
+
+        VARIATION   cwAtmChanCnfgEntry
+        CREATION-REQUIRES {
+            cwaChanServiceCategory, cwaChanVpcFlag,
+            cwaChanRoutingMastership,
+            cwaChanRemoteVpi, cwaChanRemoteVci, cwaChanRemoteNSAPAddr
+        }
+        DESCRIPTION
+            "Refer description of cwaChanRowStatus."
+
+        VARIATION   cwaChanVpi
+        SYNTAX      Unsigned32(0..255)
+        DESCRIPTION "For VCCs, only value zero is supported."
+	
+        VARIATION   cwaChanVci
+        SYNTAX      Unsigned32(1..3808)
+        DESCRIPTION "For VCCs only."
+	
+        VARIATION   cwaChanServiceCategory
+        SYNTAX      INTEGER { vbr3nRT(7),ubr1(8),abr(10) }
+        DESCRIPTION 
+            "Does not support  cbr1(1), vbr1RT(2), vbr2RT(3),
+             vbr3RT(4), vbr1nRT(5), vbr2nRT(6), ubr2(9),
+             cbr2(11), cbr3(12)."
+
+        VARIATION   cwaChanIdentifier
+        SYNTAX      Unsigned32(17..4095)
+        DESCRIPTION "For VCCs supported range is 17-3824. 
+	             For VPCs supported range is 3841-4095." 
+	
+        VARIATION   cwaChanStatsEnable
+        DESCRIPTION "Read returns value false(2).
+                     Write operation is ignored."
+
+        VARIATION   cwaChanLocalVpi
+        SYNTAX      Unsigned32(0..255)
+        DESCRIPTION "For VCCs the VPI value must be zero."
+
+        VARIATION   cwaChanLocalVci
+        SYNTAX      Unsigned32(1..3808)
+        DESCRIPTION "This is the valid range for VCCs."
+
+        VARIATION   cwaChanRemoteVpi
+        SYNTAX      Unsigned32(0..255)
+        DESCRIPTION "For VCCs the VPI value must be zero."
+
+        VARIATION   cwaChanRemoteVci
+        SYNTAX      Unsigned32(1..3808)
+        DESCRIPTION "This is the valid range for VCCs."
+
+        VARIATION   cwaChanCCEnable
+        ACCESS      read-only
+        DESCRIPTION "Read returns value false(2).
+                     Write operation is not supported."
+
+        VARIATION   cwaChanFrameDiscard
+        DESCRIPTION "Read returns value false(2).
+                     Write operation is ignored."
+
+        VARIATION   cwaChanPCR
+        SYNTAX      Unsigned32(7..353208)
+        DESCRIPTION "Only limited range is supported."
+
+        VARIATION   cwaChanMCR
+        SYNTAX      Unsigned32(7..353208)
+        DESCRIPTION "Only limited range is supported."
+
+        VARIATION   cwaChanSCR
+        SYNTAX      Unsigned32(7..353208)
+        DESCRIPTION "Only limited range is supported."
+
+        VARIATION   cwaChanCDV
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanCTD
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanMBS
+        SYNTAX      Unsigned32(1..65535)
+        DESCRIPTION "Only limited range is supported."
+	
+        VARIATION   cwaChanCDVT
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+	
+        VARIATION   cwaChanRemotePCR
+        SYNTAX      Unsigned32(7..353208)
+        DESCRIPTION "Only limited range is supported."
+
+        VARIATION   cwaChanRemoteMCR
+        SYNTAX      Unsigned32(7..353208)
+        DESCRIPTION "Only limited range is supported."
+
+        VARIATION   cwaChanRemoteSCR
+        SYNTAX      Unsigned32(7..353208)
+        DESCRIPTION "Only limited range is supported."
+
+        VARIATION   cwaChanRemoteCDV
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+	
+        VARIATION   cwaChanRemoteCTD
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanAbrICR
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanAbrADTF
+        ACCESS      read-only
+        DEFVAL      { 50 }
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanAbrRIF
+        ACCESS      read-only
+        DEFVAL      { oneOver16 }
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanAbrNRM
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanAbrTRM
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanAbrCDF
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanAbrFRTT
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanAbrTBE
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanAbrERS
+        DESCRIPTION "Write operation is ignored."
+
+        VARIATION   cwaChanAbrVSVDEnable
+        DESCRIPTION "Write operation is ignored."
+
+        VARIATION   cwaChanIntAbrVSVD
+        DESCRIPTION "Write operation is ignored."
+
+        VARIATION   cwaChanExtAbrVSVD
+        DESCRIPTION "Write operation is ignored."
+
+        VARIATION   cwaChanAisIWCapability
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanCLR
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanRemoteCLR
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanEgressXmtState
+        DESCRIPTION "Always returns value zero."
+
+        VARIATION   cwaChanEgressRcvState
+        DESCRIPTION "Always returns value zero."
+
+        VARIATION   cwaChanIngressXmtState
+        DESCRIPTION "Always returns value zero."
+
+        VARIATION   cwaChanIngressRcvState
+        DESCRIPTION "Always returns value zero."
+
+    ::= { ciscoWanAtmConnCapability 3 }
+
+cwAtmConnCapabilityBpxsesV3R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "BPX SES Release 3.0.00"
+    STATUS               current
+    DESCRIPTION          "Agent capabilities for BPX SES."
+
+    SUPPORTS CISCO-WAN-ATM-CONN-MIB
+        INCLUDES { ciscoWanAtmConnChan3MIBGroup,
+		   ciscoWanAtmConnStateGroup }
+
+        VARIATION   cwAtmChanCnfgEntry
+        CREATION-REQUIRES {
+            cwaChanServiceCategory, 
+            cwaChanVpcFlag,
+            cwaChanRoutingMastership,
+            cwaChanRemoteVpi, 
+            cwaChanRemoteVci, 
+            cwaChanRemoteNSAPAddr
+        }
+        DESCRIPTION
+            "Refer description of cwaChanRowStatus."
+
+        VARIATION   cwaChanMaxCost
+        SYNTAX      Unsigned32(0..134217727)
+        DESCRIPTION "Supported with Restricted range."
+
+        VARIATION   cwaChanCDVT
+        SYNTAX      Unsigned32(0..5000000)
+        DESCRIPTION "Supported with Restricted range."
+
+        VARIATION   cwaChanCCEnable
+        ACCESS      read-only
+        DESCRIPTION "Write Operation not Supported."
+
+        VARIATION   cwaChanPCR
+        SYNTAX      Unsigned32 (6..4294967295)
+        DEFVAL      { 50 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+        VARIATION   cwaChanMCR
+        SYNTAX      Unsigned32 (6..4294967295)
+        DEFVAL      { 50 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+        VARIATION   cwaChanSCR
+        SYNTAX      Unsigned32 (6..4294967295)
+        DEFVAL      { 50 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+        VARIATION   cwaChanRemotePCR
+        SYNTAX      Unsigned32 (6..4294967295)
+        DEFVAL      { 50 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+        VARIATION   cwaChanRemoteMCR
+        SYNTAX      Unsigned32 (6..4294967295)
+        DEFVAL      { 50 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+        VARIATION   cwaChanRemoteSCR
+        SYNTAX      Unsigned32 (6..4294967295)
+        DEFVAL      { 50 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+        VARIATION   cwaChanMBS
+        DEFVAL      { 1024 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+        VARIATION   cwaChanRemoteMBS
+        DEFVAL      { 1024 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+        VARIATION   cwaChanAbrICR
+        SYNTAX      Unsigned32 (7..5651320)
+        DEFVAL      { 50 }
+        DESCRIPTION "Write supported with restricted range."
+
+        VARIATION   cwaChanAbrADTF
+        DEFVAL      { 50 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrRDF
+        DEFVAL      { oneOver4096 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrRIF
+        DEFVAL      { oneOver512 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrNRM
+        DEFVAL      { nrm32 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrTRM
+        DEFVAL      { trm100 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrCDF
+        DEFVAL      { cdfOneOver2 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrFRTT
+        DEFVAL      { 0 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrTBE
+        DEFVAL      { 1048320 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanIntAbrVSVD
+        ACCESS      read-only
+        DESCRIPTION "Write operation not supported."
+
+        VARIATION   cwaChanExtAbrVSVD
+        ACCESS	    read-only
+        DESCRIPTION "Write operation not supported."
+	
+        VARIATION   cwaChanOamSegEpEnable
+        DEFVAL      { oamSegEp }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanEgressXmtState
+        DESCRIPTION "Set to value 0 always."
+        
+        VARIATION   cwaChanEgressRcvState
+        DESCRIPTION "Set to value 0 always."
+
+        VARIATION   cwaChanIngressXmtState
+        DESCRIPTION "Set to value 0 always."
+
+        VARIATION   cwaChanIngressRcvState
+        DESCRIPTION "Set to value 0 always."
+
+    ::= { ciscoWanAtmConnCapability 4 }
+
+cwAtmConnCapabilityAxsmV3R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 3.0.00."
+    STATUS               current
+    DESCRIPTION          "Agent capabilities for AXSM module."
+
+    SUPPORTS CISCO-WAN-ATM-CONN-MIB
+	INCLUDES { ciscoWanAtmConnChan3MIBGroup,
+		   ciscoWanAtmConnStateGroup }
+
+        VARIATION   cwAtmChanCnfgEntry
+        CREATION-REQUIRES {
+            cwaChanServiceCategory, 
+            cwaChanVpcFlag,
+            cwaChanRoutingMastership,
+            cwaChanRemoteVpi, 
+            cwaChanRemoteVci, 
+            cwaChanRemoteNSAPAddr
+        }
+        DESCRIPTION
+            "Refer description of cwaChanRowStatus."
+
+        VARIATION   cwaChanServiceCategory
+        DESCRIPTION 
+            "Write Operation is ignored on an existing connection."
+
+        VARIATION cwaChanVpcFlag
+        DEFVAL   { false }
+        DESCRIPTION 
+            "Write Operation is ignored on an existing connection."
+
+        VARIATION   cwaChanControllerId
+        SYNTAX      Unsigned32(1..20)
+        DESCRIPTION 
+            "Write Operation is ignored on an existing connection."
+
+        VARIATION   cwaChanFrameDiscard
+        DESCRIPTION
+            "Can not configure when cwaChanVpcFlag = 'true'"
+
+        VARIATION   cwaChanPCR
+        SYNTAX      Unsigned32 (7..5651320)
+        DEFVAL      { 50 }
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanMCR
+        SYNTAX      Unsigned32 (7..5651320)
+        DEFVAL      { 50 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+        VARIATION   cwaChanSCR
+        SYNTAX      Unsigned32 (7..5651320)
+        DEFVAL      { 50 }
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanRemotePCR
+        SYNTAX      Unsigned32 (7..5651320)
+        DEFVAL      { 50 }
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanRemoteMCR
+        SYNTAX      Unsigned32 (7..5651320)
+        DEFVAL      { 50 }
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanRemoteSCR
+        SYNTAX      Unsigned32 (7..5651320)
+        DEFVAL      { 50 }
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanMBS
+        DEFVAL      { 1024 }
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanRemoteMBS
+        DEFVAL      { 1024 }
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanCDVT
+        SYNTAX      Unsigned32(0..5000000)
+        DEFVAL      { 250000 }
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanAbrICR
+        SYNTAX      Unsigned32 (7..5651320)
+        ACCESS      read-only
+        DEFVAL      { 50 }
+        DESCRIPTION
+            "Write supported with restricted range."
+
+        VARIATION   cwaChanAbrADTF
+        ACCESS      read-only
+        DEFVAL      { 50 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrRDF
+        ACCESS      read-only
+        DEFVAL      { oneOver4096 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrRIF
+        ACCESS      read-only
+        DEFVAL      { oneOver512 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrNRM
+        ACCESS      read-only
+        DEFVAL      { nrm32 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrTRM
+        ACCESS      read-only
+        DEFVAL      { trm100 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrCDF
+        ACCESS      read-only
+        DEFVAL      { cdfOneOver2 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrFRTT
+        ACCESS      read-only
+        DEFVAL      { 0 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanAbrTBE
+        ACCESS      read-only
+        DEFVAL      { 1048320 }
+        DESCRIPTION ""
+
+        VARIATION   cwaChanRowStatus
+        SYNTAX      INTEGER {
+                        active(1),
+                        notInService(2),
+                        createAndGo(4),
+                        destroy(6)
+            }
+        DESCRIPTION "Does not support createAndWait(5)."
+
+        VARIATION   cwaChanIntAbrVSVD
+        DEFVAL      { vsvdOff }
+        DESCRIPTION 
+            "The value specified in write operation is ignored.
+             The read operation returns the default value."
+
+        VARIATION   cwaChanExtAbrVSVD
+        DEFVAL      { vsvdOff }
+        DESCRIPTION 
+            "The value specified in write operation is ignored.
+             The read operation returns the default value."
+	
+        VARIATION   cwaChanCLR
+        DESCRIPTION 
+            "The value specified in write operation is ignored.
+             The read operation returns the default value."
+
+        VARIATION   cwaChanRemoteCLR
+        DESCRIPTION 
+            "The value specified in write operation is ignored.
+             The read operation returns the default value."
+       
+        VARIATION cwaChanOamSegEpEnable
+        DEFVAL    { oamSegEp }
+        DESCRIPTION
+            "Default value depends upon the switch configuration "
+
+        VARIATION  cwaChanTestIterations
+        SYNTAX     Unsigned32 (1..100)
+        DESCRIPTION 
+            "Restricted range is supported."
+
+    ::= { ciscoWanAtmConnCapability 5 }
+
+cwAtmConnCapabilityAxsmeV3R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 3.0.00."
+    STATUS               current
+    DESCRIPTION          "Agent capabilities for AXSM-E module."
+
+    SUPPORTS CISCO-WAN-ATM-CONN-MIB
+	INCLUDES { ciscoWanAtmConnChan3MIBGroup,
+		   ciscoWanAtmConnStateGroup }
+
+        VARIATION   cwAtmChanCnfgEntry
+        CREATION-REQUIRES {
+            cwaChanServiceCategory, cwaChanVpcFlag,
+            cwaChanRoutingMastership,
+            cwaChanRemoteVpi, cwaChanRemoteVci, cwaChanRemoteNSAPAddr
+        }
+        DESCRIPTION
+            "Refer Description of cwaChanRowStatus."
+
+	VARIATION   cwaChanServiceCategory
+	DESCRIPTION 
+            "Write Operation is ignored on an existing connection."
+
+        VARIATION cwaChanVpcFlag
+        DEFVAL   { false }
+	DESCRIPTION 
+            "Write Operation is ignored on an existing connection."
+
+	VARIATION   cwaChanControllerId
+        SYNTAX      Unsigned32(1..20)
+	DESCRIPTION 
+            "Write Operation is ignored on an existing connection."
+
+        VARIATION   cwaChanFrameDiscard
+        DESCRIPTION
+            "Can not configure when cwaChanVpcFlag = 'true'"
+
+	VARIATION   cwaChanPCR
+	SYNTAX      Unsigned32 (7..1412830)
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanMCR
+	SYNTAX      Unsigned32 (7..1412830)
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanSCR
+	SYNTAX      Unsigned32 (7..1412830)
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanRemotePCR
+	SYNTAX      Unsigned32 (7..1412830)
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanRemoteMCR
+	SYNTAX      Unsigned32 (7..1412830)
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanRemoteSCR
+	SYNTAX      Unsigned32 (7..1412830)
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanMBS
+        DEFVAL      { 1024 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanRemoteMBS
+        DEFVAL      { 1024 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+        VARIATION   cwaChanCDVT
+        SYNTAX      Unsigned32(0..5000000)
+        DEFVAL      { 250000 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanAbrICR
+	SYNTAX      Unsigned32 (7..1412830)
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+        VARIATION   cwaChanAbrADTF
+        DEFVAL      { 50 }
+        DESCRIPTION 
+            ""
+
+        VARIATION   cwaChanAbrRDF
+        DEFVAL      { oneOver4096 }
+        DESCRIPTION 
+            ""
+
+        VARIATION   cwaChanAbrRIF
+        DEFVAL      { oneOver512 }
+        DESCRIPTION 
+            ""
+
+        VARIATION   cwaChanAbrNRM
+        DEFVAL      { nrm32 }
+        DESCRIPTION 
+            ""
+
+        VARIATION   cwaChanAbrTRM
+        DEFVAL      { trm100 }
+        DESCRIPTION 
+             ""
+
+        VARIATION   cwaChanAbrCDF
+        DEFVAL      { cdfOneOver2 }
+        DESCRIPTION 
+             ""
+
+        VARIATION   cwaChanAbrFRTT
+        DEFVAL      { 0 }
+        DESCRIPTION 
+             ""
+
+        VARIATION   cwaChanAbrTBE
+        DEFVAL      { 1048320 }
+        DESCRIPTION 
+             ""
+
+        VARIATION   cwaChanAbrVSVDEnable
+        DESCRIPTION 
+            "The value specified in write operation is
+             ignored. The read operation returns the default value."
+
+	VARIATION   cwaChanRowStatus
+        SYNTAX      INTEGER {
+			active(1),
+			notInService(2),
+			createAndGo(4),
+			destroy(6)
+		    }
+	DESCRIPTION "Does not support createAndWait(5)."
+
+	VARIATION   cwaChanIntAbrVSVD
+        DEFVAL      { vsvdOff }
+	DESCRIPTION 
+            "The value specified in write operation is ignored.
+	     The read operation returns the default value."
+
+	VARIATION   cwaChanExtAbrVSVD
+        DEFVAL      { vsvdOff }
+	DESCRIPTION 
+            "The value specified in write operation is ignored.
+	     The read operation returns the default value."
+	
+	VARIATION   cwaChanCLR
+	DESCRIPTION 
+            "The value specified in write operation is ignored.
+	     The read operation returns the default value."
+
+	VARIATION   cwaChanRemoteCLR
+	DESCRIPTION 
+            "The value specified in write operation is ignored.
+	     The read operation returns the default value."
+       
+        VARIATION cwaChanOamSegEpEnable
+        DEFVAL    { oamSegEp }
+        DESCRIPTION
+            "Default value depends upon the switch configuration "
+
+	VARIATION  cwaChanTestIterations
+	SYNTAX     Unsigned32 (1..100)
+	DESCRIPTION 
+            "Restricted range is supported."
+
+    ::= { ciscoWanAtmConnCapability 6 }
+
+cwAtmConnCapabilityPxm1eV3R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 3.0.00."
+    STATUS               current
+    DESCRIPTION          "Agent capabilities for PXM1-E module."
+
+    SUPPORTS CISCO-WAN-ATM-CONN-MIB
+	INCLUDES { ciscoWanAtmConnChan3MIBGroup,
+		   ciscoWanAtmConnStateGroup }
+
+        VARIATION   cwAtmChanCnfgEntry
+        CREATION-REQUIRES {
+            cwaChanServiceCategory, cwaChanVpcFlag,
+            cwaChanRoutingMastership,
+            cwaChanRemoteVpi, cwaChanRemoteVci, cwaChanRemoteNSAPAddr
+        }
+        DESCRIPTION
+            "Refer Description of cwaChanRowStatus."
+
+	VARIATION   cwaChanServiceCategory
+	DESCRIPTION 
+            "Write Operation is ignored on an existing connection."
+
+        VARIATION cwaChanVpcFlag
+        DEFVAL   { false }
+	DESCRIPTION 
+            "Write Operation is ignored on an existing connection."
+
+	VARIATION   cwaChanControllerId
+        SYNTAX      Unsigned32(1..20)
+	DESCRIPTION 
+            "Write Operation is ignored on an existing connection."
+
+        VARIATION   cwaChanFrameDiscard
+        DESCRIPTION
+            "Can not configure when cwaChanVpcFlag = 'true'"
+
+	VARIATION   cwaChanPCR
+	SYNTAX      Unsigned32 (7..1412830)
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanMCR
+	SYNTAX      Unsigned32 (7..1412830)
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanSCR
+	SYNTAX      Unsigned32 (7..1412830)
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanRemotePCR
+	SYNTAX      Unsigned32 (7..1412830)
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanRemoteMCR
+	SYNTAX      Unsigned32 (7..1412830)
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanRemoteSCR
+	SYNTAX      Unsigned32 (7..1412830)
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanMBS
+        DEFVAL      { 1024 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanRemoteMBS
+        DEFVAL      { 1024 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+        VARIATION   cwaChanCDVT
+        SYNTAX      Unsigned32(0..5000000)
+        DEFVAL      { 250000 }
+        DESCRIPTION
+	    "Write supported with restricted range."
+
+	VARIATION   cwaChanAbrICR
+	SYNTAX      Unsigned32 (7..1412830)
+        ACCESS      read-only   
+        DEFVAL      { 50 }
+	DESCRIPTION
+	    "Write supported with restricted range."
+
+        VARIATION   cwaChanAbrADTF
+        ACCESS      read-only   
+        DEFVAL      { 50 }
+        DESCRIPTION 
+            ""
+
+        VARIATION   cwaChanAbrRDF
+        ACCESS      read-only   
+        DEFVAL      { oneOver4096 }
+        DESCRIPTION 
+            ""
+
+        VARIATION   cwaChanAbrRIF
+        ACCESS      read-only   
+        DEFVAL      { oneOver512 }
+        DESCRIPTION 
+            ""
+
+        VARIATION   cwaChanAbrNRM
+        ACCESS      read-only   
+        DEFVAL      { nrm32 }
+        DESCRIPTION 
+            ""
+
+        VARIATION   cwaChanAbrTRM
+        ACCESS      read-only   
+        DEFVAL      { trm100 }
+        DESCRIPTION 
+             ""
+
+        VARIATION   cwaChanAbrCDF
+        ACCESS      read-only   
+        DEFVAL      { cdfOneOver2 }
+        DESCRIPTION 
+             ""
+
+        VARIATION   cwaChanAbrFRTT
+        ACCESS      read-only   
+        DEFVAL      { 0 }
+        DESCRIPTION 
+             ""
+
+        VARIATION   cwaChanAbrTBE
+        ACCESS      read-only   
+        DEFVAL      { 1048320 }
+        DESCRIPTION 
+             ""
+
+        VARIATION   cwaChanAbrVSVDEnable
+        DESCRIPTION 
+            "The value specified in write operation is
+             ignored. The read operation returns the default value."
+
+	VARIATION   cwaChanRowStatus
+        SYNTAX      INTEGER {
+			active(1),
+			notInService(2),
+			createAndGo(4),
+			destroy(6)
+		    }
+	DESCRIPTION "Does not support createAndWait(5)."
+
+	VARIATION   cwaChanIntAbrVSVD
+        DEFVAL      { vsvdOff }
+	DESCRIPTION 
+            "The value specified in write operation is ignored.
+	     The read operation returns the default value."
+
+	VARIATION   cwaChanExtAbrVSVD
+        DEFVAL      { vsvdOff }
+	DESCRIPTION 
+            "The value specified in write operation is ignored.
+	     The read operation returns the default value."
+	
+	VARIATION   cwaChanCLR
+	DESCRIPTION 
+            "The value specified in write operation is ignored.
+	     The read operation returns the default value."
+
+	VARIATION   cwaChanRemoteCLR
+	DESCRIPTION 
+            "The value specified in write operation is ignored.
+	     The read operation returns the default value."
+       
+        VARIATION cwaChanOamSegEpEnable
+        DEFVAL    { oamSegEp }
+        DESCRIPTION
+            "Default value depends upon the switch configuration "
+
+	VARIATION  cwaChanTestIterations
+	SYNTAX     Unsigned32 (1..100)
+	DESCRIPTION 
+            "Restricted range is supported."
+
+    ::= { ciscoWanAtmConnCapability 7 }
+
+cwAtmConnCapabilityRpmprV3R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 3.0.00"
+    STATUS               current
+    DESCRIPTION          "Agent capabilities for RPM-PR module."
+
+    SUPPORTS CISCO-WAN-ATM-CONN-MIB
+
+        INCLUDES { ciscoWanAtmConnChan3MIBGroup,
+                   ciscoWanAtmConnStateGroup }
+
+        VARIATION   cwAtmChanCnfgEntry
+        CREATION-REQUIRES {
+            cwaChanVpcFlag, cwaChanRoutingMastership,
+            cwaChanRemoteVpi, cwaChanRemoteVci, cwaChanRemoteNSAPAddr
+        }
+        DESCRIPTION
+            "Refer Description of cwaChanRowStatus."
+
+	VARIATION   cwaChanVpi
+	SYNTAX      Unsigned32(0..255)
+	DESCRIPTION "For VCCs, only value zero is supported."
+	
+	VARIATION   cwaChanVci
+	SYNTAX      Unsigned32(1..3808)
+	DESCRIPTION "For VCCs only."
+	
+	VARIATION   cwaChanServiceCategory
+	SYNTAX      INTEGER { vbr3nRT(7),ubr1(8),abr(10) }
+        DEFVAL     { ubr1 }
+	DESCRIPTION 
+            "Does not support  cbr1(1), vbr1RT(2), vbr2RT(3),
+             vbr3RT(4), vbr1nRT(5), vbr2nRT(6), ubr2(9),
+             cbr2(11), cbr3(12)."
+
+	
+	VARIATION   cwaChanIdentifier
+	SYNTAX      Unsigned32(17..4095)
+	DESCRIPTION "For VCCs supported range is 17-3824. 
+	             For VPCs supported range is 3841-4095." 
+	
+	VARIATION   cwaChanStatsEnable
+	DESCRIPTION "Read returns value false(2).
+                    Write operation is ignored."
+
+	VARIATION   cwaChanCCEnable
+        ACCESS      read-only
+	DESCRIPTION "Read returns value false(2).
+                     Write operation is not supported."
+
+        VARIATION   cwaChanLocalVpi
+        SYNTAX      Unsigned32(0..255)
+        DESCRIPTION "For VCCs the VPI Value Must be zero."
+
+        VARIATION   cwaChanLocalVci
+        SYNTAX      Unsigned32(1..3808)
+        DESCRIPTION "This is the valid range for VCCs."
+
+	VARIATION   cwaChanRemoteVpi
+        SYNTAX      Unsigned32(0..255)
+	DESCRIPTION "For VCCs the VPI Value Must be zero."
+
+	VARIATION   cwaChanRemoteVci
+        SYNTAX      Unsigned32(1..3808)
+	DESCRIPTION "This is the valid range for VCCs."
+
+	VARIATION   cwaChanControllerId
+        DEFVAL      { 2 }
+	DESCRIPTION 
+            "Controller Id(PNNI) is selected by default."
+
+	VARIATION   cwaChanFrameDiscard
+        ACCESS      read-only
+	DESCRIPTION "Read returns value false(2).
+                    Write operation is ignored."
+
+	VARIATION   cwaChanPCR
+        SYNTAX      Unsigned32(7..353208)
+        DEFVAL      { 353208 }
+	DESCRIPTION ""
+
+	VARIATION   cwaChanMCR
+        SYNTAX      Unsigned32(7..353208)
+	DESCRIPTION "Only limited range is supported."
+
+	VARIATION   cwaChanSCR
+        SYNTAX      Unsigned32(7..353208)
+	DESCRIPTION "Only limited range is supported."
+
+	VARIATION   cwaChanRemotePCR
+        SYNTAX      Unsigned32(7..353208)
+        DEFVAL      { 353208 }
+	DESCRIPTION "Only limited range is supported."
+
+	VARIATION   cwaChanRemoteMCR
+        SYNTAX      Unsigned32(7..353208)
+	DESCRIPTION "Only limited range is supported."
+
+	VARIATION   cwaChanRemoteSCR
+        SYNTAX      Unsigned32(7..353208)
+	DESCRIPTION "Only limited range is supported."
+
+	VARIATION   cwaChanMBS
+        SYNTAX      Unsigned32(1..65535)
+        DEFVAL      { 94 }
+	DESCRIPTION "Only limited range is supported."
+	
+	VARIATION   cwaChanRemoteMBS
+        SYNTAX      Unsigned32(1..65535)
+        DEFVAL      { 94 }
+	DESCRIPTION "Only limited range is supported."
+	
+	VARIATION   cwaChanCDV
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanRemoteCDV
+        ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+	
+	VARIATION   cwaChanCTD
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanRemoteCTD
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanCDVT
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrICR
+        SYNTAX      Unsigned32(7..353208)
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrADTF
+	ACCESS      read-only
+        DEFVAL      { 50 }
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrRIF
+	ACCESS      read-only
+        DEFVAL      { oneOver16 }
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrNRM
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrTRM
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrCDF
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrFRTT
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrTBE
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrVSVDEnable
+        ACCESS      read-only
+	DESCRIPTION "Write operation is ignored."
+
+	VARIATION   cwaChanIntAbrVSVD
+        ACCESS      read-only
+	DESCRIPTION "Write operation is ignored."
+
+	VARIATION   cwaChanExtAbrVSVD
+        ACCESS      read-only
+	DESCRIPTION "Write operation is ignored."
+
+	VARIATION   cwaChanCLR
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanRemoteCLR
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION cwaChanOamSegEpEnable
+        DEFVAL    { oamSegEp }
+        DESCRIPTION
+            ""
+
+        VARIATION cwaChanSlaveType
+        ACCESS    not-implemented
+        DESCRIPTION
+            "This object is not supported."
+
+        VARIATION cwaChanRoutingPriority
+        ACCESS    not-implemented
+        DESCRIPTION
+            "This object is not supported."
+
+	VARIATION   cwaChanEgressXmtState
+	DESCRIPTION "Always returns value zero."
+
+	VARIATION   cwaChanEgressRcvState
+	DESCRIPTION "Always returns value zero."
+
+	VARIATION   cwaChanIngressXmtState
+	DESCRIPTION "Always returns value zero."
+
+	VARIATION   cwaChanIngressRcvState
+	DESCRIPTION "Always returns value zero."
+
+    ::= { ciscoWanAtmConnCapability 8 }
+
+cwAtmConnCapabilityRpmxfV12R02 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "IOS Release 12.2
+                          in MGX8850 Release 3.0.00"
+    STATUS               current
+    DESCRIPTION          "Agent capabilities for RPM-XF module."
+
+    SUPPORTS CISCO-WAN-ATM-CONN-MIB
+
+        INCLUDES { ciscoWanAtmConnChan3MIBGroup,
+                   ciscoWanAtmConnStateGroup }
+
+        VARIATION   cwAtmChanCnfgEntry
+        CREATION-REQUIRES {
+            cwaChanVpcFlag,cwaChanRoutingMastership,
+            cwaChanRemoteVpi, cwaChanRemoteVci, cwaChanRemoteNSAPAddr
+        }
+        DESCRIPTION
+            "Refer Description of cwaChanRowStatus."
+
+	VARIATION   cwaChanVpi
+	SYNTAX      Unsigned32(0..240)
+	DESCRIPTION "For VPCs value 0 is not supported."
+	
+	VARIATION   cwaChanVci
+	SYNTAX      Unsigned32(32..65535)
+	DESCRIPTION "Only limited range is supported.
+                    For VPCs, only value 0 is supported."
+	
+	VARIATION   cwaChanServiceCategory
+	SYNTAX      INTEGER { vbr3RT(4),vbr3nRT(7),ubr1(8) }
+        DEFVAL      { ubr1 }
+	DESCRIPTION 
+            "Does not support  cbr1(1), vbr1RT(2), vbr2RT(3),
+            vbr1nRT(5), vbr2nRT(6), ubr2(9), abr(10),
+            cbr2(11), cbr3(12)."
+	
+	VARIATION   cwaChanControllerId
+        DEFVAL      { 2 }
+	DESCRIPTION 
+            "Controller Id(PNNI) is selected by default."
+
+	VARIATION   cwaChanStatsEnable
+        ACCESS      read-only
+	DESCRIPTION 
+            "Read returns value false(2).
+            Write operation is not supported."
+
+        VARIATION   cwaChanLocalVpi
+        SYNTAX      Unsigned32(0..240)
+        DESCRIPTION "For VPCs, value 0 is not supported."
+
+	VARIATION   cwaChanLocalVci
+        SYNTAX      Unsigned32(32..65535)
+	DESCRIPTION "For VCCs only."
+
+	VARIATION   cwaChanRemoteVpi
+        SYNTAX      Unsigned32(0..255)
+	DESCRIPTION "For VPCs, value 0 is not supported."
+
+	VARIATION   cwaChanRemoteVci
+        SYNTAX      Unsigned32(32..65535)
+	DESCRIPTION "For VCCs, range is 32..65535.
+                     For VPCs, only value 0 is supported."
+
+	VARIATION   cwaChanCCEnable
+        ACCESS      read-only
+	DESCRIPTION "Read returns value false(2).
+                     Write operation is not supported."
+
+	VARIATION   cwaChanFrameDiscard
+	DESCRIPTION "Read returns value false(2).
+                    Write operation is ignored."
+
+	VARIATION   cwaChanPCR
+        SYNTAX      Unsigned32(3..2824661)
+        DEFVAL      { 2824661 }
+	DESCRIPTION "Only limited range is supported."
+
+	VARIATION   cwaChanMCR
+        ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanSCR
+        SYNTAX      Unsigned32(3..2824661)
+	DESCRIPTION "Only limited range is supported."
+
+	VARIATION   cwaChanRemotePCR
+        SYNTAX      Unsigned32(3..2824661)
+	DESCRIPTION "Only limited range is supported.
+                    Default value is same as cwaChanPCR."
+
+	VARIATION   cwaChanRemoteMCR
+        ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanRemoteSCR
+        SYNTAX      Unsigned32(3..2824661)
+	DESCRIPTION "Only limited range is supported.
+                    Default value is same as cwaChanSCR."
+
+	VARIATION   cwaChanCDV
+	ACCESS      read-only
+        DEFVAL      { 16777215 } -- 0xFFFFFF
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanRemoteCDV
+        ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanCTD
+	ACCESS      read-only
+        DEFVAL      { 65535 } -- 0xFFFF
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanRemoteCTD
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanMBS
+        SYNTAX      Unsigned32(1..65535)
+        DEFVAL      { 94 }
+	DESCRIPTION "Only limited range is supported."
+	
+	VARIATION   cwaChanRemoteMBS
+        SYNTAX      Unsigned32(1..65535)
+        DEFVAL      { 94 }
+	DESCRIPTION "Only limited range is supported.
+                    Default value is same as cwaChanMBS."
+	
+        VARIATION   cwaChanCDVT
+        ACCESS      read-only
+        DESCRIPTION "Object cannot be created or modified."
+	
+	VARIATION   cwaChanAbrICR
+	ACCESS      read-only
+        DEFVAL      { 7 }
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrADTF
+	ACCESS      read-only
+        DEFVAL      { 50 }
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrRDF
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrRIF
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrNRM
+	ACCESS      read-only
+        DEFVAL      { nrm32 }
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrTRM
+	ACCESS      read-only
+        DEFVAL      { trm100 }
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrCDF
+	ACCESS      read-only
+        DEFVAL      { cdfOneOver16 }
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrFRTT
+	ACCESS      read-only
+        DEFVAL      { 16700000 }
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrTBE
+	ACCESS      read-only
+        DEFVAL      { 16777215 }
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanAbrVSVDEnable
+        ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+        VARIATION   cwaChanRowStatus
+        SYNTAX      INTEGER {
+                        active(1),
+                        notInService(2),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+        DESCRIPTION
+            "Does not support notReady(3) and createAndWait(5)."
+
+	VARIATION   cwaChanIntAbrVSVD
+        ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanExtAbrVSVD
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanCLR
+	ACCESS      read-only
+        DEFVAL      { 6 }
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanRemoteCLR
+	ACCESS      read-only
+	DESCRIPTION "Object cannot be created or modified."
+
+	VARIATION   cwaChanEgressXmtState
+	DESCRIPTION "Always returns value zero."
+
+	VARIATION   cwaChanEgressRcvState
+	DESCRIPTION "Always returns value zero."
+
+	VARIATION   cwaChanIngressXmtState
+	DESCRIPTION "Always returns value zero."
+
+	VARIATION   cwaChanIngressRcvState
+	DESCRIPTION "Always returns value zero."
+
+    ::= { ciscoWanAtmConnCapability 9 }
+
+cwAtmConnCapabilityV5R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 5.0.00."
+    STATUS               current
+    DESCRIPTION          "Agent capabilities for MPSM155 and
+                          Voice Switch Service Module - VXSM"
+
+    SUPPORTS CISCO-WAN-ATM-CONN-MIB
+    INCLUDES { 
+                 ciscoWanAtmConnChan4MIBGroup,
+		 ciscoWanAtmConnStateGroup 
+             }
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwAtmChanCnfgEntry
+        CREATION-REQUIRES {
+            cwaChanServiceCategory, 
+            cwaChanVpcFlag,
+            cwaChanRoutingMastership,
+            cwaChanRemoteVpi, 
+            cwaChanRemoteVci, 
+            cwaChanRemoteNSAPAddr }
+        DESCRIPTION
+            "Refer to description of cwaChanRowStatus."
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwAtmChanCnfgEntry
+        CREATION-REQUIRES {
+                         cwaChanServiceCategory,
+                         cwaChanRoutingMastership,
+                         cwaChanRemoteVpi,
+                         cwaChanRemoteVci,
+                         cwaChanRemoteNSAPAddr
+                          }
+        DESCRIPTION "Refer description of cwaChanRowStatus.
+                 The following objects are allowed to be
+                 modified at master end point:
+                 cwaChanMBS
+                 cwaChanRemoteMBS
+                 cwaChanCDV
+                 cwaChanRemoteCDV
+                "
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanServiceCategory
+        SYNTAX      INTEGER {
+                           cbr1   (1),
+                           vbr1RT (2),
+                           vbr1nRT(5),
+                           vbr3nRT(7),
+                           ubr1   (8)
+                        }
+        DESCRIPTION "Limited data values are supported"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanVpi
+        SYNTAX      Unsigned32(0..255)
+        DESCRIPTION "Valid range is 0 to 255."
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanLocalVpi
+        SYNTAX      Unsigned32(0..255)
+        DESCRIPTION "Valid range is 0 to 255."
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanRemoteVpi
+        SYNTAX      Unsigned32(0..255)
+        DESCRIPTION "Valid range is 0 to 255."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanControllerId
+        SYNTAX      Unsigned32 (1..20)
+        DESCRIPTION "This object cannot be modified 
+                     after the row is created."
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanControllerId
+        SYNTAX      Unsigned32 (2..2)
+        DEFVAL      { 2 }
+        DESCRIPTION "Only support PNNI."
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanVpcFlag
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanPCR
+        SYNTAX      Unsigned32 (10..104268)
+        DEFVAL      { 50 }
+        DESCRIPTION "Rate limited to T3 due to hardware
+                     limitation"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanPCR
+        SYNTAX      Unsigned32 (7..2600000)
+        DEFVAL      { 50 }
+        DESCRIPTION "Write supported with restricted range.
+                     Default value is 50."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanMCR 
+        SYNTAX      Unsigned32 (10..104268)
+        DESCRIPTION "Default set to cwaChanPCR"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanMCR
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanSCR
+        SYNTAX      Unsigned32 (10..104268)
+        DESCRIPTION "Default set to cwaChanPCR"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanSCR
+        SYNTAX      Unsigned32 (7..2600000)
+        DEFVAL      { 50 }
+        DESCRIPTION "Write supported with restricted range.
+                     Default value is 50."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanRemotePCR
+        SYNTAX      Unsigned32 (10..104268)
+        DEFVAL      { 50 }
+        DESCRIPTION "Rate limited to T3 due to hardware
+                     limitation"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanRemotePCR
+        SYNTAX      Unsigned32 (7..2600000)
+        DEFVAL      { 50 }
+        DESCRIPTION "Write supported with restricted range.
+                     Default value is 50."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanRemoteMCR
+        SYNTAX      Unsigned32 (10..104268)
+        DESCRIPTION "Default set to cwaChanRemotePCR"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanRemoteMCR
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanRemoteSCR
+        SYNTAX      Unsigned32 (10..104268)
+        DESCRIPTION "Default set to cwaChanRemotePCR"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanRemoteSCR
+        SYNTAX      Unsigned32 (7..2600000)
+        DEFVAL      { 50 }
+        DESCRIPTION "Write supported with restricted range.
+                     Default value is 50."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanCDVT
+        SYNTAX      Unsigned32 (1..5000000)
+        DEFVAL      { 250000 }
+        DESCRIPTION "Write supported with restricted range."
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanCDVT
+        SYNTAX      Unsigned32(0..5000000)
+        DEFVAL      { 250000 }
+        DESCRIPTION "Write supported with restricted range.
+                     Default value is 250000."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanAbrICR
+        SYNTAX      Unsigned32 (10..104268)
+        DESCRIPTION "Default set to cwaChanPCR"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanAbrICR
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanAbrADTF
+        DESCRIPTION "Default taken from PNNI controller"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanAbrADTF
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanAbrRDF
+        DESCRIPTION "Default taken from PNNI controller"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanAbrRDF
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanAbrRIF
+        DESCRIPTION "Default taken from PNNI controller"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanAbrRIF
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanAbrNRM
+        DESCRIPTION "Default taken from PNNI controller"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanAbrNRM
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanAbrTRM
+        DESCRIPTION "Default taken from PNNI controller"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanAbrTRM
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanAbrCDF
+        DESCRIPTION "Default taken from PNNI controller"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanAbrCDF
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanAbrFRTT
+        DESCRIPTION "Default taken from PNNI controller"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanAbrFRTT
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanAbrTBE
+        DESCRIPTION "Default taken from PNNI controller"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanAbrTBE
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanAbrVSVDEnable
+        ACCESS      not-implemented 
+        DESCRIPTION "This object is not supported"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanAbrVSVDEnable
+        ACCESS      read-only
+        DESCRIPTION "Can only be FALSE."
+
+        VARIATION   cwaChanRowStatus
+        SYNTAX      INTEGER { active(1),
+                              notInService(2),
+                              createAndGo(4),
+                              destroy(6)
+                            }
+        DESCRIPTION "Does not support createAndWait(5)."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanTestIterations
+        ACCESS      not-implemented 
+        DESCRIPTION "Test operation will be executed only once"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanTestIterations
+        SYNTAX      Unsigned32 (1..100)
+        DEFVAL      { 1 }
+        DESCRIPTION "Write supported with restricted range.
+                     Default value is 1."
+
+--
+-- Variations applicable for MPSM155
+--
+        VARIATION   cwaChanStatsEnable
+        DEFVAL      { true }
+        DESCRIPTION "Stats is enabled by default on MPSM155"
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanOamSegEpEnable
+        DEFVAL      { nonOamSegEp }
+        DESCRIPTION "default is nonOamSegEp."
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanReroute
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanIntAbrVSVD
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanExtAbrVSVD
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanP2MP
+        ACCESS      not-implemented
+        DESCRIPTION "Object not supported."
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanMBS
+        SYNTAX      Unsigned32 (1..5000000)
+        DEFVAL      { 1024 }
+        DESCRIPTION "Write supported with restricted range.
+                     Default value is 1024."
+
+--
+-- Variations applicable for VXSM
+--
+        VARIATION   cwaChanRemoteMBS
+        SYNTAX      Unsigned32 (1..5000000)
+        DEFVAL      { 1024 }
+        DESCRIPTION "Write supported with restricted range.
+                     Default value is 1024."
+
+    ::= { ciscoWanAtmConnCapability 10 }
+
+END
+

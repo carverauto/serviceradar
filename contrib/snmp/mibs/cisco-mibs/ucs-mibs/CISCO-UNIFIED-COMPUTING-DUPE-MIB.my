@@ -1,0 +1,258 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-DUPE-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- DUPE management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-DUPE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsDupeOperation,
+    CucsDupeStatus,
+    CucsMoMoClassId
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsDupeObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        DUPE management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 78 }
+
+cucsDupeScopeTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsDupeScopeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS dupe:Scope managed object table"
+    ::= { cucsDupeObjects 1 }
+
+cucsDupeScopeEntry OBJECT-TYPE
+    SYNTAX           CucsDupeScopeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsDupeScopeTable table."
+    INDEX { cucsDupeScopeInstanceId }
+    ::= { cucsDupeScopeTable 1 }
+
+CucsDupeScopeEntry ::= SEQUENCE {
+    cucsDupeScopeInstanceId                                          CucsManagedObjectId,
+    cucsDupeScopeDn                                                  CucsManagedObjectDn,
+    cucsDupeScopeRn                                                  SnmpAdminString,
+    cucsDupeScopeClientMoDn                                          SnmpAdminString,
+    cucsDupeScopeId                                                  Gauge32,
+    cucsDupeScopeIsSystem                                            TruthValue,
+    cucsDupeScopeMoClassId                                           CucsMoMoClassId,
+    cucsDupeScopeOperCode                                            CucsDupeOperation,
+    cucsDupeScopeSecondaryKey                                        SnmpAdminString,
+    cucsDupeScopeSourceMoDn                                          SnmpAdminString
+}
+
+cucsDupeScopeInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsDupeScopeEntry 1 }
+
+cucsDupeScopeDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:Scope:dn managed object property"
+    ::= { cucsDupeScopeEntry 2 }
+
+cucsDupeScopeRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:Scope:rn managed object property"
+    ::= { cucsDupeScopeEntry 3 }
+
+cucsDupeScopeClientMoDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:Scope:clientMoDn managed object property"
+    ::= { cucsDupeScopeEntry 4 }
+
+cucsDupeScopeId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:Scope:id managed object property"
+    ::= { cucsDupeScopeEntry 5 }
+
+cucsDupeScopeIsSystem OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:Scope:isSystem managed object property"
+    ::= { cucsDupeScopeEntry 6 }
+
+cucsDupeScopeMoClassId OBJECT-TYPE
+    SYNTAX       CucsMoMoClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:Scope:moClassId managed object property"
+    ::= { cucsDupeScopeEntry 7 }
+
+cucsDupeScopeOperCode OBJECT-TYPE
+    SYNTAX       CucsDupeOperation
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:Scope:operCode managed object property"
+    ::= { cucsDupeScopeEntry 8 }
+
+cucsDupeScopeSecondaryKey OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:Scope:secondaryKey managed object property"
+    ::= { cucsDupeScopeEntry 9 }
+
+cucsDupeScopeSourceMoDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:Scope:sourceMoDn managed object property"
+    ::= { cucsDupeScopeEntry 10 }
+
+cucsDupeScopeResultTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsDupeScopeResultEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS dupe:ScopeResult managed object table"
+    ::= { cucsDupeObjects 2 }
+
+cucsDupeScopeResultEntry OBJECT-TYPE
+    SYNTAX           CucsDupeScopeResultEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsDupeScopeResultTable table."
+    INDEX { cucsDupeScopeResultInstanceId }
+    ::= { cucsDupeScopeResultTable 1 }
+
+CucsDupeScopeResultEntry ::= SEQUENCE {
+    cucsDupeScopeResultInstanceId                                    CucsManagedObjectId,
+    cucsDupeScopeResultDn                                            CucsManagedObjectDn,
+    cucsDupeScopeResultRn                                            SnmpAdminString,
+    cucsDupeScopeResultMessage                                       SnmpAdminString,
+    cucsDupeScopeResultScopeStatus                                   CucsDupeStatus,
+    cucsDupeScopeResultUpdateTime                                    DateAndTime
+}
+
+cucsDupeScopeResultInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsDupeScopeResultEntry 1 }
+
+cucsDupeScopeResultDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:ScopeResult:dn managed object property"
+    ::= { cucsDupeScopeResultEntry 2 }
+
+cucsDupeScopeResultRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:ScopeResult:rn managed object property"
+    ::= { cucsDupeScopeResultEntry 3 }
+
+cucsDupeScopeResultMessage OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:ScopeResult:message managed object property"
+    ::= { cucsDupeScopeResultEntry 4 }
+
+cucsDupeScopeResultScopeStatus OBJECT-TYPE
+    SYNTAX       CucsDupeStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:ScopeResult:scopeStatus managed object property"
+    ::= { cucsDupeScopeResultEntry 5 }
+
+cucsDupeScopeResultUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dupe:ScopeResult:updateTime managed object property"
+    ::= { cucsDupeScopeResultEntry 6 }
+
+END

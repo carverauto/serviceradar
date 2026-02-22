@@ -1,0 +1,754 @@
+-- *****************************************************************
+-- CISCO-QLLC01-MIB.my:  QLLC-MIB file (version 1)
+--
+-- November 1994, Barry Chan 
+--
+-- Copyright (c) 1994 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+
+
+-- Overview 
+-- 
+-- 
+-- QLLC MIB will include a managed entity (Link Station). The manged entity
+-- includes objects to configure and monitor the logical connections.
+-- 
+--  - Administration: objects used for configuration and controlling the
+--                    operation of Link Station.
+-- 
+--  - Operation: objects used for monitoring the Link Station during operation.
+-- 
+-- This document will address all the specific QLLC needs. All of the 
+-- conversion related objects are maintained in the CONVersion MIB document.
+-- 
+-- Permissions
+-- 
+-- The permissions allowed on these objects are as follows:
+-- 
+-- 1. Administrative/Configuration type (read/write)
+-- 2. Operation type (read)
+-- 
+-- Definitions
+
+CISCO-QLLC01-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Counter32, Integer32 
+	FROM SNMPv2-SMI
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    -- X121Address
+    --    FROM RFC1382-MIB
+    ciscoExperiment
+	FROM CISCO-SMI;
+
+snaqllc01   MODULE-IDENTITY
+	  LAST-UPDATED "9411090000Z"
+	  ORGANIZATION "Cisco Systems, Inc."
+	  CONTACT-INFO
+		  "	Cisco Systems
+			Customer Service
+
+		Postal:	170 W. Tasman Drive
+			San Jose, CA  95134
+			USA
+
+		   Tel: +1 800 553-NETS
+
+		E-mail: cs-snmp@cisco.com"
+          DESCRIPTION       "This is the MIB module for objects used to 
+                             manage the QLLC protocol.
+                            "
+::= { ciscoExperiment 6 }
+
+qllc      OBJECT IDENTIFIER ::= { snaqllc01 1}
+
+
+IfIndexType ::= INTEGER (0..2147483647)
+
+X121Address ::= OCTET STRING (SIZE(0..17))
+           -- 0 to 17 bytes in length containing the ASCII
+           -- characters [0-9], each octet contains one digit
+           -- of the address.
+
+
+--  *************************************************************
+--  *                                                           *
+--  *           THE QLLC LINK STATION ADMINISTRATIVE TABLE      *
+--  *                                                           *
+--  *************************************************************
+
+qllcLSAdminTable    OBJECT-TYPE
+                    SYNTAX      SEQUENCE OF QllcLSAdminEntry
+                    MAX-ACCESS  not-accessible
+                    STATUS      current
+ 
+                    DESCRIPTION
+		      "This table contains objects that can be changed
+		       for each qllc entry. Changing one of these parameters
+		       will take effect in the operating LS immediately.
+                       Each qllc connection will have an entry in this table."
+
+                    ::= { qllc 1 }
+
+qllcLSAdminEntry    OBJECT-TYPE
+		    SYNTAX      QllcLSAdminEntry
+		    MAX-ACCESS  not-accessible
+		    STATUS      current
+
+		    DESCRIPTION
+			"Configured parameter values for a specific qllc."
+		    INDEX { qllcLSAdminIfIndex ,
+			    qllcLSAdminLciVcIndex}
+		    ::= { qllcLSAdminTable 1 }
+
+QllcLSAdminEntry ::= SEQUENCE 
+{
+		    qllcLSAdminIfIndex IfIndexType,
+		    qllcLSAdminLciVcIndex IfIndexType,
+		    qllcLSAdminCircuitType INTEGER,
+		    qllcLSAdminRole    INTEGER,
+		    qllcLSAdminX25Add  X121Address,
+		    qllcLSAdminModulo  INTEGER,
+		    qllcLSAdminLgX25   Integer32
+}
+
+qllcLSAdminIfIndex  OBJECT-TYPE
+                    SYNTAX      IfIndexType
+                    MAX-ACCESS  read-write
+                    STATUS      current
+                    DESCRIPTION
+		      "Interface Index value for the qllc connection. "
+ 
+                    ::= { qllcLSAdminEntry 1 }
+
+qllcLSAdminLciVcIndex  OBJECT-TYPE
+                    SYNTAX      IfIndexType
+                    MAX-ACCESS  read-write
+                    STATUS      current
+                    DESCRIPTION
+		      "The virtual circuit number for the logical
+		       channel identifier or PVC number depending on the 
+		       type of circuit on this interface. "
+ 
+                    ::= { qllcLSAdminEntry 2 }
+ 
+qllcLSAdminCircuitType OBJECT-TYPE
+                    SYNTAX      INTEGER
+                    {
+                      switchedVC  (1),
+                      permanentVC (2)
+                    }
+                    MAX-ACCESS  read-write
+                    STATUS      current
+                    DESCRIPTION
+		      "The circuit type on this interface."
+ 
+                    ::= { qllcLSAdminEntry 3 }
+
+qllcLSAdminRole     OBJECT-TYPE
+                    SYNTAX      INTEGER
+                    {
+                      primary(1),
+                      secondary(2),
+                      peerToPeer(3)
+                    }
+                    MAX-ACCESS  read-write
+                    STATUS      current
+                    DESCRIPTION
+		      "The role that the QLLC link station shall assume."
+
+                    ::= { qllcLSAdminEntry 4 }
+
+
+
+qllcLSAdminX25Add   OBJECT-TYPE
+                    SYNTAX      X121Address
+                    MAX-ACCESS  read-write
+                    STATUS      current
+                    DESCRIPTION
+		      "The X.25 address associated with the qllc 
+                       connection. "
+
+                    ::= { qllcLSAdminEntry 5 }
+
+
+qllcLSAdminModulo   OBJECT-TYPE
+                    SYNTAX      INTEGER
+                    {
+                      modulo8 (1),
+                      modulo128 (2)
+                    }
+                    MAX-ACCESS  read-write
+                    STATUS      current
+                    DESCRIPTION
+		      "The modulus for QLLC link station. 
+                       It determines the size of the rotating
+		       ACK window and can take values of 8 and 128. "
+
+		    DEFVAL { modulo8 } 
+		    ::= { qllcLSAdminEntry 6 }
+
+
+qllcLSAdminLgX25    OBJECT-TYPE
+                    SYNTAX      Integer32
+                    MAX-ACCESS  read-write
+                    STATUS      current
+                    DESCRIPTION
+		      "The largest QLLC packet allowed to go out 
+                       on the QLLC/X.25 side. "
+
+		    ::= { qllcLSAdminEntry 7 }
+
+
+--  *************************************************************
+--  *                                                           *
+--  *           THE QLLC LINK STATION OPERATIONAL TABLE         *
+--  *                                                           *
+--  *************************************************************
+
+qllcLSOperTable     OBJECT-TYPE
+                    SYNTAX      SEQUENCE OF QllcLSOperEntry
+                    MAX-ACCESS  not-accessible
+                    STATUS      current
+                    DESCRIPTION
+		      "This table contains an entry for each qllc 
+                       connection."
+
+                  ::= { qllc 2 }
+
+qllcLSOperEntry     OBJECT-TYPE
+		    SYNTAX      QllcLSOperEntry
+		    MAX-ACCESS  not-accessible
+		    STATUS      current
+		    DESCRIPTION
+		      "Parameter values for a specific qllc connection."
+
+		    INDEX { qllcLSOperIfIndex ,
+			    qllcLSOperLciVcIndex}
+		    ::= { qllcLSOperTable 1 }
+
+QllcLSOperEntry ::= SEQUENCE 
+{
+		    qllcLSOperIfIndex IfIndexType,
+		    qllcLSOperLciVcIndex IfIndexType,
+		    qllcLSOperCircuitType INTEGER,
+		    qllcLSOperRole    INTEGER,
+		    qllcLSOperX25Add  X121Address,
+		    qllcLSOperModulo  INTEGER,
+		    qllcLSOperState   INTEGER,
+		    qllcLSOperLgX25   Integer32
+}
+
+qllcLSOperIfIndex   OBJECT-TYPE
+                    SYNTAX      IfIndexType
+                    MAX-ACCESS  read-only
+                    STATUS      current
+                    DESCRIPTION
+		      "Interface Index value for the qllc connection."
+ 
+                    ::= { qllcLSOperEntry 1 }
+
+qllcLSOperLciVcIndex   OBJECT-TYPE
+                    SYNTAX      IfIndexType
+                    MAX-ACCESS  read-only
+                    STATUS      current
+                    DESCRIPTION
+		      "The virtual circuit number for the logical
+		       channel identifier on this interface. "
+ 
+                    ::= { qllcLSOperEntry 2 }
+ 
+
+qllcLSOperCircuitType OBJECT-TYPE
+                    SYNTAX      INTEGER
+                    {
+                      switchedVC  (1),
+                      permanentVC (2)
+                    }
+                    MAX-ACCESS  read-only
+                    STATUS      current
+                    DESCRIPTION
+		      "The circuit type on this interface."
+ 
+                    ::= { qllcLSOperEntry 3 }
+                    
+                    
+qllcLSOperRole      OBJECT-TYPE
+                    SYNTAX      INTEGER
+                    {
+                      primary(1),
+                      secondary(2),
+                      peerToPeer(3)
+                    }
+                    MAX-ACCESS  read-only
+                    STATUS      current
+                    DESCRIPTION
+		      "The role the QLLC link station."
+
+                    ::= { qllcLSOperEntry 4 }
+
+
+qllcLSOperX25Add    OBJECT-TYPE
+                    SYNTAX      X121Address
+                    MAX-ACCESS  read-only
+                    STATUS      current
+                    DESCRIPTION
+		      "The remote X.25 address associated with the 
+                       qllc connection. "
+
+                    ::= { qllcLSOperEntry 5 }
+
+
+qllcLSOperModulo    OBJECT-TYPE
+                    SYNTAX      INTEGER
+                    {
+                      modulo8 (1),
+                      modulo128 (2)
+                    }
+                    MAX-ACCESS  read-only
+                    STATUS      current
+                    DESCRIPTION
+		      "The modulus for QLLC link station. It determines 
+                       the size of the rotating ACK window and can take 
+                       values of 8 and 128. "
+
+		    DEFVAL { modulo8 } 
+		    ::= { qllcLSOperEntry 6 }
+
+
+qllcLSOperState     OBJECT-TYPE
+                    SYNTAX      INTEGER
+                    {
+                      lsStateInop     (1),
+                      lsStateClosed   (2),
+                      lsStateOpening  (3),
+                      lsStateClosing  (4),
+                      lsStateRecovery (5),
+                      lsStateOpened   (6)
+                    }
+                    MAX-ACCESS  read-only
+                    STATUS      current
+                    DESCRIPTION
+		      "The state of a particular QLLC connection. 
+                       Inop, closed, opening, closing,
+		       recovery and opened are states defined in the IBM
+		       document SC30-3409-1 The X.25 1984/1988 DTE/DCE 
+		       and DTE/DTE Interface Architecture Reference."
+
+                    ::= { qllcLSOperEntry 7 }
+
+
+qllcLSOperLgX25     OBJECT-TYPE
+                    SYNTAX      Integer32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+                    DESCRIPTION
+		      "The largest QLLC packet allowed to go out on 
+                       the QLLC/X.25 side. "
+
+		    ::= { qllcLSOperEntry 8 }
+
+
+--  *************************************************************
+--  *                                                           *
+--  *           THE QLLC LINK STATION STATISTICS TABLE          *
+--  *                                                           *
+--  *************************************************************
+
+qllcLSStatsTable    OBJECT-TYPE
+                    SYNTAX      SEQUENCE OF QllcLSStatsEntry
+                    MAX-ACCESS  not-accessible
+                    STATUS      current
+ 
+		    DESCRIPTION
+		       "This table defines link station statistics kept
+			for each qllc connection."
+
+		    ::= { qllc 3 }
+ 
+qllcLSStatsEntry    OBJECT-TYPE
+                    SYNTAX      QllcLSStatsEntry
+                    MAX-ACCESS  not-accessible
+                    STATUS      current
+		    DESCRIPTION
+		      "Link station statistics."
+
+		    INDEX { qllcLSStatsIfIndex, qllcLSStatsLciVcIndex }
+		    ::= { qllcLSStatsTable 1 }
+
+
+QllcLSStatsEntry ::= SEQUENCE 
+{
+                  qllcLSStatsIfIndex     IfIndexType,
+                  qllcLSStatsLciVcIndex  IfIndexType,
+                  qllcLSStatsXidIn       Counter32,
+                  qllcLSStatsXidOut      Counter32,
+                  qllcLSStatsTestIn      Counter32,
+                  qllcLSStatsTestOut     Counter32,
+                  qllcLSStatsQuenchOff   Counter32,
+                  qllcLSStatsQuenchOn    Counter32,
+                  qllcLSStatsInPaks      Counter32,
+                  qllcLSStatsOutPaks     Counter32,
+                  qllcLSStatsInBytes     Counter32,
+                  qllcLSStatsOutBytes    Counter32,
+                  qllcLSStatsNumRcvQsms  Counter32,
+                  qllcLSStatsNumSndQsms  Counter32,
+                  qllcLSStatsNumRcvDiscs Counter32,
+                  qllcLSStatsNumSndDiscs Counter32,
+                  qllcLSStatsNumRcvDms   Counter32,
+                  qllcLSStatsNumSndDms   Counter32,
+                  qllcLSStatsNumRcvFrmrs Counter32,
+                  qllcLSStatsNumSndFrmrs Counter32,
+                  qllcLSStatsNumDrops    Counter32,
+                  qllcLSStatsNumErrs     Counter32
+}
+ 
+qllcLSStatsIfIndex  OBJECT-TYPE
+                    SYNTAX      IfIndexType
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "Interface Index value for the qllc connection.  "
+
+		    ::= { qllcLSStatsEntry 1 }
+
+qllcLSStatsLciVcIndex  OBJECT-TYPE
+                    SYNTAX      IfIndexType
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The virtual circuit number for the logical
+		       channel identifier on this interface. "
+
+		    ::= { qllcLSStatsEntry 2 }
+
+ 
+qllcLSStatsXidIn    OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of XIDs received from the LS on 
+                       this VC."
+
+		    ::= { qllcLSStatsEntry 3 }
+
+
+qllcLSStatsXidOut   OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of XIDs sent to the LS on this VC."
+
+		    ::= { qllcLSStatsEntry 4 }
+
+qllcLSStatsTestIn   OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of TEST packets received from the LS
+                       on this VC."
+
+		    ::= { qllcLSStatsEntry 5 }
+
+qllcLSStatsTestOut  OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of TEST packets sent to the LS from
+                       this VC."
+
+		    ::= { qllcLSStatsEntry 6 }
+
+
+qllcLSStatsQuenchOff OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of times the connection Quenched off
+                       for this connection. "
+
+		    ::= { qllcLSStatsEntry 7 }
+
+
+qllcLSStatsQuenchOn OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of times the connection Quenched on for
+                       this connection. "
+
+		    ::= { qllcLSStatsEntry 8 }
+
+
+qllcLSStatsInPaks   OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The total number of information packets received on
+                       this interfaces. "
+
+		    ::= { qllcLSStatsEntry 9 }
+
+
+qllcLSStatsOutPaks  OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The total number of information packets sent
+                       on this interfaces. "
+
+		    ::= { qllcLSStatsEntry 10 }
+
+
+qllcLSStatsInBytes  OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The total number of bytes in the information
+                       packets received on this connection. "
+
+		    ::= { qllcLSStatsEntry 11 }
+
+
+qllcLSStatsOutBytes OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The total number of bytes in the information
+                       packets sent on this connection. "
+
+		    ::= { qllcLSStatsEntry 12 }
+
+
+qllcLSStatsNumRcvQsms OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of QSMs received on this connection. "
+
+		    ::= { qllcLSStatsEntry 13 }
+
+qllcLSStatsNumSndQsms OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of QSMs sent on this connection. "
+
+		    ::= { qllcLSStatsEntry 14 }
+
+qllcLSStatsNumRcvDiscs OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of DISCs received on this connection. "
+
+		    ::= { qllcLSStatsEntry 15 }
+
+qllcLSStatsNumSndDiscs OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of DISCs sent on this connection. "
+
+		    ::= { qllcLSStatsEntry 16 }
+
+
+qllcLSStatsNumRcvDms OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of DMs received on this connection. "
+
+		    ::= { qllcLSStatsEntry 17 }
+
+qllcLSStatsNumSndDms OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of DMs sent on this connection. "
+
+		    ::= { qllcLSStatsEntry 18 }
+
+
+qllcLSStatsNumRcvFrmrs OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of FRMRs received on this connection. "
+
+		    ::= { qllcLSStatsEntry 19 }
+
+
+qllcLSStatsNumSndFrmrs OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of FRMRs sent on this connection. "
+
+		    ::= { qllcLSStatsEntry 20 }
+
+
+qllcLSStatsNumDrops OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of packets dropped due to buffer
+                       allocation or other internal problems."
+
+		    ::= { qllcLSStatsEntry 21 }
+
+
+qllcLSStatsNumErrs  OBJECT-TYPE
+                    SYNTAX      Counter32
+                    MAX-ACCESS  read-only
+                    STATUS      current
+		    DESCRIPTION
+		      "The number of HDLC protocol errors detected."
+
+		    ::= { qllcLSStatsEntry 22 }
+
+--
+-- Conformance Information
+--
+
+qllcMibConformance   OBJECT IDENTIFIER ::= { snaqllc01 2 }
+qllcMibCompliances   OBJECT IDENTIFIER ::= { qllcMibConformance 1 }
+qllcMibGroups        OBJECT IDENTIFIER ::= { qllcMibConformance 2 }
+
+--
+-- Compliance Statements
+--
+
+qllcMibCompliance    MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+                "The compliance statement for QLLC nodes."
+        MODULE  -- this module
+                MANDATORY-GROUPS {
+                        qllcLSAdminGroup, 
+                        qllcLSOperGroup, 
+                        qllcLSStatsGroup
+                }
+
+        OBJECT qllcLSAdminIfIndex
+        MIN-ACCESS read-only
+        DESCRIPTION
+                "Write access is not required."
+                
+        OBJECT qllcLSAdminLciVcIndex
+        MIN-ACCESS read-only
+        DESCRIPTION
+                "Write access is not required."
+                
+        OBJECT qllcLSAdminRole
+        MIN-ACCESS read-only
+        DESCRIPTION
+                "Write access is not required."
+                
+        OBJECT qllcLSAdminCircuitType
+        MIN-ACCESS read-only
+        DESCRIPTION
+                "Write access is not required."
+                
+        OBJECT qllcLSAdminX25Add
+        MIN-ACCESS read-only
+        DESCRIPTION
+                "Write access is not required."
+                
+        OBJECT qllcLSAdminModulo
+        MIN-ACCESS read-only
+        DESCRIPTION
+                "Write access is not required."
+                
+        OBJECT qllcLSAdminLgX25
+        MIN-ACCESS read-only
+        DESCRIPTION
+                "Write access is not required."
+                
+        ::= { qllcMibCompliances 1 }
+
+qllcLSAdminGroup OBJECT-GROUP
+        OBJECTS {
+                qllcLSAdminIfIndex,
+                qllcLSAdminLciVcIndex,
+                qllcLSAdminRole,
+                qllcLSAdminCircuitType,
+                qllcLSAdminX25Add,
+                qllcLSAdminModulo,
+                qllcLSAdminLgX25
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing configuration capability."
+        ::= { qllcMibGroups 1}
+
+qllcLSOperGroup OBJECT-GROUP
+        OBJECTS {
+                qllcLSOperIfIndex,
+                qllcLSOperLciVcIndex,
+                qllcLSOperCircuitType,
+                qllcLSOperRole,
+                qllcLSOperX25Add,
+                qllcLSOperModulo,
+                qllcLSOperState,
+                qllcLSOperLgX25
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing operational control
+                 capability."
+        ::= { qllcMibGroups 2}
+
+qllcLSStatsGroup OBJECT-GROUP
+        OBJECTS {
+                qllcLSStatsIfIndex,
+                qllcLSStatsLciVcIndex,
+                qllcLSStatsXidIn,
+                qllcLSStatsXidOut,
+                qllcLSStatsTestIn,
+                qllcLSStatsTestOut,
+                qllcLSStatsQuenchOff,
+                qllcLSStatsQuenchOn,
+                qllcLSStatsInPaks,
+                qllcLSStatsOutPaks,
+                qllcLSStatsInBytes,
+                qllcLSStatsOutBytes,
+                qllcLSStatsNumRcvQsms,
+                qllcLSStatsNumSndQsms,
+                qllcLSStatsNumRcvDiscs,
+                qllcLSStatsNumSndDiscs,
+                qllcLSStatsNumRcvDms,
+                qllcLSStatsNumSndDms,
+                qllcLSStatsNumRcvFrmrs,
+                qllcLSStatsNumSndFrmrs,
+                qllcLSStatsNumDrops,
+                qllcLSStatsNumErrs
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing statistics."
+        ::= { qllcMibGroups 3}
+END
+

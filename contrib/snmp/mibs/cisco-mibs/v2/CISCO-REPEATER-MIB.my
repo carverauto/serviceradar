@@ -1,0 +1,483 @@
+-- *****************************************************************
+-- CISCO-REPEATER-MIB.my:  Cisco Repeater MIB file
+--
+-- Jan 1995, Viet Nguyen
+--
+-- Copyright (c) 1995-1996 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-REPEATER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+	MODULE-IDENTITY,
+	OBJECT-TYPE,
+	NOTIFICATION-TYPE,
+	Counter32,
+	Gauge32
+		FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        TruthValue,
+        TimeStamp                           
+               FROM SNMPv2-TC
+	ciscoMgmt
+		FROM CISCO-SMI
+        rptrPortEntry
+                FROM SNMP-REPEATER-MIB;
+
+ciscoRptrMIB MODULE-IDENTITY
+	LAST-UPDATED	"9512050000Z"
+	ORGANIZATION	"Cisco Systems, Inc."
+	CONTACT-INFO
+		"       Cisco Systems
+			Customer Service
+
+		Postal: 170 W Tasman Drive
+			San Jose, CA  95134
+			USA
+
+		   Tel: +1 800 553-NETS
+
+		E-mail: cs-snmp@cisco.com"
+	DESCRIPTION
+		""
+	REVISION        "9512050000Z"
+	DESCRIPTION
+		"Correct minor syntax errors."
+	REVISION	"9510170000Z"
+	DESCRIPTION
+                "Added MAC security related objects to the initial version 
+                 of this MIB module."
+	REVISION	"9503090000Z"
+	DESCRIPTION
+		"Correct the definition for ciscoRptrPortMDIStatus."
+	REVISION	"9410260000Z"
+	DESCRIPTION
+		"Initial version of this MIB module."
+	::= { ciscoMgmt 22 }
+
+ciscoRptrMIBObjects OBJECT IDENTIFIER ::= { ciscoRptrMIB 1 }
+
+ciscoRptrPortTable OBJECT-TYPE
+	SYNTAX     SEQUENCE OF CiscoRptrPortEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"Table of descriptive and status information about
+                 the ports."
+	::= { ciscoRptrMIBObjects 1 }
+
+ciscoRptrPortEntry OBJECT-TYPE
+	SYNTAX     CiscoRptrPortEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"An entry in the table, containing information
+                 about a single port."
+        AUGMENTS { rptrPortEntry }
+	::= { ciscoRptrPortTable 1 }
+
+CiscoRptrPortEntry ::=
+       SEQUENCE {
+           ciscoRptrPortMDIStatus              INTEGER,
+           ciscoRptrPortLinkTestEnabled        TruthValue,
+           ciscoRptrPortLinkTestFailed         TruthValue,
+           ciscoRptrPortAutoPolarityEnabled    TruthValue,
+           ciscoRptrPortAutoPolarityCorrected  TruthValue,
+           ciscoRptrPortSrcAddrCtrl            TruthValue,
+           ciscoRptrPortAllowedSrcAddr         OCTET STRING,
+           ciscoRptrPortAllowedSrcAddrStatus   INTEGER,
+           ciscoRptrPortLastIllegalSrcAddr     OCTET STRING,
+           ciscoRptrPortIllegalAddrTrapAcked   INTEGER,       
+           ciscoRptrPortIllegalAddrTrapEnabled TruthValue,   
+           ciscoRptrPortIllegalAddrFirstHeard  TimeStamp,    
+           ciscoRptrPortIllegalAddrLastHeard   TimeStamp, 
+           ciscoRptrPortLastIllegalAddrCount   Gauge32,    
+           ciscoRptrPortIllegalAddrTotalCount  Counter32  
+       }
+
+ciscoRptrPortMDIStatus OBJECT-TYPE
+       SYNTAX     INTEGER {
+                      normal(1),
+                      crossover(2),
+                      notSwitchable(3)
+                  }
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+               "This object indicates the port's MDI/MDI-X switching status.  
+                The normal(1) status indicates the port is configured to be 
+                standard MDI as defined by the 10BaseT Standard for hub port
+                (allowing for connection to a chained hub).  The crossover(2) 
+                status indicates the port is configured to be in MDI-X mode
+                (allowing for connection to a 10BaseT end node).  The 
+                notSwitchable(3) status indicates the port is not switchable 
+                between MDI and MDI-X mode."
+       ::= { ciscoRptrPortEntry 1 }
+
+ciscoRptrPortLinkTestEnabled OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Specifies whether or not Link Integrity Test Function is
+                enabled for the port as specified by the 10BaseT Standard.  
+                When the link test function is enabled, the absence of the 
+                Link Test pulses and receive data on the port will cause the 
+                port to go into a Link Fail state.  In this state, the data 
+                transmission, data reception and collision detection functions
+                are disabled until valid data or 4 consecutive Link Test 
+                pulses appear on RXD+/- pair of the port.
+
+                With the Link Integrity Test Function disabled, the data 
+                driver, receiver and collision detection remain enabled 
+                irrespective of the presence or absence of data or Link Test 
+                pulses on the port."
+       DEFVAL { true }
+       ::= { ciscoRptrPortEntry 2 }
+
+ciscoRptrPortLinkTestFailed OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+               "This object indicates the status of the Link Test function
+                for the port.  Set to false indicates valid data or 4 
+                consecutive Link Test pulses have been detected on the
+                port.  Set to true indicates the failure of the Link Test 
+                function for the port.  In the Link Test Fail state, data 
+                transmission, data reception and collision detection functions
+                are disabled until valid data or 4 consecutive Link Test pulses
+                appear on the RXD+/- pair of the port."
+       ::= { ciscoRptrPortEntry 3 }
+
+ciscoRptrPortAutoPolarityEnabled OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Specifies whether or not the Automatic Receiver Polarity 
+                Reversal is enabled for the port.  This feature provides the 
+                ability to invert the polarity of the signals appearing at the 
+                RXD+/- pair of the port prior to re-transmission if the 
+                polarity of the received signal is reversed (such as in the 
+                case of wiring error)."
+       DEFVAL { true }
+       ::= { ciscoRptrPortEntry 4 }
+
+ciscoRptrPortAutoPolarityCorrected OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+               "This object indicates the status of the Automatic Receiver
+                Polarity Reversal for the port.  Set to true indicates the
+                polarity of the port has been detected as reversed and is
+                corrected.  Set to false indicates the polarity for the port
+                as having correct polarity."
+       ::= { ciscoRptrPortEntry 5 }
+
+ciscoRptrPortSrcAddrCtrl OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Specifies whether or not the Source Address Control feature is 
+                enabled for the port.  This feature provides the ability to 
+                control which device's specific MAC address is allowed access 
+                to the network.  If the management entity specified an address
+                via ciscoRptrPortAllowedSrcAddr, only the device with the 
+                configured MAC address is allowed access to the network.  If 
+                the management entity does not specified an address, the 
+                allowed source address is learned from the last source address 
+                if valid; otherwise, the allowed source address is learned from
+                the MAC address of the first valid packet detected on the port.
+                When another MAC address other than the allowed source address
+                is detected on the port, the port is partitioned.
+
+                WARNING: Configuring Source Address Control feature on the
+                port which is used for management can cause the management
+                entity to lose access to the agent if the management's source 
+                address does not match the allowed source address."
+       DEFVAL { false }
+       ::= { ciscoRptrPortEntry 6 }
+
+ciscoRptrPortAllowedSrcAddr OBJECT-TYPE
+       SYNTAX     OCTET STRING (SIZE(0 | 6))
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "For write access, this object is the allowed source address
+                that is to be configured for source address control feature 
+                for the port. 
+
+                For read access, if no allowed source address was specifically 
+                specified by the manager, the agent shall return the learned 
+                address to control.  Otherwise, the specified allowed source 
+                address is returned if configured by management entity."
+       ::= { ciscoRptrPortEntry 7 }
+
+ciscoRptrPortAllowedSrcAddrStatus OBJECT-TYPE
+       SYNTAX     INTEGER {
+                      allowedSrcAddrConfig(1),
+                      allowedSrcAddrLearn(2),
+                      allowedSrcAddrUndefined(3)
+                  }
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+               "This object indicates the status of ciscoRptrPortAllowedSrcAddr
+                for the port.  allowedSrcAddrConfig(1) status indicates that 
+                the allowed source address was explicitly configured by 
+                management entity.  The allowedSrcAddrLearn(2) status indicates
+                that the allowed source address was learned for the port.  
+                The allowedSrcAddrUndefined(3) status indicates that currently
+                there is no restriction on the source address for the port."
+       ::= { ciscoRptrPortEntry 8 }
+
+ciscoRptrPortLastIllegalSrcAddr OBJECT-TYPE
+       SYNTAX     OCTET STRING (SIZE(0 | 6))
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+               "This object is the last illegal source address which caused 
+                this port to be partitioned.  If the port is never partitioned
+                due to Source Address Control, the agent shall return a string
+                of length zero."
+       ::= { ciscoRptrPortEntry 9 }
+
+
+ciscoRptrPortIllegalAddrTrapAcked OBJECT-TYPE
+       SYNTAX     INTEGER {
+                            acked(1),
+                            no-acked-sending(2),
+                            no-acked-no-sending(3)
+                          }
+
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Specifies whether an acknowledgment is sent by an NMS to
+                indicate that an illegal source address trap was 
+                received.
+                acked :
+                           Set by a NMS to acknowledge reception of an 
+                           illegal source address.  When this flag is 
+                           set, no more trap will be sent for the port.
+                           
+                no-acked-sending: 
+                           Set by the SNMP agent to indicate that it is
+                           sending a trap to one or more NMSs. 
+                           The trap is sent based upon the trap
+                           algorithm specified by ciscoRptrTrapAlgorithm. 
+
+                no-acked-no-sending: 
+                           Set by the SNMP agent when there is no trap 
+                           to be sent or the trap was already sent out."
+
+	DEFVAL  { no-acked-no-sending  }
+       ::= { ciscoRptrPortEntry 10 }
+
+
+ciscoRptrPortIllegalAddrTrapEnabled OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Specifies whether or not to send the illegal source 
+                address trap for the port.
+
+                When it is enabled, one or more illegal source address 
+                traps will be generated if there is a mismatch of 
+                source address.  Traps are sent based on the algorithm 
+                specified by ciscoRptrTrapAlgorithm defined in the
+                GLOBAL section.
+
+                When it is disabled, no traps are sent. "
+       DEFVAL { false }
+       ::= { ciscoRptrPortEntry 11 }
+
+
+ciscoRptrPortIllegalAddrFirstHeard  OBJECT-TYPE
+       SYNTAX     TimeStamp
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+               "This is the time stamp for the very first time when
+                the current illegal source address was detected on the 
+                port.  The time stamp is given by the value of MIB-II's
+                sysUpTime at which this occurrence happens.  If no illegal 
+                source address is heard on the port, this value is set 
+                to 0."
+       ::= { ciscoRptrPortEntry 12 }
+
+ciscoRptrPortIllegalAddrLastHeard   OBJECT-TYPE
+       SYNTAX     TimeStamp
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+               "This is the time stamp for the last time when the 
+                current illegal source address was detected on the 
+                port.  The time stamp is given by the value of MIB-II's
+                sysUpTime at which occurrence happens.  If no illegal
+                source address was never occurred, this value is set
+                to 0."
+
+       ::= { ciscoRptrPortEntry 13 }
+
+ciscoRptrPortLastIllegalAddrCount   OBJECT-TYPE
+       SYNTAX     Gauge32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION 
+               "This is the count of consecutive occurrences of
+                the last illegal source address on the port.
+                When illegal address is detected, this count
+                will be incremented about every minute."
+
+       ::= { ciscoRptrPortEntry 14 }
+
+ciscoRptrPortIllegalAddrTotalCount  OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION 
+               "This is the total count of all cccurences of any
+                illegal source addresses heard on the port since start-up.
+                
+                Note: Illegal source addresses may be different, may be 
+                      the same. This counter is a *total* count from this port."
+
+       ::= { ciscoRptrPortEntry 15 }
+
+ 
+-- Global 
+-- The following parameters apply for all the repeater ports.
+
+ciscoRptrMIBglobal OBJECT IDENTIFIER ::= { ciscoRptrMIBObjects 2 }
+
+ciscoRptrTrapAlgorithm OBJECT-TYPE
+	SYNTAX     INTEGER
+                     { once (1),
+                       decay (2)
+                     }
+	MAX-ACCESS read-write
+	STATUS     current
+	DESCRIPTION
+		"Specifies how often trap(s) will be sent by the SNMP agent.
+                 once  - The trap is only sent once.
+                 decay - The same trap is sent multiple times at 
+                         approximately exponential decaying rate.
+                         e.g. 1st trap is sent immediately, 
+                              2nd trap is at  1 minute, 
+                              3rd trap is at 2 minutes, 
+                              4th trap is at 4 minutes, 
+                              and so on. 
+                         The rate is capped at about 32 minutes.
+
+                         NOTE : Decaying rate is used to avoid
+                                overflood the NMS." 
+       DEFVAL {decay }
+       ::= { ciscoRptrMIBglobal 1 }
+
+-- Repeater Trap
+
+ciscoRptrMIBTrapPrefix OBJECT IDENTIFIER ::= { ciscoRptrMIB 3 }
+ciscoRptrMIBTraps OBJECT IDENTIFIER ::= { ciscoRptrMIBTrapPrefix 0 }
+
+ciscoRptrIllegalSrcAddrTrap  NOTIFICATION-TYPE 
+             OBJECTS    { 
+                        ciscoRptrPortLastIllegalSrcAddr
+                        }
+             STATUS     current
+             DESCRIPTION
+                "When the illegal MAC source address violation is 
+                 detected, the port is partitioned for one minute.  
+                 In addition, this trap notification is generated.
+                 Note: rptrPortGroupIndex, and rptrPortIndex are
+                    the instances of ciscoRptrPortLastIllegalSrcAddr."  
+             ::= { ciscoRptrMIBTraps 1 }
+
+-- conformance information
+
+ciscoRptrMIBConformance OBJECT IDENTIFIER ::= { ciscoRptrMIB 2 }
+ciscoRptrMIBCompliances OBJECT IDENTIFIER ::= { ciscoRptrMIBConformance 1 }
+ciscoRptrMIBGroups      OBJECT IDENTIFIER ::= { ciscoRptrMIBConformance 2 }
+
+
+-- compliance statements
+
+ciscoRptrMIBCompliance MODULE-COMPLIANCE
+        STATUS  obsolete -- superseded by ciscoRptrMIBComplianceV11R01
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                 the cisco Repeater MIB"
+        MODULE  -- this module
+                MANDATORY-GROUPS { ciscoRptrMIBGroup }
+        ::= { ciscoRptrMIBCompliances 1 }
+
+ciscoRptrMIBComplianceV11R01 MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                 the cisco Repeater MIB"
+        MODULE  -- this module
+                MANDATORY-GROUPS { ciscoRptrMIBPortGroupV11R01,
+                                   ciscoRptrMIBGlobalsGroup }
+        ::= { ciscoRptrMIBCompliances 2 }
+
+-- units of conformance
+
+ciscoRptrMIBGroup OBJECT-GROUP
+        OBJECTS {
+           ciscoRptrPortMDIStatus,
+           ciscoRptrPortLinkTestEnabled,
+           ciscoRptrPortLinkTestFailed,
+           ciscoRptrPortAutoPolarityEnabled,
+           ciscoRptrPortAutoPolarityCorrected,
+           ciscoRptrPortSrcAddrCtrl,
+           ciscoRptrPortAllowedSrcAddr,
+           ciscoRptrPortAllowedSrcAddrStatus,
+           ciscoRptrPortLastIllegalSrcAddr
+        }
+        STATUS  obsolete -- superseded by ciscoRptrMIBPortGroupV11R01
+        DESCRIPTION
+                "A collection of objects providing repeater ability." 
+        ::= { ciscoRptrMIBGroups 1 }
+
+ciscoRptrMIBPortGroupV11R01 OBJECT-GROUP
+        OBJECTS {
+           ciscoRptrPortMDIStatus,
+           ciscoRptrPortLinkTestEnabled,
+           ciscoRptrPortLinkTestFailed,
+           ciscoRptrPortAutoPolarityEnabled,
+           ciscoRptrPortAutoPolarityCorrected,
+           ciscoRptrPortSrcAddrCtrl,
+           ciscoRptrPortAllowedSrcAddr,
+           ciscoRptrPortAllowedSrcAddrStatus,
+           ciscoRptrPortLastIllegalSrcAddr,
+           ciscoRptrPortIllegalAddrTrapAcked,  
+           ciscoRptrPortIllegalAddrTrapEnabled,
+           ciscoRptrPortIllegalAddrFirstHeard,
+           ciscoRptrPortIllegalAddrLastHeard,
+           ciscoRptrPortLastIllegalAddrCount,
+           ciscoRptrPortIllegalAddrTotalCount
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects for managing a repeater port." 
+        ::= { ciscoRptrMIBGroups 2 }
+
+ciscoRptrMIBGlobalsGroup OBJECT-GROUP
+        OBJECTS {
+           ciscoRptrTrapAlgorithm
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects apply to all repeater ports." 
+        ::= { ciscoRptrMIBGroups 3 }
+
+END

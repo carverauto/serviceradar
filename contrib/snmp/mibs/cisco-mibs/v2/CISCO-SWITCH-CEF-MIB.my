@@ -1,0 +1,386 @@
+-- *****************************************************************
+-- CISCO-SWITCH-CEF-MIB.my
+--   
+-- December 2011, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2011 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SWITCH-CEF-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Gauge32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    entPhysicalIndex
+        FROM ENTITY-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSwitchCefMIB MODULE-IDENTITY
+    LAST-UPDATED    "201112150000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines management objects for the
+        CEF features on Cisco Layer 2 and Layer 3 devices.
+
+        Definition of some of the terms used in this MIB:
+
+            CEF    -  Cisco Express Forwarding.
+
+            VPN    -  Virtual private network. 
+
+            VRF    -  VPN Routing and Forwarding instance.
+
+            MPLS   -  Multiprotocol Label Switching
+
+            EoMPLS -  Ethernet over MPLS"
+    REVISION        "201112150000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 790 }
+
+
+ciscoSwitchCefMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoSwitchCefMIB 0 }
+
+ciscoSwitchCefMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSwitchCefMIB 1 }
+
+ciscoSwitchCefMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSwitchCefMIB 2 }
+
+-- Overview of MIB Objects:
+--   
+-- 1. cscStats              : A group of objects providing
+-- CEF Statistics
+
+cscStats  OBJECT IDENTIFIER
+    ::= { ciscoSwitchCefMIBObjects 1 }
+
+-- cscSwitchCefStatsTable
+
+cscSwitchCefStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CscSwitchCefStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides CEF statistics for switching engines."
+    ::= { cscStats 1 }
+
+cscSwitchCefStatsEntry OBJECT-TYPE
+    SYNTAX          CscSwitchCefStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry providing CEF statistics information
+        maintained by a particular switching engine entity 
+        (identified by entPhysicalIndex). 
+
+        An entry of this table is created if a switch engine
+        with these CEF statistics is detected by the 
+        managed system. 
+
+        An entry of this table is deleted if the 
+        removal of the switching engine itself."
+    INDEX           { entPhysicalIndex } 
+    ::= { cscSwitchCefStatsTable 1 }
+
+CscSwitchCefStatsEntry ::= SEQUENCE {
+        cscIpv4NonVrfRoutes       Gauge32,
+        cscIpv4VrfRoutes          Gauge32,
+        cscIpv4MulticastRoutes    Gauge32,
+        cscIpv4UnicastRoutes      Gauge32,
+        cscIpv6GlobalRoutes       Gauge32,
+        cscIpv6NonVrfRoutes       Gauge32,
+        cscIpv6VrfRoutes          Gauge32,
+        cscIpv6LinkLocalRoutes    Gauge32,
+        cscIpv6MulticastRoutes    Gauge32,
+        cscIpv6UnicastRoutes      Gauge32,
+        cscMplsRoutes             Gauge32,
+        cscMplsVpnRoutes          Gauge32,
+        cscEomL2Routes            Gauge32,
+        cscEomIpv4MulticastRoutes Gauge32,
+        cscEomIpv6MulticastRoutes Gauge32,
+        cscTotalRoutes            Gauge32
+}
+
+cscIpv4NonVrfRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv4 non VRF routes." 
+    ::= { cscSwitchCefStatsEntry 1 }
+
+cscIpv4VrfRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv4 VRF routes." 
+    ::= { cscSwitchCefStatsEntry 2 }
+
+cscIpv4MulticastRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv4 multicast routes." 
+    ::= { cscSwitchCefStatsEntry 3 }
+
+cscIpv4UnicastRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv4 unicast routes." 
+    ::= { cscSwitchCefStatsEntry 4 }
+
+cscIpv6GlobalRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv6 global routes." 
+    ::= { cscSwitchCefStatsEntry 5 }
+
+cscIpv6NonVrfRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv6 non VRF routes." 
+    ::= { cscSwitchCefStatsEntry 6 }
+
+cscIpv6VrfRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv6 VRF routes." 
+    ::= { cscSwitchCefStatsEntry 7 }
+
+cscIpv6LinkLocalRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv6 link-local routes." 
+    ::= { cscSwitchCefStatsEntry 8 }
+
+cscIpv6MulticastRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv6 multicast routes." 
+    ::= { cscSwitchCefStatsEntry 9 }
+
+cscIpv6UnicastRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv6 unicast routes." 
+    ::= { cscSwitchCefStatsEntry 10 }
+
+cscMplsRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of MPLS routes." 
+    ::= { cscSwitchCefStatsEntry 11 }
+
+cscMplsVpnRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of MPLS VPN routes." 
+    ::= { cscSwitchCefStatsEntry 12 }
+
+cscEomL2Routes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of EoMPLS L2 routes." 
+    ::= { cscSwitchCefStatsEntry 13 }
+
+cscEomIpv4MulticastRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of EoMPLS Ipv4 Multicast routes." 
+    ::= { cscSwitchCefStatsEntry 14 }
+
+cscEomIpv6MulticastRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of EoMPLS Ipv6 Multicast routes." 
+    ::= { cscSwitchCefStatsEntry 15 }
+
+cscTotalRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of routes." 
+    ::= { cscSwitchCefStatsEntry 16 }
+ 
+
+-- Conformance
+
+cscSwitchCefMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSwitchCefMIBConform 1 }
+
+cscSwitchCefMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSwitchCefMIBConform 2 }
+
+
+cscSwitchCefMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for
+        CISCO-SWITCH-CEF-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cscSwitchCefIpv4StatsGroup,
+                        cscSwitchCefIpv6StatsGroup,
+                        cscTotalStatsGroup
+                    }
+
+    GROUP           cscSwitchCefIpv6GlobalStatsGroup
+    DESCRIPTION
+        "This group is mandatory for devices which can provide
+        CEF Ipv6 Global Statistics."
+
+    GROUP           cscSwitchCefIpv6LinkLocalGroup
+    DESCRIPTION
+        "This group is mandatory for devices which can provide
+        CEF Ipv6 Link Local Statistics."
+
+    GROUP           cscSwitchCefEomL2Group
+    DESCRIPTION
+        "This group is mandatory for devices which can provide
+        CEF EoMPLS L2 Statistics."
+
+    GROUP           cscMplsStatsGroup
+    DESCRIPTION
+        "This group is mandatory for devices which can provide
+        CEF MPLS Statistics."
+
+    GROUP           cscMplsStatsGroupExt
+    DESCRIPTION
+        "This group is mandatory for devices which can provide
+        additional CEF MPLS Statistics."
+    ::= { cscSwitchCefMIBCompliances 1 }
+
+-- Units of Conformance
+
+cscSwitchCefIpv4StatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cscIpv4NonVrfRoutes,
+                        cscIpv4VrfRoutes,
+                        cscIpv4MulticastRoutes,
+                        cscIpv4UnicastRoutes
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Ipv4
+        statistics for switching engines."
+    ::= { cscSwitchCefMIBGroups 1 }
+
+cscSwitchCefIpv6StatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cscIpv6NonVrfRoutes,
+                        cscIpv6VrfRoutes,
+                        cscIpv6MulticastRoutes,
+                        cscIpv6UnicastRoutes
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Ipv6
+        statistics for switching engines."
+    ::= { cscSwitchCefMIBGroups 2 }
+
+cscSwitchCefIpv6GlobalStatsGroup OBJECT-GROUP
+    OBJECTS         { cscIpv6GlobalRoutes }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Ipv6 Global
+        statistics for switching engines."
+    ::= { cscSwitchCefMIBGroups 3 }
+
+cscSwitchCefIpv6LinkLocalGroup OBJECT-GROUP
+    OBJECTS         { cscIpv6LinkLocalRoutes }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Ipv6 Link Local Route
+        statistics for switching engines."
+    ::= { cscSwitchCefMIBGroups 4 }
+
+cscSwitchCefEomL2Group OBJECT-GROUP
+    OBJECTS         { cscEomL2Routes }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing EoMPLS L2 Route
+        statistics for switching engines."
+    ::= { cscSwitchCefMIBGroups 5 }
+
+cscMplsStatsGroup OBJECT-GROUP
+    OBJECTS         { cscMplsRoutes }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing MPLS Route
+        statistics for switching engines."
+    ::= { cscSwitchCefMIBGroups 6 }
+
+cscMplsStatsGroupExt OBJECT-GROUP
+    OBJECTS         {
+                        cscMplsVpnRoutes,
+                        cscEomIpv4MulticastRoutes,
+                        cscEomIpv6MulticastRoutes
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing additional MPLS CEF
+        statistics for switching engines."
+    ::= { cscSwitchCefMIBGroups 7 }
+
+cscTotalStatsGroup OBJECT-GROUP
+    OBJECTS         { cscTotalRoutes }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing MPLS CEF
+        statistics for switching engines."
+    ::= { cscSwitchCefMIBGroups 8 }
+
+END
+
+
+
+
+

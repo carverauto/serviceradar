@@ -1,0 +1,136 @@
+-- *****************************************************************
+-- CISCO-TELEPRESENCE-CAPABILITY.my:
+-- AGENT-CAPABILITIES for the CISCO-TELEPRESENCE-MIB
+--   
+-- Copyright (c) 2008 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- May 2008, Kevin Lee
+--   
+-- ***************************************************************
+
+CISCO-TELEPRESENCE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    Unsigned32
+        FROM SNMPv2-SMI
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoTelepresenceCapability MODULE-IDENTITY
+    LAST-UPDATED    "200806050000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: tb-sw@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-TELEPRESENCE-MIB"
+    REVISION        "200806050000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 565 }
+
+
+
+ciscoTelepresenceCapabilityCTSV120 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco TelePresence System (CTS) 1.4.0."
+    STATUS          current
+    DESCRIPTION
+        "TELEPRESENCE MIB capabilities"
+
+    SUPPORTS        CISCO-TELEPRESENCE-MIB
+    INCLUDES        {
+                        ciscoTpConfigurationGroup,
+                        ciscoTpPeripheralStatusGroup,
+                        ciscoTpEventHistoryGroup,
+                        ciscoTpNotificationGroup,
+                        ciscoTpRS232PeripheralStatusGroup,
+                        ciscoTpPeripheralAttributeGroup
+                    }
+    VARIATION       ctpPeripheralErrorHistTableSize
+    SYNTAX          Unsigned32 (0 )
+    ACCESS          read-only
+    DESCRIPTION
+        "Size is always 0. Write/create not supported."
+
+    VARIATION       ctpPeripheralErrorHistoryIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctpPeripheralErrorIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctpPeripheralErrorStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctpPeripheralErrorTimeStamp
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctpSysUserAuthFailHistTableSize
+    SYNTAX          Unsigned32 (0 )
+    ACCESS          read-only
+    DESCRIPTION
+        "Size is always 0. Write/create not supported."
+
+    VARIATION       ctpSysUserAuthFailHistoryIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctpSysUserAuthFailSourceAddrType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctpSysUserAuthFailSourceAddr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctpSysUserAuthFailSourcePort
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctpSysUserAuthFailUserName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctpSysUserAuthFailAccessProtocol
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       ctpSysUserAuthFailTimeStamp
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoTelepresenceCapability 1 }
+
+END
+
+
+
+

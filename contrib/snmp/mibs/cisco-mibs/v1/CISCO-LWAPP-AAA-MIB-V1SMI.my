@@ -1,0 +1,1157 @@
+-- MIB file created 07-Sep-2010 06:28:38, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LWAPP-AAA-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LWAPP-AAA-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    MacAddress, DisplayString, TruthValue, StorageType, RowStatus, 
+    TimeInterval
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress, InetPortNumber
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    CLSecKeyFormat
+            FROM CISCO-LWAPP-TC-MIB
+    cLWlanIndex
+            FROM CISCO-LWAPP-WLAN-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoLwappAAAMIB OBJECT IDENTIFIER ::= { ciscoMgmt 598 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201007250000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems,
+--    Customer Service
+--    Postal: 170 West Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553-NETS
+--    Email: cs-wnbu-snmp@cisco.com
+--  Descr
+--    This MIB is intended to be implemented on all those
+--    devices operating as Central Controllers (CC), that
+--    terminate the Light Weight Access Point Protocol
+--    tunnel from Cisco Light-weight LWAPP Access Points.
+--    
+--    Information provided by this MIB is used to manage
+--    AAA information on the controller.
+--    
+--    The relationship between CC and the LWAPP APs
+--    can be depicted as follows:
+--    
+--          +......+     +......+     +......+
+--          +      +     +      +     +      +
+--          +  CC  +     +  CC  +     +  CC  +
+--          +      +     +      +     +      +
+--          +......+     +......+     +......+
+--            ..            .             .
+--            ..            .             .
+--           .  .            .             .
+--          .    .            .             .
+--         .      .            .             .
+--        .        .            .             .
+--    +......+ +......+     +......+      +......+
+--    +      + +      +     +      +      +      +
+--    +  AP  + +  AP  +     +  AP  +      +  AP  +
+--    +      + +      +     +      +      +      +
+--    +......+ +......+     +......+      +......+
+--               .              .             .
+--             .  .              .             .
+--            .    .              .             .
+--           .      .              .             .
+--          .        .              .             .
+--       +......+ +......+     +......+      +......+
+--       +      + +      +     +      +      +      +
+--       +  MN  + +  MN  +     +  MN  +      +  MN  +
+--       +      + +      +     +      +      +      +
+--       +......+ +......+     +......+      +......+
+--    
+--    
+--    The LWAPP tunnel exists between the controller and
+--    the APs.  The MNs communicate with the APs through
+--    the protocol defined by the 802.11 standard.
+--    
+--    LWAPP APs, upon bootup, discover and join one of the
+--    controllers and the controller pushes the configuration,
+--    that includes the WLAN parameters, to the LWAPP APs.
+--    The APs then encapsulate all the 802.11 frames from
+--    wireless clients inside LWAPP frames and forward
+--    the LWAPP frames to the controller.
+--    
+--                       GLOSSARY
+--    
+--    Access Point ( AP )
+--    
+--    An entity that contains an 802.11 medium access
+--    control ( MAC ) and physical layer ( PHY ) interface
+--    and provides access to the distribution services via
+--    the wireless medium for associated clients.  
+--    
+--    LWAPP APs encapsulate all the 802.11 frames in
+--    LWAPP frames and sends them to the controller to which
+--    it is logically connected.
+--    
+--    Light Weight Access Point Protocol ( LWAPP )
+--    
+--    This is a generic protocol that defines the 
+--    communication between the Access Points and the
+--    Central Controller. 
+--    
+--    Mobile Node ( MN )
+--    
+--    A roaming 802.11 wireless device in a wireless
+--    network associated with an access point. Mobile Node 
+--    and client are used interchangeably. 
+--    
+--    Terminal Access Controller Access-Control System 
+--    ( TACACS ) 
+--    
+--    A remote authentication protocol that is used to 
+--    communicate with an authentication server. 
+--    TACACS allows a remote access server to communicate 
+--    with an authentication server in order to determine 
+--    if the user has access to the network.
+--    
+--    Remote Authentication Dial In User Service (RADIUS) 
+--    
+--    It is an AAA (authentication, authorization and accounting) 
+--    protocol for applications such as network access or 
+--    IP mobility. It is intended to work in both local and 
+--    roaming situations.
+--    
+--    Wireless LAN ( WLAN ) 
+--    
+--    It is a wireless local area network, which is the 
+--    linking of two or more computers without using wires. 
+--    It uses radio communication to accomplish the same 
+--    functionality of a wired LAN.
+--    
+--    PAP - Password Authentication Protocol
+--    CHAP - Challenge Handshake Authentication Protocol
+--    MD5-CHAP - Message Digest 5 Challenge Handshake Authentication
+--               Protocol
+--    
+--    LSC - Local Significant Certificate
+--    
+--    LSC can be used if we want our own public key 
+--    infrastructure (PKI) to provide better security, 
+--    to have control of our certificate authority (CA), 
+--    and to define policies, restrictions, and usages 
+--    on the generated certificates.
+--    
+--    REFERENCE
+--    
+--    [1] Wireless LAN Medium Access Control ( MAC ) and
+--    Physical Layer ( PHY ) Specifications
+--    
+--    [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+--    Weight Access Point Protocol
+--  RevDate
+--    201007250000Z
+--  RevDescr
+--    A new variable, claWlanAuthServerEnabled
+--    has been added to the existing table, claWlanTable.
+--    
+--    A new scalar variable, claSaveUserData has been 
+--    added to support saving of user configuration data to NVRAM.
+--    
+--    The following scalar variables have been added to support 
+--    RADIUS web auth and fallback configuration.
+--    
+--    claWebRadiusAuthentication
+--    claRadiusFallbackMode
+--    claRadiusFallbackUsername
+--    claRadiusFallbackInterval
+--    claRadiusAuthMacDelimiter
+--    claRadiusAcctMacDelimiter
+--    
+--    The following scalar vriables have been added to support
+--    AP policy configuration
+--    
+--    claAcceptMICertificate
+--    claAcceptLSCertificate
+--    claAllowAuthorizeLscApAgainstAAA
+--    
+--    
+--    A new scalar read-only variable, claDBCurrentUsedEntries 
+--    has been added to show the total number of database entries used.
+--    
+--    The groups, ciscoLwappAAAMIBRev1ConfigGroup and
+--    ciscoLwappAAAMIBDBEntriesGroup have been added.
+--    
+--    ciscoLwappAAAMIBCompliance has been deprecated by  
+--    ciscoLwappAAAMIBComplianceRev1.
+--  RevDate
+--    200611210000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoLwappAAAMIBNotifs OBJECT IDENTIFIER ::= { ciscoLwappAAAMIB 0 }
+ciscoLwappAAAMIBObjects OBJECT IDENTIFIER ::= { ciscoLwappAAAMIB 1 }
+ciscoLwappAAAMIBConform OBJECT IDENTIFIER ::= { ciscoLwappAAAMIB 2 }
+claConfigObjects OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBObjects 1 }
+claStatusObjects OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBObjects 2 }
+ciscoLwappAAAMIBCompliances OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBConform 1 }
+ciscoLwappAAAMIBGroups OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBConform 2 }
+
+claPriorityTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClaPriorityEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains entries for AAA authentication
+        methods configured in the controller. At startup, 
+        all the entries in this table are set up by the central 
+        controller.  A management application can later change 
+        the priority order using the claPriorityOrder."
+    ::= { claConfigObjects 1 }
+
+claPriorityEntry OBJECT-TYPE
+    SYNTAX ClaPriorityEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row in claPriorityTable. There is an entry in
+        this table for each AAA authentication method available at the
+        agent, as identified by a value of claPriorityAuth."
+    INDEX { claPriorityAuth }
+    ::= { claPriorityTable 1 }
+
+ClaPriorityEntry ::= SEQUENCE {
+    claPriorityAuth INTEGER,
+    claPriorityOrder Gauge
+    }
+
+claPriorityAuth OBJECT-TYPE
+    SYNTAX INTEGER {
+        local(1),
+        radius(2),
+        tacacsplus(3)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the authentication method used to
+        authenticate users. 
+            local      - indicates that local password is used
+                         for authentication. 
+        
+            radius     - indicates that RADIUS method is used for
+                         authentication.
+        
+            tacacsplus - indicates that TACACS method is used for
+                         authentication."
+    ::= { claPriorityEntry 1 }
+
+claPriorityOrder OBJECT-TYPE
+    SYNTAX Gauge(0..10)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the priority order of an authentication method to
+        be used in user authentication for a session. At start up, 
+        the agent assigns the value of this object. Later this can 
+        be changed  by the management station. This object reflects 
+        the relative priority of the authentication method denoted 
+        by claPriorityAuth with respect to already configured 
+        authentication methods. 
+        The zero value indicates that the priority is not set and that
+        the authentication methods are applied in ascending order. 
+        Each object must contain a unique value for claPriorityOrder 
+        or zero. In the case when a priority is set for a value that 
+        is already used by existing object the existing object's 
+        claPriorityOrder with be swapped."
+    ::= { claPriorityEntry 2 }
+
+claTacacsServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClaTacacsServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the information about configuring
+        the Accounting, Authentication and Authorization servers.
+        The creation of a new row in claTacacsServerTable is 
+        through an explicit network management action
+        results in creation of an entry in this table.
+        Similarly, deletion of a row in claTacacsServerTable 
+        through user action causes the deletion of corresponding 
+        row in this table. The claTacacsServerType defines the 
+        server type being used and the claTacacsServerPriority  
+        defines the priority the server accessed within a given 
+        type."
+    ::= { claConfigObjects 2 }
+
+claTacacsServerEntry OBJECT-TYPE
+    SYNTAX ClaTacacsServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table provides information about
+        the server that is configured for AAA. Each entry is 
+        uniquely identified by the server type and priority
+        that server is accessed."
+    INDEX { claTacacsServerType, claTacacsServerPriority }
+    ::= { claTacacsServerTable 1 }
+
+ClaTacacsServerEntry ::= SEQUENCE {
+    claTacacsServerType INTEGER,
+    claTacacsServerPriority Gauge,
+    claTacacsServerAddressType InetAddressType,
+    claTacacsServerAddress InetAddress,
+    claTacacsServerPortNum InetPortNumber,
+    claTacacsServerEnabled TruthValue,
+    claTacacsServerSecretType CLSecKeyFormat,
+    claTacacsServerSecret DisplayString,
+    claTacacsServerTimeout Gauge,
+    claTacacsServerStorageType StorageType,
+    claTacacsServerRowStatus RowStatus
+    }
+
+claTacacsServerType OBJECT-TYPE
+    SYNTAX INTEGER {
+        authentication(1),
+        authorization(2),
+        accounting(3)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This attribute identifies the type of the server
+        being configured."
+    ::= { claTacacsServerEntry 1 }
+
+claTacacsServerPriority OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The priority value for this entry. This value
+        determines the unique priority for this entry.
+        The priority value for this entry determines the 
+        order in which the server configured in this entry
+        is accessed. The lower the number, the higher the
+        priority. For example if there are 2 entries with
+        priority 1 and 2 respectively, the controller will 
+        try the server with priority 1 before it tries 
+        the server with priority 2."
+    ::= { claTacacsServerEntry 2 }
+
+claTacacsServerAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the type of the network
+        address made available through claTacacsServerAddress. 
+        This object must be set to a valid value before 
+        setting the row to 'active'."
+    ::= { claTacacsServerEntry 3 }
+
+claTacacsServerAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the address of the AAA server.
+        The type of the address stored in this object is 
+        determined by the claTacacsServerAddressType object.         
+        This object must be set to a valid value before 
+        setting the row to 'active'."
+    ::= { claTacacsServerEntry 4 }
+
+claTacacsServerPortNum OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The port number for this server. This object must be
+        set to a valid value before setting the row to 
+        'active'."
+    ::= { claTacacsServerEntry 5 }
+
+claTacacsServerEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When set to true the server state is enabled,
+        otherwise the state is disabled."
+    DEFVAL { true }
+    ::= { claTacacsServerEntry 6 }
+
+claTacacsServerSecretType OBJECT-TYPE
+    SYNTAX CLSecKeyFormat
+--    Rsyntax INTEGER {
+--        default(1),
+--        hex(2),
+--        ascii(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The claTacacsServerSecret value is set based on this
+        type. When reading this object, the value 'default' 
+        is always returned. This object must be set to a valid 
+        value before setting the row to 'active'."
+    ::= { claTacacsServerEntry 7 }
+
+claTacacsServerSecret OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The key configured for this server. For get operation
+        this always returns a string with asterisks. This object 
+        must be set to a valid value before setting the row to
+        'active'. This object can be modified when a row is in 
+        the 'active' state."
+    ::= { claTacacsServerEntry 8 }
+
+claTacacsServerTimeout OBJECT-TYPE
+    SYNTAX Gauge(5..30)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of seconds between retransmissions. This
+        object can be modified when a row is in the 'active' 
+        state."
+    DEFVAL { 5 }
+    ::= { claTacacsServerEntry 9 }
+
+claTacacsServerStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row.  Conceptual
+        rows having the value 'permanent' need not allow 
+        write-access to any columnar objects in the row."
+    DEFVAL { nonVolatile }
+    ::= { claTacacsServerEntry 10 }
+
+claTacacsServerRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Used to add or delete an entry in this table.
+        The required parameters for this entry are 
+        claTacacsServerAddress, claTacacsServerAddressType, 
+        claTacacsServerPortNum, claTacacsServerSecret and 
+        claTacacsServerSecretType should be provided.
+        When a row is in 'active' state, some objects 
+        in this table can be modified as described in each 
+        individual object's description."
+    ::= { claTacacsServerEntry 11 }
+
+claWlanTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClaWlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "AAA table corresponding to a WLAN.  When WLAN is added a
+        new entry gets added to this table. The entry is removed 
+        when the WLAN is removed."
+    ::= { claConfigObjects 3 }
+
+claWlanEntry OBJECT-TYPE
+    SYNTAX ClaWlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each  entry in this table provides AAA information for
+        a WLAN."
+    INDEX { cLWlanIndex }
+    ::= { claWlanTable 1 }
+
+ClaWlanEntry ::= SEQUENCE {
+    claWlanAcctServerEnabled TruthValue,
+    claWlanAuthServerEnabled TruthValue
+    }
+
+claWlanAcctServerEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Status to indicate whether the account server
+        is enabled(true) or disabled(false) for this WLAN."
+    DEFVAL { true }
+    ::= { claWlanEntry 1 }
+
+claWlanAuthServerEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the status whether the authentication
+        server is enabled(true) or disabled(false) for this WLAN."
+    DEFVAL { true }
+    ::= { claWlanEntry 2 }
+
+claSaveUserData OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to save the guest user config to NVRAM.
+        Setting to the value of 'true' would save the data.
+        Setting to the value of 'false' would have no implications
+        here."
+    DEFVAL { true }
+    ::= { claConfigObjects 9 }
+
+claWebRadiusAuthentication OBJECT-TYPE
+    SYNTAX INTEGER {
+        pap(1),
+        chap(2),
+        md5-chap(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to configure the Web RADIUS Authentication
+        parameters on the WLC.
+        PAP (1) - Configure Web RADIUS Authentication in PAP mode.
+        CHAP (2) - Configure Web RADIUS Authentication in CHAP mode.
+        MD5-CHAP (3) - Configure Web RADIUS Authentication in MD5-CHAP mode."
+    DEFVAL { pap }
+    ::= { claConfigObjects 10 }
+
+claRadiusFallbackMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        off(1),
+        passive(2),
+        active(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to configure the RADIUS Fallback Test mode
+        on the WLC. Following are the configurable options:
+        off (1) - Disables RADIUS server fallback test.
+        passive (2) - Sets server status based on last transaction.
+        active (3) - Sends probes to dead servers to test status."
+    DEFVAL { off }
+    ::= { claConfigObjects 11 }
+
+claRadiusFallbackUsername OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to configure the RADIUS Fallback Test
+        username to be sent in dead server probes"
+    ::= { claConfigObjects 12 }
+
+claRadiusFallbackInterval OBJECT-TYPE
+    SYNTAX TimeInterval(180..3600)
+--    Rsyntax INTEGER(180..3600)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to configure the probe interval (when
+        claRadiusFallbackMode is in active mode) or inactive time 
+        (when claRadiusFallbackMode is in passive mode)"
+    DEFVAL { 300 }
+    ::= { claConfigObjects 13 }
+
+claRadiusAuthMacDelimiter OBJECT-TYPE
+    SYNTAX INTEGER {
+        noDelimiter(1),
+        colon(2),
+        hyphen(3),
+        singleHyphen(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The delimiter to be used for RADIUS authentication servers.
+        The possible values allowed are - 
+        no delimiter (1)  - as in xxxxxxxxxxxx.
+        colon (2)         - as in xx:xx:xx:xx:xx:xx.  
+        hyphen (3)        - as in xx-xx-xx-xx-xx-xx.  
+        single hyphen (4) - as in xxxxxx-xxxxxx."
+    DEFVAL { hyphen }
+    ::= { claConfigObjects 14 }
+
+claRadiusAcctMacDelimiter OBJECT-TYPE
+    SYNTAX INTEGER {
+        noDelimiter(1),
+        colon(2),
+        hyphen(3),
+        singleHyphen(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The delimiter to be used for RADIUS accounting servers.
+        The possible values allowed are - 
+        no delimiter (1)  - as in xxxxxxxxxxxx. 
+        colon (2)         - as in xx:xx:xx:xx:xx:xx.  
+        hyphen (3)        - as in xx-xx-xx-xx-xx-xx.  
+        single hyphen (4) - as in xxxxxx-xxxxxx."
+    DEFVAL { hyphen }
+    ::= { claConfigObjects 15 }
+
+claAcceptMICertificate OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if controller will accept
+        Manufactured Installed Certificate from the
+        access points  as part of authorization."
+    DEFVAL { false }
+    ::= { claConfigObjects 16 }
+
+claAcceptLSCertificate OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if controller will accept
+        Local Significant Certificate from access points
+        as part of authorization."
+    DEFVAL { false }
+    ::= { claConfigObjects 17 }
+
+claAllowAuthorizeLscApAgainstAAA OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if access points to be authorized
+        using a AAA RADIUS server or local database.
+        If this object is false, the access points would be
+        authorized using a local database."
+    DEFVAL { false }
+    ::= { claConfigObjects 18 }
+
+claRadiusServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClaRadiusServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the information about the
+        requests sent to the RADIUS servers. 
+        When a new request gets sent to the RADIUS server
+        an entry gets added to this table. The agents 
+        maintains a circular queue which automatically
+        gets overwritten once the queue is full."
+    ::= { claStatusObjects 1 }
+
+claRadiusServerEntry OBJECT-TYPE
+    SYNTAX ClaRadiusServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table provides information about
+        a request that is sent to a RADIUS server.
+        Each entry is uniquely identified by the 
+        request identifier."
+    INDEX { claRadiusReqId }
+    ::= { claRadiusServerTable 1 }
+
+ClaRadiusServerEntry ::= SEQUENCE {
+    claRadiusReqId Gauge,
+    claRadiusAddressType InetAddressType,
+    claRadiusAddress InetAddress,
+    claRadiusPortNum InetPortNumber,
+    claRadiusWlanIdx Gauge,
+    claRadiusClientMacAddress MacAddress,
+    claRadiusUserName DisplayString
+    }
+
+claRadiusReqId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the request identifier of the
+        request sent to the RADIUS server."
+    ::= { claRadiusServerEntry 1 }
+
+claRadiusAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the address type for the RADIUS server."
+    ::= { claRadiusServerEntry 2 }
+
+claRadiusAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the address of the RADIUS server."
+    ::= { claRadiusServerEntry 3 }
+
+claRadiusPortNum OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the port number for the RADIUS
+        server."
+    ::= { claRadiusServerEntry 4 }
+
+claRadiusWlanIdx OBJECT-TYPE
+    SYNTAX Gauge(1..17)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the WLAN index whether the RADIUS
+        server is activating and deactivating."
+    ::= { claRadiusServerEntry 5 }
+
+claRadiusClientMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the client MAC address that sent the
+        request identified by the claRadiusReqId."
+    ::= { claRadiusServerEntry 6 }
+
+claRadiusUserName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the user for whom the request
+        identified by the claRadiusReqId was sent."
+    ::= { claRadiusServerEntry 7 }
+
+claDBCurrentUsedEntries OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the current database entries used.
+        This includes the number of users, mac filters
+        configured in the system."
+    ::= { claStatusObjects 2 }
+
+claRadiusServerGlobalActivatedEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object to control the generation of
+        ciscoLwappAAARadiusServerGlobalActivated 
+        notification.
+        
+        A value of 'true' indicates that the agent generates
+        ciscoLwappAAARadiusServerGlobalActivated
+        notification.
+        
+        A value of 'false' indicates that the agent doesn't
+        generate ciscoLwappAAARadiusServerGlobalActivated 
+        notification."
+    DEFVAL { true }
+    ::= { claConfigObjects 4 }
+
+claRadiusServerGlobalDeactivatedEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object to control the generation of
+        ciscoLwappAAARadiusServerGlobalDeactivated 
+        notification.
+        
+        A value of 'true' indicates that the agent generates
+        ciscoLwappAAARadiusServerGlobalDeactivated
+        notification.
+        
+        A value of 'false' indicates that the agent doesn't
+        generate ciscoLwappAAARadiusServerGlobalDeactivated 
+        notification."
+    DEFVAL { true }
+    ::= { claConfigObjects 5 }
+
+claRadiusServerWlanActivatedEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object to control the generation of
+        ciscoLwappAAARadiusServerWlanActivated 
+        notification.
+        
+        A value of 'true' indicates that the agent generates
+        ciscoLwappAAARadiusServerWlanActivated
+        notification.
+        
+        A value of 'false' indicates that the agent doesn't
+        generate ciscoLwappAAARadiusServerWlanActivated 
+        notification."
+    DEFVAL { true }
+    ::= { claConfigObjects 6 }
+
+claRadiusServerWlanDeactivatedEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object to control the generation of
+        ciscoLwappAAARadiusServerWlanDeactivated 
+        notification.
+        
+        A value of 'true' indicates that the agent generates
+        ciscoLwappAAARadiusServerWlanDeactivated
+        notification.
+        
+        A value of 'false' indicates that the agent doesn't
+        generate ciscoLwappAAARadiusServerWlanDeactivated 
+        notification."
+    DEFVAL { true }
+    ::= { claConfigObjects 7 }
+
+claRadiusReqTimedOutEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object to control the generation of
+        ciscoLwappAAARadiusReqTimedOut notification.
+        
+        A value of 'true' indicates that the agent generates
+        ciscoLwappAAARadiusReqTimedOut notification.
+        
+        A value of 'false' indicates that the agent doesn't
+        generate ciscoLwappAAARadiusReqTimedOut notification."
+    DEFVAL { true }
+    ::= { claConfigObjects 8 }
+
+ciscoLwappAAARadiusServerGlobalActivated TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappAAAMIB
+    VARIABLES {
+        claRadiusAddressType, claRadiusAddress, claRadiusPortNum }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when the
+        controller detects that the RADIUS server is 
+        activated in the global list. The RADIUS server
+        is identified by the address (claRadiusAddress)
+        and port number (claRadiusPortNum)."
+    ::= 1
+
+ciscoLwappAAARadiusServerGlobalDeactivated TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappAAAMIB
+    VARIABLES {
+        claRadiusAddressType, claRadiusAddress, claRadiusPortNum }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when the
+        controller detects that the RADIUS server is 
+        deactivated in the global list. The RADIUS server
+        is identified by the address (claRadiusAddress)
+        and port number (claRadiusPortNum)."
+    ::= 2
+
+ciscoLwappAAARadiusServerWlanActivated TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappAAAMIB
+    VARIABLES {
+        claRadiusAddressType, claRadiusAddress, claRadiusPortNum, 
+        claRadiusWlanIdx }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when the
+        controller detects that the RADIUS server is 
+        activated on the WLAN. The RADIUS server
+        is identified by the address (claRadiusAddress)
+        and port number (claRadiusPortNum)."
+    ::= 3
+
+ciscoLwappAAARadiusServerWlanDeactivated TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappAAAMIB
+    VARIABLES {
+        claRadiusAddressType, claRadiusAddress, claRadiusPortNum, 
+        claRadiusWlanIdx }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when the
+        controller detects that the RADIUS server is 
+        deactivated on the WLAN. The RADIUS server
+        is identified by the address (claRadiusAddress)
+        and port number (claRadiusPortNum)."
+    ::= 4
+
+ciscoLwappAAARadiusReqTimedOut TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappAAAMIB
+    VARIABLES {
+        claRadiusAddressType, claRadiusAddress, claRadiusPortNum, 
+        claRadiusClientMacAddress, claRadiusUserName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when the
+        controller detects that the RADIUS server failed 
+        to respond to request from a client/user. The RADIUS 
+        server is identified by the address (claRadiusAddress)
+        and port number (claRadiusPortNum)."
+    ::= 5
+
+ciscoLwappAAAMIBConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects specifies the required
+--    parameters for AAA.
+--  objects
+--    claPriorityOrder, claTacacsServerAddressType, 
+--    claTacacsServerAddress, claTacacsServerPortNum, 
+--    claTacacsServerEnabled, claTacacsServerSecretType, 
+--    claTacacsServerSecret, claTacacsServerTimeout, 
+--    claTacacsServerStorageType, claTacacsServerRowStatus, 
+--    claRadiusServerGlobalActivatedEnabled, 
+--    claRadiusServerGlobalDeactivatedEnabled, 
+--    claRadiusServerWlanActivatedEnabled, 
+--    claRadiusServerWlanDeactivatedEnabled, 
+--    claRadiusReqTimedOutEnabled
+
+ciscoLwappAAAMIBSaveUserConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These is the configuration parameter related to
+--    guest user configuration saving.
+--  objects
+--    claSaveUserData
+
+ciscoLwappAAAMIBStatusObjsGroup OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the information
+--    about the general status attributes for AAA.
+--  objects
+--    claRadiusAddressType, claRadiusAddress, claRadiusPortNum, 
+--    claRadiusWlanIdx, claRadiusClientMacAddress, 
+--    claRadiusUserName
+
+ciscoLwappAAAMIBDBEntriesGroup OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This is the additional object which represent
+--    the information about the general status 
+--    attributes for AAA.
+--  objects
+--    claDBCurrentUsedEntries
+
+ciscoLwappAAAMIBRadiusConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These are the RADIUS web authentication and
+--    fallback related configuration parameters on the WLC.
+--  objects
+--    claWebRadiusAuthentication, claRadiusFallbackMode, 
+--    claRadiusFallbackUsername, claRadiusFallbackInterval, 
+--    claRadiusAuthMacDelimiter, claRadiusAcctMacDelimiter
+
+ciscoLwappAAAMIBAPPolicyConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These are the AP Policy related configuration
+--    parameters on the WLC.
+--  objects
+--    claAcceptMICertificate, claAcceptLSCertificate, 
+--    claAllowAuthorizeLscApAgainstAAA
+
+ciscoLwappAAAMIBWlanAuthAccServerConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These are the authentication and account server configuration
+--    parameters per wlan.
+--  objects
+--    claWlanAuthServerEnabled, claWlanAcctServerEnabled
+
+ciscoLwappAAAMIBNotifsGroup OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects specifies the
+--    notifications for AAA.
+--  notifications
+--    ciscoLwappAAARadiusServerGlobalActivated, 
+--    ciscoLwappAAARadiusServerGlobalDeactivated, 
+--    ciscoLwappAAARadiusServerWlanActivated, 
+--    ciscoLwappAAARadiusServerWlanDeactivated, 
+--    ciscoLwappAAARadiusReqTimedOut
+
+ciscoLwappAAAMIBCompliance OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappAAAMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappAAAMIBConfigGroup
+--   MandGroup
+--    ciscoLwappAAAMIBNotifsGroup
+--   MandGroup
+--    ciscoLwappAAAMIBStatusObjsGroup
+
+ciscoLwappAAAMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoLwappAAAMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappAAAMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappAAAMIBConfigGroup
+--   MandGroup
+--    ciscoLwappAAAMIBSaveUserConfigGroup
+--   MandGroup
+--    ciscoLwappAAAMIBRadiusConfigGroup
+--   MandGroup
+--    ciscoLwappAAAMIBAPPolicyConfigGroup
+--   MandGroup
+--    ciscoLwappAAAMIBWlanAuthAccServerConfigGroup
+--   MandGroup
+--    ciscoLwappAAAMIBNotifsGroup
+--   MandGroup
+--    ciscoLwappAAAMIBStatusObjsGroup
+--   MandGroup
+--    ciscoLwappAAAMIBDBEntriesGroup
+
+
+END
+

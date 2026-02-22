@@ -1,0 +1,1892 @@
+-- *****************************************************************
+-- CISCO-IP-ADDRESS-POOL-MIB
+-- Definitions of managed objects describing IP address pools.
+--   
+-- February 2010, Patrick R. Gili
+--   
+-- Copyright (c) 2010 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-IP-ADDRESS-POOL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    OBJECT-TYPE,
+    Gauge32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    RowPointer,
+    RowStatus,
+    StorageType,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress,
+    InetAddressPrefixLength
+        FROM INET-ADDRESS-MIB
+    IpAddrPoolInstanceIdentifier,
+    IpAddrPoolInstanceIdentifierOrZero,
+    IpAddressPoolNameOrNull,
+    IpAddressPoolGroupName,
+    IpAddressPoolGroupNameOrNull,
+    IpAddressPoolThresholdUnits
+        FROM CISCO-IP-ADDRESS-POOL-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoIpAddressPoolMIB MODULE-IDENTITY
+    LAST-UPDATED    "201006070000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems, Inc.
+            Customer Service
+
+            Postal:    170 W Tasman Drive
+                       San Jose, CA 95134
+
+            Telephone: +1 800 553-NETS
+
+            Email:     cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB modules defines objects that describe common aspects
+        of IP address pools.
+
+        IP Address Pool Manager
+        =======================
+        The IP address pool manager consists of the software that
+        maintains IP address pools and supports the
+        following capabilities:
+
+            - Create an IP address pool group.
+
+            - Destroy an IP address pool group.
+
+            - Create an IP address pool and add it to an IP address
+              pool group.
+
+            - Remove an IP address pool from an IP address pool group
+              and destroy it.
+
+            - Create a range of IP addresses and add it to an IP
+              address pool.
+
+            - Remove a range of IP addresses from an IP address pool and
+              destroy it.
+
+            - Allocate an IP address from an IP address pool.
+
+            - Return a previously allocated IP address to the IP address
+              pool that it was allocated from.
+
+            - Create a set of IP prefixes and adding it to an IP address
+              pool.
+
+            - Remove a set of IP prefixes from an IP address pool and
+              destroy it.
+
+            - Allocate an IP prefix from an IP address pool.
+
+            - Return a previously allocated IP prefix to the IP address
+              pool that it was allocated from.
+
+        IP Address Pool
+        ===============
+        An IP address pool consists of a collection of IP addresses from
+        which a client (e.g., PPP or DHCP) can allocate an IP address
+        for the purpose of assigning it to a remote peer.  This
+        collection consists of a one or more range of IP addresses.
+
+        Observe that human interfaces allow a user to specify ranges of
+        IP addresses using a variety of means to simplify the process.
+        For example, a human interface may simply allow a user to
+        specify a subnet.  No matter what abstraction a human interface
+        employs, the end result is always one or more range of IP
+        addresses.  Thus, this MIB module abstracts an IP address pool
+        as one or more range of IP addresses.  This places the burden on
+        any application employing other abstractions to transform to the
+        abstraction defined by this MIB module.
+
+        Alternatively, an IP address pool can also consist of a
+        collection of IP prefixes from which a client can allocate an IP
+        prefix for the purpose of assigning it to a remote peer.  This
+        collection consists of one or more set of IP prefixes.  Observe
+        that the term 'IP prefix' here can refer to an IPv4 subnet or an
+        IPv6 prefix.
+
+        IP Address Pool Group
+        =====================
+        An IP address pool group contains the IP address pools belonging
+        to the same administrative domain.  Examples of administrative
+        domains include a Virtual Route Forwarding (VRF) instance and a
+        Virtual Private Network (VPN).  Observe that the IP addresses
+        contained by the IP address pools in two distinct IP address
+        pool groups may overlap.
+
+        IP Address Pool Threshold Monitoring
+        ====================================
+        An IP address pool manager maintains a number of gauges for the
+        purpose of monitoring the number of allocated IP addresses.  We
+        refer to these gauges as 'in-use gauges'.
+
+        Each in-use gauge has a corresponding state that can have one of
+        two values:
+
+        1)  Off
+
+            The IP address pool manager monitors the number of allocated
+            addresses or prefixes.  If this value is greater than or
+            equal to the configured rising threshold and the previous
+            value was less than the same rising threshold, then the IP
+            address manager transitions the state to 'On'.
+
+        2)  On
+
+            The IP address pool manager monitors the number of allocated
+            addresses or prefixes.  If the value is less than or equal
+            to the configured falling threshold and the previous value
+            was greater than the same falling threshold, then the IP
+            address manager transitions the state to 'Off'.
+
+        Observe that while the values of the configured rising and
+        falling thresholds may be the same, this may result in
+        undesirable behavior (i.e., the IP address pool manager may
+        generate more threshold crossing notifications than desirable).
+
+        The IP address pool manager only generates threshold crossing
+        notifications when it transitions the corresponding state of an
+        in-use gauge and the value of ciapSystemNotifyEnable is 'true'.
+
+        The IP address pool manager may maintain in-use gauges for the
+        following:
+
+            - A range of IP addresses comprising an IP address pool
+
+            - A set of IP prefixes comprising an IP address pool
+
+            - An IP address pool
+
+            - An IP address pool group
+
+        Observe that the IP address pool manager must initialize the
+        state of each in-use gauge to 'Off' for threshold monitoring to
+        operate in the prescribed manner."
+    REVISION        "201002020000Z"
+    DESCRIPTION
+        "The initial version of the MIB module."
+    ::= { ciscoMgmt 748 }
+
+
+-- *********************************************************************
+-- * Textual Conventions                                               *
+-- *********************************************************************
+--   
+-- *********************************************************************
+-- * Top-Level Trees                                                   *
+-- *********************************************************************
+
+ciscoIpAddressPoolMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoIpAddressPoolMIB 0 }
+
+ciscoIpAddressPoolMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoIpAddressPoolMIB 1 }
+
+ciscoIpAddressPoolMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoIpAddressPoolMIB 2 }
+
+-- *********************************************************************
+-- * Object Sub-trees                                                  *
+-- *********************************************************************
+
+ciapGlobal  OBJECT IDENTIFIER
+    ::= { ciscoIpAddressPoolMIBObjects 1 }
+
+ciapPools  OBJECT IDENTIFIER
+    ::= { ciscoIpAddressPoolMIBObjects 2 }
+
+ciapPoolGroups  OBJECT IDENTIFIER
+    ::= { ciscoIpAddressPoolMIBObjects 3 }
+
+ciapAllocatedAddresses  OBJECT IDENTIFIER
+    ::= { ciscoIpAddressPoolMIBObjects 4 }
+
+ciapNotifyData  OBJECT IDENTIFIER
+    ::= { ciscoIpAddressPoolMIBObjects 5 }
+
+
+-- *********************************************************************
+-- * Objects                                                           *
+-- *********************************************************************
+
+ciapGlobalNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the IP address pool manager
+        generates notifications defined by this MIB module."
+    DEFVAL          { false } 
+    ::= { ciapGlobal 1 }
+
+ciapGlobalThresholdUnits OBJECT-TYPE
+    SYNTAX          IpAddressPoolThresholdUnits
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the units for ciapGlobalThresholdRising
+        and
+        ciapGlobalThresholdLow."
+    DEFVAL          { absolute } 
+    ::= { ciapGlobal 2 }
+
+ciapGlobalThresholdRising OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the default rising threshold for in-use
+        gauges maintained by the IP address pool manager.  This value
+        must be greater than or equal to the value of
+        ciapSystemThresholdFalling.
+
+        For more detail, see the description of IP address pool
+        threshold monitoring provided by the descriptive text associated
+        with the MODULE-IDENTITY statement."
+    DEFVAL          { 0 } 
+    ::= { ciapGlobal 3 }
+
+ciapGlobalThresholdFalling OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the default falling threshold for in-use
+        gauges maintained by the IP address pool manager.  This value
+        must be less than or equal to the value of
+        ciapSystemThresholdRising.
+
+        For more detail, see the description of IP address pool
+        threshold monitoring provided by the descriptive text associated
+        with the MODULE-IDENTITY statement."
+    DEFVAL          { 0 } 
+    ::= { ciapGlobal 4 }
+
+ciapPoolIdNext OBJECT-TYPE
+    SYNTAX          IpAddrPoolInstanceIdentifierOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the next available identifier for the
+        creation of a new row in the ciapPoolTable.  If no available
+        identifier exists, then this object has the value '0'." 
+    ::= { ciapPools 1 }
+
+ciapPoolTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiapPoolEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the IP address pools maintained by the
+        IP address pool manager."
+    ::= { ciapPools 2 }
+
+ciapPoolEntry OBJECT-TYPE
+    SYNTAX          CiapPoolEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes an single IP address pool.
+
+        A peer SNMP entity may create an IP address pool by setting an
+        instance of ciapPoolStatus to 'createAndWait' or 'createAndGo'.
+        Observe that an implementation that does not support these
+        options must specify these limitations in an agent capabilities
+        statement.
+
+        Other management entities (e.g., the local console) may perform
+        actions resulting in the creation of an IP address pool.  In
+        these cases, the IP address pool manager must automatically
+        create a row in the ciapPoolTable.
+
+        A peer SNMP entity may destroy an IP address pool by setting the
+        corresponding instance of ciapPoolStatus to 'destroy'.  Observe
+        that an implementation that does not support this option must
+        specify this limitation in an agent capabilities statement.
+
+        Other management entities may perform actions resulting in the
+        destruction of an IP address pool.  In these cases, the IP
+        address pool manager must automatically destroy the
+        corresponding row in the ciapPoolTable."
+    INDEX           { ciapPoolId } 
+    ::= { ciapPoolTable 1 }
+
+CiapPoolEntry ::= SEQUENCE {
+        ciapPoolId               IpAddrPoolInstanceIdentifier,
+        ciapPoolStatus           RowStatus,
+        ciapPoolStorage          StorageType,
+        ciapPoolName             IpAddressPoolNameOrNull,
+        ciapPoolType             INTEGER,
+        ciapPoolContainedIn      IpAddressPoolGroupNameOrNull,
+        ciapPoolThresholdUnits   IpAddressPoolThresholdUnits,
+        ciapPoolThresholdRising  Unsigned32,
+        ciapPoolThresholdFalling Unsigned32,
+        ciapPoolAddressesInUse   Gauge32,
+        ciapPoolAddressesFree    Gauge32
+}
+
+ciapPoolId OBJECT-TYPE
+    SYNTAX          IpAddrPoolInstanceIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the IP address pool." 
+    ::= { ciapPoolEntry 1 }
+
+ciapPoolStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of this IP address pool.  The
+        following columns must be valid before activating this IP
+        address pool:
+
+            - ciapPoolStorage
+            - ciapPoolName
+            - ciapPoolType
+            - ciapPoolContainedIn
+            - ciapPoolThresholdUnits
+            - ciapPoolThresholdRising
+            - ciapPoolThresholdFalling
+
+        However, these objects specify valid default values.  Thus, it
+        is possible to use create-and-go row creation semantics without
+        setting additional columns.
+
+        An implementation must allow an EMS/NMS to modify any column
+        when this IP address pool is 'active', including corresponding
+        columns in tables that have a one-to-one or sparse dependent
+        relationship on the ciapPoolTable.  An implementation must
+        document any variation in a corresponding agent capabilities
+        statement." 
+    ::= { ciapPoolEntry 2 }
+
+ciapPoolStorage OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the memory realization of this IP
+        address pool."
+    DEFVAL          { volatile } 
+    ::= { ciapPoolEntry 3 }
+
+ciapPoolName OBJECT-TYPE
+    SYNTAX          IpAddressPoolNameOrNull
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name assigned to this IP address
+        pool.  This name must uniquely identify an IP address pool in
+        the context of the IP address pool manager.
+
+        Observe that an implementation may reserve names for special IP
+        address pools.  For example, an IP address may reserve the name
+        'default' to denote the default IP address pool.  An
+        implementation should document reserved names in a
+        corresponding agent capabilities statement."
+    DEFVAL          { "" } 
+    ::= { ciapPoolEntry 4 }
+
+ciapPoolType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        shared(2),
+                        local(3),
+                        dhcp(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the how the system uses this IP address
+        pool:
+
+            'other'
+                The implementation of the MIB module does not recognize
+                this IP address pool's type.
+
+            'shared'
+                The system uses this IP address pool regardless of the
+                entity (e.g., IPCP, IPsec, DHCP) allocating IP
+                addresses from this IP address pool.  Sometimes we use
+                the term 'untyped pool' to refer to an IP address pool
+                used in this manner.
+
+            'local'
+                The system restricts the use this IP address pool to
+                assign IP addresses to peers when establishing a
+                connection (e.g., PPP and IPsec) to the system.
+
+            'dhcp'
+                The system restricts the use of this IP address pool
+                to a DHCP server."
+    DEFVAL          { shared } 
+    ::= { ciapPoolEntry 5 }
+
+ciapPoolContainedIn OBJECT-TYPE
+    SYNTAX          IpAddressPoolGroupNameOrNull
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the IP address pool group to
+        which this IP address pool belongs.  If the value of this column
+        is the null string, then the pool does not belong to any IP
+        address pool group.
+
+        Observe that an implementation may reserve names for special IP
+        address pool groups.  For example, an IP address may reserve the
+        name 'default' to denote the default Virtual Route Forwarding
+        (VRF) instance.  An implementation should document reserved
+        names in a corresponding agent capabilities statement."
+    DEFVAL          { "" } 
+    ::= { ciapPoolEntry 6 }
+
+ciapPoolThresholdUnits OBJECT-TYPE
+    SYNTAX          IpAddressPoolThresholdUnits
+    UNITS           "IP addresses"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the units for the corresponding instances
+        of ciapPoolThresholdRising and ciapPoolThresholdFalling.
+
+        The value of ciapGlobalThresholdUnits.0 specifies the default
+        value for newly created instances of this object." 
+    ::= { ciapPoolEntry 7 }
+
+ciapPoolThresholdRising OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the rising threshold for the in-use gauge
+        corresponding to this IP address pool, which must have a value
+        greater than or equal to the corresponding instance of
+        ciapPoolThresholdFalling.
+
+        If this value is '0' and the corresponding instance of
+        ciapPoolThresholdFalling is '0', then the IP address pool
+        manager does not monitor this IP address pool for threshold
+        crossing events.
+
+        The value of ciapGlobalThresholdRising.0 specifies the default
+        value for newly created instances of this object.
+
+        For more detail, see the description of IP address pool
+        threshold monitoring provided by the descriptive text associated
+        with the MODULE-IDENTITY statement." 
+    ::= { ciapPoolEntry 8 }
+
+ciapPoolThresholdFalling OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the falling threshold for the in-use
+        gauge corresponding to this IP address pool, which must have
+        a value less than or equal to the corresponding instance of
+        ciapPoolThresholdRising.
+
+        If this value is '0' and the corresponding instance of
+        ciapPoolThresholdRising is '0', then the IP address pool
+        manager does not monitor this IP address pool for threshold
+        crossing events.
+
+        The value of ciapGlobalThresholdFalling.0 specifies the default
+        value for newly created instances of this object.
+
+        For more detail, see the description of IP address pool
+        threshold monitoring provided by the descriptive text associated
+        with the MODULE-IDENTITY statement." 
+    ::= { ciapPoolEntry 9 }
+
+ciapPoolAddressesInUse OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "IP addresses/prefixes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of IP addresses or prefixes
+        allocated from this IP address pool." 
+    ::= { ciapPoolEntry 10 }
+
+ciapPoolAddressesFree OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "IP addresses/prefixes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of available IP addresses or
+        prefixes in this IP address pool." 
+    ::= { ciapPoolEntry 11 }
+ 
+
+
+ciapPoolTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time one
+        of the following changes occurred to the ciapPoolTable:
+
+        - A row was created and added to the ciapPoolTable.
+
+        - A row was removed from the ciapPoolTable and destroyed.
+
+        - An instance of an object in the row was modified, including
+          objects contained by the ciapPoolTable and tables that have a
+          one-to-one or sparse dependent relationship on the
+          ciapPoolTable." 
+    ::= { ciapPools 3 }
+
+ciapRangeTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiapRangeEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the ranges of IP addresses contained by each
+        IP address pool maintained by the IP address pool manager."
+    ::= { ciapPools 4 }
+
+ciapRangeEntry OBJECT-TYPE
+    SYNTAX          CiapRangeEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes a single range of IP addresses contained
+        by an IP address pool.
+
+        A peer SNMP entity may create a range of IP addresses by setting
+        an instance of ciapRangeStatus to 'createAndWait' or
+        'createAndGo'.  Observe that an implementation that does not
+        support these options must specify these limitations in an agent
+        capabilities statement.
+
+        Other management entities (e.g., the local console) may perform
+        actions resulting in the creation of a range of IP addresses.
+        In these cases, the IP address pool manager must automatically
+        create a row in the ciapRangeTable.
+
+        A peer SNMP entity may destroy a range of IP addresses by
+        setting the corresponding instance of ciapRangeStatus to
+        'destroy'.  Observe that an implementation that does not support
+        this option must specify this limitation in an agent
+        capabilities statement.
+
+        Other management entities may perform actions resulting in the
+        destruction of a range of IP addresses.  In these cases, the IP
+        address pool manager must automatically destroy the
+        corresponding row in the ciapRangeTable."
+    INDEX           {
+                        ciapPoolId,
+                        ciapRangeAddressType,
+                        ciapRangeAddressLower
+                    } 
+    ::= { ciapRangeTable 1 }
+
+CiapRangeEntry ::= SEQUENCE {
+        ciapRangeAddressType      InetAddressType,
+        ciapRangeAddressLower     InetAddress,
+        ciapRangeStatus           RowStatus,
+        ciapRangeStorage          StorageType,
+        ciapRangeAddressUpper     InetAddress,
+        ciapRangeCacheSize        Unsigned32,
+        ciapRangeRecycleDelay     Unsigned32,
+        ciapRangePriority         Unsigned32,
+        ciapRangeThresholdUnits   IpAddressPoolThresholdUnits,
+        ciapRangeThresholdRising  Unsigned32,
+        ciapRangeThresholdFalling Unsigned32,
+        ciapRangeAddressesInUse   Gauge32,
+        ciapRangeAddressesFree    Gauge32
+}
+
+ciapRangeAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of IP address denoted by the
+        ciapRangeAddressLower and ciapRangeAddressUpper." 
+    ::= { ciapRangeEntry 1 }
+
+ciapRangeAddressLower OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4..16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the first IP address in this range of IP
+        addresses." 
+    ::= { ciapRangeEntry 2 }
+
+ciapRangeStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of this range of IP addresses.
+        The following columns must be valid before activating this range
+        of IP addresses:
+
+            - ciapRangeStorage
+            - ciapRangeAddressUpper
+            - ciapRangeCacheSize
+            - ciapRangeRecycleDelay
+            - ciapRangePriority
+            - ciapRangeThresholdUnits
+            - ciapRangeThresholdRising
+            - ciapRangeThresholdFalling
+
+        An implementation must allow an EMS/NMS to modify any column
+        when this range of IP addresses is 'active', including
+        corresponding columns in tables that have a one-to-one or sparse
+        dependent relationship on the ciapRangeTable.  An implementation
+        must document any variation in a corresponding agent
+        capabilities statement." 
+    ::= { ciapRangeEntry 3 }
+
+ciapRangeStorage OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the memory realization of this range of
+        IP addresses."
+    DEFVAL          { volatile } 
+    ::= { ciapRangeEntry 4 }
+
+ciapRangeAddressUpper OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the last IP address in this range of IP
+        addresses.  This value must denote an IP address greater than
+        or equal to the IP address indicated by the corresponding
+        instance of ciapRangeAddressLower." 
+    ::= { ciapRangeEntry 5 }
+
+ciapRangeCacheSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "IP addresses"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the size of the address cache associated
+        with this range of IP addresses.  The address cache provides a
+        list of IP addresses most recently returned to this range of IP
+        addresses.  The IP address pool manager always allocates IP
+        addresses from the address cache first.
+
+        If an implementation does not support address caching, then it
+        must report a value of zero for this object and it must not
+        allow write access to this object."
+    DEFVAL          { 0 } 
+    ::= { ciapRangeEntry 6 }
+
+ciapRangeRecycleDelay OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the time the IP address pool manager
+        holds an IP address after its return before making it available
+        for reallocation.  Observe that the IP addresses held by the IP
+        address pool manager are considered in use until actually
+        returned to the pool.
+
+        If an implementation does not support delayed recycling of IP
+        addresses, then it must always report a value of zero for this
+        object and it must not allow write access to this object."
+    DEFVAL          { 0 } 
+    ::= { ciapRangeEntry 7 }
+
+ciapRangePriority OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the relative priority assigned to this
+        range of IP addresses.  The IP address pool manager allocates
+        IP addresses from ranges of IP addresses based on a range's
+        assigned priority, where higher values specify higher priority."
+    DEFVAL          { 0 } 
+    ::= { ciapRangeEntry 8 }
+
+ciapRangeThresholdUnits OBJECT-TYPE
+    SYNTAX          IpAddressPoolThresholdUnits
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the units for the corresponding instances
+        of ciapRangeThresholdRising and ciapRangeThresholdFalling.
+
+        The value of ciapGlobalThresholdUnits.0 specifies the default
+        value for newly created instances of this object." 
+    ::= { ciapRangeEntry 9 }
+
+ciapRangeThresholdRising OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the rising threshold for the in-use gauge
+        corresponding to this range of IP addresses, which must have a
+        value greater than or equal to the corresponding instance of
+        ciapRangeThresholdFalling.
+
+        If this value is '0' and the corresponding instance of
+        ciapRangeThresholdFalling is '0', then the IP address pool
+        manager does not monitor this range of IP addresses for
+        threshold crossing events.
+
+        The value of ciapGlobalThresholdRising.0 specifies the default
+        value for newly created instances of this object.
+
+        For more detail, see the description of IP address pool
+        threshold monitoring provided by the descriptive text associated
+        with the MODULE-IDENTITY statement." 
+    ::= { ciapRangeEntry 10 }
+
+ciapRangeThresholdFalling OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the falling threshold for the in-use
+        gauge corresponding to this range of IP addresses, which must
+        have a value less than or equal to the corresponding instance of
+        ciapRangeThresholdRising.
+
+        If this value is '0' and the corresponding instance of
+        ciapRangeThresholdRising is '0', then the IP address pool
+        manager does not monitor this range of IP addresses for
+        threshold crossing events.
+
+        The value of ciapGlobalThresholdFalling.0 specifies the default
+        value for newly created instances of this object.
+
+        For more detail, see the description of IP address pool
+        threshold monitoring provided by the descriptive text associated
+        with the MODULE-IDENTITY statement." 
+    ::= { ciapRangeEntry 11 }
+
+ciapRangeAddressesInUse OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "IP addresses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of IP addresses allocated
+        from this range of IP addresses." 
+    ::= { ciapRangeEntry 12 }
+
+ciapRangeAddressesFree OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "IP addresses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of available IP addresses in
+        this range of IP addresses." 
+    ::= { ciapRangeEntry 13 }
+ 
+
+
+ciapRangeTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time one
+        of the following changes occurred to the ciapRangeTable:
+
+        - A row was created and added to the ciapRangeTable.
+
+        - A row was removed from the ciapRangeTable and destroyed.
+
+        - An instance of an object in the row was modified, including
+          objects contained by the ciapRangeTable and tables that have a
+          one-to-one or sparse dependent relationship on the
+          ciapRangeTable." 
+    ::= { ciapPools 5 }
+
+ciapPrefixTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiapPrefixEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the IP prefixes contained by each IP address
+        pool maintained by the IP address pool manager."
+    ::= { ciapPools 6 }
+
+ciapPrefixEntry OBJECT-TYPE
+    SYNTAX          CiapPrefixEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes a single set of IP prefixes contained by an
+        IP address pool.  In this context, an IP prefix also describes
+        a IPv4 subnet.
+
+        A peer SNMP entity may create a set of IP prefixes by setting
+        an instance of ciapPrefixStatus to 'createAndWait' or
+        'createAndGo'.  Observe that an implementation that does not
+        support these options must specify these limitations in an
+        agent capabilities statement.
+
+        Other management entities (e.g., the local console) may perform
+        actions resulting in the creation of a set of IP prefixes. In
+        these cases, the IP address pool manager must automatically
+        create a row in the ciapPrefixTable.
+
+        A peer SNMP enitty may destroy a set of IP prefixes by setting
+        the corresponding instance of ciapPrefixStatus to 'destroy'.
+        Observe that an implementation that does not support this
+        option must specify this limitation in an agent capabilities
+        statement.
+
+        Other management entities may perform action resulting in the
+        destruction of a set of IP prefixes.  In these cases, the IP
+        address pool manager must automatically destroy the
+        corresponding row in the ciapPrefixTable."
+    INDEX           {
+                        ciapPoolId,
+                        ciapPrefixType,
+                        ciapPrefixAddress,
+                        ciapPrefixAddressMask
+                    } 
+    ::= { ciapPrefixTable 1 }
+
+CiapPrefixEntry ::= SEQUENCE {
+        ciapPrefixType             InetAddressType,
+        ciapPrefixAddress          InetAddress,
+        ciapPrefixAddressMask      InetAddress,
+        ciapPrefixStatus           RowStatus,
+        ciapPrefixStorage          StorageType,
+        ciapPrefixAssignedLength   InetAddressPrefixLength,
+        ciapPrefixCacheSize        Unsigned32,
+        ciapPrefixRecycleDelay     Unsigned32,
+        ciapPrefixPriority         Unsigned32,
+        ciapPrefixThresholdUnits   IpAddressPoolThresholdUnits,
+        ciapPrefixThresholdRising  Unsigned32,
+        ciapPrefixThresholdFalling Unsigned32,
+        ciapPrefixPrefixesInUse    Gauge32,
+        ciapPrefixPrefixesFree     Gauge32
+}
+
+ciapPrefixType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of IP address denoted by
+        ciapPrefixAddress and ciapPrefixMask." 
+    ::= { ciapPrefixEntry 1 }
+
+ciapPrefixAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4..16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the first IP prefix in this set of IP
+        prefixes when bitwise AND'ed with the corresponding instance of
+        ciapPrefixAddressMask." 
+    ::= { ciapPrefixEntry 2 }
+
+ciapPrefixAddressMask OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4..16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a mask which when bitwise AND'ed with
+        the corresponding instance of ciapPrefixAddress yields the
+        first IP prefix in this set of IP prefixes." 
+    ::= { ciapPrefixEntry 3 }
+
+ciapPrefixStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of this set of IP prefixes.
+        The following columns must be valid before activating this range
+        of IP addresses:
+
+            - ciapPrefixStorage
+            - ciapPrefixAssignedLength
+            - ciapPrefixCacheSize
+            - ciapPrefixRecycleDelay
+            - ciapPrefixPriority
+            - ciapPrefixThresholdUnits
+            - ciapPrefixThresholdRising
+            - ciapPrefixThresholdFalling
+
+        An implementation must allow an EMS/NMS to modify any column
+        when this set of IP prefixes is 'active', including
+        corresponding columns in tables that have a one-to-one or sparse
+        dependent relationship on the ciapPrefixTable.  An 
+        implementation must document any variation in a corresponding
+        agent capabilities statement." 
+    ::= { ciapPrefixEntry 4 }
+
+ciapPrefixStorage OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the memory realization of this set of IP
+        prefixes."
+    DEFVAL          { volatile } 
+    ::= { ciapPrefixEntry 5 }
+
+ciapPrefixAssignedLength OBJECT-TYPE
+    SYNTAX          InetAddressPrefixLength
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the length of the IP prefix assigned
+        from this set of IP prefixes.  The value of this column must be
+        greater than or equal to the length of the first IP prefix in
+        this set of IP prefixes." 
+    ::= { ciapPrefixEntry 6 }
+
+ciapPrefixCacheSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "IP prefixes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the size of the IP prefix cache
+        associated with this set of IP prefixes.  The IP prefix cache
+        provides a list of IP prefixes most recently returned to this
+        range of IP prefixes.  The IP address pool manager always
+        allocates IP prefixes from the IP prefix cache first.
+
+        If an implementation does not support address caching, then it
+        must report a value of zero for this object and it must not
+        allow write access to this object."
+    DEFVAL          { 0 } 
+    ::= { ciapPrefixEntry 7 }
+
+ciapPrefixRecycleDelay OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the time the IP address pool manager
+        holds an IP prefix after its return before making it available
+        for reallocation.  Observe that the IP prefixes held by the IP
+        address pool manager are considered in use until actually
+        returned to the pool.
+
+
+        If an implementation does not support delayed recycling of IP
+        prefixes, then it must always report a value of zero for this
+        object and it must not allow write access to this object."
+    DEFVAL          { 0 } 
+    ::= { ciapPrefixEntry 8 }
+
+ciapPrefixPriority OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the relative priority assigned to this
+        set of IP prefixes.  The IP address pool manager allocates IP
+        prefixes from sets of IP prefixes based on a set's assigned
+        priority, where higher values specify higher priority."
+    DEFVAL          { 0 } 
+    ::= { ciapPrefixEntry 9 }
+
+ciapPrefixThresholdUnits OBJECT-TYPE
+    SYNTAX          IpAddressPoolThresholdUnits
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the units for the corresponding instances
+        of ciapPrefixThresholdRising and ciapPrefixThresholdFalling.
+
+        The value of ciapGlobalThresholdUnits.0 specifies the default
+        value for newly created instances of this object." 
+    ::= { ciapPrefixEntry 10 }
+
+ciapPrefixThresholdRising OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the rising threshold for the in-use gauge
+        corresponding to this set of IP prefixes, which must have a
+        value greater than or equal to the value of
+        ciapPrefixThresholdFalling.
+
+        If this value is '0' and the corresponding instance of
+        ciapPrefixThresholdFalling is '0', then the IP address pool
+        manager does not monitor this set of IP prefixes for threshold
+        crossing events.
+
+        The value of ciapGlobalThresholdRising.0 specifies the default
+        value for newly created instances of this object.
+
+        For more detail, see the description of IP address pool
+        threshold monitoring provided by the descriptive text associated
+         with the MODULE-IDENTITY statement." 
+    ::= { ciapPrefixEntry 11 }
+
+ciapPrefixThresholdFalling OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the falling threshold for the in-use
+        gauge corresponding to this set of IP prefixes, which must have
+        a value less than or equal to the corresponding instance of
+        ciapPrefixThresholdRising.
+
+        If this value is '0' and the corresponding instance of
+        ciapPrefixThresholdRising is '0', then the IP address pool
+        manager does not monitor this set of IP prefixes for threshold
+        crossing events.
+
+        The value of ciapGlobalThresholdFalling.0 specifies the default
+        value for newly created instances of this object.
+
+        For more detail, see the description of IP address pool
+        threshold monitoring provided by the descriptive text associated
+        with the MODULE-IDENTITY statement." 
+    ::= { ciapPrefixEntry 12 }
+
+ciapPrefixPrefixesInUse OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "IP prefixes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of IP prefixes allocated from
+        this set of IP prefixes." 
+    ::= { ciapPrefixEntry 13 }
+
+ciapPrefixPrefixesFree OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "IP prefixes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of available IP prefixes in
+        this set of IP prefixes." 
+    ::= { ciapPrefixEntry 14 }
+ 
+
+
+ciapPrefixTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time one
+        of the following changes occurred to the ciapPrefixTable:
+
+        - A row was created and added to the ciapPrefixTable.
+
+        - A row was removed from the ciapPrefixTable and destroyed.
+
+        - An instance of an object in the row was modified, including
+          objects contained by the ciapPrefixTable and tables that have
+          a one-to-one or sparse dependent relationship on the
+          ciapPrefixTable." 
+    ::= { ciapPools 7 }
+
+ciapPoolGroupIdNext OBJECT-TYPE
+    SYNTAX          IpAddrPoolInstanceIdentifierOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the next available identifier for the
+        creation of a new row in the ciapPoolGroupTable.  If no
+        available identifier exists, then this object has the value
+        '0'." 
+    ::= { ciapPoolGroups 1 }
+
+ciapPoolGroupTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiapPoolGroupEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the IP address pool groups maintained by the
+        IP address pool manager."
+    ::= { ciapPoolGroups 2 }
+
+ciapPoolGroupEntry OBJECT-TYPE
+    SYNTAX          CiapPoolGroupEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes an IP address pool group.
+
+        The IP address pool manager creates an IP address pool group and
+        inserts it into the ciapPoolGroupTable when an entity sets the
+        value of an instance of ciapPoolContainedIn to a value that no
+        other IP address pool belongs to.  Likewise, the IP address pool
+        manager removes an IP address pool group from the
+        ciapPoolGroupTable and destroys it when no IP address pools
+        belong to it."
+    INDEX           { ciapPoolGroupId } 
+    ::= { ciapPoolGroupTable 1 }
+
+CiapPoolGroupEntry ::= SEQUENCE {
+        ciapPoolGroupId               IpAddrPoolInstanceIdentifier,
+        ciapPoolGroupName             IpAddressPoolGroupName,
+        ciapPoolGroupThresholdUnits   IpAddressPoolThresholdUnits,
+        ciapPoolGroupThresholdRising  Unsigned32,
+        ciapPoolGroupThresholdFalling Unsigned32,
+        ciapPoolGroupAddressesInUse   Gauge32,
+        ciapPoolGroupAddressesFree    Gauge32
+}
+
+ciapPoolGroupId OBJECT-TYPE
+    SYNTAX          IpAddrPoolInstanceIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the IP address pool group." 
+    ::= { ciapPoolGroupEntry 1 }
+
+ciapPoolGroupName OBJECT-TYPE
+    SYNTAX          IpAddressPoolGroupName
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name assigned to the IP address pool
+        group." 
+    ::= { ciapPoolGroupEntry 2 }
+
+ciapPoolGroupThresholdUnits OBJECT-TYPE
+    SYNTAX          IpAddressPoolThresholdUnits
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the units for the corresponding
+        instances of ciapPoolGroupThresholdRising and
+        ciapPoolGroupThresholdFalling.
+
+        The value of ciapGlobalThresholdUnits.0 specifies the default
+        value for newly created instances of this object." 
+    ::= { ciapPoolGroupEntry 3 }
+
+ciapPoolGroupThresholdRising OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the rising threshold for the in-use gauge
+        corresponding to this IP address pool group, which must have a
+        value greater than or equal to the corresponding instance of
+        ciapPoolGroupThresholdFalling.
+
+        If this value is '0' and the corresponding instance of
+        ciapPoolGroupThresholdRising is '0', then the IP address pool
+        manager does not monitor this IP address pool group for
+        threshold crossing events.
+
+        The value of ciapGlobalThresholdRising.0 specifies the default
+        value for newly created instances of this object.
+
+        For more detail, see the description of IP address pool
+        threshold monitoring provided by the descriptive text associated
+        with the MODULE-IDENTITY statement." 
+    ::= { ciapPoolGroupEntry 4 }
+
+ciapPoolGroupThresholdFalling OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the falling threshold for the in-use
+        gauge corresponding to this IP address pool group, which must
+        have a value less than or equal to the corresponding instance of
+        ciapPoolGroupThresholdRising.
+
+        If this value is '0' and the corresponding instance of
+        ciapPoolGroupThresholdFalling is '0', then the IP address pool
+        manager does not monitor this IP address pool group for
+        threshold crossing events.
+
+        The value of ciapGlobalThresholdFalling.0 specifies the default
+        value for newly created instances of this object.
+
+        For more detail, see the description of IP address pool
+        threshold monitoring provided by the descriptive text associated
+        with the MODULE-IDENTITY statement." 
+    ::= { ciapPoolGroupEntry 5 }
+
+ciapPoolGroupAddressesInUse OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "IP addresses/prefixes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of IP addresses or
+        prefixes allocated from IP address pools in this IP address pool
+        group." 
+    ::= { ciapPoolGroupEntry 6 }
+
+ciapPoolGroupAddressesFree OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "IP addresses/prefixes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of available IP
+        addresses or prefixes in the IP address pools in this IP address
+        pool group." 
+    ::= { ciapPoolGroupEntry 7 }
+ 
+
+
+ciapPoolGroupContainsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiapPoolGroupContainsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the IP address pools contained by each IP
+        address pool group maintained by the IP address pool manager."
+    ::= { ciapPoolGroups 3 }
+
+ciapPoolGroupContainsEntry OBJECT-TYPE
+    SYNTAX          CiapPoolGroupContainsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry identifies a single IP address pool contained by an
+        IP address pool group.
+
+        The IP address pool manager creates a row in the
+        ciapPoolGroupContainsTable upon creation of a row in the
+        ciapPoolTable.  Likewise, the IP address pool manager destroys a
+        row in the ciapPoolGroupContainsTable upon the destruction of a
+        row in the ciapPoolTable."
+    INDEX           {
+                        ciapPoolGroupId,
+                        ciapPoolGroupContainsId
+                    } 
+    ::= { ciapPoolGroupContainsTable 1 }
+
+CiapPoolGroupContainsEntry ::= SEQUENCE {
+        ciapPoolGroupContainsId IpAddrPoolInstanceIdentifier
+}
+
+ciapPoolGroupContainsId OBJECT-TYPE
+    SYNTAX          IpAddrPoolInstanceIdentifier
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP address pool contained by the
+        corresponding IP address pool group." 
+    ::= { ciapPoolGroupContainsEntry 1 }
+ 
+
+
+ciapAllocatedAddressTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiapAllocatedAddressEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists of the IP addresses, IPv4 subnets, and IPv6
+        prefixes allocated from the IP address pools maintained by the
+        IP address pool manager."
+    ::= { ciapAllocatedAddresses 1 }
+
+ciapAllocatedAddressEntry OBJECT-TYPE
+    SYNTAX          CiapAllocatedAddressEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes a single IP address, IPv4 subnet, or IPv6
+        prefix allocated from an IP address pool maintained by the IP
+        address pool manager.
+
+        The IP address pool manager creates a row in the
+        ciapAllocatedAddressTable when it successfully allocates an IP
+        address, IPv4 subnet, or IPv6 prefix from an IP address pool.
+        Likewise, the IP address pool manager destroys a row in the
+        ciapAllocatedAddressTable when it returns an IP address, IPv4
+        subnet, or IPv6 prefix to the IP address pool that it was
+        previously allocated from."
+    INDEX           {
+                        ciapPoolId,
+                        ciapAllocatedAddressType,
+                        ciapAllocatedAddress
+                    } 
+    ::= { ciapAllocatedAddressTable 1 }
+
+CiapAllocatedAddressEntry ::= SEQUENCE {
+        ciapAllocatedAddressType InetAddressType,
+        ciapAllocatedAddress     InetAddress,
+        ciapAllocatedAddressMask InetAddress
+}
+
+ciapAllocatedAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of IP address for the
+        corresponding instance of ciapAllocatedAddress." 
+    ::= { ciapAllocatedAddressEntry 1 }
+
+ciapAllocatedAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4..16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP address, IPv4 subnet, or IPv6
+        prefix allocated from the corresponding IP address pool." 
+    ::= { ciapAllocatedAddressEntry 2 }
+
+ciapAllocatedAddressMask OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4..16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a mask for the corresponding instance of
+        ciapAllocatedAddress.
+
+        If the value of this column is all 1's, then the corresponding
+        instance of ciapAllocatedAddress denotes an IP address.
+
+        If the value of this column is not all 1's and the
+        corresponding instance of ciapAllocatedAddressType is 'ipv4',
+        then the corresponding instance of ciapAllocatedAddress denotes
+        an IPv4 subnet when logically ANDed with the value of this
+        column.
+
+        If the value of this column is not all 1's and the
+        corresponding instance of ciapAllocatedAddressType is 'ipv6',
+        then the corresponding instance of ciapAllocatedAddress denotes
+        an IPv6 prefix when logically ANDed with the value of this
+        column." 
+    ::= { ciapAllocatedAddressEntry 3 }
+ 
+
+
+ciapNotifyResource OBJECT-TYPE
+    SYNTAX          RowPointer
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the resource for which the in-use gauge
+        crosses a threshold the last time the system generated a
+        ciapEventThresholdRising or ciapEventThresholdFalling
+        notification.
+
+        More specifically, this object indicates a row pointer
+        corresponding to the resource, which may be one a row in one of
+        the following tables:
+
+        - ciapPoolGroupTable to indicate the in-use gauge associated
+          with an IP address pool group has crossed a threshold.
+
+        - ciapPoolTable to indicate the in-use gauge associated with an
+          IP address pool has crossed a threshold.
+
+        - ciapRangeTable to indicate the in-use gauge associated with a
+          range of IP addresses has crossed a threshold.
+
+        - ciapNetworkTable to indicate the in-use gauge associated with
+          a set of IP networks (which includes IPv4 subnets and IPv6
+          prefixes) has crossed a threshold." 
+    ::= { ciapNotifyData 1 }
+
+ciapNotifyThresholdUnits OBJECT-TYPE
+    SYNTAX          IpAddressPoolThresholdUnits
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the units for:
+
+        1)  ciapNotifyThresholdRising the last time the system
+            generated a ciapEventThresholdRising notification, or
+
+        2)  ciapNotifyThresholdFalling the last time the system
+            generated a ciapEventThresholdFalling notification." 
+    ::= { ciapNotifyData 2 }
+
+ciapNotifyThresholdRising OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the rising threshold an in-use gauge
+        crossed the last time the system generated a
+        ciapEventThresholdRising notification." 
+    ::= { ciapNotifyData 3 }
+
+ciapNotifyThresholdFalling OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the falling threshold an in-use gauge
+        cross the last time the system generated a
+        ciapEventThresholdFalling notification." 
+    ::= { ciapNotifyData 4 }
+
+ciapNotifyInUse OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "IP addresses/prefixes"
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of the in-use gauge that
+        crossed a threshold the last time the system generated a
+        ciapEventThresholdRising or ciapEventThresholdFalling
+        notification." 
+    ::= { ciapNotifyData 5 }
+
+ciapNotifyFree OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "IP addresses/prefixes"
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of the corresponding free
+        gauge the last time the system generated a ciapThresholdRising
+        or ciapThresholdFalling notification." 
+    ::= { ciapNotifyData 6 }
+
+-- *********************************************************************
+-- * Notifications                                                     *
+-- *********************************************************************
+
+ciapEventThresholdRising NOTIFICATION-TYPE
+    OBJECTS         {
+                        ciapNotifyResource,
+                        ciapNotifyThresholdUnits,
+                        ciapNotifyThresholdRising,
+                        ciapNotifyInUse,
+                        ciapNotifyFree
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The system generates this notification when the IP address pool
+        manager transitions the state of the in-use gauge associated
+        with a resource from 'Off' to 'On'.
+
+        For more detail, see the description of IP address pool
+        threshold monitoring provided by the descriptive text associated
+        with the MODULE-IDENTITY statement."
+   ::= { ciscoIpAddressPoolMIBNotifs 1 }
+
+ciapEventThresholdFalling NOTIFICATION-TYPE
+    OBJECTS         {
+                        ciapNotifyResource,
+                        ciapNotifyThresholdUnits,
+                        ciapNotifyThresholdFalling,
+                        ciapNotifyInUse,
+                        ciapNotifyFree
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The system generates this notification when the IP address pool
+        manager transitions the state of the in-use gauge associated
+        with a resource from 'On' to 'Off'.
+
+        For more detail, see the description of IP address pool
+        threshold monitoring provided by the descriptive text associated
+        with the MODULE-IDENTITY statement."
+   ::= { ciscoIpAddressPoolMIBNotifs 2 }
+-- *********************************************************************
+-- * Conformance                                                       *
+-- *********************************************************************
+
+ciscoIpAddressPoolMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoIpAddressPoolMIBConform 1 }
+
+ciscoIpAddressPoolMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoIpAddressPoolMIBConform 2 }
+
+
+ciscoIpAddressPoolCompliance01 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This compliance statement specifies the minimal requirements an
+        implementation must meet in order to claim full compliance with
+        the definition of the CISCO-IP-ADDRESS-POOL-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciapGlobalGroup,
+                        ciapPoolGroup,
+                        ciapRangeGroup,
+                        ciapPoolGroupGroup,
+                        ciapNotifDataGroup,
+                        ciapNotifsGroup
+                    }
+
+    GROUP           ciapPrefixGroup
+    DESCRIPTION
+        "This group is mandatory only for those implementations that
+        support IP prefix pools."
+
+    OBJECT          ciapGlobalNotifyEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapGlobalThresholdUnits
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapGlobalThresholdRising
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapGlobalThresholdFalling
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPoolName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPoolStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPoolStorage
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPoolType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPoolContainedIn
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPoolThresholdUnits
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPoolThresholdRising
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPoolThresholdFalling
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapRangeStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapRangeStorage
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapRangeAddressUpper
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapRangeCacheSize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapRangeRecycleDelay
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapRangePriority
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapRangeThresholdUnits
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapRangeThresholdRising
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapRangeThresholdFalling
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPrefixStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPrefixStorage
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPrefixAssignedLength
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPrefixCacheSize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPrefixRecycleDelay
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPrefixPriority
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPrefixThresholdUnits
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPrefixThresholdRising
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPrefixThresholdFalling
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPoolGroupThresholdUnits
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPoolGroupThresholdRising
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+
+    OBJECT          ciapPoolGroupThresholdFalling
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation must at least provide read-only access to
+        this object."
+    ::= { ciscoIpAddressPoolMIBCompliances 1 }
+
+-- *********************************************************************
+-- * Units of Conformance                                              *
+-- *********************************************************************
+
+ciapGlobalGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciapGlobalNotifyEnable,
+                        ciapGlobalThresholdUnits,
+                        ciapGlobalThresholdRising,
+                        ciapGlobalThresholdFalling
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing data that applies to the
+        IP address pool manager as a whole."
+    ::= { ciscoIpAddressPoolMIBGroups 1 }
+
+ciapPoolGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciapPoolIdNext,
+                        ciapPoolName,
+                        ciapPoolStatus,
+                        ciapPoolStorage,
+                        ciapPoolType,
+                        ciapPoolContainedIn,
+                        ciapPoolThresholdUnits,
+                        ciapPoolThresholdRising,
+                        ciapPoolThresholdFalling,
+                        ciapPoolAddressesInUse,
+                        ciapPoolAddressesFree,
+                        ciapPoolTableChanged,
+                        ciapAllocatedAddressMask
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing IP address pools."
+    ::= { ciscoIpAddressPoolMIBGroups 2 }
+
+ciapRangeGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciapRangeStatus,
+                        ciapRangeStorage,
+                        ciapRangeAddressUpper,
+                        ciapRangeCacheSize,
+                        ciapRangeRecycleDelay,
+                        ciapRangePriority,
+                        ciapRangeThresholdUnits,
+                        ciapRangeThresholdRising,
+                        ciapRangeThresholdFalling,
+                        ciapRangeAddressesInUse,
+                        ciapRangeAddressesFree,
+                        ciapRangeTableChanged
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing IP addresses comprising
+        an IP address pool."
+    ::= { ciscoIpAddressPoolMIBGroups 3 }
+
+ciapPrefixGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciapPrefixStatus,
+                        ciapPrefixStorage,
+                        ciapPrefixAssignedLength,
+                        ciapPrefixCacheSize,
+                        ciapPrefixRecycleDelay,
+                        ciapPrefixPriority,
+                        ciapPrefixThresholdUnits,
+                        ciapPrefixThresholdRising,
+                        ciapPrefixThresholdFalling,
+                        ciapPrefixPrefixesInUse,
+                        ciapPrefixPrefixesFree,
+                        ciapPrefixTableChanged
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing IP prefixes comprising
+        an IP address pool."
+    ::= { ciscoIpAddressPoolMIBGroups 4 }
+
+ciapPoolGroupGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciapPoolGroupIdNext,
+                        ciapPoolGroupName,
+                        ciapPoolGroupThresholdUnits,
+                        ciapPoolGroupThresholdRising,
+                        ciapPoolGroupThresholdFalling,
+                        ciapPoolGroupAddressesInUse,
+                        ciapPoolGroupAddressesFree,
+                        ciapPoolGroupContainsId
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing IP address pool groups."
+    ::= { ciscoIpAddressPoolMIBGroups 5 }
+
+ciapNotifDataGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciapNotifyResource,
+                        ciapNotifyThresholdUnits,
+                        ciapNotifyThresholdRising,
+                        ciapNotifyThresholdFalling,
+                        ciapNotifyInUse,
+                        ciapNotifyFree
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing data conveyed by
+        notifications defined by this MIB module."
+    ::= { ciscoIpAddressPoolMIBGroups 6 }
+
+ciapNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciapEventThresholdRising,
+                        ciapEventThresholdFalling
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains notifications used to indicate threshold
+        crossing events relating to ranges of IP addresses."
+    ::= { ciscoIpAddressPoolMIBGroups 7 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

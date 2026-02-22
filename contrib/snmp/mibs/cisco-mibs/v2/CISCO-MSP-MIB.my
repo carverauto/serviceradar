@@ -1,0 +1,712 @@
+-- ****************************************************************
+-- CISCO-MSP-MIB.my
+--   
+-- Vignesh C R
+--   
+-- Copyright (c) 2011-2012 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-MSP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ifIndex
+        FROM IF-MIB
+    RowStatus,
+    StorageType
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoMspMIB MODULE-IDENTITY
+    LAST-UPDATED    "201204190000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-medianet-metadata@cisco.com"
+    DESCRIPTION
+        "Objective of media services proxy is to provide media services
+        to end-points and its flows identified by a set of
+        protocols. Media services include metadata and RSVP signaling.
+
+              MIB Table Overview:
+              ==================
+              The MIB table consists of the following objects.
+              1.cMspGlobalStatus
+                To enable/disable MSP.
+              2.cMspGlobalProfile
+                Globally applied MSP profile.
+              3.cMspIfProfileTable
+                MSP profile applied on the interface.
+              4.cMspProfileTable
+                MSP profile table containing list of services
+                 and parameter list for that service.
+              5.cMspRsvpParamsTable
+                RSVP parameter list. Used for RSVP reservation.
+              6.cMspMetaParamsTable
+                Metadata parameter list. Used for metadata signaling."
+    REVISION        "201204190000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 793 }
+
+ciscoMspMIBNotifs  OBJECT IDENTIFIER 
+    ::= { ciscoMspMIB 0 } 
+
+ciscoMspMIBObjects  OBJECT IDENTIFIER 
+    ::= { ciscoMspMIB 1 } 
+
+ciscoMspMIBConform  OBJECT IDENTIFIER 
+    ::= { ciscoMspMIB 2 }
+    
+cMspGlobalStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enable(1),
+                        disable(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether media
+        services proxy is enabled or disabled. 
+        Default value is disabled."
+    DEFVAL          { disable } 
+    ::= { ciscoMspMIBObjects 1 }
+
+cMspGlobalProfile OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..100))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the media services profile
+        name globally enabled. This name corresponds to 
+        an entry in media services profile table and
+        using it the required services and parameters list
+        are fetched and applied." 
+    ::= { ciscoMspMIBObjects 2 }
+
+cMspIfProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMspIfProfileEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the media services
+        profile applied to the interface."
+    ::= { ciscoMspMIBObjects 3 }
+
+cMspIfProfileEntry OBJECT-TYPE
+    SYNTAX          CMspIfProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry specifies the media services profile applied
+        on a particular interface."
+    INDEX           { ifIndex } 
+    ::= { cMspIfProfileTable 1 }
+
+CMspIfProfileEntry ::= SEQUENCE {
+        cMspIfProfileName      SnmpAdminString,
+        cMspIfProfileStorageType StorageType,
+        cMspIfProfileRowStatus RowStatus
+}
+
+cMspIfProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..100))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the media services profile name
+        applied on a particular interface. This name corresponds
+        to an entry in the media services profile table and
+        using it the required services and parameters list are 
+        fetched and applied." 
+    ::= { cMspIfProfileEntry 1 }
+
+cMspIfProfileStorageType OBJECT-TYPE
+    SYNTAX       StorageType
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION  "This object specifies the storage type for this
+                 conceptual row. Conceptual rows having the value
+                 'permanent' need not allow write-access to any 
+                 columnar objects in the row."
+    DEFVAL      { nonVolatile }
+    ::= { cMspIfProfileEntry 2 }
+    
+cMspIfProfileRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of conceptual row of
+        interface media services profile table." 
+    ::= { cMspIfProfileEntry 3 }
+ 
+
+
+cMspProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMspProfileEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the configuration of media 
+         services profile."
+    ::= { ciscoMspMIBObjects 4 }
+
+cMspProfileEntry OBJECT-TYPE
+    SYNTAX          CMspProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry specifies a media services
+        profile and its attributes."
+    INDEX           { cMspProfileName } 
+    ::= { cMspProfileTable 1 }
+
+CMspProfileEntry ::= SEQUENCE {
+        cMspProfileName        SnmpAdminString,
+        cMspProfileService     BITS,
+        cMspProfileRsvp        SnmpAdminString,
+        cMspProfileMetadata    SnmpAdminString,
+        cMspProfileStorageType StorageType,
+        cMspProfileRowStatus   RowStatus
+}
+
+cMspProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..100))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of media services profile." 
+    ::= { cMspProfileEntry 1 }
+
+cMspProfileService OBJECT-TYPE
+    SYNTAX          BITS {
+                        rsvp(0),
+                        metadata(1)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the list of services enabled
+        for a media services profile." 
+    ::= { cMspProfileEntry 2 }
+
+cMspProfileRsvp OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..100))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the RSVP parameter list.
+        This name corresponds to an entry in RSVP parameter list
+        table and using this the RSVP parameters are fetched
+        and applied when the media services profile is in use." 
+    ::= { cMspProfileEntry 3 }
+
+cMspProfileMetadata OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..100))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the metadata parameter list.
+        This name corresponds to an entry in metadata parameter list
+        table and using this the metadata parameters are fetched
+        and applied when the media services profile is in use." 
+    ::= { cMspProfileEntry 4 }
+
+cMspProfileStorageType OBJECT-TYPE
+    SYNTAX       StorageType
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION  "This object specifies the storage type for this
+                 conceptual row. Conceptual rows having the value
+                 'permanent' need not allow write-access to any 
+                 columnar objects in the row."
+    DEFVAL      { nonVolatile }
+    ::= { cMspProfileEntry 5 }
+    
+cMspProfileRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the conceptual
+        row of media service profile table." 
+    ::= { cMspProfileEntry 6 }
+ 
+
+
+cMspRsvpParamsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMspRsvpParamsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the table of RSVP parameter lists to
+        be used when the corresponding media services profile
+        is in use."
+    ::= { ciscoMspMIBObjects 5 }
+
+cMspRsvpParamsEntry OBJECT-TYPE
+    SYNTAX          CMspRsvpParamsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry specifies a RSVP parameter list."
+    INDEX           { cMspRsvpParamsName } 
+    ::= { cMspRsvpParamsTable 1 }
+
+CMspRsvpParamsEntry ::= SEQUENCE {
+        cMspRsvpParamsName           SnmpAdminString,
+        cMspRsvpParamsBandwidth      Unsigned32,
+        cMspRsvpParamsPeakRate       Unsigned32,
+        cMspRsvpParamsMaxBurst       Unsigned32,
+        cMspRsvpParamsPriorityPrempt Unsigned32,
+        cMspRsvpParamsPriorityDefend Unsigned32,
+        cMspRsvpParamsStorageType    StorageType,
+        cMspRsvpParamsRowStatus      RowStatus
+}
+
+cMspRsvpParamsName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..100))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of RSVP parameter list.
+        This name is used in media services profile table to identify
+        the RSVP parameter list and use it when the corresponding
+        media services profile is applied." 
+    ::= { cMspRsvpParamsEntry 1 }
+
+cMspRsvpParamsBandwidth OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..10000000)
+    UNITS           "kbps"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the bandwidth to be used as value
+        for RSVP bandwidth parameter when the corresponding media
+        services profile is in use." 
+    ::= { cMspRsvpParamsEntry 2 }
+
+cMspRsvpParamsPeakRate OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..10000000)
+    UNITS           "kbps"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the peak rate to be used as a value
+        for RSVP session peak rate parameter when the corresponding
+         media services profile is in use." 
+    ::= { cMspRsvpParamsEntry 3 }
+
+cMspRsvpParamsMaxBurst OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    UNITS           "kB"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the max burst to be used as a value
+        for RSVP max burst parameter when the corresponding media
+        services profile is in use." 
+    ::= { cMspRsvpParamsEntry 4 }
+
+cMspRsvpParamsPriorityPrempt OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..7)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the preemption priority to be used as
+        a value for RSVP priority preempt parameter when the
+        corresponding media services profile is in use." 
+    ::= { cMspRsvpParamsEntry 5 }
+
+cMspRsvpParamsPriorityDefend OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..7)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the preemption defend to be used as a
+        value for RSVP priority defend parameter when the
+        corresponding media services profile is in use." 
+    ::= { cMspRsvpParamsEntry 6 }
+
+cMspRsvpParamsStorageType OBJECT-TYPE
+    SYNTAX       StorageType
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION  "This object specifies the storage type for this
+                 conceptual row. Conceptual rows having the value
+                 'permanent' need not allow write-access to any 
+                 columnar objects in the row."
+    DEFVAL      { nonVolatile }
+    ::= { cMspRsvpParamsEntry 7 }
+    
+cMspRsvpParamsRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the conceptual row of
+        the RSVP parameter list table." 
+    ::= { cMspRsvpParamsEntry 8 }
+ 
+
+
+cMspMetaParamsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMspMetaParamsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the table of metadata parameter lists to
+        be used when the corresponding media services profile
+        is in use."
+    ::= { ciscoMspMIBObjects 6 }
+
+cMspMetaParamsEntry OBJECT-TYPE
+    SYNTAX          CMspMetaParamsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry specifies a metadata parameter list."
+    INDEX           { cMspMetaParamsName } 
+    ::= { cMspMetaParamsTable 1 }
+
+CMspMetaParamsEntry ::= SEQUENCE {
+        cMspMetaParamsName        SnmpAdminString,
+        cMspMetaParamsBandwidth   Unsigned32,
+        cMspMetaParamsSyncSrc     Unsigned32,
+        cMspMetaParamsClockFreq   Unsigned32,
+        cMspMetaParamsSessId      SnmpAdminString,
+        cMspMetaParamsDomainName  SnmpAdminString,
+        cMspMetaParamsCname       SnmpAdminString,
+        cMspMetaParamsMimeType    SnmpAdminString,
+        cMspMetaParamsPayloadType Unsigned32,
+        cMspMetaParamsSipUserName SnmpAdminString,
+        cMspMetaParamsSipEmail    SnmpAdminString,
+        cMspMetaParamsAppName     SnmpAdminString,
+        cMspMetaParamsAppVendor   SnmpAdminString,
+        cMspMetaParamsAppVersion  SnmpAdminString,
+        cMspMetaParamsStorageType StorageType,
+        cMspMetaParamsRowStatus   RowStatus
+}
+
+cMspMetaParamsName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..100))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of metadata parameter list.
+        This name is used in media services profile table to identify
+        the metadata parameter list and use it when the corresponding
+        media services profile is applied." 
+    ::= { cMspMetaParamsEntry 1 }
+
+cMspMetaParamsBandwidth OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..10000000)
+    UNITS           "kbps"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the bandwidth to be used as value
+        for metadata bandwidth parameter when the corresponding
+        media services profile is in use." 
+    ::= { cMspMetaParamsEntry 2 }
+
+cMspMetaParamsSyncSrc OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the synchronization source to be used
+        as value for metadata synchronization source parameter
+        when the corresponding media services profile is in use." 
+    ::= { cMspMetaParamsEntry 3 }
+
+cMspMetaParamsClockFreq OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the clock frequency to be used
+        as value for metadata clock frequency parameter
+        when the corresponding media services profile is in use." 
+    ::= { cMspMetaParamsEntry 4 }
+
+cMspMetaParamsSessId OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..80))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the session ID to be used
+        as value for metadata session ID parameter
+        when the corresponding media services profile is in use." 
+    ::= { cMspMetaParamsEntry 5 }
+
+cMspMetaParamsDomainName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..24))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the domain name to be used
+        as value for metadata domain name parameter
+        when the corresponding media services profile is in use." 
+    ::= { cMspMetaParamsEntry 6 }
+
+cMspMetaParamsCname OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..24))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the cname to be used
+        as value for metadata cname parameter
+        when the corresponding media services profile is in use.
+        Cname represents SIP call canonical name." 
+    ::= { cMspMetaParamsEntry 7 }
+
+cMspMetaParamsMimeType OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..16))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the mime type to be used
+        as value for metadata mime type parameter
+        when the corresponding media services profile is in use.
+        Mime type represents the audio/video media type." 
+    ::= { cMspMetaParamsEntry 8 }
+
+cMspMetaParamsPayloadType OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..127)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the payload type to be used
+        as value for metadata payload type parameter
+        when the corresponding media services profile is in use." 
+    ::= { cMspMetaParamsEntry 9 }
+
+cMspMetaParamsSipUserName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..16))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the SIP user name to be used
+        as value for metadata SIP user name parameter
+        when the corresponding media services profile is in use." 
+    ::= { cMspMetaParamsEntry 10 }
+
+cMspMetaParamsSipEmail OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..24))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the SIP email ID to be used
+        as value for metadata SIP email ID parameter
+        when the corresponding media services profile is in use." 
+    ::= { cMspMetaParamsEntry 11 }
+
+cMspMetaParamsAppName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..40))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the application name to be used
+        as value for metadata application name parameter
+        when the corresponding media services profile is in use." 
+    ::= { cMspMetaParamsEntry 12 }
+
+cMspMetaParamsAppVendor OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..40))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the application vendor to be used
+        as value for metadata application vendor parameter
+        when the corresponding media services profile is in use." 
+    ::= { cMspMetaParamsEntry 13 }
+
+cMspMetaParamsAppVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..40))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the application version to be used
+        as value for metadata application version parameter
+        when the corresponding media services profile is in use." 
+    ::= { cMspMetaParamsEntry 14 }
+
+cMspMetaParamsStorageType OBJECT-TYPE
+    SYNTAX       StorageType
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION  "This object specifies the storage type for this
+                 conceptual row. Conceptual rows having the value
+                 'permanent' need not allow write-access to any 
+                 columnar objects in the row."
+    DEFVAL      { nonVolatile }
+    ::= { cMspMetaParamsEntry 15 }
+    
+cMspMetaParamsRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the row status of conceptual row
+        of metadata parameter list table." 
+    ::= { cMspMetaParamsEntry 16 }
+ 
+
+ciscoMspMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoMspMIBConform 1 }
+
+ciscoMspMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoMspMIBConform 2 }
+
+
+ciscoMspMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance for ciscoMspMIB
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoMspMIBScalarObjectGroup,
+                       ciscoMspMIBIfProfileObjectGroup,
+                       ciscoMspMIBProfileNameObjectGroup,
+                       ciscoMspMIBRsvpParamsObjectGroup,
+                       ciscoMspMIBMetaParamsObjectGroup
+                     }
+    ::= { ciscoMspMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoMspMIBScalarObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cMspGlobalStatus,
+                        cMspGlobalProfile
+                    }
+                    
+    STATUS          current
+    DESCRIPTION
+        "A collection of scalar objects for media services."
+    ::= { ciscoMspMIBGroups 1 }
+    
+ciscoMspMIBIfProfileObjectGroup OBJECT-GROUP
+    OBJECTS         {    
+                        cMspIfProfileName,
+                        cMspIfProfileStorageType,
+                        cMspIfProfileRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for media services interface table."
+    ::= { ciscoMspMIBGroups 2 }
+    
+ciscoMspMIBProfileNameObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cMspProfileName,
+                        cMspProfileService,
+                        cMspProfileRsvp,
+                        cMspProfileMetadata,
+                        cMspProfileStorageType,
+                        cMspProfileRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for media services profile."
+    ::= { ciscoMspMIBGroups 3 }
+    
+ciscoMspMIBRsvpParamsObjectGroup OBJECT-GROUP
+    OBJECTS         {    
+                        cMspRsvpParamsName,
+                        cMspRsvpParamsBandwidth,
+                        cMspRsvpParamsPeakRate,
+                        cMspRsvpParamsMaxBurst,
+                        cMspRsvpParamsPriorityPrempt,
+                        cMspRsvpParamsPriorityDefend,
+                        cMspRsvpParamsStorageType,
+                        cMspRsvpParamsRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for RSVP parameters."
+    ::= { ciscoMspMIBGroups 4 }
+    
+ ciscoMspMIBMetaParamsObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cMspMetaParamsName,
+                        cMspMetaParamsBandwidth,
+                        cMspMetaParamsSyncSrc,
+                        cMspMetaParamsClockFreq,
+                        cMspMetaParamsSessId,
+                        cMspMetaParamsDomainName,
+                        cMspMetaParamsCname,
+                        cMspMetaParamsMimeType,
+                        cMspMetaParamsPayloadType,
+                        cMspMetaParamsSipUserName,
+                        cMspMetaParamsSipEmail,
+                        cMspMetaParamsAppName,
+                        cMspMetaParamsAppVendor,
+                        cMspMetaParamsAppVersion,
+                        cMspMetaParamsStorageType,
+                        cMspMetaParamsRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for metadata parameters."
+    ::= { ciscoMspMIBGroups 5 }
+    
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

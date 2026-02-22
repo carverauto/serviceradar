@@ -1,0 +1,640 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-UUIDPOOL-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- UUIDPOOL management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-UUIDPOOL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsAddressUIDSuffxMask,
+    CucsPolicyPolicyOwner,
+    CucsPoolElementOwner,
+    CucsUuidpoolPoolAssignmentOrder
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsUuidpoolObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        UUIDPOOL management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 51 }
+
+cucsUuidpoolAddrTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsUuidpoolAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Addr managed object table"
+    ::= { cucsUuidpoolObjects 1 }
+
+cucsUuidpoolAddrEntry OBJECT-TYPE
+    SYNTAX           CucsUuidpoolAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsUuidpoolAddrTable table."
+    INDEX { cucsUuidpoolAddrInstanceId }
+    ::= { cucsUuidpoolAddrTable 1 }
+
+CucsUuidpoolAddrEntry ::= SEQUENCE {
+    cucsUuidpoolAddrInstanceId                                       CucsManagedObjectId,
+    cucsUuidpoolAddrDn                                               CucsManagedObjectDn,
+    cucsUuidpoolAddrRn                                               SnmpAdminString,
+    cucsUuidpoolAddrAssigned                                         TruthValue,
+    cucsUuidpoolAddrAssignedToDn                                     SnmpAdminString,
+    cucsUuidpoolAddrId                                               SnmpAdminString,
+    cucsUuidpoolAddrOwner                                            CucsPoolElementOwner,
+    cucsUuidpoolAddrGlobalAssignedCnt                                Gauge32,
+    cucsUuidpoolAddrGlobalDefinedCnt                                 Gauge32
+}
+
+cucsUuidpoolAddrInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsUuidpoolAddrEntry 1 }
+
+cucsUuidpoolAddrDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Addr:dn managed object property"
+    ::= { cucsUuidpoolAddrEntry 2 }
+
+cucsUuidpoolAddrRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Addr:rn managed object property"
+    ::= { cucsUuidpoolAddrEntry 3 }
+
+cucsUuidpoolAddrAssigned OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Addr:assigned managed object property"
+    ::= { cucsUuidpoolAddrEntry 4 }
+
+cucsUuidpoolAddrAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Addr:assignedToDn managed object property"
+    ::= { cucsUuidpoolAddrEntry 5 }
+
+cucsUuidpoolAddrId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Addr:id managed object property"
+    ::= { cucsUuidpoolAddrEntry 6 }
+
+cucsUuidpoolAddrOwner OBJECT-TYPE
+    SYNTAX       CucsPoolElementOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Addr:owner managed object property"
+    ::= { cucsUuidpoolAddrEntry 7 }
+
+cucsUuidpoolAddrGlobalAssignedCnt OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Addr:globalAssignedCnt managed
+        object property"
+    ::= { cucsUuidpoolAddrEntry 8 }
+
+cucsUuidpoolAddrGlobalDefinedCnt OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Addr:globalDefinedCnt managed object property"
+    ::= { cucsUuidpoolAddrEntry 9 }
+
+cucsUuidpoolBlockTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsUuidpoolBlockEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Block managed object table"
+    ::= { cucsUuidpoolObjects 2 }
+
+cucsUuidpoolBlockEntry OBJECT-TYPE
+    SYNTAX           CucsUuidpoolBlockEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsUuidpoolBlockTable table."
+    INDEX { cucsUuidpoolBlockInstanceId }
+    ::= { cucsUuidpoolBlockTable 1 }
+
+CucsUuidpoolBlockEntry ::= SEQUENCE {
+    cucsUuidpoolBlockInstanceId                                      CucsManagedObjectId,
+    cucsUuidpoolBlockDn                                              CucsManagedObjectDn,
+    cucsUuidpoolBlockRn                                              SnmpAdminString,
+    cucsUuidpoolBlockFrom                                            Unsigned64,
+    cucsUuidpoolBlockTo                                              Unsigned64
+}
+
+cucsUuidpoolBlockInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsUuidpoolBlockEntry 1 }
+
+cucsUuidpoolBlockDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Block:dn managed object property"
+    ::= { cucsUuidpoolBlockEntry 2 }
+
+cucsUuidpoolBlockRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Block:rn managed object property"
+    ::= { cucsUuidpoolBlockEntry 3 }
+
+cucsUuidpoolBlockFrom OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Block:from managed object property"
+    ::= { cucsUuidpoolBlockEntry 4 }
+
+cucsUuidpoolBlockTo OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Block:to managed object property"
+    ::= { cucsUuidpoolBlockEntry 5 }
+
+cucsUuidpoolFormatTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsUuidpoolFormatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Format managed object table"
+    ::= { cucsUuidpoolObjects 3 }
+
+cucsUuidpoolFormatEntry OBJECT-TYPE
+    SYNTAX           CucsUuidpoolFormatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsUuidpoolFormatTable table."
+    INDEX { cucsUuidpoolFormatInstanceId }
+    ::= { cucsUuidpoolFormatTable 1 }
+
+CucsUuidpoolFormatEntry ::= SEQUENCE {
+    cucsUuidpoolFormatInstanceId                                     CucsManagedObjectId,
+    cucsUuidpoolFormatDn                                             CucsManagedObjectDn,
+    cucsUuidpoolFormatRn                                             SnmpAdminString,
+    cucsUuidpoolFormatFormat                                         Unsigned64,
+    cucsUuidpoolFormatMask                                           CucsAddressUIDSuffxMask
+}
+
+cucsUuidpoolFormatInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsUuidpoolFormatEntry 1 }
+
+cucsUuidpoolFormatDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Format:dn managed object property"
+    ::= { cucsUuidpoolFormatEntry 2 }
+
+cucsUuidpoolFormatRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Format:rn managed object property"
+    ::= { cucsUuidpoolFormatEntry 3 }
+
+cucsUuidpoolFormatFormat OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Format:format managed object property"
+    ::= { cucsUuidpoolFormatEntry 4 }
+
+cucsUuidpoolFormatMask OBJECT-TYPE
+    SYNTAX       CucsAddressUIDSuffxMask
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Format:mask managed object property"
+    ::= { cucsUuidpoolFormatEntry 5 }
+
+cucsUuidpoolPoolTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsUuidpoolPoolEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pool managed object table"
+    ::= { cucsUuidpoolObjects 4 }
+
+cucsUuidpoolPoolEntry OBJECT-TYPE
+    SYNTAX           CucsUuidpoolPoolEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsUuidpoolPoolTable table."
+    INDEX { cucsUuidpoolPoolInstanceId }
+    ::= { cucsUuidpoolPoolTable 1 }
+
+CucsUuidpoolPoolEntry ::= SEQUENCE {
+    cucsUuidpoolPoolInstanceId                                       CucsManagedObjectId,
+    cucsUuidpoolPoolDn                                               CucsManagedObjectDn,
+    cucsUuidpoolPoolRn                                               SnmpAdminString,
+    cucsUuidpoolPoolAssigned                                         Gauge32,
+    cucsUuidpoolPoolDescr                                            SnmpAdminString,
+    cucsUuidpoolPoolIntId                                            SnmpAdminString,
+    cucsUuidpoolPoolName                                             SnmpAdminString,
+    cucsUuidpoolPoolPrefix                                           Unsigned64,
+    cucsUuidpoolPoolSize                                             Gauge32,
+    cucsUuidpoolPoolAssignmentOrder                                  CucsUuidpoolPoolAssignmentOrder,
+    cucsUuidpoolPoolPolicyLevel                                      Gauge32,
+    cucsUuidpoolPoolPolicyOwner                                      CucsPolicyPolicyOwner
+}
+
+cucsUuidpoolPoolInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsUuidpoolPoolEntry 1 }
+
+cucsUuidpoolPoolDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pool:dn managed object property"
+    ::= { cucsUuidpoolPoolEntry 2 }
+
+cucsUuidpoolPoolRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pool:rn managed object property"
+    ::= { cucsUuidpoolPoolEntry 3 }
+
+cucsUuidpoolPoolAssigned OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pool:assigned managed object property"
+    ::= { cucsUuidpoolPoolEntry 4 }
+
+cucsUuidpoolPoolDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pool:descr managed object property"
+    ::= { cucsUuidpoolPoolEntry 5 }
+
+cucsUuidpoolPoolIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pool:intId managed object property"
+    ::= { cucsUuidpoolPoolEntry 6 }
+
+cucsUuidpoolPoolName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pool:name managed object property"
+    ::= { cucsUuidpoolPoolEntry 7 }
+
+cucsUuidpoolPoolPrefix OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pool:prefix managed object property"
+    ::= { cucsUuidpoolPoolEntry 8 }
+
+cucsUuidpoolPoolSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pool:size managed object property"
+    ::= { cucsUuidpoolPoolEntry 9 }
+
+cucsUuidpoolPoolAssignmentOrder OBJECT-TYPE
+    SYNTAX       CucsUuidpoolPoolAssignmentOrder
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pool:assignmentOrder managed object property"
+    ::= { cucsUuidpoolPoolEntry 10 }
+
+cucsUuidpoolPoolPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pool:policyLevel managed object property"
+    ::= { cucsUuidpoolPoolEntry 11 }
+
+cucsUuidpoolPoolPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pool:policyOwner managed object property"
+    ::= { cucsUuidpoolPoolEntry 12 }
+
+cucsUuidpoolPoolableTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsUuidpoolPoolableEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Poolable managed object table"
+    ::= { cucsUuidpoolObjects 5 }
+
+cucsUuidpoolPoolableEntry OBJECT-TYPE
+    SYNTAX           CucsUuidpoolPoolableEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsUuidpoolPoolableTable table."
+    INDEX { cucsUuidpoolPoolableInstanceId }
+    ::= { cucsUuidpoolPoolableTable 1 }
+
+CucsUuidpoolPoolableEntry ::= SEQUENCE {
+    cucsUuidpoolPoolableInstanceId                                   CucsManagedObjectId,
+    cucsUuidpoolPoolableDn                                           CucsManagedObjectDn,
+    cucsUuidpoolPoolableRn                                           SnmpAdminString,
+    cucsUuidpoolPoolableId                                           Unsigned64,
+    cucsUuidpoolPoolablePoolDn                                       SnmpAdminString
+}
+
+cucsUuidpoolPoolableInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsUuidpoolPoolableEntry 1 }
+
+cucsUuidpoolPoolableDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Poolable:dn managed object property"
+    ::= { cucsUuidpoolPoolableEntry 2 }
+
+cucsUuidpoolPoolableRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Poolable:rn managed object property"
+    ::= { cucsUuidpoolPoolableEntry 3 }
+
+cucsUuidpoolPoolableId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Poolable:id managed object property"
+    ::= { cucsUuidpoolPoolableEntry 4 }
+
+cucsUuidpoolPoolablePoolDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Poolable:poolDn managed object property"
+    ::= { cucsUuidpoolPoolableEntry 5 }
+
+cucsUuidpoolPooledTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsUuidpoolPooledEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pooled managed object table"
+    ::= { cucsUuidpoolObjects 6 }
+
+cucsUuidpoolPooledEntry OBJECT-TYPE
+    SYNTAX           CucsUuidpoolPooledEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsUuidpoolPooledTable table."
+    INDEX { cucsUuidpoolPooledInstanceId }
+    ::= { cucsUuidpoolPooledTable 1 }
+
+CucsUuidpoolPooledEntry ::= SEQUENCE {
+    cucsUuidpoolPooledInstanceId                                     CucsManagedObjectId,
+    cucsUuidpoolPooledDn                                             CucsManagedObjectDn,
+    cucsUuidpoolPooledRn                                             SnmpAdminString,
+    cucsUuidpoolPooledAssigned                                       TruthValue,
+    cucsUuidpoolPooledAssignedToDn                                   SnmpAdminString,
+    cucsUuidpoolPooledId                                             Unsigned64,
+    cucsUuidpoolPooledPoolableDn                                     SnmpAdminString,
+    cucsUuidpoolPooledPrevAssignedToDn                               SnmpAdminString
+}
+
+cucsUuidpoolPooledInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsUuidpoolPooledEntry 1 }
+
+cucsUuidpoolPooledDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pooled:dn managed object property"
+    ::= { cucsUuidpoolPooledEntry 2 }
+
+cucsUuidpoolPooledRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pooled:rn managed object property"
+    ::= { cucsUuidpoolPooledEntry 3 }
+
+cucsUuidpoolPooledAssigned OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pooled:assigned managed object property"
+    ::= { cucsUuidpoolPooledEntry 4 }
+
+cucsUuidpoolPooledAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pooled:assignedToDn managed object property"
+    ::= { cucsUuidpoolPooledEntry 5 }
+
+cucsUuidpoolPooledId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pooled:id managed object property"
+    ::= { cucsUuidpoolPooledEntry 6 }
+
+cucsUuidpoolPooledPoolableDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pooled:poolableDn managed object property"
+    ::= { cucsUuidpoolPooledEntry 7 }
+
+cucsUuidpoolPooledPrevAssignedToDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Pooled:prevAssignedToDn managed
+        object property"
+    ::= { cucsUuidpoolPooledEntry 8 }
+
+cucsUuidpoolUniverseTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsUuidpoolUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Universe managed object table"
+    ::= { cucsUuidpoolObjects 7 }
+
+cucsUuidpoolUniverseEntry OBJECT-TYPE
+    SYNTAX           CucsUuidpoolUniverseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsUuidpoolUniverseTable table."
+    INDEX { cucsUuidpoolUniverseInstanceId }
+    ::= { cucsUuidpoolUniverseTable 1 }
+
+CucsUuidpoolUniverseEntry ::= SEQUENCE {
+    cucsUuidpoolUniverseInstanceId                                   CucsManagedObjectId,
+    cucsUuidpoolUniverseDn                                           CucsManagedObjectDn,
+    cucsUuidpoolUniverseRn                                           SnmpAdminString
+}
+
+cucsUuidpoolUniverseInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsUuidpoolUniverseEntry 1 }
+
+cucsUuidpoolUniverseDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Universe:dn managed object property"
+    ::= { cucsUuidpoolUniverseEntry 2 }
+
+cucsUuidpoolUniverseRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS uuidpool:Universe:rn managed object property"
+    ::= { cucsUuidpoolUniverseEntry 3 }
+
+END

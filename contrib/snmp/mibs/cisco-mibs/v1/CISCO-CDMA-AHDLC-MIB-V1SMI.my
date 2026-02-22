@@ -1,0 +1,665 @@
+-- MIB file created 06-Dec-2005 16:31:52, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CDMA-AHDLC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CDMA-AHDLC-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, TimeStamp
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ZeroBasedCounter32
+            FROM RMON2-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    EntPhysicalIndexOrZero
+            FROM CISCO-TC
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+cCdmaAhdlcMIB OBJECT IDENTIFIER ::= { ciscoMgmt 997 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200511140000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--            Cisco Systems
+--             Customer Service
+--    
+--    Postal  170 W Tasman Drive
+--             San Jose, CA  95134
+--             USA
+--    
+--       Tel  +1 800 553-NETS
+--    
+--    E-mail  cs-pdsn@cisco.com
+--  Descr
+--    This MIB module provides details concerning AHDLC
+--    engine state, performance, configuration and
+--    notification.
+--    
+--    An AHDLC channel handles one AHDLC session.
+--    AN AHDLC engine controls a set of AHDLC channels.
+--    
+--    The following diagram illustrates a typical usage
+--    of an AHDLC service adapter in a 3G CDMA wireless
+--    data network
+--    
+--     +==========+               +========+==========+
+--     | RAdio    | AHDLC packets |AHDLC   |          |
+--     | Network  |============== |engine  |  PDSN    |
+--     |  (RAN)   |               |        |  router  |
+--     +==========+               +========+          |
+--        /|\                     |                   |
+--         |                      +===================+
+--     Mobile Node
+--     using PPP
+--     over AHDLC
+--    
+--    Two types of AHDLC engines are available -
+--    software and hardware based.  A dedicated hardware
+--    allows better ahdlc framing performance.
+--    
+--    
+--    Acronyms and terms
+--    
+--      AHDLC           Asynchronous High-level Data
+--                      Link Control.
+--    
+--      AHDLC           A dedicated resource used to
+--      channel         handle one AHDLC session.
+--    
+--    
+--      AHDLC           An entity managing a group of
+--      engine          AHDLC channels.  An AHDLC engine
+--                      may be hardware assisted.
+--    
+--      CDMA            Code Division Multiple Access.
+--    
+--      PDSN            Packet Data Serving Node, a router
+--                      connecting a CDMA wireless network
+--                      to the internet.
+--    
+--      RAN             Radio Network.
+--  RevDate
+--    200511140000Z
+--  RevDescr
+--    Updated the imports such that Unsigned32 is imported from 
+--    SNMPv2-SMI instead of CISCO-TC.
+--  RevDate
+--    200201040000Z
+--  RevDescr
+--    Initial revision of this MIB module.
+
+cCdmaAhdlcMIBObjects OBJECT IDENTIFIER ::= { cCdmaAhdlcMIB 1 }
+cCdmaAhdlcEngineInfo OBJECT IDENTIFIER ::= { cCdmaAhdlcMIBObjects 1 }
+cCdmaAhdlcMIBNotif OBJECT IDENTIFIER ::= { cCdmaAhdlcMIB 0 }
+cCdmaAhdlcMIBConformance OBJECT IDENTIFIER ::= { cCdmaAhdlcMIB 3 }
+cCdmaAhdlcMIBCompliances OBJECT IDENTIFIER ::= { cCdmaAhdlcMIBConformance 1 }
+cCdmaAhdlcMIBGroups OBJECT IDENTIFIER ::= { cCdmaAhdlcMIBConformance 2 }
+
+cCdmaAhdlcEngineTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CCdmaAhdlcEngineEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of AHDLC engines available in the system."
+    ::= { cCdmaAhdlcEngineInfo 1 }
+
+cCdmaAhdlcEngineEntry OBJECT-TYPE
+    SYNTAX CCdmaAhdlcEngineEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A description of an AHDLC engine."
+    INDEX { cCdmaAhdlcEngineIndex }
+    ::= { cCdmaAhdlcEngineTable 1 }
+
+CCdmaAhdlcEngineEntry ::= SEQUENCE {
+    cCdmaAhdlcEngineIndex Gauge,
+    cCdmaAhdlcEngineName SnmpAdminString,
+    cCdmaAhdlcEngineType INTEGER,
+    cCdmaAhdlcEngineChannelsInUse Gauge,
+    cCdmaAhdlcEngineMaxChannels Gauge,
+    cCdmaAhdlcEngineConfMaxChannels Gauge,
+    cCdmaAhdlcEngineOperState INTEGER,
+    cCdmaAhdlcEngineAdminState INTEGER,
+    cCdmaAhdlcEngineDownNotifEnabled TruthValue,
+    cCdmaAhdlcPhysicalIndex EntPhysicalIndexOrZero
+    }
+
+cCdmaAhdlcEngineIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary non-zero integer-value that uniquely
+        identifies an AHDLC engine.  An implementation should
+        assign AHDLC engines consecutive monotonically
+        increasing values."
+    ::= { cCdmaAhdlcEngineEntry 1 }
+
+cCdmaAhdlcEngineName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Textual name of the AHDLC engine.  The value of this
+        object should be the name of the component as
+        assigned by the local device."
+    ::= { cCdmaAhdlcEngineEntry 2 }
+
+cCdmaAhdlcEngineType OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        unknown(0),
+        software(1),
+        hardware(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "AHDLC engine type.  Three main types are defined:
+        
+        - a 'hardware' based engine requires the use of
+        AHDLC hardware assist.  Each hardware based engine is
+        peer to one unique AHDLC hardware assist.
+        
+        - a 'software' based engine is not peer to an AHDLC
+        hardware assist but it relies on the system cpu(s) to
+        perform AHDLC framing.
+        
+        If the engine type cannot be determined, this object
+        value should return 'unknown'."
+    ::= { cCdmaAhdlcEngineEntry 3 }
+
+cCdmaAhdlcEngineChannelsInUse OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of current active channels handled by this
+        engine."
+    ::= { cCdmaAhdlcEngineEntry 4 }
+
+cCdmaAhdlcEngineMaxChannels OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of channels that can be supported
+        by this engine."
+    ::= { cCdmaAhdlcEngineEntry 5 }
+
+cCdmaAhdlcEngineConfMaxChannels OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of channels configured by the user.
+        This value may not be higher than
+        cCdmaAhdlcEngineMaxChannels."
+    ::= { cCdmaAhdlcEngineEntry 6 }
+
+cCdmaAhdlcEngineOperState OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        unknown(0),
+        up(1),
+        down(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the current AHDLC engine
+        operational state.  The 'up' indicates the engine
+        is ready to receive ahdlc packets.
+        If cCdmaAhdlcEngineAdminState is 'down' then
+        cCdmaAhdlcEngineOperState should be 'down'.  If
+        cCdmaAhdlcEngineAdminState is changed to 'up' then
+        cCdmaAhdlcEngineOperState should change to 'up'
+        if the engine is ready to receive ahdlc packets;
+        it should remain in the 'down' state if and only
+        if there is a fault that prevents it from going to
+        the 'up' state."
+    ::= { cCdmaAhdlcEngineEntry 7 }
+
+cCdmaAhdlcEngineAdminState OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the AHDLC engine desired
+        state.  When a managed system initializes, all
+        interfaces start with 'down' state.  As a result
+        of either explicit management action or per
+        configuration information retained by the managed
+        system, cCdmaAhdlcEngineAdminState is then changed
+        to either 'up' or remains in the 'down' state."
+    ::= { cCdmaAhdlcEngineEntry 8 }
+
+cCdmaAhdlcEngineDownNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " 'true' indicates notification will be sent out
+        when cCdmaAhdlcEngineAdminState is 'up' and
+        cCdmaAhdlcEngineOperState is 'down'."
+    ::= { cCdmaAhdlcEngineEntry 9 }
+
+cCdmaAhdlcPhysicalIndex OBJECT-TYPE
+    SYNTAX EntPhysicalIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Corresponding AHDLC service adapter entry in
+        the ENTITY-MIB (RFC-2737).  This object value should
+        return the corresponding entPhysicalIndex value of
+        the service adapter or 0 if it cannot be determined or
+        is not applicable."
+    ::= { cCdmaAhdlcEngineEntry 10 }
+
+cCdmaAhdlcPerfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CCdmaAhdlcPerfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of statistics for those AHDLC engines
+        supported by the system."
+    ::= { cCdmaAhdlcEngineInfo 2 }
+
+cCdmaAhdlcPerfEntry OBJECT-TYPE
+    SYNTAX CCdmaAhdlcPerfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The statistics associated with an AHDLC engine."
+    INDEX { cCdmaAhdlcEngineIndex }
+-- Augments cCdmaAhdlcEngineEntry
+    ::= { cCdmaAhdlcPerfTable 1 }
+
+CCdmaAhdlcPerfEntry ::= SEQUENCE {
+    cCdmaAhdlcOutgoingOctetsToEncode ZeroBasedCounter32,
+    cCdmaAhdlcOutgoingOctetsEncoded ZeroBasedCounter32,
+    cCdmaAhdlcOutgoingPktsToEncode ZeroBasedCounter32,
+    cCdmaAhdlcOutgoingPktsEncoded ZeroBasedCounter32,
+    cCdmaAhdlcIncomingOctetsToDecode ZeroBasedCounter32,
+    cCdmaAhdlcIncomingOctetsDecoded ZeroBasedCounter32,
+    cCdmaAhdlcIncomingPktsToDecode ZeroBasedCounter32,
+    cCdmaAhdlcIncomingPktsDecoded ZeroBasedCounter32,
+    cCdmaAhdlcDropPktsDec ZeroBasedCounter32,
+    cCdmaAhdlcDropPktsEnc ZeroBasedCounter32,
+    cCdmaAhdlcCRCDropPkts ZeroBasedCounter32,
+    cCdmaAhdlcMemDropPktsDec ZeroBasedCounter32,
+    cCdmaAhdlcMemDropPktsEnc ZeroBasedCounter32,
+    cCdmaAhdlcOverflowDropPktsDec ZeroBasedCounter32,
+    cCdmaAhdlcOverflowDropPktsEnc ZeroBasedCounter32,
+    cCdmaAhdlcInvSizeDropPktsDec ZeroBasedCounter32,
+    cCdmaAhdlcInvSizeDropPktsEnc ZeroBasedCounter32,
+    cCdmaAhdlcDiscontinuityTime TimeStamp
+    }
+
+cCdmaAhdlcOutgoingOctetsToEncode OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of outgoing-traffic octets delivered to
+        the AHDLC engine for AHDLC encoding since system was
+        last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 1 }
+
+cCdmaAhdlcOutgoingOctetsEncoded OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of outgoing-traffic octets generated by
+        the AHDLC engine through AHDLC encoding since system
+        was last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 2 }
+
+cCdmaAhdlcOutgoingPktsToEncode OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of outgoing-traffic packets delivered
+        to the AHDLC engine for AHDLC encoding since system
+        was last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 3 }
+
+cCdmaAhdlcOutgoingPktsEncoded OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of outgoing-traffic packets generated
+        by the AHDLC engine through AHDLC encoding since
+        system was last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 4 }
+
+cCdmaAhdlcIncomingOctetsToDecode OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of incoming-traffic octets delivered to
+        the AHDLC engine for AHDLC decoding since system was
+        last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 5 }
+
+cCdmaAhdlcIncomingOctetsDecoded OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of incoming-traffic octets generated by
+        the AHDLC engine through AHDLC decoding since system
+        was last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 6 }
+
+cCdmaAhdlcIncomingPktsToDecode OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of incoming-traffic packets delivered
+        to the AHDLC engine for AHDLC decoding since system
+        was last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 7 }
+
+cCdmaAhdlcIncomingPktsDecoded OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of incoming-traffic packets generated
+        by the AHDLC engine through AHDLC decoding since
+        system was last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 8 }
+
+cCdmaAhdlcDropPktsDec OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets dropped by the engine during
+        AHDLC decoding since system was last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 9 }
+
+cCdmaAhdlcDropPktsEnc OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets dropped by the engine during
+        AHDLC encoding since system was last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 10 }
+
+cCdmaAhdlcCRCDropPkts OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets dropped by the engine because
+        of CRC errors since system was last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 11 }
+
+cCdmaAhdlcMemDropPktsDec OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets dropped by the engine due to
+        insufficient memory during AHDLC decoding since
+        system was last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 12 }
+
+cCdmaAhdlcMemDropPktsEnc OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets dropped by the engine due to
+        insufficient memory during AHDLC encoding since
+        system was last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 13 }
+
+cCdmaAhdlcOverflowDropPktsDec OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets dropped by the engine due to
+        queue overflow during AHDLC decoding since system was
+        last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 14 }
+
+cCdmaAhdlcOverflowDropPktsEnc OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets dropped by the engine due to
+        queue overflow during AHDLC encoding since system was
+        last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 15 }
+
+cCdmaAhdlcInvSizeDropPktsDec OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets dropped by the engine due to
+        invalid size during AHDLC decoding since system was
+        last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 16 }
+
+cCdmaAhdlcInvSizeDropPktsEnc OBJECT-TYPE
+    SYNTAX ZeroBasedCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets dropped by the engine due to
+        invalid size during AHDLC encoding since system was
+        last restarted.
+        
+        Discontinuities in the value of this counter can occur
+        at re-initialization of the management system, and at
+        other times as indicated by the value of
+        cCdmaAhdlcDiscontinuityTime."
+    ::= { cCdmaAhdlcPerfEntry 17 }
+
+cCdmaAhdlcDiscontinuityTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the AHDLC Engine's
+        counters last experienced a discontinuity. If no
+        discontinuities have occurred since the last
+        re-initialization of the local management subsystem,
+        then this object contains a zero value."
+    ::= { cCdmaAhdlcPerfEntry 18 }
+
+cCdmaAhdlcEngineDownNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cCdmaAhdlcMIB
+    VARIABLES {
+        cCdmaAhdlcEngineOperState, cCdmaAhdlcEngineAdminState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification indicates an AHDLC engine
+        is 'down' due to some fault though the desired
+        state of the engine is 'up'."
+    ::= 1
+
+cCdmaAhdlcGroup OBJECT IDENTIFIER ::= { cCdmaAhdlcMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects needed for CDMA AHDLC network
+--    management.
+--  objects
+--    cCdmaAhdlcEngineName, cCdmaAhdlcEngineType, 
+--    cCdmaAhdlcEngineMaxChannels, cCdmaAhdlcEngineConfMaxChannels, 
+--    cCdmaAhdlcEngineChannelsInUse, cCdmaAhdlcEngineOperState, 
+--    cCdmaAhdlcEngineAdminState, cCdmaAhdlcEngineDownNotifEnabled, 
+--    cCdmaAhdlcPhysicalIndex, cCdmaAhdlcOutgoingOctetsToEncode, 
+--    cCdmaAhdlcOutgoingOctetsEncoded, 
+--    cCdmaAhdlcOutgoingPktsToEncode, cCdmaAhdlcOutgoingPktsEncoded, 
+--    cCdmaAhdlcIncomingOctetsToDecode, 
+--    cCdmaAhdlcIncomingOctetsDecoded, 
+--    cCdmaAhdlcIncomingPktsToDecode, cCdmaAhdlcIncomingPktsDecoded, 
+--    cCdmaAhdlcDropPktsDec, cCdmaAhdlcDropPktsEnc, 
+--    cCdmaAhdlcCRCDropPkts, cCdmaAhdlcMemDropPktsDec, 
+--    cCdmaAhdlcMemDropPktsEnc, cCdmaAhdlcOverflowDropPktsDec, 
+--    cCdmaAhdlcOverflowDropPktsEnc, cCdmaAhdlcInvSizeDropPktsDec, 
+--    cCdmaAhdlcInvSizeDropPktsEnc, cCdmaAhdlcDiscontinuityTime
+
+cCdmaAhdlcNotifGroup OBJECT IDENTIFIER ::= { cCdmaAhdlcMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The notifications related to CDMA AHDLC network
+--    management.
+--  notifications
+--    cCdmaAhdlcEngineDownNotif
+
+cCdmaAhdlcMIBCompliance OBJECT IDENTIFIER ::= { cCdmaAhdlcMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the CDMA AHDLC Management MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cCdmaAhdlcGroup
+--   MandGroup
+--    cCdmaAhdlcNotifGroup
+
+
+END
+

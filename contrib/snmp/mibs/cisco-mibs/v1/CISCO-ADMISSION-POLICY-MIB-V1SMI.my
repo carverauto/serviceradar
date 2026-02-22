@@ -1,0 +1,571 @@
+-- MIB file created 18-Nov-2010 15:44:18, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ADMISSION-POLICY-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ADMISSION-POLICY-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    MacAddress
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    InterfaceIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoAdmissionPolicyMIB OBJECT IDENTIFIER ::= { ciscoMgmt 653 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200806110000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This MIB module defines managed objects that facilitate
+--    the management of policies upon host(s) admission to 
+--    a network. 
+--    
+--    The information available through this MIB includes:
+--    
+--    o Statistics information such as number of total and
+--      active sessions. 
+--    
+--    o Session information such as IP and MAC address of
+--      host, client type, and session state.
+--    
+--    o QoS and Security policy applied to host traffic upon 
+--      host admission to a network. 
+--    
+--    The following terms are used throughout this MIB:
+--    
+--    QoS (Quality of Service) is the method which attempts 
+--    to ensure that the network requirements of different 
+--    applications can be met by giving preferential forwarding
+--    treatment to some traffic.
+--    
+--    ACL (Access Control List) which contains filters used
+--    to identify traffic flows with certain characteristics.
+--    
+--    Downloadable ACL is a set of filters, configured on the 
+--    RADIUS server which are downloaded during authorization 
+--    phase of admission features like dot1x, authProxy, etc.
+--    
+--    SGT (Security Group Tag) is a unique 16 bits value assigned
+--    to every security group and used by network devices to
+--    enforce network policies. 
+--    
+--    URL: Universal Resource Locator.
+--    
+--    URL-Redirect ACL is used for URL redirection feature. Any 
+--    ingress HTTP from the host that matches the ACL content 
+--    is subjected to redirection to the URL address specified by 
+--    the URL-Redirect string.
+--    
+--    URL redirect string is the URL to which HTTP traffic to 
+--    the host would be redirected.
+--  RevDate
+--    200806110000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoAdmissionPolicyMIBNotifs OBJECT IDENTIFIER ::= { ciscoAdmissionPolicyMIB 0 }
+ciscoAdmissionPolicyMIBObjects OBJECT IDENTIFIER ::= { ciscoAdmissionPolicyMIB 1 }
+ciscoAdmissionPolicyMIBConformance OBJECT IDENTIFIER ::= { ciscoAdmissionPolicyMIB 2 }
+capSessions     OBJECT IDENTIFIER ::= { ciscoAdmissionPolicyMIBObjects 1 }
+ciscoAdmissionPolicyMIBCompliances OBJECT IDENTIFIER ::= { ciscoAdmissionPolicyMIBConformance 1 }
+ciscoAdmissionPolicyMIBGroups OBJECT IDENTIFIER ::= { ciscoAdmissionPolicyMIBConformance 2 }
+
+CapSessionId ::= OCTET STRING(SIZE(1..64))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An octet string describes an unique session identification.
+
+CapQosPolicy ::= OCTET STRING(SIZE(0..255))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    255a
+--  Status
+--    mandatory
+--  Descr
+--    An octet string, preferably in human-readable form,
+--    describes a QoS policy.
+
+CapAclName ::= OCTET STRING(SIZE(0..255))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    255a
+--  Status
+--    mandatory
+--  Descr
+--    An octet string, preferably in human-readable form,
+--    describes the name of an ACL.
+
+CapURLString ::= OCTET STRING(SIZE(0..255))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention defines the URL string.
+--    The Universal Resource Locator (URL). The URL strings
+--    are compact string representation for a resource
+--    available via internet. This is the address location
+--    of the page to load. The string should represent a
+--    fully qualifying string with the format
+--    'protocol:/server/page'. In general the string should
+--    point to any value that can be saved/loaded.
+--    Any limitation for the URL must be defined as part of
+--    the description of any object which uses this syntax.
+--    The description of any object which uses this syntax 
+--    must specifically describe the meaning of zero length 
+--    value.
+--  Refer
+--    Uniform Resource Locators. RFC 1738.
+
+CapPolicyState ::= INTEGER {
+        notApplicable(1),
+        success(2),
+        failure(3),
+        inProgress(4),
+        ipWait(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention indicates the current state
+--    of a policy applied to host traffic.
+--    
+--    'notApplicable' indicates that the policy is not applicable.
+--    
+--    'success' indicates that the policy is applied successfully.
+--    
+--    'failure' indicates that the policy is failed to apply.
+--    
+--    'inProgress' indicates that the policy application is
+--     in progress.
+--    
+--    'ipWait' indicates that the policy is waiting for IP
+--     address assignment. 
+
+capTotalSessions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total numbers of sessions
+         created in the device since the last system reset."
+    ::= { capSessions 1 }
+
+capActiveSessions OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the currently active sessions
+         in the device."
+    ::= { capSessions 2 }
+
+capSidSessionInfoTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CapSidSessionInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists admission policy sessions based on unique
+         session identifier.
+        
+         An entry is created by the agent when an admission policy 
+         session has successfully registered to the system. 
+        
+         An entry is deleted by the agent upon de-registration of the 
+         admission policy session with system."
+    ::= { capSessions 3 }
+
+capSidSessionInfoEntry OBJECT-TYPE
+    SYNTAX CapSidSessionInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each row contains the management information of a particular
+         active session based on unique session identifier."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED capSidSessionIndex }
+    ::= { capSidSessionInfoTable 1 }
+
+CapSidSessionInfoEntry ::= SEQUENCE {
+    capSidSessionIndex CapSessionId,
+    capSidSessionIfIndex InterfaceIndex,
+    capSidSessionMacAddress MacAddress,
+    capSidSessionAddressType InetAddressType,
+    capSidSessionAddress InetAddress,
+    capSidSessionFeatureType OCTET STRING
+    }
+
+capSidSessionIndex OBJECT-TYPE
+    SYNTAX CapSessionId
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object uniquely identifies a session."
+    ::= { capSidSessionInfoEntry 1 }
+
+capSidSessionIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the ifIndex value of the interface
+         on which the session is established."
+    ::= { capSidSessionInfoEntry 2 }
+
+capSidSessionMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the MAC address of the host."
+    ::= { capSidSessionInfoEntry 3 }
+
+capSidSessionAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the type of Internet address 
+         assigned for the host."
+    ::= { capSidSessionInfoEntry 4 }
+
+capSidSessionAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the Internet address assigned for
+         the host. The type of this address is determined by 
+         the value of capSidSessionAddressType object."
+    ::= { capSidSessionInfoEntry 5 }
+
+capSidSessionFeatureType OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   dot1x(0)
+        --   mab(1)
+        --   eou(2)
+        --   authProxy(3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the admission features associated 
+         with the session.
+        
+        'dot1x' indicates that the admission feature is 
+        802.1x feature.
+        
+        'mab' indicates that the admission feature is 
+        Mac Authentication Bypass feature.
+        
+        'eou' indicates that the admission feature is 
+        Extensible Authentication Protocol over UDP feature.
+        
+        'authProxy' indicates that the admission feature is 
+        Authentication Proxy feature."
+    ::= { capSidSessionInfoEntry 6 }
+
+capSidSessionPolicyTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CapSidSessionPolicyEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the policies that will be enforced 
+        per session per admission feature. The session in this
+        table should have a corresponding entry in 
+        capSidSessionInfoTable."
+    ::= { capSessions 4 }
+
+capSidSessionPolicyEntry OBJECT-TYPE
+    SYNTAX CapSidSessionPolicyEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each row contains the management information of a 
+        particular admission feature of a session."
+    INDEX { capSidSessionIndex, capSidSessionPolicyIndex }
+    ::= { capSidSessionPolicyTable 1 }
+
+CapSidSessionPolicyEntry ::= SEQUENCE {
+    capSidSessionPolicyIndex INTEGER,
+    capSidIngressQosPolicy CapQosPolicy,
+    capSidIngressQosPolicyState CapPolicyState,
+    capSidEgressQosPolicy CapQosPolicy,
+    capSidEgressQosPolicyState CapPolicyState,
+    capSidDownloadableAclName CapAclName,
+    capSidDownloadableAclState CapPolicyState,
+    capSidUrlRedirectAclName CapAclName,
+    capSidUrlRedirectAclState CapPolicyState,
+    capSidRedirectUrlString CapURLString,
+    capSidRedirectUrlStringState CapPolicyState,
+    capSidSecurityGroupTag INTEGER
+    }
+
+capSidSessionPolicyIndex OBJECT-TYPE
+    SYNTAX INTEGER {
+        dot1x(1),
+        mab(2),
+        eou(3),
+        authProxy(4)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the admission feature which
+        a host is subjected to in a session.
+        
+        'dot1x' indicates that the admission feature is 
+        802.1x feature.
+        
+        'mab' indicates that the admission feature is 
+        Mac Authentication Bypass feature.
+        
+        'eou' indicates that the admission feature is 
+        Extensible Authentication Protocol over UDP feature.
+        
+        'authProxy' indicates that the admission feature is 
+        Authentication Proxy feature."
+    ::= { capSidSessionPolicyEntry 1 }
+
+capSidIngressQosPolicy OBJECT-TYPE
+    SYNTAX CapQosPolicy
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the name of an existing QoS 
+        policy which will be applied to incoming traffic
+        in this session. An empty string indicates that no such
+        policy is applied."
+    ::= { capSidSessionPolicyEntry 2 }
+
+capSidIngressQosPolicyState OBJECT-TYPE
+    SYNTAX CapPolicyState
+--    Rsyntax INTEGER {
+--        notApplicable(1),
+--        success(2),
+--        failure(3),
+--        inProgress(4),
+--        ipWait(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current state of the 
+        QoS policy which will be applied to incoming traffic
+        in this session."
+    ::= { capSidSessionPolicyEntry 3 }
+
+capSidEgressQosPolicy OBJECT-TYPE
+    SYNTAX CapQosPolicy
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the name of an existing QoS 
+        policy which will be applied to outgoing traffic
+        in this session. An empty string indicates that no
+        such policy is applied."
+    ::= { capSidSessionPolicyEntry 4 }
+
+capSidEgressQosPolicyState OBJECT-TYPE
+    SYNTAX CapPolicyState
+--    Rsyntax INTEGER {
+--        notApplicable(1),
+--        success(2),
+--        failure(3),
+--        inProgress(4),
+--        ipWait(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current state of the QoS 
+        policy which will be applied to outgoing traffic 
+        in this session."
+    ::= { capSidSessionPolicyEntry 5 }
+
+capSidDownloadableAclName OBJECT-TYPE
+    SYNTAX CapAclName
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the name of a Downloadable
+        ACL which will be applied to the host traffic. 
+        An empty string indicates that no such ACL is 
+        applied."
+    ::= { capSidSessionPolicyEntry 6 }
+
+capSidDownloadableAclState OBJECT-TYPE
+    SYNTAX CapPolicyState
+--    Rsyntax INTEGER {
+--        notApplicable(1),
+--        success(2),
+--        failure(3),
+--        inProgress(4),
+--        ipWait(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the state of this session 
+        downloadable ACL policy."
+    ::= { capSidSessionPolicyEntry 7 }
+
+capSidUrlRedirectAclName OBJECT-TYPE
+    SYNTAX CapAclName
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the ACL name that redirected traffic
+        from the host will be subjected to. An empty string indicates
+        that no such ACL is applied."
+    ::= { capSidSessionPolicyEntry 8 }
+
+capSidUrlRedirectAclState OBJECT-TYPE
+    SYNTAX CapPolicyState
+--    Rsyntax INTEGER {
+--        notApplicable(1),
+--        success(2),
+--        failure(3),
+--        inProgress(4),
+--        ipWait(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the state of this session 
+        URL-Redirect ACL policy."
+    ::= { capSidSessionPolicyEntry 9 }
+
+capSidRedirectUrlString OBJECT-TYPE
+    SYNTAX CapURLString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the URL that traffic from
+        the host will be redirected to. An empty string indicates
+        that no such URL is applied."
+    ::= { capSidSessionPolicyEntry 10 }
+
+capSidRedirectUrlStringState OBJECT-TYPE
+    SYNTAX CapPolicyState
+--    Rsyntax INTEGER {
+--        notApplicable(1),
+--        success(2),
+--        failure(3),
+--        inProgress(4),
+--        ipWait(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the state of this session 
+        URL-Redirect string policy."
+    ::= { capSidSessionPolicyEntry 11 }
+
+capSidSecurityGroupTag OBJECT-TYPE
+    SYNTAX INTEGER(-1|0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the SGT value assigned to the
+        host that initiated this session. Value of -1 indicates
+        that there is no SGT value assigned."
+    ::= { capSidSessionPolicyEntry 12 }
+
+capSessionStatisticsGroup OBJECT IDENTIFIER ::= { ciscoAdmissionPolicyMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object which provides session statistics 
+--     information in the device.
+--  objects
+--    capTotalSessions, capActiveSessions
+
+capSidSessionInfoGroup OBJECT IDENTIFIER ::= { ciscoAdmissionPolicyMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which provides managed information 
+--     of a session based on unique session identifier.
+--  objects
+--    capSidSessionAddressType, capSidSessionAddress, 
+--    capSidSessionIfIndex, capSidSessionMacAddress, 
+--    capSidSessionFeatureType
+
+capSidSessionPolicyGroup OBJECT IDENTIFIER ::= { ciscoAdmissionPolicyMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which provides policy information
+--     in a session based on unique session identifier.
+--  objects
+--    capSidIngressQosPolicy, capSidIngressQosPolicyState, 
+--    capSidEgressQosPolicy, capSidEgressQosPolicyState, 
+--    capSidDownloadableAclName, capSidDownloadableAclState, 
+--    capSidRedirectUrlString, capSidRedirectUrlStringState, 
+--    capSidUrlRedirectAclName, capSidUrlRedirectAclState, 
+--    capSidSecurityGroupTag
+
+ciscoAdmissionPolicyMIBCompliance OBJECT IDENTIFIER ::= { ciscoAdmissionPolicyMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the CISCO-ADMISSION-POLICY-MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    capSessionStatisticsGroup
+--   OptGroup
+--    capSidSessionPolicyGroup
+--   OptGroup
+--    capSidSessionInfoGroup
+
+
+END
+

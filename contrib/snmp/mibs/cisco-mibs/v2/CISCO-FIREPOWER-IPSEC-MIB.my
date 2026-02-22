@@ -1,0 +1,1156 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-IPSEC-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- IPSEC management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-IPSEC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprConditionRemoteInvRslt,
+    CfprFsmCompletion,
+    CfprFsmFlags,
+    CfprFsmFsmStageStatus,
+    CfprIpsecAuthType,
+    CfprIpsecCommand,
+    CfprIpsecConfigState,
+    CfprIpsecConnState,
+    CfprIpsecEpFsmCurrentFsm,
+    CfprIpsecEpFsmStageName,
+    CfprIpsecEpFsmTaskItem,
+    CfprIpsecEspMode,
+    CfprIpsecFqdnEnforceType,
+    CfprIpsecRevokePolicy,
+    CfprIpsecStatsType,
+    CfprPkiType,
+    CfprPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprIpsecObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        IPSEC management information model package"
+    ::= { ciscoFirepowerMIBObjects 84 }
+
+cfprIpsecAuthorityTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprIpsecAuthorityEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Authority managed object table"
+    ::= { cfprIpsecObjects 1 }
+
+cfprIpsecAuthorityEntry OBJECT-TYPE
+    SYNTAX           CfprIpsecAuthorityEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprIpsecAuthorityTable table."
+    INDEX { cfprIpsecAuthorityInstanceId }
+    ::= { cfprIpsecAuthorityTable 1 }
+
+CfprIpsecAuthorityEntry ::= SEQUENCE {
+    cfprIpsecAuthorityInstanceId                                     CfprManagedObjectId,
+    cfprIpsecAuthorityDn                                             CfprManagedObjectDn,
+    cfprIpsecAuthorityRn                                             SnmpAdminString,
+    cfprIpsecAuthorityConfigState                                    CfprIpsecConfigState,
+    cfprIpsecAuthorityCrlUris                                        SnmpAdminString,
+    cfprIpsecAuthorityDescr                                          SnmpAdminString,
+    cfprIpsecAuthorityIntId                                          SnmpAdminString,
+    cfprIpsecAuthorityName                                           SnmpAdminString,
+    cfprIpsecAuthorityNumCerts                                       Gauge32,
+    cfprIpsecAuthorityOcspUris                                       SnmpAdminString,
+    cfprIpsecAuthorityPolicyLevel                                    Gauge32,
+    cfprIpsecAuthorityPolicyOwner                                    CfprPolicyPolicyOwner,
+    cfprIpsecAuthorityTpName                                         SnmpAdminString
+}
+
+cfprIpsecAuthorityInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprIpsecAuthorityEntry 1 }
+
+cfprIpsecAuthorityDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Authority:dn managed object property"
+    ::= { cfprIpsecAuthorityEntry 2 }
+
+cfprIpsecAuthorityRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Authority:rn managed object property"
+    ::= { cfprIpsecAuthorityEntry 3 }
+
+cfprIpsecAuthorityConfigState OBJECT-TYPE
+    SYNTAX       CfprIpsecConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Authority:configState managed
+        object property"
+    ::= { cfprIpsecAuthorityEntry 4 }
+
+cfprIpsecAuthorityCrlUris OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Authority:crlUris managed object property"
+    ::= { cfprIpsecAuthorityEntry 5 }
+
+cfprIpsecAuthorityDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Authority:descr managed object property"
+    ::= { cfprIpsecAuthorityEntry 6 }
+
+cfprIpsecAuthorityIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Authority:intId managed object property"
+    ::= { cfprIpsecAuthorityEntry 7 }
+
+cfprIpsecAuthorityName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Authority:name managed object property"
+    ::= { cfprIpsecAuthorityEntry 8 }
+
+cfprIpsecAuthorityNumCerts OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Authority:numCerts managed object property"
+    ::= { cfprIpsecAuthorityEntry 9 }
+
+cfprIpsecAuthorityOcspUris OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Authority:ocspUris managed object property"
+    ::= { cfprIpsecAuthorityEntry 10 }
+
+cfprIpsecAuthorityPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Authority:policyLevel managed
+        object property"
+    ::= { cfprIpsecAuthorityEntry 11 }
+
+cfprIpsecAuthorityPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Authority:policyOwner managed
+        object property"
+    ::= { cfprIpsecAuthorityEntry 12 }
+
+cfprIpsecAuthorityTpName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Authority:tpName managed object property"
+    ::= { cfprIpsecAuthorityEntry 13 }
+
+cfprIpsecConnectionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprIpsecConnectionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection managed object table"
+    ::= { cfprIpsecObjects 2 }
+
+cfprIpsecConnectionEntry OBJECT-TYPE
+    SYNTAX           CfprIpsecConnectionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprIpsecConnectionTable table."
+    INDEX { cfprIpsecConnectionInstanceId }
+    ::= { cfprIpsecConnectionTable 1 }
+
+CfprIpsecConnectionEntry ::= SEQUENCE {
+    cfprIpsecConnectionInstanceId                                    CfprManagedObjectId,
+    cfprIpsecConnectionDn                                            CfprManagedObjectDn,
+    cfprIpsecConnectionRn                                            SnmpAdminString,
+    cfprIpsecConnectionAdminState                                    CfprIpsecConnState,
+    cfprIpsecConnectionAuth                                          CfprIpsecAuthType,
+    cfprIpsecConnectionConfigState                                   CfprIpsecConfigState,
+    cfprIpsecConnectionDescr                                         SnmpAdminString,
+    cfprIpsecConnectionEspMode                                       CfprIpsecEspMode,
+    cfprIpsecConnectionEspProposals                                  SnmpAdminString,
+    cfprIpsecConnectionEspRekeyTime                                  Gauge32,
+    cfprIpsecConnectionIkeRekeyTime                                  Gauge32,
+    cfprIpsecConnectionIkeVer                                        Gauge32,
+    cfprIpsecConnectionInactivity                                    Gauge32,
+    cfprIpsecConnectionIntId                                         SnmpAdminString,
+    cfprIpsecConnectionKeyingtries                                   Gauge32,
+    cfprIpsecConnectionKeyring                                       SnmpAdminString,
+    cfprIpsecConnectionLocalAddrs                                    SnmpAdminString,
+    cfprIpsecConnectionLocalIkeIdent                                 SnmpAdminString,
+    cfprIpsecConnectionLocalTs                                       SnmpAdminString,
+    cfprIpsecConnectionName                                          SnmpAdminString,
+    cfprIpsecConnectionNumCerts                                      Gauge32,
+    cfprIpsecConnectionPolicyLevel                                   Gauge32,
+    cfprIpsecConnectionPolicyOwner                                   CfprPolicyPolicyOwner,
+    cfprIpsecConnectionProposals                                     SnmpAdminString,
+    cfprIpsecConnectionPwd                                           SnmpAdminString,
+    cfprIpsecConnectionRemoteAddrs                                   SnmpAdminString,
+    cfprIpsecConnectionRemoteIkeIdent                                SnmpAdminString,
+    cfprIpsecConnectionRemoteTs                                      SnmpAdminString,
+    cfprIpsecConnectionRevokePolicy                                  CfprIpsecRevokePolicy,
+    cfprIpsecConnectionTpName                                        SnmpAdminString,
+    cfprIpsecConnectionFqdnEnforce                                   CfprIpsecFqdnEnforceType,
+    cfprIpsecConnectionKeyringtype                                   CfprPkiType
+}
+
+cfprIpsecConnectionInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprIpsecConnectionEntry 1 }
+
+cfprIpsecConnectionDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:dn managed object property"
+    ::= { cfprIpsecConnectionEntry 2 }
+
+cfprIpsecConnectionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:rn managed object property"
+    ::= { cfprIpsecConnectionEntry 3 }
+
+cfprIpsecConnectionAdminState OBJECT-TYPE
+    SYNTAX       CfprIpsecConnState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:adminState managed
+        object property"
+    ::= { cfprIpsecConnectionEntry 4 }
+
+cfprIpsecConnectionAuth OBJECT-TYPE
+    SYNTAX       CfprIpsecAuthType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:auth managed object property"
+    ::= { cfprIpsecConnectionEntry 5 }
+
+cfprIpsecConnectionConfigState OBJECT-TYPE
+    SYNTAX       CfprIpsecConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:configState managed
+        object property"
+    ::= { cfprIpsecConnectionEntry 6 }
+
+cfprIpsecConnectionDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:descr managed object property"
+    ::= { cfprIpsecConnectionEntry 7 }
+
+cfprIpsecConnectionEspMode OBJECT-TYPE
+    SYNTAX       CfprIpsecEspMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:espMode managed object property"
+    ::= { cfprIpsecConnectionEntry 8 }
+
+cfprIpsecConnectionEspProposals OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:espProposals
+        managed object property"
+    ::= { cfprIpsecConnectionEntry 9 }
+
+cfprIpsecConnectionEspRekeyTime OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:espRekeyTime
+        managed object property"
+    ::= { cfprIpsecConnectionEntry 10 }
+
+cfprIpsecConnectionIkeRekeyTime OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:ikeRekeyTime
+        managed object property"
+    ::= { cfprIpsecConnectionEntry 11 }
+
+cfprIpsecConnectionIkeVer OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:ikeVer managed object property"
+    ::= { cfprIpsecConnectionEntry 12 }
+
+cfprIpsecConnectionInactivity OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:inactivity managed
+        object property"
+    ::= { cfprIpsecConnectionEntry 13 }
+
+cfprIpsecConnectionIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:intId managed object property"
+    ::= { cfprIpsecConnectionEntry 14 }
+
+cfprIpsecConnectionKeyingtries OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:keyingtries managed
+        object property"
+    ::= { cfprIpsecConnectionEntry 15 }
+
+cfprIpsecConnectionKeyring OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:keyring managed object property"
+    ::= { cfprIpsecConnectionEntry 16 }
+
+cfprIpsecConnectionLocalAddrs OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:localAddrs managed
+        object property"
+    ::= { cfprIpsecConnectionEntry 17 }
+
+cfprIpsecConnectionLocalIkeIdent OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:localIkeIdent
+        managed object property"
+    ::= { cfprIpsecConnectionEntry 18 }
+
+cfprIpsecConnectionLocalTs OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:localTs managed object property"
+    ::= { cfprIpsecConnectionEntry 19 }
+
+cfprIpsecConnectionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:name managed object property"
+    ::= { cfprIpsecConnectionEntry 20 }
+
+cfprIpsecConnectionNumCerts OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:numCerts managed
+        object property"
+    ::= { cfprIpsecConnectionEntry 21 }
+
+cfprIpsecConnectionPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:policyLevel managed
+        object property"
+    ::= { cfprIpsecConnectionEntry 22 }
+
+cfprIpsecConnectionPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:policyOwner managed
+        object property"
+    ::= { cfprIpsecConnectionEntry 23 }
+
+cfprIpsecConnectionProposals OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:proposals managed
+        object property"
+    ::= { cfprIpsecConnectionEntry 24 }
+
+cfprIpsecConnectionPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:pwd managed object property"
+    ::= { cfprIpsecConnectionEntry 25 }
+
+cfprIpsecConnectionRemoteAddrs OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:remoteAddrs managed
+        object property"
+    ::= { cfprIpsecConnectionEntry 26 }
+
+cfprIpsecConnectionRemoteIkeIdent OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:remoteIkeIdent
+        managed object property"
+    ::= { cfprIpsecConnectionEntry 27 }
+
+cfprIpsecConnectionRemoteTs OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:remoteTs managed
+        object property"
+    ::= { cfprIpsecConnectionEntry 28 }
+
+cfprIpsecConnectionRevokePolicy OBJECT-TYPE
+    SYNTAX       CfprIpsecRevokePolicy
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:revokePolicy
+        managed object property"
+    ::= { cfprIpsecConnectionEntry 29 }
+
+cfprIpsecConnectionTpName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:tpName managed object property"
+    ::= { cfprIpsecConnectionEntry 30 }
+
+cfprIpsecConnectionFqdnEnforce OBJECT-TYPE
+    SYNTAX       CfprIpsecFqdnEnforceType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:fqdnEnforce managed
+        object property"
+    ::= { cfprIpsecConnectionEntry 31 }
+
+cfprIpsecConnectionKeyringtype OBJECT-TYPE
+    SYNTAX       CfprPkiType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Connection:keyringtype managed
+        object property"
+    ::= { cfprIpsecConnectionEntry 32 }
+
+cfprIpsecEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprIpsecEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep managed object table"
+    ::= { cfprIpsecObjects 3 }
+
+cfprIpsecEpEntry OBJECT-TYPE
+    SYNTAX           CfprIpsecEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprIpsecEpTable table."
+    INDEX { cfprIpsecEpInstanceId }
+    ::= { cfprIpsecEpTable 1 }
+
+CfprIpsecEpEntry ::= SEQUENCE {
+    cfprIpsecEpInstanceId                                            CfprManagedObjectId,
+    cfprIpsecEpDn                                                    CfprManagedObjectDn,
+    cfprIpsecEpRn                                                    SnmpAdminString,
+    cfprIpsecEpDescr                                                 SnmpAdminString,
+    cfprIpsecEpExecuteCmd                                            CfprIpsecCommand,
+    cfprIpsecEpFsmDescr                                              SnmpAdminString,
+    cfprIpsecEpFsmPrev                                               SnmpAdminString,
+    cfprIpsecEpFsmProgr                                              Gauge32,
+    cfprIpsecEpFsmRmtInvErrCode                                      Gauge32,
+    cfprIpsecEpFsmRmtInvErrDescr                                     SnmpAdminString,
+    cfprIpsecEpFsmRmtInvRslt                                         CfprConditionRemoteInvRslt,
+    cfprIpsecEpFsmStageDescr                                         SnmpAdminString,
+    cfprIpsecEpFsmStamp                                              DateAndTime,
+    cfprIpsecEpFsmStatus                                             SnmpAdminString,
+    cfprIpsecEpFsmTry                                                Gauge32,
+    cfprIpsecEpIntId                                                 SnmpAdminString,
+    cfprIpsecEpLogLevel                                              Gauge32,
+    cfprIpsecEpName                                                  SnmpAdminString,
+    cfprIpsecEpPolicyLevel                                           Gauge32,
+    cfprIpsecEpPolicyOwner                                           CfprPolicyPolicyOwner,
+    cfprIpsecEpSaEnforce                                             TruthValue
+}
+
+cfprIpsecEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprIpsecEpEntry 1 }
+
+cfprIpsecEpDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:dn managed object property"
+    ::= { cfprIpsecEpEntry 2 }
+
+cfprIpsecEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:rn managed object property"
+    ::= { cfprIpsecEpEntry 3 }
+
+cfprIpsecEpDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:descr managed object property"
+    ::= { cfprIpsecEpEntry 4 }
+
+cfprIpsecEpExecuteCmd OBJECT-TYPE
+    SYNTAX       CfprIpsecCommand
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:executeCmd managed object property"
+    ::= { cfprIpsecEpEntry 5 }
+
+cfprIpsecEpFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:fsmDescr managed object property"
+    ::= { cfprIpsecEpEntry 6 }
+
+cfprIpsecEpFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:fsmPrev managed object property"
+    ::= { cfprIpsecEpEntry 7 }
+
+cfprIpsecEpFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:fsmProgr managed object property"
+    ::= { cfprIpsecEpEntry 8 }
+
+cfprIpsecEpFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:fsmRmtInvErrCode managed
+        object property"
+    ::= { cfprIpsecEpEntry 9 }
+
+cfprIpsecEpFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:fsmRmtInvErrDescr managed
+        object property"
+    ::= { cfprIpsecEpEntry 10 }
+
+cfprIpsecEpFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:fsmRmtInvRslt managed object property"
+    ::= { cfprIpsecEpEntry 11 }
+
+cfprIpsecEpFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:fsmStageDescr managed object property"
+    ::= { cfprIpsecEpEntry 12 }
+
+cfprIpsecEpFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:fsmStamp managed object property"
+    ::= { cfprIpsecEpEntry 13 }
+
+cfprIpsecEpFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:fsmStatus managed object property"
+    ::= { cfprIpsecEpEntry 14 }
+
+cfprIpsecEpFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:fsmTry managed object property"
+    ::= { cfprIpsecEpEntry 15 }
+
+cfprIpsecEpIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:intId managed object property"
+    ::= { cfprIpsecEpEntry 16 }
+
+cfprIpsecEpLogLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:logLevel managed object property"
+    ::= { cfprIpsecEpEntry 17 }
+
+cfprIpsecEpName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:name managed object property"
+    ::= { cfprIpsecEpEntry 18 }
+
+cfprIpsecEpPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:policyLevel managed object property"
+    ::= { cfprIpsecEpEntry 19 }
+
+cfprIpsecEpPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:policyOwner managed object property"
+    ::= { cfprIpsecEpEntry 20 }
+
+cfprIpsecEpSaEnforce OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Ep:saEnforce managed object property"
+    ::= { cfprIpsecEpEntry 21 }
+
+cfprIpsecEpFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprIpsecEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsm managed object table"
+    ::= { cfprIpsecObjects 4 }
+
+cfprIpsecEpFsmEntry OBJECT-TYPE
+    SYNTAX           CfprIpsecEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprIpsecEpFsmTable table."
+    INDEX { cfprIpsecEpFsmInstanceId }
+    ::= { cfprIpsecEpFsmTable 1 }
+
+CfprIpsecEpFsmEntry ::= SEQUENCE {
+    cfprIpsecEpFsmInstanceId                                         CfprManagedObjectId,
+    cfprIpsecEpFsmDn                                                 CfprManagedObjectDn,
+    cfprIpsecEpFsmRn                                                 SnmpAdminString,
+    cfprIpsecEpFsmCompletionTime                                     DateAndTime,
+    cfprIpsecEpFsmCurrentFsm                                         CfprIpsecEpFsmCurrentFsm,
+    cfprIpsecEpFsmDescrData                                          SnmpAdminString,
+    cfprIpsecEpFsmFsmStatus                                          CfprFsmFsmStageStatus,
+    cfprIpsecEpFsmProgress                                           Gauge32,
+    cfprIpsecEpFsmRmtErrCode                                         Gauge32,
+    cfprIpsecEpFsmRmtErrDescr                                        SnmpAdminString,
+    cfprIpsecEpFsmRmtRslt                                            CfprConditionRemoteInvRslt
+}
+
+cfprIpsecEpFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprIpsecEpFsmEntry 1 }
+
+cfprIpsecEpFsmDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsm:dn managed object property"
+    ::= { cfprIpsecEpFsmEntry 2 }
+
+cfprIpsecEpFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsm:rn managed object property"
+    ::= { cfprIpsecEpFsmEntry 3 }
+
+cfprIpsecEpFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsm:completionTime managed
+        object property"
+    ::= { cfprIpsecEpFsmEntry 4 }
+
+cfprIpsecEpFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprIpsecEpFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsm:currentFsm managed object property"
+    ::= { cfprIpsecEpFsmEntry 5 }
+
+cfprIpsecEpFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsm:descr managed object property"
+    ::= { cfprIpsecEpFsmEntry 6 }
+
+cfprIpsecEpFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsm:fsmStatus managed object property"
+    ::= { cfprIpsecEpFsmEntry 7 }
+
+cfprIpsecEpFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsm:progress managed object property"
+    ::= { cfprIpsecEpFsmEntry 8 }
+
+cfprIpsecEpFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsm:rmtErrCode managed object property"
+    ::= { cfprIpsecEpFsmEntry 9 }
+
+cfprIpsecEpFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsm:rmtErrDescr managed object property"
+    ::= { cfprIpsecEpFsmEntry 10 }
+
+cfprIpsecEpFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsm:rmtRslt managed object property"
+    ::= { cfprIpsecEpFsmEntry 11 }
+
+cfprIpsecEpFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprIpsecEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmStage managed object table"
+    ::= { cfprIpsecObjects 5 }
+
+cfprIpsecEpFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprIpsecEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprIpsecEpFsmStageTable table."
+    INDEX { cfprIpsecEpFsmStageInstanceId }
+    ::= { cfprIpsecEpFsmStageTable 1 }
+
+CfprIpsecEpFsmStageEntry ::= SEQUENCE {
+    cfprIpsecEpFsmStageInstanceId                                    CfprManagedObjectId,
+    cfprIpsecEpFsmStageDn                                            CfprManagedObjectDn,
+    cfprIpsecEpFsmStageRn                                            SnmpAdminString,
+    cfprIpsecEpFsmStageDescrData                                     SnmpAdminString,
+    cfprIpsecEpFsmStageLastUpdateTime                                DateAndTime,
+    cfprIpsecEpFsmStageName                                          CfprIpsecEpFsmStageName,
+    cfprIpsecEpFsmStageOrder                                         Gauge32,
+    cfprIpsecEpFsmStageRetry                                         Gauge32,
+    cfprIpsecEpFsmStageStageStatus                                   CfprFsmFsmStageStatus
+}
+
+cfprIpsecEpFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprIpsecEpFsmStageEntry 1 }
+
+cfprIpsecEpFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmStage:dn managed object property"
+    ::= { cfprIpsecEpFsmStageEntry 2 }
+
+cfprIpsecEpFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmStage:rn managed object property"
+    ::= { cfprIpsecEpFsmStageEntry 3 }
+
+cfprIpsecEpFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmStage:descr managed object property"
+    ::= { cfprIpsecEpFsmStageEntry 4 }
+
+cfprIpsecEpFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprIpsecEpFsmStageEntry 5 }
+
+cfprIpsecEpFsmStageName OBJECT-TYPE
+    SYNTAX       CfprIpsecEpFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmStage:name managed object property"
+    ::= { cfprIpsecEpFsmStageEntry 6 }
+
+cfprIpsecEpFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmStage:order managed object property"
+    ::= { cfprIpsecEpFsmStageEntry 7 }
+
+cfprIpsecEpFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmStage:retry managed object property"
+    ::= { cfprIpsecEpFsmStageEntry 8 }
+
+cfprIpsecEpFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmStage:stageStatus managed
+        object property"
+    ::= { cfprIpsecEpFsmStageEntry 9 }
+
+cfprIpsecEpFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprIpsecEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmTask managed object table"
+    ::= { cfprIpsecObjects 6 }
+
+cfprIpsecEpFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprIpsecEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprIpsecEpFsmTaskTable table."
+    INDEX { cfprIpsecEpFsmTaskInstanceId }
+    ::= { cfprIpsecEpFsmTaskTable 1 }
+
+CfprIpsecEpFsmTaskEntry ::= SEQUENCE {
+    cfprIpsecEpFsmTaskInstanceId                                     CfprManagedObjectId,
+    cfprIpsecEpFsmTaskDn                                             CfprManagedObjectDn,
+    cfprIpsecEpFsmTaskRn                                             SnmpAdminString,
+    cfprIpsecEpFsmTaskCompletion                                     CfprFsmCompletion,
+    cfprIpsecEpFsmTaskFlags                                          CfprFsmFlags,
+    cfprIpsecEpFsmTaskItem                                           CfprIpsecEpFsmTaskItem,
+    cfprIpsecEpFsmTaskSeqId                                          Gauge32
+}
+
+cfprIpsecEpFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprIpsecEpFsmTaskEntry 1 }
+
+cfprIpsecEpFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmTask:dn managed object property"
+    ::= { cfprIpsecEpFsmTaskEntry 2 }
+
+cfprIpsecEpFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmTask:rn managed object property"
+    ::= { cfprIpsecEpFsmTaskEntry 3 }
+
+cfprIpsecEpFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmTask:completion managed
+        object property"
+    ::= { cfprIpsecEpFsmTaskEntry 4 }
+
+cfprIpsecEpFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmTask:flags managed object property"
+    ::= { cfprIpsecEpFsmTaskEntry 5 }
+
+cfprIpsecEpFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprIpsecEpFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmTask:item managed object property"
+    ::= { cfprIpsecEpFsmTaskEntry 6 }
+
+cfprIpsecEpFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:EpFsmTask:seqId managed object property"
+    ::= { cfprIpsecEpFsmTaskEntry 7 }
+
+cfprIpsecStatsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprIpsecStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Stats managed object table"
+    ::= { cfprIpsecObjects 7 }
+
+cfprIpsecStatsEntry OBJECT-TYPE
+    SYNTAX           CfprIpsecStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprIpsecStatsTable table."
+    INDEX { cfprIpsecStatsInstanceId }
+    ::= { cfprIpsecStatsTable 1 }
+
+CfprIpsecStatsEntry ::= SEQUENCE {
+    cfprIpsecStatsInstanceId                                         CfprManagedObjectId,
+    cfprIpsecStatsDn                                                 CfprManagedObjectDn,
+    cfprIpsecStatsRn                                                 SnmpAdminString,
+    cfprIpsecStatsData                                               SnmpAdminString,
+    cfprIpsecStatsStatsType                                          CfprIpsecStatsType,
+    cfprIpsecStatsTs                                                 DateAndTime,
+    cfprIpsecStatsUpdate                                             TruthValue
+}
+
+cfprIpsecStatsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprIpsecStatsEntry 1 }
+
+cfprIpsecStatsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Stats:dn managed object property"
+    ::= { cfprIpsecStatsEntry 2 }
+
+cfprIpsecStatsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Stats:rn managed object property"
+    ::= { cfprIpsecStatsEntry 3 }
+
+cfprIpsecStatsData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Stats:data managed object property"
+    ::= { cfprIpsecStatsEntry 4 }
+
+cfprIpsecStatsStatsType OBJECT-TYPE
+    SYNTAX       CfprIpsecStatsType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Stats:statsType managed object property"
+    ::= { cfprIpsecStatsEntry 5 }
+
+cfprIpsecStatsTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Stats:ts managed object property"
+    ::= { cfprIpsecStatsEntry 6 }
+
+cfprIpsecStatsUpdate OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ipsec:Stats:update managed object property"
+    ::= { cfprIpsecStatsEntry 7 }
+
+END

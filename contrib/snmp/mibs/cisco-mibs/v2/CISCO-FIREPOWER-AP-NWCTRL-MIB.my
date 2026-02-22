@@ -1,0 +1,198 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-NWCTRL-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- NWCTRL management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-NWCTRL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApNwctrlAdminState,
+    CfprApNwctrlLinkFailAction,
+    CfprApNwctrlRegistrationMode,
+    CfprApPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApNwctrlObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        NWCTRL management information model package"
+    ::= { ciscoFirepowerApMIBObjects 56 }
+
+cfprApNwctrlDefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApNwctrlDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition managed object table"
+    ::= { cfprApNwctrlObjects 1 }
+
+cfprApNwctrlDefinitionEntry OBJECT-TYPE
+    SYNTAX           CfprApNwctrlDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApNwctrlDefinitionTable table."
+    INDEX { cfprApNwctrlDefinitionInstanceId }
+    ::= { cfprApNwctrlDefinitionTable 1 }
+
+CfprApNwctrlDefinitionEntry ::= SEQUENCE {
+    cfprApNwctrlDefinitionInstanceId                                 CfprApManagedObjectId,
+    cfprApNwctrlDefinitionDn                                         CfprApManagedObjectDn,
+    cfprApNwctrlDefinitionRn                                         SnmpAdminString,
+    cfprApNwctrlDefinitionCdp                                        CfprApNwctrlAdminState,
+    cfprApNwctrlDefinitionDescr                                      SnmpAdminString,
+    cfprApNwctrlDefinitionIntId                                      SnmpAdminString,
+    cfprApNwctrlDefinitionMacRegisterMode                            CfprApNwctrlRegistrationMode,
+    cfprApNwctrlDefinitionName                                       SnmpAdminString,
+    cfprApNwctrlDefinitionPolicyLevel                                Gauge32,
+    cfprApNwctrlDefinitionPolicyOwner                                CfprApPolicyPolicyOwner,
+    cfprApNwctrlDefinitionUplinkFailAction                           CfprApNwctrlLinkFailAction
+}
+
+cfprApNwctrlDefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApNwctrlDefinitionEntry 1 }
+
+cfprApNwctrlDefinitionDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:dn managed object property"
+    ::= { cfprApNwctrlDefinitionEntry 2 }
+
+cfprApNwctrlDefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:rn managed object property"
+    ::= { cfprApNwctrlDefinitionEntry 3 }
+
+cfprApNwctrlDefinitionCdp OBJECT-TYPE
+    SYNTAX       CfprApNwctrlAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:cdp managed object property"
+    ::= { cfprApNwctrlDefinitionEntry 4 }
+
+cfprApNwctrlDefinitionDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:descr managed object property"
+    ::= { cfprApNwctrlDefinitionEntry 5 }
+
+cfprApNwctrlDefinitionIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:intId managed object property"
+    ::= { cfprApNwctrlDefinitionEntry 6 }
+
+cfprApNwctrlDefinitionMacRegisterMode OBJECT-TYPE
+    SYNTAX       CfprApNwctrlRegistrationMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:macRegisterMode
+        managed object property"
+    ::= { cfprApNwctrlDefinitionEntry 7 }
+
+cfprApNwctrlDefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:name managed object property"
+    ::= { cfprApNwctrlDefinitionEntry 8 }
+
+cfprApNwctrlDefinitionPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:policyLevel
+        managed object property"
+    ::= { cfprApNwctrlDefinitionEntry 9 }
+
+cfprApNwctrlDefinitionPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:policyOwner
+        managed object property"
+    ::= { cfprApNwctrlDefinitionEntry 10 }
+
+cfprApNwctrlDefinitionUplinkFailAction OBJECT-TYPE
+    SYNTAX       CfprApNwctrlLinkFailAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nwctrl:Definition:uplinkFailAction
+        managed object property"
+    ::= { cfprApNwctrlDefinitionEntry 11 }
+
+END

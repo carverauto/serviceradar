@@ -1,0 +1,408 @@
+-- *****************************************************************
+-- CISCO-SWITCH-RATE-LIMITER-MIB.my
+--   
+-- March 2011, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2011 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SWITCH-RATE-LIMITER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Integer32,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    entPhysicalIndex
+        FROM ENTITY-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSwitchRateLimiterMIB MODULE-IDENTITY
+    LAST-UPDATED    "201105160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines management objects for the
+        Switch Rate Limiter features on Cisco Layer 2 and 
+        Layer 3 devices.
+
+        Rate limits prevents redirected control packets for egress 
+        exceptions from overwhelming the supervisor module on a device."
+    REVISION        "201105160000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 773 }
+
+
+ciscoSwitchRateLimiterMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoSwitchRateLimiterMIB 0 }
+
+ciscoSwitchRateLimiterMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSwitchRateLimiterMIB 1 }
+
+ciscoSwitchRateLimiterMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSwitchRateLimiterMIB 2 }
+
+-- Overview of MIB Objects:
+--   
+-- 1. csrlRateLimiterInfo        : A group of objects providing
+-- rate limiter class descriptions
+-- 2. csrlGlobalRateLimiter      : A group of objects providing
+-- global rate limiter configuration
+-- and statistics
+-- 3. csrlLocalRateLimiter       : A group of objects providing
+-- local rate limiter configuration
+-- and statistics
+
+csrlRateLimiterInfo  OBJECT IDENTIFIER
+    ::= { ciscoSwitchRateLimiterMIBObjects 1 }
+
+csrlGlobalRateLimiter  OBJECT IDENTIFIER
+    ::= { ciscoSwitchRateLimiterMIBObjects 2 }
+
+csrlLocalRateLimiter  OBJECT IDENTIFIER
+    ::= { ciscoSwitchRateLimiterMIBObjects 3 }
+
+-- Textual Conventions
+--   
+-- Rate Limiter Class Description Table
+
+csrlRateLimiterClassTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsrlRateLimiterClassEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing descriptions of the rate limiter
+        classes supported by the device."
+    ::= { csrlRateLimiterInfo 1 }
+
+csrlRateLimiterClassEntry OBJECT-TYPE
+    SYNTAX          CsrlRateLimiterClassEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row containing the description of a particular
+        rate limiter class."
+    INDEX           { csrlRateLimiterClassId } 
+    ::= { csrlRateLimiterClassTable 1 }
+
+CsrlRateLimiterClassEntry ::= SEQUENCE {
+        csrlRateLimiterClassId    Unsigned32,
+        csrlRateLimiterClassDescr SnmpAdminString
+}
+
+csrlRateLimiterClassId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary positive integer value that uniquely identifies a
+        rate limiter class." 
+    ::= { csrlRateLimiterClassEntry 1 }
+
+csrlRateLimiterClassDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the description of the rate limiter class." 
+    ::= { csrlRateLimiterClassEntry 2 }
+ 
+
+-- Global Rate Limiter Table
+
+csrlGlobalRateLimiterTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsrlGlobalRateLimiterEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing global configuration and statistics of
+        rate limiter classes."
+    ::= { csrlGlobalRateLimiter 1 }
+
+csrlGlobalRateLimiterEntry OBJECT-TYPE
+    SYNTAX          CsrlGlobalRateLimiterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row containing global management information
+        of a particular rate limiter class."
+    INDEX           { csrlRateLimiterClassId } 
+    ::= { csrlGlobalRateLimiterTable 1 }
+
+CsrlGlobalRateLimiterEntry ::= SEQUENCE {
+        csrlGlobalRateLimiterConfigured Integer32,
+        csrlGlobalRateLimiterAllowed    Counter64,
+        csrlGlobalRateLimiterDropped    Counter64,
+        csrlGlobalRateLimiterTotal      Counter64
+}
+
+csrlGlobalRateLimiterConfigured OBJECT-TYPE
+    SYNTAX          Integer32 (-1 | 0..2147483647)
+    UNITS           "packets per second"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the global rate limit configured
+        for this rate limiter class.
+
+        The global rate limit for this class is applied to every entity
+        which does not have its local rate limit of same class configured,
+        the value of the corresponding csrlLocalRateLimiterConfigured
+        is -2. 
+
+        A value of -1 indicates that the global rate limit for
+        this rate limiter class is disabled.
+
+        A value of 0 indicates that the system does not allow any
+        packets for this rate limiter class to go through the
+        supervisor." 
+    ::= { csrlGlobalRateLimiterEntry 1 }
+
+csrlGlobalRateLimiterAllowed OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets allowed
+        globally for this rate limiter class.
+
+        When the value of csrlGlobalRateLimiterConfigured is -1,
+        the value of this object is always 0." 
+    ::= { csrlGlobalRateLimiterEntry 2 }
+
+csrlGlobalRateLimiterDropped OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets which have been
+        dropped globally for this rate limiter class.
+
+        When the value of csrlGlobalRateLimiterConfigured is -1,
+        the value of this object is always 0." 
+    ::= { csrlGlobalRateLimiterEntry 3 }
+
+csrlGlobalRateLimiterTotal OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of packets
+        have been processed globally for this rate limiter class.
+
+        When the value of csrlGlobalRateLimiterConfigured is -1,
+        the value of this object is always 0." 
+    ::= { csrlGlobalRateLimiterEntry 4 }
+ 
+
+-- Local Rate Limiter Table
+
+csrlLocalRateLimiterTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsrlLocalRateLimiterEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing local rate limiter configuration and
+        statistics for a specific entity.  For Example: A module
+        on the device.
+
+        A set of rate limiter class entries are added to this
+        table when a rate limiter capable entity comes online.
+        The same set of entries are deleted from this table when
+        the entity goes offline."
+    ::= { csrlLocalRateLimiter 1 }
+
+csrlLocalRateLimiterEntry OBJECT-TYPE
+    SYNTAX          CsrlLocalRateLimiterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row containing the local rate limiter
+        management information for a particular rate limiter
+        capable entity."
+    INDEX           {
+                        entPhysicalIndex,
+                        csrlRateLimiterClassId
+                    } 
+    ::= { csrlLocalRateLimiterTable 1 }
+
+CsrlLocalRateLimiterEntry ::= SEQUENCE {
+        csrlLocalRateLimiterConfigured Integer32,
+        csrlLocalRateLimiterAllowed    Counter64,
+        csrlLocalRateLimiterDropped    Counter64,
+        csrlLocalRateLimiterTotal      Counter64
+}
+
+csrlLocalRateLimiterConfigured OBJECT-TYPE
+    SYNTAX          Integer32 (-2 | -1 | 0..2147483647)
+    UNITS           "packets per second"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the local rate limit configured
+        for this rate limiter class on this entity.
+
+        A value of -2 indicates that the entity does not have 
+        local rate limiter configured, and will pick up the
+        configuration from csrlGlobalRateLimiterConfigured.
+
+        A value of -1 indicates that this rate limiter class
+        is disabled locally for this entity.
+
+        A value of 0 indicates that the rate limiter 
+        does not allow any packets from this entity for this rate
+        limiter class to go through the supervisor." 
+    ::= { csrlLocalRateLimiterEntry 1 }
+
+csrlLocalRateLimiterAllowed OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets allowed
+        on this entity for this rate limiter class.
+
+        When the value of csrlLocalRateLimiterConfigured is -1,
+        the value of this object is always 0." 
+    ::= { csrlLocalRateLimiterEntry 2 }
+
+csrlLocalRateLimiterDropped OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets dropped
+        on this entity for this rate limiter class.
+
+        When the value of csrlLocalRateLimiterConfigured is -1,
+        the value of this object is always 0." 
+    ::= { csrlLocalRateLimiterEntry 3 }
+
+csrlLocalRateLimiterTotal OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets processed
+        on this entity for this rate limiter class.
+
+        When the value of csrlLocalRateLimiterConfigured is -1,
+        the value of this object is always 0." 
+    ::= { csrlLocalRateLimiterEntry 4 }
+ 
+
+-- Conformance
+
+csrlMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSwitchRateLimiterMIBConform 1 }
+
+csrlMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSwitchRateLimiterMIBConform 2 }
+
+
+csrlMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for
+        CISCO-SWITCH-RATE-LIMITER-MIB.my."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        csrlRateLimiterClassGroup,
+                        csrlGlobalRateLimiterGroup,
+                        csrlLocalRateLimiterGroup
+                    }
+
+    OBJECT          csrlGlobalRateLimiterConfigured
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          csrlLocalRateLimiterConfigured
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { csrlMIBCompliances 1 }
+
+-- Units of Conformance
+
+csrlRateLimiterClassGroup OBJECT-GROUP
+    OBJECTS         { csrlRateLimiterClassDescr }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Rate Limiter Class
+        information."
+    ::= { csrlMIBGroups 1 }
+
+csrlGlobalRateLimiterGroup OBJECT-GROUP
+    OBJECTS         {
+                        csrlGlobalRateLimiterConfigured,
+                        csrlGlobalRateLimiterAllowed,
+                        csrlGlobalRateLimiterDropped,
+                        csrlGlobalRateLimiterTotal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing global rate
+        limiter information."
+    ::= { csrlMIBGroups 2 }
+
+csrlLocalRateLimiterGroup OBJECT-GROUP
+    OBJECTS         {
+                        csrlLocalRateLimiterConfigured,
+                        csrlLocalRateLimiterAllowed,
+                        csrlLocalRateLimiterDropped,
+                        csrlLocalRateLimiterTotal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing local rate
+        limiter information."
+    ::= { csrlMIBGroups 3 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

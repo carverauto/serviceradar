@@ -1,0 +1,3098 @@
+-- *****************************************************************
+-- ALPS-MIB.my:  Airline Protocol Support MIB
+--   
+-- October 1997, Shantanu Sarkar & Mohan Tadisetty
+--   
+-- Copyright (c) 1997-1999, 2000, 2008 by cisco Systems Inc.
+-- *****************************************************************
+
+CISCO-ALPS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    Integer32,
+    IpAddress,
+    TimeTicks,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    DisplayString,
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    RowStatus,
+    TimeStamp,
+    TimeInterval
+        FROM SNMPv2-TC
+    ifIndex,
+    InterfaceIndex
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    X121Address
+        FROM RFC1382-MIB;
+
+
+ciscoAlpsMIB MODULE-IDENTITY
+    LAST-UPDATED    "200802140000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W. Tasman Drive
+            San Jose, CA 95134
+            USA
+
+            Tel: +1 800 553-NETS
+            E-mail: cs-alps@cisco.com"
+    DESCRIPTION
+        "The MIB module for Airline Protocol Support.
+
+        **************************************************************
+        *                    Acronym Definitions                     *
+        *                                                            *
+        * ALPS       : AirLine Protocol Support                      *
+        * AX.25      : Airline X.25                                  *
+        * EMTOX      : Exchange of Mixed Traffic over X.25           *
+        * ASCU       : Agent Set Control Unit                        *
+        *                                                            *
+        **************************************************************        
+
+
+        Overview of ALPS (AirLine Protocol Support) MIB
+        ==============================================
+
+        MIB description
+
+        Document to refer: 'Configuring ALPS' section in Cisco IOS Command
+                     Reference & Configuration Guide.
+
+        The ALPS MIB provides configuration and operational information
+        for Cisco's Airline protocol support for IBM-P1024B(ALC) and  
+        Unisys-P1024C(UTS) protocols encapsulation over TCP/IP. The 
+        following entities are managed:
+
+        1. Peers
+        2. ALPS Circuits
+        3. ASCUs (Agent Set Control Units)
+        4. ALC interface
+        5. ALPS Host link interface to the host
+
+        HOST(Emtox/Ax.25) <----> Central <---> IP Network <---> Remote <----> ASCU
+                               router                         router
+
+        The router connected to the Host is called the Central router and the router 
+        connected to the ASCU is called the Remote router. We anticipate one Central 
+        router connecting to a large number of Remote routers. Each router has a 
+        local peer, which connects to its counterpart on the other router (referred 
+        to as the remote peer) via a TCP connection. ALPS circuits are set up over 
+        this TCP connection either on a permanent or on-demand basis. 
+
+        A logical grouping of ASCUs are connected via a single circuit - this has 
+        no connection to the physical interfaces that the ASCUs are connected to. 
+        The only restriction is that all the ASCUs should be directly connected to 
+        the same router.
+
+        Multiple ASCUs can connect to a single serial interface and several terminals
+        connect to an ASCU. However, terminals are not visible to the ALPS feature
+        - the router talks only to the ASCUs. An ASCU can be identified by 
+        * the interface it is on and its Interface Address (IA) or 
+        * the circuit it is on, and its A1 and A2 values, which identify it 
+                     within the circuit. 
+        Thus there are two ways of identifying an ASCU -  or 
+        Circuit names are globally unique.
+
+        The connection to the host is via one of two flavors of X.25 - either 
+        AX.25 (for PVCs) or EMTOX (for SVCs). Each X.25 VC corresponds to one ALPS
+        circuit. There are several hostlinks between a host and the Central router
+        and load balancing is done across these. EMTOX allows the host to
+        dial out to a terminal. This requires the use of an X.121 to IP address
+        translation table to connect to the appropriate remote peer."
+	REVISION        "200802140000Z"
+    DESCRIPTION
+        "Imported X121Adress from RFC1382 MIB & Integer32 from 
+        SNMPv2-SMI. TEXTUAL-CONVENTION AlpsCktName syntax is changed
+        to OCTET STRING from DisplayString & AlpsAscuA1A2Value's Syntax
+        is changed to Integer32 from INTEGER. Syntax of following objects
+        are changed from INTEGER to Integer32:
+        alpsPeerLocalAtpPort, alpsPeerKeepaliveMaxRetries, 
+        alpsRemPeerLocalPort, alpsRemPeerRemotePort, alpsRemPeerTCPQlen,
+        alpsRemPeerCfgTCPQLen, alpsRemPeerCfgStatRetry, 
+        alpsRemPeerConnLocalPort, alpsRemPeerConnForeignPort, 
+        alpsRemPeerConnNumActCirc, alpsRemPeerConnTCPQLen, 
+        alpsRemPeerConnStatIntvl, alpsRemPeerConnStatRetry, 
+        alpsCktBaseNumActiveAscus, alpsCktBaseHostLinkNumber, 
+        alpsCktBaseRemHld, alpsCktBaseLocalHld, alpsCktX25LCN, 
+        alpsCktP1024Ax25LCN, alpsCktP1024WinOut, alpsCktP1024WinIn,
+        alpsCktP1024OutPktSize, alpsCktP1024InPktSize, 
+        alpsCktP1024SvcMsgList, alpsCktAscuId, alpsIfP1024MaxErrCnt,
+        alpsIfP1024MaxRetrans, alpsIfP1024CurrErrCnt, 
+        alpsIfP1024MinGoodPollResp, alpsIfP1024PollingRatio,
+        alpsIfHLinkHostHld, alpsIfHLinkNumber, alpsIfHLinkActiveCkts,
+        alpsAscuId, alpsAscuMaxMsgLength, alpsSvcMsgListNum and 
+        alpsSvcMsgNum."
+    REVISION        "200001280000Z"
+    DESCRIPTION
+        "Modification for ALC and Service Message Enhancements"
+    REVISION        "9901070000Z"
+    DESCRIPTION
+        "Additional modifications to support ALPS/MATIP.
+        NOTE: The alpsIfHLinkHostHld object has been updated to
+        change its range. SMI  (RFC2578 section 10.2 Extending an
+        Information Module: Object Definitons) requires a new object
+        defined and the old object obsoleted. This is also an 
+        index module which would require the old table to be 
+        obsoleted and a new one created. After review it has been 
+        decided to minimize impacts/disruptions to customer
+        applications, we are not going to follow the SMI guidlines."
+    REVISION        "9812310000Z"
+    DESCRIPTION
+        "Modifications to support ALPS/MATIP."
+    REVISION        "9812080000Z"
+    DESCRIPTION
+        "Modifications to allow publishing."
+    REVISION        "9805200000Z"
+    DESCRIPTION
+        "Change ranges for some variables and update descriptions."
+    ::= { ciscoMgmt 95 }
+
+
+-- 0 to 17 bytes in length containing the ASCII
+-- characters [0-9], each octet contains one digit
+-- of the address.
+--   
+-- /***************************************/
+-- The OBJECT IDENTIFIERS FOR ALPS MIBS
+-- /***************************************/
+
+ciscoAlpsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoAlpsMIB 1 }
+
+
+-- /***************************************/
+-- The Global Object Declarations
+-- /***************************************/
+
+AlpsCktName ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Specifies the ALPS Circuit Name. It is configured from the
+        parser and is adminstratively assigned. This is globally unique."
+    SYNTAX          OCTET STRING (SIZE (1..12))
+
+AlpsAscuA1A2Value ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Specifies A1 or A2 value of an ASCU. The A1 & A2 values
+        together specify an ASCU within an ALPS circuit."
+    SYNTAX          Integer32 (0..255 )
+-- *********************************************************************
+-- * Define ALPS Local Peer
+-- *********************************************************************
+
+alpsGroups  OBJECT IDENTIFIER
+    ::= { ciscoAlpsMIBObjects 1 }
+
+alpsPeerObjects  OBJECT IDENTIFIER
+    ::= { ciscoAlpsMIBObjects 2 }
+
+alpsCktObjects  OBJECT IDENTIFIER
+    ::= { ciscoAlpsMIBObjects 3 }
+
+alpsIfObjects  OBJECT IDENTIFIER
+    ::= { ciscoAlpsMIBObjects 4 }
+
+alpsAscuObjects  OBJECT IDENTIFIER
+    ::= { ciscoAlpsMIBObjects 5 }
+
+alpsGlobalObjects  OBJECT IDENTIFIER
+    ::= { ciscoAlpsMIBObjects 6 }
+
+-- These MIB objects configure the local ALPS peer. The local peer
+-- connects to remote ALPS peers using a TCP/IP tunnel and sets
+-- up ALPS circuits across the tunnel.
+
+alpsPeer  OBJECT IDENTIFIER
+    ::= { alpsPeerObjects 1 }
+
+
+alpsPeerLocalIpAddr OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The configured IP address used by the ALPS component in
+        this router." 
+    ::= { alpsPeer 1 }
+
+alpsPeerLocalAtpPort OBJECT-TYPE
+    SYNTAX          Integer32 (0..65535 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The port number used locally by the ALPS peer at this router.
+        This is a static value but the port number used can change in 
+        later versions. This is not a configured value but is embedded
+        into the source code. This has been provided mainly to aid 
+        in debugging so that the operator knows which TCP port to
+        look at. ATP is the ALPS Tunnelling Protocol, a Cisco proprietary
+        way to tunnel ALPS data across a TCP link" 
+    ::= { alpsPeer 2 }
+
+alpsPeerKeepaliveTimeout OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The TCP keep alive timeout value for Local ALPS Peer. Keepalives
+        are sent out periodically at this interval to the remote peer." 
+    ::= { alpsPeer 3 }
+
+alpsPeerKeepaliveMaxRetries OBJECT-TYPE
+    SYNTAX          Integer32 (0..10 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The number of keepalives sent with acknowledgement before declaring
+        the remote peer dead. 0 implies that keepalives are turned off." 
+    ::= { alpsPeer 4 }
+
+alpsPeerInCallsAcceptFlag OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "If this is true, calls are accepted from any peer. If this is
+        false, calls are accepted only from those routers which have 
+        been explicitly configured using alps remote-peer commands."
+    DEFVAL          { false } 
+    ::= { alpsPeer 5 }
+-- *********************************************************************
+-- Deprecated ALPS Remote Peer table
+-- *********************************************************************
+
+alpsRemPeerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF AlpsRemPeerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A list of Remote peers that the local ALPS peer can communicate
+        with."
+    ::= { alpsPeerObjects 2 }
+
+alpsRemPeerEntry OBJECT-TYPE
+    SYNTAX          AlpsRemPeerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "Each entry represents an Remote ALPS Peer."
+    INDEX           { alpsRemPeerIpAddr } 
+    ::= { alpsRemPeerTable 1 }
+
+AlpsRemPeerEntry ::= SEQUENCE {
+        alpsRemPeerIpAddr           IpAddress,
+        alpsRemPeerConnType         INTEGER ,
+        alpsRemPeerLocalPort        Integer32,
+        alpsRemPeerRemotePort       Integer32,
+        alpsRemPeerState            INTEGER ,
+        alpsRemPeerUptime           TimeTicks,
+        alpsRemPeerNumActiveCkts    Gauge32,
+        alpsRemPeerIdleTimer        TimeInterval,
+        alpsRemPeerAlarmsEnabled    TruthValue,
+        alpsRemPeerTCPQlen          Integer32,
+        alpsRemPeerOutPackets       Counter32,
+        alpsRemPeerOutOctets        Counter32,
+        alpsRemPeerInPackets        Counter32,
+        alpsRemPeerInOctets         Counter32,
+        alpsRemPeerDropsGiant       Counter32,
+        alpsRemPeerDropsQFull       Counter32,
+        alpsRemPeerDropsPeerUnreach Counter32,
+        alpsRemPeerRowStatus        RowStatus
+}
+
+alpsRemPeerIpAddr OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "The remote IP address for the TCP Connection." 
+    ::= { alpsRemPeerEntry 1 }
+
+alpsRemPeerConnType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        permanent(1),
+                        dynamic(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "Type of ALPS circuit established. Dynamic circuits are
+        established only when there is data traffic that needs to be 
+        sent across and are closed when the alpsRemPeerIdleTimer 
+        expires. Permanent circuits stay up regardless of whether
+        there is traffic across them or not." 
+    ::= { alpsRemPeerEntry 2 }
+
+alpsRemPeerLocalPort OBJECT-TYPE
+    SYNTAX          Integer32 (0..65535 )
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The port number used locally by the tcp connection for the
+        circuit. the initiator of a connection will dynamically assign
+        a port number. the other end of the connection will have a
+        well-known port number applicable to the encapsulation used by
+        the connection - e.g. the value of alpsPeerLocalAtpPort for
+        ATP connections." 
+    ::= { alpsRemPeerEntry 3 }
+
+alpsRemPeerRemotePort OBJECT-TYPE
+    SYNTAX          Integer32 (0..65535 )
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The port number used by the remote end of the tcp connection
+        for the circuit. the initiator of a connection will
+        dynamically assign a port number. the other end of the
+        connection will have a well-known port number applicable to
+        the encapsulation used by the connection - e.g. the value of
+        alpsPeerLocalAtpPort for ATP connections.
+
+        If this connection was initiated by the local router,
+        a port number will be dynamically selected. Otherwise the value of
+        alpsPeerLocalAtpPort will be used (for ATP connections)" 
+    ::= { alpsRemPeerEntry 4 }
+
+alpsRemPeerState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        closed(1),
+                        opening(2),
+                        opened(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "TCP Peer State. Initially the connection is in the closed state.
+        For permanent connections, it starts opening the TCP connection
+        immediately, but for dynamic ones, it waits till there is traffic
+        addressed to the remote peer. It then progresses via opening into 
+        the opened state." 
+    ::= { alpsRemPeerEntry 5 }
+
+alpsRemPeerUptime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "Time elapsed since TCP connection was established." 
+    ::= { alpsRemPeerEntry 6 }
+
+alpsRemPeerNumActiveCkts OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "Number of active ALPS circuits in this TCP session." 
+    ::= { alpsRemPeerEntry 7 }
+
+alpsRemPeerIdleTimer OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "The TCP session with the peer will be closed if there is no
+        activity for alpsInactiveTimer seconds. This is valid only
+        for dynamic circuits" 
+    ::= { alpsRemPeerEntry 8 }
+
+alpsRemPeerAlarmsEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "Specifies whether alarms are generated for this remote Peer"
+    DEFVAL          { false } 
+    ::= { alpsRemPeerEntry 9 }
+
+alpsRemPeerTCPQlen OBJECT-TYPE
+    SYNTAX          Integer32 (1..200 )
+    UNITS           "packets"
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "Maximum TCP Queue size allowed for this TCP session." 
+    ::= { alpsRemPeerEntry 10 }
+
+alpsRemPeerOutPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "Number of packets transmitted to the remote peer." 
+    ::= { alpsRemPeerEntry 11 }
+
+alpsRemPeerOutOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "Number of octets transmitted to the remote peer." 
+    ::= { alpsRemPeerEntry 12 }
+
+alpsRemPeerInPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "Number of packets received from the remote peer." 
+    ::= { alpsRemPeerEntry 13 }
+
+alpsRemPeerInOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "Number of octets received from the remote peer." 
+    ::= { alpsRemPeerEntry 14 }
+
+alpsRemPeerDropsGiant OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "Number of Packets dropped because they were larger than the
+        maximum allowed packet size of 3840 bytes." 
+    ::= { alpsRemPeerEntry 15 }
+
+alpsRemPeerDropsQFull OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "Number of packets dropped because the TCP queue (of
+        size alpsRemPeerTCPQlen) was full." 
+    ::= { alpsRemPeerEntry 16 }
+
+alpsRemPeerDropsPeerUnreach OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "Number of packets dropped because remote peer was unreachable." 
+    ::= { alpsRemPeerEntry 17 }
+
+alpsRemPeerRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table." 
+    ::= { alpsRemPeerEntry 18 }
+ 
+
+-- *******************************************************************
+-- Define ALPS Remote Peer Tables.
+--   
+-- The ALPS Remote Peer Tables are now split into two tables,
+-- one table for ALPS remote peer configurations and a second
+-- table for ALPS remote peer connections.  The table for ALPS
+-- remote peer connections contains the objects that manage
+-- the TCP connections used by ALPS. The table for ALPS
+-- remote peer configuration objects contains the information
+-- that objects in the remote peer connection table use to
+-- configure themselves.  The alpsRemPeerTable was deprecated
+-- and split into these 2 tables because ALPS/MATIP peer connections
+-- do not have a 1-to-1 mapping to an ALPS remote peer configuration
+-- object.  Several ALPS/MATIP peer connections can use the same ALPS
+-- remote peer configuration, provided the ALPS/MATIP peer connections
+-- share the same remote peer IP address.
+-- *******************************************************************
+--   
+-- ***************************************
+-- ALPS Remote Peer Configuration Table
+-- ***************************************
+
+alpsRemPeerCfgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF AlpsRemPeerCfgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Table listing of all administered ALPS remote peer
+        configuration entries on this node.  Entries in  
+        this table can be created via a CLI command or via 
+        alpsRemPeerCfgRowStatus."
+    ::= { alpsPeerObjects 3 }
+
+alpsRemPeerCfgEntry OBJECT-TYPE
+    SYNTAX          AlpsRemPeerCfgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents an ALPS remote peer
+        configuration entry on this node."
+    INDEX           {
+                        alpsRemPeerCfgIpAddr,
+                        alpsRemPeerCfgProtocol
+                    } 
+    ::= { alpsRemPeerCfgTable 1 }
+
+AlpsRemPeerCfgEntry ::= SEQUENCE {
+        alpsRemPeerCfgIpAddr      IpAddress,
+        alpsRemPeerCfgProtocol    INTEGER ,
+        alpsRemPeerCfgActivation  INTEGER ,
+        alpsRemPeerCfgTCPQLen     Integer32,
+        alpsRemPeerCfgIdleTimer   TimeInterval,
+        alpsRemPeerCfgNoCircTimer TimeInterval,
+        alpsRemPeerCfgAlarmsOn    TruthValue,
+        alpsRemPeerCfgStatIntvl   TimeInterval,
+        alpsRemPeerCfgStatRetry   Integer32,
+        alpsRemPeerCfgRowStatus   RowStatus
+}
+
+alpsRemPeerCfgIpAddr OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The configured IP address of an ALPS remote peer." 
+    ::= { alpsRemPeerCfgEntry 1 }
+
+alpsRemPeerCfgProtocol OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        atp(1),
+                        matipTypeA(2)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The configured ALPS protocol encapsulation.  This
+        protocol encapsulation is at the layer above TCP." 
+    ::= { alpsRemPeerCfgEntry 2 }
+
+alpsRemPeerCfgActivation OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        permanent(1),
+                        dynamic(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The configured type of ALPS peer activation." 
+    ::= { alpsRemPeerCfgEntry 3 }
+
+alpsRemPeerCfgTCPQLen OBJECT-TYPE
+    SYNTAX          Integer32 (1..100 )
+    UNITS           "packets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The configured maximum TCP Queue size." 
+    ::= { alpsRemPeerCfgEntry 4 }
+
+alpsRemPeerCfgIdleTimer OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The configured idle timer for a dynamic
+        activation peer." 
+    ::= { alpsRemPeerCfgEntry 5 }
+
+alpsRemPeerCfgNoCircTimer OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The configured no-circuit timer for a dynamic
+        activation peer." 
+    ::= { alpsRemPeerCfgEntry 6 }
+
+alpsRemPeerCfgAlarmsOn OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The configured parameter which specifies whether
+        alarms are generated for remote peer connections 
+        to the IP address in alpsRemPeerCfgIpAddr."
+    DEFVAL          { false } 
+    ::= { alpsRemPeerCfgEntry 7 }
+
+alpsRemPeerCfgStatIntvl OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The configured status interval timer." 
+    ::= { alpsRemPeerCfgEntry 8 }
+
+alpsRemPeerCfgStatRetry OBJECT-TYPE
+    SYNTAX          Integer32 (0..100 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The configured number of status retries." 
+    ::= { alpsRemPeerCfgEntry 9 }
+
+alpsRemPeerCfgRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table." 
+    ::= { alpsRemPeerCfgEntry 10 }
+ 
+
+-- ***************************************
+-- ALPS Remote Peer Connection Table
+-- ***************************************
+
+alpsRemPeerConnTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF AlpsRemPeerConnEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Table listing of all ALPS remote peer
+        connections on this node."
+    ::= { alpsPeerObjects 4 }
+
+alpsRemPeerConnEntry OBJECT-TYPE
+    SYNTAX          AlpsRemPeerConnEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents an ALPS remote peer
+        connection on this node."
+    INDEX           {
+                        alpsRemPeerConnIpAddr,
+                        alpsRemPeerConnIdString
+                    } 
+    ::= { alpsRemPeerConnTable 1 }
+
+AlpsRemPeerConnEntry ::= SEQUENCE {
+        alpsRemPeerConnIpAddr       IpAddress,
+        alpsRemPeerConnIdString     DisplayString,
+        alpsRemPeerConnLocalPort    Integer32,
+        alpsRemPeerConnForeignPort  Integer32,
+        alpsRemPeerConnState        INTEGER ,
+        alpsRemPeerConnProtocol     INTEGER ,
+        alpsRemPeerConnCreation     INTEGER ,
+        alpsRemPeerConnActivation   INTEGER ,
+        alpsRemPeerConnUptime       TimeTicks,
+        alpsRemPeerConnNumActCirc   Integer32,
+        alpsRemPeerConnLastTxRx     TimeStamp,
+        alpsRemPeerConnLastRxAny    TimeStamp,
+        alpsRemPeerConnIdleTimer    TimeInterval,
+        alpsRemPeerConnNoCircTimer  TimeInterval,
+        alpsRemPeerConnTCPQLen      Integer32,
+        alpsRemPeerConnAlarmsOn     TruthValue,
+        alpsRemPeerConnStatIntvl    Integer32,
+        alpsRemPeerConnStatRetry    Integer32,
+        alpsRemPeerConnDownReason   INTEGER ,
+        alpsRemPeerConnOutPackets   Counter32,
+        alpsRemPeerConnOutOctets    Counter32,
+        alpsRemPeerConnInPackets    Counter32,
+        alpsRemPeerConnInOctets     Counter32,
+        alpsRemPeerConnDropsGiant   Counter32,
+        alpsRemPeerConnDropsQFull   Counter32,
+        alpsRemPeerConnDropsUnreach Counter32,
+        alpsRemPeerConnDropsVersion Counter32
+}
+
+alpsRemPeerConnIpAddr OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The IP address of the ALPS remote peer." 
+    ::= { alpsRemPeerConnEntry 1 }
+
+alpsRemPeerConnIdString OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..20))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A descriptive ASCII string that is used to distinguish
+        among different peer connections to the same ALPS remote 
+        peer IP address." 
+    ::= { alpsRemPeerConnEntry 2 }
+
+alpsRemPeerConnLocalPort OBJECT-TYPE
+    SYNTAX          Integer32 (0..65535 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The local TCP port number used by the underlying
+        TCP connection to an ALPS remote peer." 
+    ::= { alpsRemPeerConnEntry 3 }
+
+alpsRemPeerConnForeignPort OBJECT-TYPE
+    SYNTAX          Integer32 (0..65535 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The foreign (remote) TCP port number used by the
+        underlying TCP connection to an ALPS remote peer." 
+    ::= { alpsRemPeerConnEntry 4 }
+
+alpsRemPeerConnState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        closed(1),
+                        opening(2),
+                        opened(3),
+                        busy(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The state of the connection to an ALPS remote peer." 
+    ::= { alpsRemPeerConnEntry 5 }
+
+alpsRemPeerConnProtocol OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        atp(1),
+                        matipTypeA(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ALPS protocol encapsulation used on the
+        connection to the ALPS remote peer. This protocol
+        encapsulation is a layer above TCP." 
+    ::= { alpsRemPeerConnEntry 6 }
+
+alpsRemPeerConnCreation OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        admin(1),
+                        learned(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The stimulus for creating the peer connection object.
+        The peer connection object may be created solely due to 
+        configuration (admin) or due to a combination of 
+        configuration and protocol events (learned)." 
+    ::= { alpsRemPeerConnEntry 7 }
+
+alpsRemPeerConnActivation OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        permanent(1),
+                        dynamic(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Basis for activation a peer connection.  A permanent activation peer
+        connection will attempt to open immediately and stay open, regardless
+        of the usage of the peer connection.  A dynamic activation peer 
+        connection only opens when there is data to send and the peer connection 
+        will close if there are no data messages sent or received across the peer 
+        for the duration of the idle timer." 
+    ::= { alpsRemPeerConnEntry 8 }
+
+alpsRemPeerConnUptime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Elapsed time since the ALPS peer connection
+        was successfully established." 
+    ::= { alpsRemPeerConnEntry 9 }
+
+alpsRemPeerConnNumActCirc OBJECT-TYPE
+    SYNTAX          Integer32 (0..65535 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ALPS virtual circuits using the
+        connection to this ALPS remote peer." 
+    ::= { alpsRemPeerConnEntry 10 }
+
+alpsRemPeerConnLastTxRx OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime when a peer data message
+        was last transmitted or received across this
+        ALPS remote peer connection. This timestamp is not
+        update if the peer message is a peer status 
+        inquiry/response message." 
+    ::= { alpsRemPeerConnEntry 11 }
+
+alpsRemPeerConnLastRxAny OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime when a peer data or
+        status message is last received across the
+        ALPS remote peer connection." 
+    ::= { alpsRemPeerConnEntry 12 }
+
+alpsRemPeerConnIdleTimer OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A dynamic activation ALPS peer connection will be closed
+        if zero peer data messages are sent or received for
+        a length of time greater than or equal to this timer." 
+    ::= { alpsRemPeerConnEntry 13 }
+
+alpsRemPeerConnNoCircTimer OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A dynamic activation ALPS peer connection will be closed
+        if zero ALPS circuits are active or attempt to activate 
+        for a length of time greater than or equal to this timer." 
+    ::= { alpsRemPeerConnEntry 14 }
+
+alpsRemPeerConnTCPQLen OBJECT-TYPE
+    SYNTAX          Integer32 (1..100 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of ALPS peer messages that
+        can be queued in a single TCP session." 
+    ::= { alpsRemPeerConnEntry 15 }
+
+alpsRemPeerConnAlarmsOn OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This parameter specifies whether ALPS alarms
+        are generated for this ALPS remote peer connection." 
+    ::= { alpsRemPeerConnEntry 16 }
+
+alpsRemPeerConnStatIntvl OBJECT-TYPE
+    SYNTAX          Integer32 (0..300 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time interval (in seconds) between transmission of
+        consecutive ALPS Peer Status messages.  These messages 
+        are only transmitted if zero messages are received on the 
+        peer connection for a length of time greater than or equal 
+        to this timer." 
+    ::= { alpsRemPeerConnEntry 17 }
+
+alpsRemPeerConnStatRetry OBJECT-TYPE
+    SYNTAX          Integer32 (0..100 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of consecutive unanswered ALPS Peer Status
+        messages transmitted before closing the conenction to 
+        the ALPS remote peer." 
+    ::= { alpsRemPeerConnEntry 18 }
+
+alpsRemPeerConnDownReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        idle(2),
+                        noCircuits(3),
+                        destUnreachable(4),
+                        foreignReset(5),
+                        localReset(6),
+                        noMemory(7),
+                        openingTimeout(8)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reason that an ALPS Peer connection failed to
+        open sauccessfully." 
+    ::= { alpsRemPeerConnEntry 19 }
+
+alpsRemPeerConnOutPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets transmitted on this ALPS
+        remote peer connection." 
+    ::= { alpsRemPeerConnEntry 20 }
+
+alpsRemPeerConnOutOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of octets transmitted on this ALPS
+        remote peer connection." 
+    ::= { alpsRemPeerConnEntry 21 }
+
+alpsRemPeerConnInPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets received on this ALPS
+        remote peer connection." 
+    ::= { alpsRemPeerConnEntry 22 }
+
+alpsRemPeerConnInOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of octets received on this ALPS
+        remote peer connection." 
+    ::= { alpsRemPeerConnEntry 23 }
+
+alpsRemPeerConnDropsGiant OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of ALPS peer packets dropped due to exceeding
+        the maximum allowed packet size of 3840 bytes." 
+    ::= { alpsRemPeerConnEntry 24 }
+
+alpsRemPeerConnDropsQFull OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of ALPS peer packets dropped because
+        the TCP output queue is full." 
+    ::= { alpsRemPeerConnEntry 25 }
+
+alpsRemPeerConnDropsUnreach OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of ALPS peer packets dropped because
+        the ALPS remote peer is unreachable." 
+    ::= { alpsRemPeerConnEntry 26 }
+
+alpsRemPeerConnDropsVersion OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of ALPS peer packets dropped because
+        of a version mismatch in the ALPS encapsulation." 
+    ::= { alpsRemPeerConnEntry 27 }
+ 
+
+-- *********************************************************************
+-- Define ALPS Circuit tables - these are also organised into a base
+-- table and a dlc-type specific table (X25 or P1024)
+-- Similar to the Peer tables, these would contain configured circuits at
+-- the remote router and entries for dynamically created circuits at the
+-- Central router
+-- *********************************************************************
+
+alpsCktBaseTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF AlpsCktBaseEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of ALPS circuits. This table contains variables
+        common to central & remote routers."
+    ::= { alpsCktObjects 1 }
+
+alpsCktBaseEntry OBJECT-TYPE
+    SYNTAX          AlpsCktBaseEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Details of ALPS Circuits."
+    INDEX           {
+                        alpsCktBaseName,
+                        alpsCktBaseDlcType
+                    } 
+    ::= { alpsCktBaseTable 1 }
+
+AlpsCktBaseEntry ::= SEQUENCE {
+        alpsCktBaseName              AlpsCktName,
+        alpsCktBaseDlcType           INTEGER ,
+        alpsCktBasePriPeerAddr       IpAddress,
+        alpsCktBaseAlarmsEnabled     TruthValue,
+        alpsCktBaseConnType          INTEGER ,
+        alpsCktBaseState             INTEGER ,
+        alpsCktBaseNumActiveAscus    Integer32,
+        alpsCktBaseCurrentPeer       IpAddress,
+        alpsCktBaseLifeTimeTimer     TimeInterval,
+        alpsCktBaseHostLinkNumber    Integer32,
+        alpsCktBaseHostLinkType      INTEGER ,
+        alpsCktBaseRemHld            Integer32,
+        alpsCktBaseLocalHld          Integer32,
+        alpsCktBaseDownReason        INTEGER ,
+        alpsCktBaseOutPackets        Counter32,
+        alpsCktBaseOutOctets         Counter32,
+        alpsCktBaseInPackets         Counter32,
+        alpsCktBaseInOctets          Counter32,
+        alpsCktBaseDropsCktDisabled  Counter32,
+        alpsCktBaseDropsQOverflow    Counter32,
+        alpsCktBaseDropsLifeTimeExpd Counter32,
+        alpsCktBaseEnabled           TruthValue,
+        alpsCktBaseRowStatus         RowStatus,
+        alpsCktBaseCurrPeerConnId    DisplayString
+}
+
+alpsCktBaseName OBJECT-TYPE
+    SYNTAX          AlpsCktName
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Specifies the ALPS Circuit Name. This is unique within the
+        network." 
+    ::= { alpsCktBaseEntry 1 }
+
+alpsCktBaseDlcType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        emtox(1),
+                        ax25(2),
+                        alc(3),
+                        uts(4)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Specifies what type of circuit this is. The X25 circuit is set up
+        with the same name as the P1024 circuit so we need this 
+        variable to distinguish between the two, in case local switching
+        is done." 
+    ::= { alpsCktBaseEntry 2 }
+
+alpsCktBasePriPeerAddr OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the IP address of the Primary Central peer. It is
+        mandatory to configure a primary peer, but the backup peer is 
+        optional." 
+    ::= { alpsCktBaseEntry 3 }
+
+alpsCktBaseAlarmsEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether alarms are generated for this ALPS circuit.
+        Alarms can be syslog messages or SNMP traps - both are controlled
+        using the same flags."
+    DEFVAL          { false } 
+    ::= { alpsCktBaseEntry 4 }
+
+alpsCktBaseConnType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        permanent(1),
+                        dynamic(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the ALPS Circuit Connection Type." 
+    ::= { alpsCktBaseEntry 5 }
+
+alpsCktBaseState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        disabled(1),
+                        inoperable(2),
+                        opening(3),
+                        opened(4),
+                        cktBusy(5),
+                        peerBusy(6),
+                        updating(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the state of ALPS Circuit." 
+    ::= { alpsCktBaseEntry 6 }
+
+alpsCktBaseNumActiveAscus OBJECT-TYPE
+    SYNTAX          Integer32 (0..64 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the number of enabled ASCUs that are attached to
+        this ALPS Circuit. Attachment of an ASCU to an ALPS circuit
+        may occur due to configuration or due to information passed
+        in a protocol message." 
+    ::= { alpsCktBaseEntry 7 }
+
+alpsCktBaseCurrentPeer OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the IP address of the peer that this ALPS circuit
+        is currently connected to." 
+    ::= { alpsCktBaseEntry 8 }
+
+alpsCktBaseLifeTimeTimer OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A data message that has been queued within the router for
+        longer than this interval will be dropped." 
+    ::= { alpsCktBaseEntry 9 }
+
+alpsCktBaseHostLinkNumber OBJECT-TYPE
+    SYNTAX          Integer32 (1..255 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies host link number (on Central router) for this ALPS
+        Circuit. The host link number is used to provide a 
+        degree of transparency to the remote router. A single host link
+        may correspond to multiple physical links between the central
+        router and the host, which can then  load-balance VCs across
+        them." 
+    ::= { alpsCktBaseEntry 10 }
+
+alpsCktBaseHostLinkType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ax25(1),
+                        emtox(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies host link type(on Central router) for this
+        ALPS Circuit." 
+    ::= { alpsCktBaseEntry 11 }
+
+alpsCktBaseRemHld OBJECT-TYPE
+    SYNTAX          Integer32 (1..32639 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the HLD (High-level descriptor) of the AX.25/EMTOX
+        host for this ALPS Circuit. This serves as an identifier
+        for the host" 
+    ::= { alpsCktBaseEntry 12 }
+
+alpsCktBaseLocalHld OBJECT-TYPE
+    SYNTAX          Integer32 (1..32639 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the local HLD for this ALPS Circuit. HLDs are required
+        at the host for both ends of the connection." 
+    ::= { alpsCktBaseEntry 13 }
+
+alpsCktBaseDownReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        noReason(2),
+                        hostLinkDown(3),
+                        cktDisabled(4),
+                        hostLinkDisabled(5),
+                        noHostLinkMatched(6),
+                        noHldMatched(7),
+                        cktNameInUse(8),
+                        pvcLcnOutOfRange(9),
+                        x25ParamInvalid(10),
+                        cktOpeningTimeout(11),
+                        x25ClearDteNoReason(12),
+                        configMismatch(13),
+                        noResourcesAvail(14),
+                        incompatibleA1A2(15),
+                        cktIdle(16),
+                        peerDown(17),
+                        noAscusConfigured(18),
+                        x25ClearHostUnknown(19),
+                        x25ClearHostDown(20),
+                        x25ClearHostDisabled(21),
+                        x25ClearHostSaturated(22),
+                        x25ClearCallerUnknown(23),
+                        x25ClearCallerUnauth(24),
+                        x25ClearConfigRejected(25),
+                        x25ClearConfigFallback(26),
+                        x25ClearConfigIncompat(27),
+                        x25ClearHLDUnknown(28),
+                        x25ClearPIDUnknown(29),
+                        x25ClearFacilRejected(30),
+                        x25ClearNetNoReason(31),
+                        pvcLcnInUse(32),
+                        noSvcLcnAvail(33),
+                        peerIdle(34),
+                        presUnknown(35),
+                        presMismatch(36),
+                        openMsgTooShort(37),
+                        mpxUnknown(38),
+                        mpxHdrMismatch(39),
+                        trafTypeMismatch(40),
+                        codingMismatch(41),
+                        ascuInSession(42)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the reason why this ALPS Circuit is down, if it is down."
+    DEFVAL          { noReason } 
+    ::= { alpsCktBaseEntry 14 }
+
+alpsCktBaseOutPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets transmitted to remote peer over this circuit." 
+    ::= { alpsCktBaseEntry 15 }
+
+alpsCktBaseOutOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of octets transmitted to remote peer over this circuit." 
+    ::= { alpsCktBaseEntry 16 }
+
+alpsCktBaseInPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets received from remote peer over this circuit." 
+    ::= { alpsCktBaseEntry 17 }
+
+alpsCktBaseInOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of octets received from remote peer over this circuit." 
+    ::= { alpsCktBaseEntry 18 }
+
+alpsCktBaseDropsCktDisabled OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets dropped because the circuit was disabled. This
+        would typically be packets that were queueued before the circuit was
+        disabled which are now left in the queue." 
+    ::= { alpsCktBaseEntry 19 }
+
+alpsCktBaseDropsQOverflow OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets dropped due to TCP Congestion." 
+    ::= { alpsCktBaseEntry 20 }
+
+alpsCktBaseDropsLifeTimeExpd OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets which were queued within the router for
+        longer than alpsCktBaseLifeTimeTimer." 
+    ::= { alpsCktBaseEntry 21 }
+
+alpsCktBaseEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This specifies if the circuit has been enabled. After a circuit
+        has been configured, it must be explicitly enabled in order for
+        the circuit to be set up."
+    DEFVAL          { false } 
+    ::= { alpsCktBaseEntry 22 }
+
+alpsCktBaseRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table." 
+    ::= { alpsCktBaseEntry 23 }
+
+alpsCktBaseCurrPeerConnId OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..20))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A descriptive ASCII string that is used to distinguish
+        among different peer connections to the same ALPS remote 
+        peer IP address." 
+    ::= { alpsCktBaseEntry 24 }
+ 
+
+-- X.25 ckt Table
+
+alpsCktX25Table OBJECT-TYPE
+    SYNTAX          SEQUENCE OF AlpsCktX25Entry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of ALPS X.25 circuits. These entries exist only for X.25
+        circuits. hence this table would probably be empty at the remote 
+        router"
+    ::= { alpsCktObjects 2 }
+
+alpsCktX25Entry OBJECT-TYPE
+    SYNTAX          AlpsCktX25Entry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Details of ALPS Circuits."
+    INDEX           {
+                        alpsCktBaseName,
+                        alpsCktX25DlcType
+                    } 
+    ::= { alpsCktX25Table 1 }
+
+AlpsCktX25Entry ::= SEQUENCE {
+        alpsCktX25DlcType      INTEGER ,
+        alpsCktX25IfIndex      InterfaceIndex,
+        alpsCktX25LCN          Integer32,
+        alpsCktX25HostX121     X121Address,
+        alpsCktX25RemoteX121   X121Address,
+        alpsCktX25DropsVcReset Counter32
+}
+
+alpsCktX25DlcType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        emtox(1),
+                        ax25(2)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Specifies what type of circuit this is." 
+    ::= { alpsCktX25Entry 1 }
+
+alpsCktX25IfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the interface the circuit is on. This is the interface
+        which is connected to the host" 
+    ::= { alpsCktX25Entry 2 }
+
+alpsCktX25LCN OBJECT-TYPE
+    SYNTAX          Integer32 (1..4096 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Logical Channel Number being used on the X.25 VC for
+        this ALPS Circuit." 
+    ::= { alpsCktX25Entry 3 }
+
+alpsCktX25HostX121 OBJECT-TYPE
+    SYNTAX          X121Address
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The X.121 address on the host side which the central router uses to
+        connect to the host" 
+    ::= { alpsCktX25Entry 4 }
+
+alpsCktX25RemoteX121 OBJECT-TYPE
+    SYNTAX          X121Address
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "X.121 address of the remote side. Remote here refers to
+        the side that the ASCUS are connected to and is also 
+        referred to as the remote router." 
+    ::= { alpsCktX25Entry 5 }
+
+alpsCktX25DropsVcReset OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets dropped due to the VC being reset. These are
+        packets that were queued up for transmission on that VC when it
+        was reset" 
+    ::= { alpsCktX25Entry 6 }
+ 
+
+-- P1024 (ALC or UTS) Circuit Table
+
+alpsCktP1024Table OBJECT-TYPE
+    SYNTAX          SEQUENCE OF AlpsCktP1024Entry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of ALC or UTS  Alps circuits."
+    ::= { alpsCktObjects 3 }
+
+alpsCktP1024Entry OBJECT-TYPE
+    SYNTAX          AlpsCktP1024Entry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Details of ALPS Circuits."
+    INDEX           {
+                        alpsCktBaseName,
+                        alpsCktP1024DlcType
+                    } 
+    ::= { alpsCktP1024Table 1 }
+
+AlpsCktP1024Entry ::= SEQUENCE {
+        alpsCktP1024DlcType         INTEGER ,
+        alpsCktP1024BackupPeerAddr  IpAddress,
+        alpsCktP1024RetryTimer      TimeInterval,
+        alpsCktP1024IdleTimer       TimeInterval,
+        alpsCktP1024EmtoxX121       X121Address,
+        alpsCktP1024Ax25LCN         Integer32,
+        alpsCktP1024WinOut          Integer32,
+        alpsCktP1024WinIn           Integer32,
+        alpsCktP1024OutPktSize      Integer32,
+        alpsCktP1024InPktSize       Integer32,
+        alpsCktP1024SvcMsgList      Integer32,
+        alpsCktP1024SvcMsgIntvl     TimeTicks,
+        alpsCktP1024DropsUnkAscu    Counter32,
+        alpsCktP1024RowStatus       RowStatus,
+        alpsCktP1024MatipCloseDelay TimeInterval
+}
+
+alpsCktP1024DlcType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        alc(3),
+                        uts(4)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Specifies what type of circuit this is." 
+    ::= { alpsCktP1024Entry 1 }
+
+alpsCktP1024BackupPeerAddr OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the IP address of the backup remote peer. This is optional
+        and hence may not always exist." 
+    ::= { alpsCktP1024Entry 2 }
+
+alpsCktP1024RetryTimer OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the interval at which a permanent ALPS circuit
+        will attempt to reestablish the circuit in case it wasn't
+        able to come up." 
+    ::= { alpsCktP1024Entry 3 }
+
+alpsCktP1024IdleTimer OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "If there is no traffic on a dynamic ALPS circuit for this
+        interval, it will be cleared." 
+    ::= { alpsCktP1024Entry 4 }
+
+alpsCktP1024EmtoxX121 OBJECT-TYPE
+    SYNTAX          X121Address
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the X.121 address of the SVC established with
+        EMTOX host. This field should be set to length zero in
+        the case of PVCs (AX.25 host)." 
+    ::= { alpsCktP1024Entry 5 }
+
+alpsCktP1024Ax25LCN OBJECT-TYPE
+    SYNTAX          Integer32 (0..4096 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the Logical Channel Number being used on the PVC
+        established with AX.25 host. This field should be set to zero in
+        the case of SVCs (EMTOX host)." 
+    ::= { alpsCktP1024Entry 6 }
+
+alpsCktP1024WinOut OBJECT-TYPE
+    SYNTAX          Integer32 (1..7 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies X.25 transmit Window size on the Logical Channel
+        Number of this ALPS Circuit." 
+    ::= { alpsCktP1024Entry 7 }
+
+alpsCktP1024WinIn OBJECT-TYPE
+    SYNTAX          Integer32 (1..7 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the X.25 receive Window size on the Logical Channel
+        Number of this ALPS Circuit." 
+    ::= { alpsCktP1024Entry 8 }
+
+alpsCktP1024OutPktSize OBJECT-TYPE
+    SYNTAX          Integer32 (128..4096 )
+    UNITS           "bytes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the X.25 maxiumum output Packet size on the Logical
+        Channel Number of this ALPS Circuit. The default output Packet size 
+        for AX.25 is 240 bytes and 128 bytes for EMTOX." 
+    ::= { alpsCktP1024Entry 9 }
+
+alpsCktP1024InPktSize OBJECT-TYPE
+    SYNTAX          Integer32 (128..4096 )
+    UNITS           "bytes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies X.25 maximum input Packet size on the Logical Channel
+        Number of this  ALPS Circuit. The default input Packet size for 
+        AX.25 is 240 bytes and 128 bytes for EMTOX." 
+    ::= { alpsCktP1024Entry 10 }
+
+alpsCktP1024SvcMsgList OBJECT-TYPE
+    SYNTAX          Integer32 (0..8 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the Service Message List Number to use on this
+        ALPS Circuit. This allows custom service messages to be sent
+        for ASCUs on a particular circuit. Service messages are sent out 
+        by the router to the ASCU when abnormal conditions occur, and are
+        displayed on the terminal. There is a default set of service
+        messages, usually referred to as List 0. However, it is possible
+        to configure custom sets of service messages for display,
+        selectable on a per-circuit basis."
+    DEFVAL          { 0 } 
+    ::= { alpsCktP1024Entry 11 }
+
+alpsCktP1024SvcMsgIntvl OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies Service Message Time Interval for the Service
+        messages to be sent this ALPS Circuit. This controls how
+        frequently the messages are repeated when an error condition 
+        (e.g. network being down) persists." 
+    ::= { alpsCktP1024Entry 12 }
+
+alpsCktP1024DropsUnkAscu OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets that were found to be from an Unknown ASCU
+        (i.e. an ASCU that had not been configured) and hence were dropped." 
+    ::= { alpsCktP1024Entry 13 }
+
+alpsCktP1024RowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table." 
+    ::= { alpsCktP1024Entry 14 }
+
+alpsCktP1024MatipCloseDelay OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the minumum delay between transmission of a MATIP
+        Close and the transmission of a MATIP Session Open for
+        this ALPS circuit." 
+    ::= { alpsCktP1024Entry 15 }
+ 
+
+-- *********************************************************************
+-- * ALPS ASCU Object at Central & Remote routers. This
+-- *********************************************************************
+
+alpsCktAscuTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF AlpsCktAscuEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of ASCUs for each ALPS Circuit. This may not include all
+        ASCUs which have this circuit configured as alpsAscuCktName because
+        some ASCUs may be rejected by the host while setting up the circuit."
+    ::= { alpsCktObjects 4 }
+
+alpsCktAscuEntry OBJECT-TYPE
+    SYNTAX          AlpsCktAscuEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Details of ASCUs on ASCU Circuits."
+    INDEX           {
+                        alpsCktAscuCktName,
+                        alpsCktAscuCktDlcType,
+                        alpsCktAscuA1,
+                        alpsCktAscuA2
+                    } 
+    ::= { alpsCktAscuTable 1 }
+
+AlpsCktAscuEntry ::= SEQUENCE {
+        alpsCktAscuCktName    AlpsCktName,
+        alpsCktAscuCktDlcType INTEGER ,
+        alpsCktAscuA1         AlpsAscuA1A2Value,
+        alpsCktAscuA2         AlpsAscuA1A2Value,
+        alpsCktAscuIfIndex    InterfaceIndex,
+        alpsCktAscuId         Integer32,
+        alpsCktAscuStatus     INTEGER 
+}
+
+alpsCktAscuCktName OBJECT-TYPE
+    SYNTAX          AlpsCktName
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The name of the ALPS circuit which this ASCU is on. The
+        circuit may be always up (for permanent circuits) or get set up
+        (dynamic circuits) when there is traffic on one of the ASCUs which
+        are set up for that circuit." 
+    ::= { alpsCktAscuEntry 1 }
+
+alpsCktAscuCktDlcType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        emtox(1),
+                        ax25(2),
+                        alc(3),
+                        uts(4)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Specifies what type of circuit this is. The X.25 circuit is set up
+        with the same name as the ALC circuit so we need this 
+        variable to distinguish between the two." 
+    ::= { alpsCktAscuEntry 2 }
+
+alpsCktAscuA1 OBJECT-TYPE
+    SYNTAX          AlpsAscuA1A2Value
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A1 value. This is used along with the alpsCktAscuA2 value to
+        identify the ASCU within the circuit." 
+    ::= { alpsCktAscuEntry 3 }
+
+alpsCktAscuA2 OBJECT-TYPE
+    SYNTAX          AlpsAscuA1A2Value
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A2 value. This is used along with the alpsCktAscuA1 value to
+        identify the ASCU within the circuit." 
+    ::= { alpsCktAscuEntry 4 }
+
+alpsCktAscuIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the interface the ASCU is on. This field, along with
+        alpsCktAscuId is provided so that it is possible to correlate this
+        information with the configured ASCU information in alpsAscuTable" 
+    ::= { alpsCktAscuEntry 5 }
+
+alpsCktAscuId OBJECT-TYPE
+    SYNTAX          Integer32 (0..127 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the ASCU Identifier which uniquely
+        identifies an ASCU on a given interface. This value is
+        the Interface Address (IA) for ALC and the Remote Identifier
+        (RID) for UTS. A value of 0 indicates that the ASCU id is either 
+        unavailable or not applicable." 
+    ::= { alpsCktAscuEntry 6 }
+
+alpsCktAscuStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        ok(2),
+                        reject(3),
+                        new(4),
+                        pending(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the ASCU status - ASCUs configured on the circuit
+        can be rejected at the host and would then be marked REJECT. Also, 
+        ASCUs configured after the circuit has been established are not added
+        dynamically to the circuit but are marked NEW and get added when the
+        circuit gets established the next time. ASCUs waiting for an accept or
+        reject response from the host are marked as PENDING. ASCUs that were
+        accepted by the host are marked OK." 
+    ::= { alpsCktAscuEntry 7 }
+ 
+
+-- *********************************************************************
+-- * ALPS P1024 Interface Object - Interface Table
+-- *********************************************************************
+
+alpsIfP1024Table OBJECT-TYPE
+    SYNTAX          SEQUENCE OF AlpsIfP1024Entry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of interfaces running the P1024B or P1024C protocols"
+    ::= { alpsIfObjects 1 }
+
+alpsIfP1024Entry OBJECT-TYPE
+    SYNTAX          AlpsIfP1024Entry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Interface Details"
+    INDEX           { ifIndex } 
+    ::= { alpsIfP1024Table 1 }
+
+AlpsIfP1024Entry ::= SEQUENCE {
+        alpsIfP1024EncapType           INTEGER ,
+        alpsIfP1024PollRespTimeout     TimeInterval,
+        alpsIfP1024GATimeout           TimeInterval,
+        alpsIfP1024PollPauseTimeout    TimeInterval,
+        alpsIfP1024MaxErrCnt           Integer32,
+        alpsIfP1024MaxRetrans          Integer32,
+        alpsIfP1024CurrErrCnt          Integer32,
+        alpsIfP1024MinGoodPollResp     Integer32,
+        alpsIfP1024PollingRatio        Integer32,
+        alpsIfP1024NumAscus            Gauge32,
+        alpsIfP1024ServMsgFormat       INTEGER ,
+        alpsIfP1024ServMsgStatusChange TruthValue,
+        alpsIfP1024ServMsgDropTermAddr INTEGER 
+}
+
+alpsIfP1024EncapType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        alc(1),
+                        uts(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the encapsulation type for this Serial Interface." 
+    ::= { alpsIfP1024Entry 1 }
+
+alpsIfP1024PollRespTimeout OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the Poll Response Time out value."
+    DEFVAL          { 500 } 
+    ::= { alpsIfP1024Entry 2 }
+
+alpsIfP1024GATimeout OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the time-out delay between receipt of first character
+        of an input sequence solicited by a poll and receipt of GA 
+        sequence."
+    DEFVAL          { 600 } 
+    ::= { alpsIfP1024Entry 3 }
+
+alpsIfP1024PollPauseTimeout OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the minimum delay between two poll cycles. Thus
+        the poll pause interval is counted from the instant when the first
+        ASCU in the poll list is polled. Note that this is the delay between 
+        two traversals of the entire poll list rather than the interval
+        between two consecutive polls. The actual delay will 
+        probably be more than the value of this variable."
+    DEFVAL          { 50 } 
+    ::= { alpsIfP1024Entry 4 }
+
+alpsIfP1024MaxErrCnt OBJECT-TYPE
+    SYNTAX          Integer32 (0..30 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies a maximum error count for this interface. After
+        an ASCU link comes up, if it experiences this number of errors the
+        ASCU link will be shutdown. The default value of 0 results in the
+        ASCU link never being shutdown."
+    DEFVAL          { 0 } 
+    ::= { alpsIfP1024Entry 5 }
+
+alpsIfP1024MaxRetrans OBJECT-TYPE
+    SYNTAX          Integer32 (0..10 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the maximum number of times an output message will
+        be retransmitted before it is discarded. This is relevant only
+        for P1024C (UTS). For ALC, a value of 0 will be returned. Note that
+        legal values for UTS are 1-10"
+    DEFVAL          { 3 } 
+    ::= { alpsIfP1024Entry 6 }
+
+alpsIfP1024CurrErrCnt OBJECT-TYPE
+    SYNTAX          Integer32 (0..30 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the number of errors currently existing for this
+        ASCU link. When this equals alpsIfP1024MaxErrCnt then the
+        ASCU link will be shut down, unless alpsIfP1024MaxErrCnt
+        equals 0 in which case the ascu link is never shut down
+        due to error thresholds being exceeded"
+    DEFVAL          { 0 } 
+    ::= { alpsIfP1024Entry 7 }
+
+alpsIfP1024MinGoodPollResp OBJECT-TYPE
+    SYNTAX          Integer32 (1..30 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the number of good Poll Responses to be received
+        from an ASCU before it can be declared up."
+    DEFVAL          { 1 } 
+    ::= { alpsIfP1024Entry 8 }
+
+alpsIfP1024PollingRatio OBJECT-TYPE
+    SYNTAX          Integer32 (1..30 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies how many times ASCUs in UP state are polled before
+        an ASCU in DOWN state is polled again."
+    DEFVAL          { 30 } 
+    ::= { alpsIfP1024Entry 9 }
+
+alpsIfP1024NumAscus OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Ascus"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the number of ASCUs configured on this Serial Port."
+    DEFVAL          { 0 } 
+    ::= { alpsIfP1024Entry 10 }
+
+alpsIfP1024ServMsgFormat OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        sita(1),
+                        apollo(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the format of the service message sent to an ASCU
+        on this interface."
+    DEFVAL          { sita } 
+    ::= { alpsIfP1024Entry 11 }
+
+alpsIfP1024ServMsgStatusChange OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether service messages generated due
+        to an ALPS circuit status change or an ASCU status change,
+        will be forwarded to the ASCU."
+    DEFVAL          { true } 
+    ::= { alpsIfP1024Entry 12 }
+
+alpsIfP1024ServMsgDropTermAddr OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        msgterm(1),
+                        configterm(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether the service message will be sent to the same
+        terminal address of the dropped message or the configured value."
+    DEFVAL          { configterm } 
+    ::= { alpsIfP1024Entry 13 }
+ 
+
+-- *********************************************************************
+-- * ALPS Host Link Interface Object
+-- *********************************************************************
+
+alpsIfHLinkTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF AlpsIfHLinkEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of interfaces running AX.25/EMTOX host link protocols.
+        These are on the central router"
+    ::= { alpsIfObjects 2 }
+
+alpsIfHLinkEntry OBJECT-TYPE
+    SYNTAX          AlpsIfHLinkEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Details of AX.25/EMTOX host link protocols on an Interface."
+    INDEX           {
+                        ifIndex,
+                        alpsIfHLinkHostHld,
+                        alpsIfHLinkNumber
+                    } 
+    ::= { alpsIfHLinkTable 1 }
+
+AlpsIfHLinkEntry ::= SEQUENCE {
+        alpsIfHLinkHostHld         Integer32,
+        alpsIfHLinkNumber          Integer32,
+        alpsIfHLinkX25ProtocolType INTEGER ,
+        alpsIfHLinkAx25PvcDamp     TimeInterval,
+        alpsIfHLinkEmtoxHostX121   X121Address,
+        alpsIfHLinkActiveCkts      Integer32
+}
+
+alpsIfHLinkHostHld OBJECT-TYPE
+    SYNTAX          Integer32 (1..65535 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Specifies the HLD of the AX.25/EMTOX host connected on this
+        Interface. The HLD(High-level descriptor) serves as an 
+        identifier along with the hostlink number and helps correlate the
+        ALPS circuit to a host link. The hex range is  0x1 to 0xFFFF
+        which corresponds to 1 ... 65535 in decimal." 
+    ::= { alpsIfHLinkEntry 1 }
+
+alpsIfHLinkNumber OBJECT-TYPE
+    SYNTAX          Integer32 (1..255 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Specifies the configured Host Link Number on this Serial Interface." 
+    ::= { alpsIfHLinkEntry 2 }
+
+alpsIfHLinkX25ProtocolType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ax25(1),
+                        emtox(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the encapsulation type for this Serial Interface -
+        AX.25 or EMTOX." 
+    ::= { alpsIfHLinkEntry 3 }
+
+alpsIfHLinkAx25PvcDamp OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The purpose of this object is to handle the link-damping for an
+        AX.25 host. If the PVC goes inactive (i.e. link goes down, etc...)
+        for PVCDampValue seconds, then PVC will be destroyed as well as 
+        the associated ALPS circuit." 
+    ::= { alpsIfHLinkEntry 4 }
+
+alpsIfHLinkEmtoxHostX121 OBJECT-TYPE
+    SYNTAX          X121Address
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Specfies the X.121 address of this EMTOX host." 
+    ::= { alpsIfHLinkEntry 5 }
+
+alpsIfHLinkActiveCkts OBJECT-TYPE
+    SYNTAX          Integer32 (0..4096 )
+    UNITS           "circuits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the number of ALPS Ckts established with this host." 
+    ::= { alpsIfHLinkEntry 6 }
+ 
+
+-- *********************************************************************
+-- * Define ALPS ASCU Object
+-- *********************************************************************
+
+alpsAscuTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF AlpsAscuEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of ALPS ASCUs on an interface. This is defined only at
+        the remote router."
+    ::= { alpsAscuObjects 1 }
+
+alpsAscuEntry OBJECT-TYPE
+    SYNTAX          AlpsAscuEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Details of ASCU."
+    INDEX           {
+                        ifIndex,
+                        alpsAscuId
+                    } 
+    ::= { alpsAscuTable 1 }
+
+AlpsAscuEntry ::= SEQUENCE {
+        alpsAscuId                Integer32,
+        alpsAscuA1                AlpsAscuA1A2Value,
+        alpsAscuA2                AlpsAscuA1A2Value,
+        alpsAscuCktName           AlpsCktName,
+        alpsAscuAlarmsEnabled     TruthValue,
+        alpsAscuRetryOption       INTEGER ,
+        alpsAscuMaxMsgLength      Integer32,
+        alpsAscuFwdStatusOption   TruthValue,
+        alpsAscuState             INTEGER ,
+        alpsAscuDownReason        INTEGER ,
+        alpsAscuOutPackets        Counter32,
+        alpsAscuOutOctets         Counter32,
+        alpsAscuInPackets         Counter32,
+        alpsAscuInOctets          Counter32,
+        alpsAscuDropsGarbledPkts  Counter32,
+        alpsAscuDropsAscuDown     Counter32,
+        alpsAscuDropsAscuDisabled Counter32,
+        alpsAscuEnabled           TruthValue,
+        alpsAscuRowStatus         RowStatus,
+        alpsAscuAutoReset         TruthValue
+}
+
+alpsAscuId OBJECT-TYPE
+    SYNTAX          Integer32 (1..127 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Specifies the ASCU Identifier and uniquely
+        identifies an ASCU on a given interface. This value is
+        the Interface Address (IA) for ALC and the Remote Identifier
+        (RID) for UTS. This uniquely identifies an ASCU on a given interface." 
+    ::= { alpsAscuEntry 1 }
+
+alpsAscuA1 OBJECT-TYPE
+    SYNTAX          AlpsAscuA1A2Value
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A1 value of the ASCU." 
+    ::= { alpsAscuEntry 2 }
+
+alpsAscuA2 OBJECT-TYPE
+    SYNTAX          AlpsAscuA1A2Value
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A2 value of the ASCU." 
+    ::= { alpsAscuEntry 3 }
+
+alpsAscuCktName OBJECT-TYPE
+    SYNTAX          AlpsCktName
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the ALPS Circuit Name for the circuit that is to be
+        used for this ASCU's data. Note that all ASCUs on a physical interface
+        may not use the same ALPS circuit to connect to the central router" 
+    ::= { alpsAscuEntry 4 }
+
+alpsAscuAlarmsEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether alarms (syslog messages or SNMP traps) will
+        be generated for this ASCU."
+    DEFVAL          { false } 
+    ::= { alpsAscuEntry 5 }
+
+alpsAscuRetryOption OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        resend(1),
+                        reenter(2),
+                        none(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the retry option for this ASCU. This specifies the
+        error message to be sent to the terminal when a message
+        is dropped at the router. The terminal has three choices -
+        either retransmit the last message (if the terminal can buffer it),
+        re-enter the last message sent or do nothing. Based on the terminal's
+        capabilities, one of these three is configured for the ASCU. Note that
+        this option is the same for all terminals connected to an ASCU
+        because the ALPS feature does not handle individual terminals"
+    DEFVAL          { none } 
+    ::= { alpsAscuEntry 6 }
+
+alpsAscuMaxMsgLength OBJECT-TYPE
+    SYNTAX          Integer32 (1..3840 )
+    UNITS           "bytes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies Maximum length of Input Message that can be received
+        from this ASCU."
+    DEFVAL          { 962 } 
+    ::= { alpsAscuEntry 7 }
+
+alpsAscuFwdStatusOption OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "If this flag is set, status messages received from the ASCU are
+        forwarded to the host. Otherwise they are discarded. Note that these
+        are relevant only for P1024C (UTS). For ALC, a value of FALSE will 
+        be returned."
+    DEFVAL          { true } 
+    ::= { alpsAscuEntry 8 }
+
+alpsAscuState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        disabled(1),
+                        unknown(2),
+                        down(3),
+                        up(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the current ASCU Status. ASCUs are initially in
+        disabled state. They are enabled from the parser
+        if the operator wants to. This takes them to an UP state from which 
+        they go to a DOWN state if there are too many errors." 
+    ::= { alpsAscuEntry 9 }
+
+alpsAscuDownReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        noReason(2),
+                        notDown(3),
+                        ascuDisabled(4),
+                        errorThresholdExceeded(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports the Down reason for this ASCU if it is down."
+    DEFVAL          { noReason } 
+    ::= { alpsAscuEntry 10 }
+
+alpsAscuOutPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets transmitted to this ASCU." 
+    ::= { alpsAscuEntry 11 }
+
+alpsAscuOutOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of octets transmitted to this ASCU." 
+    ::= { alpsAscuEntry 12 }
+
+alpsAscuInPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets received from this ASCU" 
+    ::= { alpsAscuEntry 13 }
+
+alpsAscuInOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of octets received from this ASCU." 
+    ::= { alpsAscuEntry 14 }
+
+alpsAscuDropsGarbledPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets dropped due to the inability to properly
+        decode them. Examples of garbled packets include packets with bad
+        CRCs or bad header information" 
+    ::= { alpsAscuEntry 15 }
+
+alpsAscuDropsAscuDown OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets dropped because the ASCU had previously
+        been declared DOWN due to error thresholds being exceeded." 
+    ::= { alpsAscuEntry 16 }
+
+alpsAscuDropsAscuDisabled OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets dropped because the ASCU had previously
+        been declared to be in disabled state." 
+    ::= { alpsAscuEntry 17 }
+
+alpsAscuEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether the ASCU has been enabled or not. After
+        the ASCU has been configured, it must be explicitly enabled to allow 
+        it to be polled."
+    DEFVAL          { false } 
+    ::= { alpsAscuEntry 18 }
+
+alpsAscuRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table." 
+    ::= { alpsAscuEntry 19 }
+
+alpsAscuAutoReset OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies whether a reset command will be automatically issued
+        to any non-responsive ALC ASCUs."
+    DEFVAL          { false } 
+    ::= { alpsAscuEntry 20 }
+ 
+
+-- *********************************************************************
+-- *  ALPS Service Messages
+-- *********************************************************************
+
+alpsSvcMsgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF AlpsSvcMsgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of service messages and its associated number. There is
+        a default list of service messages (list 0) as well as 
+        user-configurable service messages. On a per-circuit basis, the 
+        service message list to use can be selected. The user-configured
+        service message lists are defined in this table. Note that the
+        default service messages are not part of this table."
+    ::= { alpsGlobalObjects 1 }
+
+alpsSvcMsgEntry OBJECT-TYPE
+    SYNTAX          AlpsSvcMsgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Service Messages configured along with its List number and Service
+        Message Number in that list."
+    INDEX           {
+                        alpsSvcMsgListNum,
+                        alpsSvcMsgNum
+                    } 
+    ::= { alpsSvcMsgTable 1 }
+
+AlpsSvcMsgEntry ::= SEQUENCE {
+        alpsSvcMsgListNum   Integer32,
+        alpsSvcMsgNum       Integer32,
+        alpsSvcMsg          DisplayString,
+        alpsSvcMsgRowStatus RowStatus
+}
+
+alpsSvcMsgListNum OBJECT-TYPE
+    SYNTAX          Integer32 (1..8 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Specifies the Service Msg Number of this Service Msg. A
+        maximum of 8 Service Message lists can be configured not including
+        the one for Default/System (when alpsSvcMsgListNum = 0) 
+        Service messages." 
+    ::= { alpsSvcMsgEntry 1 }
+
+alpsSvcMsgNum OBJECT-TYPE
+    SYNTAX          Integer32 (1..8 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Specifies the Service Msg Number of this Service Msg. A Maximum
+        of 8 messages can be present." 
+    ::= { alpsSvcMsgEntry 2 }
+
+alpsSvcMsg OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (1..50))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the Service Message string ." 
+    ::= { alpsSvcMsgEntry 3 }
+
+alpsSvcMsgRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table." 
+    ::= { alpsSvcMsgEntry 4 }
+ 
+
+-- *********************************************************************
+-- * ALPS  X.121 to Ip Translation Object - Admin Object
+-- *********************************************************************
+
+alpsX121ToIpTransTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF AlpsX121ToIpTransEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A Translation table between X.121 address and IP address. This
+        is intended to allow a connection to be established to the
+        appropriate remote router. The X121 address in the call packet
+        is used to look up the IP address of the remote peer"
+    ::= { alpsGlobalObjects 2 }
+
+alpsX121ToIpTransEntry OBJECT-TYPE
+    SYNTAX          AlpsX121ToIpTransEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A mapping table between X.121 address and IP address."
+    INDEX           {
+                        ifIndex,
+                        alpsX121
+                    } 
+    ::= { alpsX121ToIpTransTable 1 }
+
+AlpsX121ToIpTransEntry ::= SEQUENCE {
+        alpsX121                   X121Address,
+        alpsIpAddress              IpAddress,
+        alpsX121ToIpTransRowStatus RowStatus
+}
+
+alpsX121 OBJECT-TYPE
+    SYNTAX          X121Address
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Specfies the X.121 address of the VC established with
+        EMTOX host." 
+    ::= { alpsX121ToIpTransEntry 1 }
+
+alpsIpAddress OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the IP address of the remote peer which maps onto the
+        X.121 address." 
+    ::= { alpsX121ToIpTransEntry 2 }
+
+alpsX121ToIpTransRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table." 
+    ::= { alpsX121ToIpTransEntry 3 }
+ 
+
+-- *********************************************************************
+-- * ALPS Notifications  at Remote router
+-- *********************************************************************
+
+ciscoAlpsMIBNotificationPrefix  OBJECT IDENTIFIER
+    ::= { ciscoAlpsMIB 2 }
+
+ciscoAlpsMIBNotifications  OBJECT IDENTIFIER
+    ::= { ciscoAlpsMIBNotificationPrefix 0 }
+
+
+alpsPeerStatusChange NOTIFICATION-TYPE
+    OBJECTS         { alpsRemPeerState }
+    STATUS          deprecated
+    DESCRIPTION
+        "This Notification is generated when there is a change in state
+        for the peer connection, provided alarms are enabled for
+        that peer."
+   ::= { ciscoAlpsMIBNotifications 1 }
+
+alpsCktStatusChange NOTIFICATION-TYPE
+    OBJECTS         { alpsCktBaseState }
+    STATUS          current
+    DESCRIPTION
+        "This Notification has to be generated whenever there is a
+        state change for the ALPS circuit, provided alarms are 
+        enabled for that circuit"
+   ::= { ciscoAlpsMIBNotifications 2 }
+
+alpsAscuStatusChange NOTIFICATION-TYPE
+    OBJECTS         { alpsAscuState }
+    STATUS          current
+    DESCRIPTION
+        "This Notification has to be generated whenever there is a
+        change in ASCU status, provided alarms are enabled for
+        that ASCU"
+   ::= { ciscoAlpsMIBNotifications 3 }
+
+alpsPeerConnStatusChange NOTIFICATION-TYPE
+    OBJECTS         { alpsRemPeerConnState }
+    STATUS          current
+    DESCRIPTION
+        "This Notification is generated when there is a change in
+        state for an ALPS peer connection, provided alarms are 
+        enabled for that peer connection."
+   ::= { ciscoAlpsMIBNotifications 4 }
+
+alpsCktOpenFailure NOTIFICATION-TYPE
+    OBJECTS         { alpsCktBaseDownReason }
+    STATUS          current
+    DESCRIPTION
+        "This Notification is generated whenever there is an open
+        failure for the ALPS circuit, provided alarms are enabled 
+        for that circuit"
+   ::= { ciscoAlpsMIBNotifications 5 }
+
+alpsCktPartialReject NOTIFICATION-TYPE
+    OBJECTS         {
+                        alpsCktAscuIfIndex,
+                        alpsCktAscuId
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This Notification is generated whenever there is an open
+        confirmation that contains a list of rejected ASCUs for the
+        ALPS circuit, provided alarms are enabled for that circuit"
+   ::= { ciscoAlpsMIBNotifications 6 }
+-- *************************************************************************
+-- * Conformance Information
+-- *************************************************************************
+
+alpsMibConformance  OBJECT IDENTIFIER
+    ::= { ciscoAlpsMIB 3 }
+
+alpsMibCompliances  OBJECT IDENTIFIER
+    ::= { alpsMibConformance 1 }
+
+alpsMibGroups  OBJECT IDENTIFIER
+    ::= { alpsMibConformance 2 }
+
+
+alpsMibCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for ALPS."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        alpsPeerGroup,
+                        alpsCktGroup,
+                        alpsIfP1024Group,
+                        alpsIfHostlinkGroup,
+                        alpsAscuGroup,
+                        alpsSvcMsgGroup,
+                        alpsAddrTransGroup,
+                        alpsNotificationGroup
+                    }
+    ::= { alpsMibCompliances 1 }
+
+alpsMibComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for ALPS."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        alpsCktGroup,
+                        alpsIfP1024Group,
+                        alpsIfHostlinkGroup,
+                        alpsAscuGroup,
+                        alpsSvcMsgGroup,
+                        alpsAddrTransGroup,
+                        alpsPeerGroupRev1,
+                        alpsNotificationGroupRev1
+                    }
+    ::= { alpsMibCompliances 2 }
+
+alpsMibComplianceRev2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for ALPS."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        alpsCktGroup,
+                        alpsIfP1024GroupRev1,
+                        alpsIfHostlinkGroup,
+                        alpsAscuGroupRev1,
+                        alpsSvcMsgGroup,
+                        alpsAddrTransGroup,
+                        alpsPeerGroupRev1,
+                        alpsNotificationGroupRev2
+                    }
+    ::= { alpsMibCompliances 3 }
+
+alpsPeerGroup OBJECT-GROUP
+    OBJECTS         {
+                        alpsPeerLocalIpAddr,
+                        alpsPeerLocalAtpPort,
+                        alpsPeerKeepaliveTimeout,
+                        alpsPeerKeepaliveMaxRetries,
+                        alpsPeerInCallsAcceptFlag,
+                        alpsRemPeerConnType,
+                        alpsRemPeerLocalPort,
+                        alpsRemPeerRemotePort,
+                        alpsRemPeerState,
+                        alpsRemPeerUptime,
+                        alpsRemPeerNumActiveCkts,
+                        alpsRemPeerIdleTimer,
+                        alpsRemPeerAlarmsEnabled,
+                        alpsRemPeerTCPQlen,
+                        alpsRemPeerOutPackets,
+                        alpsRemPeerOutOctets,
+                        alpsRemPeerInPackets,
+                        alpsRemPeerInOctets,
+                        alpsRemPeerDropsGiant,
+                        alpsRemPeerDropsQFull,
+                        alpsRemPeerDropsPeerUnreach,
+                        alpsRemPeerRowStatus
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing Peer information"
+    ::= { alpsMibGroups 1 }
+
+alpsCktGroup OBJECT-GROUP
+    OBJECTS         {
+                        alpsCktBasePriPeerAddr,
+                        alpsCktBaseAlarmsEnabled,
+                        alpsCktBaseConnType,
+                        alpsCktBaseState,
+                        alpsCktBaseNumActiveAscus,
+                        alpsCktBaseCurrentPeer,
+                        alpsCktBaseLifeTimeTimer,
+                        alpsCktBaseHostLinkNumber,
+                        alpsCktBaseHostLinkType,
+                        alpsCktBaseRemHld,
+                        alpsCktBaseLocalHld,
+                        alpsCktBaseDownReason,
+                        alpsCktBaseOutPackets,
+                        alpsCktBaseOutOctets,
+                        alpsCktBaseInPackets,
+                        alpsCktBaseInOctets,
+                        alpsCktBaseDropsCktDisabled,
+                        alpsCktBaseDropsQOverflow,
+                        alpsCktBaseDropsLifeTimeExpd,
+                        alpsCktBaseEnabled,
+                        alpsCktBaseRowStatus,
+                        alpsCktX25IfIndex,
+                        alpsCktX25LCN,
+                        alpsCktX25HostX121,
+                        alpsCktX25RemoteX121,
+                        alpsCktX25DropsVcReset,
+                        alpsCktP1024BackupPeerAddr,
+                        alpsCktP1024RetryTimer,
+                        alpsCktP1024IdleTimer,
+                        alpsCktP1024EmtoxX121,
+                        alpsCktP1024Ax25LCN,
+                        alpsCktP1024WinOut,
+                        alpsCktP1024WinIn,
+                        alpsCktP1024OutPktSize,
+                        alpsCktP1024InPktSize,
+                        alpsCktP1024SvcMsgList,
+                        alpsCktP1024SvcMsgIntvl,
+                        alpsCktP1024DropsUnkAscu,
+                        alpsCktP1024RowStatus,
+                        alpsCktAscuIfIndex,
+                        alpsCktAscuId,
+                        alpsCktAscuStatus,
+                        alpsCktBaseCurrPeerConnId,
+                        alpsCktP1024MatipCloseDelay
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Circuit information"
+    ::= { alpsMibGroups 2 }
+
+alpsIfP1024Group OBJECT-GROUP
+    OBJECTS         {
+                        alpsIfP1024EncapType,
+                        alpsIfP1024PollRespTimeout,
+                        alpsIfP1024GATimeout,
+                        alpsIfP1024PollPauseTimeout,
+                        alpsIfP1024MaxErrCnt,
+                        alpsIfP1024MaxRetrans,
+                        alpsIfP1024CurrErrCnt,
+                        alpsIfP1024MinGoodPollResp,
+                        alpsIfP1024PollingRatio,
+                        alpsIfP1024NumAscus
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing ALC interface information"
+    ::= { alpsMibGroups 3 }
+
+alpsIfHostlinkGroup OBJECT-GROUP
+    OBJECTS         {
+                        alpsIfHLinkX25ProtocolType,
+                        alpsIfHLinkAx25PvcDamp,
+                        alpsIfHLinkEmtoxHostX121,
+                        alpsIfHLinkActiveCkts
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Hostlink information"
+    ::= { alpsMibGroups 4 }
+
+alpsAscuGroup OBJECT-GROUP
+    OBJECTS         {
+                        alpsAscuA1,
+                        alpsAscuA2,
+                        alpsAscuCktName,
+                        alpsAscuAlarmsEnabled,
+                        alpsAscuRetryOption,
+                        alpsAscuMaxMsgLength,
+                        alpsAscuFwdStatusOption,
+                        alpsAscuState,
+                        alpsAscuDownReason,
+                        alpsAscuOutPackets,
+                        alpsAscuOutOctets,
+                        alpsAscuInPackets,
+                        alpsAscuInOctets,
+                        alpsAscuDropsGarbledPkts,
+                        alpsAscuDropsAscuDown,
+                        alpsAscuDropsAscuDisabled,
+                        alpsAscuEnabled,
+                        alpsAscuRowStatus
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing ASCU information"
+    ::= { alpsMibGroups 5 }
+
+alpsSvcMsgGroup OBJECT-GROUP
+    OBJECTS         {
+                        alpsSvcMsg,
+                        alpsSvcMsgRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Service Message information"
+    ::= { alpsMibGroups 6 }
+
+alpsAddrTransGroup OBJECT-GROUP
+    OBJECTS         {
+                        alpsIpAddress,
+                        alpsX121ToIpTransRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Address Translation
+        information."
+    ::= { alpsMibGroups 7 }
+
+alpsPeerGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        alpsPeerLocalIpAddr,
+                        alpsPeerLocalAtpPort,
+                        alpsPeerKeepaliveTimeout,
+                        alpsPeerKeepaliveMaxRetries,
+                        alpsPeerInCallsAcceptFlag,
+                        alpsRemPeerCfgActivation,
+                        alpsRemPeerCfgTCPQLen,
+                        alpsRemPeerCfgIdleTimer,
+                        alpsRemPeerCfgNoCircTimer,
+                        alpsRemPeerCfgAlarmsOn,
+                        alpsRemPeerCfgStatIntvl,
+                        alpsRemPeerCfgStatRetry,
+                        alpsRemPeerCfgRowStatus,
+                        alpsRemPeerConnLocalPort,
+                        alpsRemPeerConnForeignPort,
+                        alpsRemPeerConnState,
+                        alpsRemPeerConnProtocol,
+                        alpsRemPeerConnCreation,
+                        alpsRemPeerConnActivation,
+                        alpsRemPeerConnUptime,
+                        alpsRemPeerConnNumActCirc,
+                        alpsRemPeerConnLastTxRx,
+                        alpsRemPeerConnLastRxAny,
+                        alpsRemPeerConnIdleTimer,
+                        alpsRemPeerConnNoCircTimer,
+                        alpsRemPeerConnTCPQLen,
+                        alpsRemPeerConnAlarmsOn,
+                        alpsRemPeerConnStatIntvl,
+                        alpsRemPeerConnStatRetry,
+                        alpsRemPeerConnDownReason,
+                        alpsRemPeerConnOutPackets,
+                        alpsRemPeerConnOutOctets,
+                        alpsRemPeerConnInPackets,
+                        alpsRemPeerConnInOctets,
+                        alpsRemPeerConnDropsGiant,
+                        alpsRemPeerConnDropsQFull,
+                        alpsRemPeerConnDropsUnreach,
+                        alpsRemPeerConnDropsVersion
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing peer information."
+    ::= { alpsMibGroups 9 }
+
+alpsIfP1024GroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        alpsIfP1024EncapType,
+                        alpsIfP1024PollRespTimeout,
+                        alpsIfP1024GATimeout,
+                        alpsIfP1024PollPauseTimeout,
+                        alpsIfP1024MaxErrCnt,
+                        alpsIfP1024MaxRetrans,
+                        alpsIfP1024CurrErrCnt,
+                        alpsIfP1024MinGoodPollResp,
+                        alpsIfP1024PollingRatio,
+                        alpsIfP1024NumAscus,
+                        alpsIfP1024ServMsgFormat,
+                        alpsIfP1024ServMsgStatusChange,
+                        alpsIfP1024ServMsgDropTermAddr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing ALC interface information"
+    ::= { alpsMibGroups 11 }
+
+alpsAscuGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        alpsAscuA1,
+                        alpsAscuA2,
+                        alpsAscuCktName,
+                        alpsAscuAlarmsEnabled,
+                        alpsAscuRetryOption,
+                        alpsAscuMaxMsgLength,
+                        alpsAscuFwdStatusOption,
+                        alpsAscuState,
+                        alpsAscuDownReason,
+                        alpsAscuOutPackets,
+                        alpsAscuOutOctets,
+                        alpsAscuInPackets,
+                        alpsAscuInOctets,
+                        alpsAscuDropsGarbledPkts,
+                        alpsAscuDropsAscuDown,
+                        alpsAscuDropsAscuDisabled,
+                        alpsAscuEnabled,
+                        alpsAscuRowStatus,
+                        alpsAscuAutoReset
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing ASCU information"
+    ::= { alpsMibGroups 12 }
+
+alpsNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        alpsPeerStatusChange,
+                        alpsCktStatusChange,
+                        alpsAscuStatusChange
+                    }
+    STATUS          obsolete
+    DESCRIPTION
+        "A collection of notifications."
+    ::= { alpsMibGroups 8 }
+
+alpsNotificationGroupRev1 NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        alpsCktStatusChange,
+                        alpsAscuStatusChange,
+                        alpsPeerConnStatusChange
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of notifications."
+    ::= { alpsMibGroups 10 }
+
+alpsNotificationGroupRev2 NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        alpsCktStatusChange,
+                        alpsAscuStatusChange,
+                        alpsPeerConnStatusChange,
+                        alpsCktOpenFailure,
+                        alpsCktPartialReject
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications."
+    ::= { alpsMibGroups 13 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

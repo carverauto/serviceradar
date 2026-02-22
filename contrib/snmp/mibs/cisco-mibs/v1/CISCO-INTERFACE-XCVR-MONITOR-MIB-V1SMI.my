@@ -1,0 +1,348 @@
+-- MIB file created 27-Jul-2010 07:27:50, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-INTERFACE-XCVR-MONITOR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-INTERFACE-XCVR-MONITOR-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ifName
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoInterfaceXcvrMonitorMIB OBJECT IDENTIFIER ::= { ciscoMgmt 706 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200910090000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: sanos-pm@cisco.com
+--  Descr
+--    A MIB module that provides monitoring information
+--    about the transceivers plugged into interface on a
+--    system.
+--  RevDate
+--    200910090000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoInterfaceXcvrMonMIBNotifs OBJECT IDENTIFIER ::= { ciscoInterfaceXcvrMonitorMIB 0 }
+ciscoInterfaceXcvrMonMIBObjects OBJECT IDENTIFIER ::= { ciscoInterfaceXcvrMonitorMIB 1 }
+ciscoInterfaceXcvrMonMIBConform OBJECT IDENTIFIER ::= { ciscoInterfaceXcvrMonitorMIB 2 }
+ciscoInterfaceXcvrMonMIBCompliances OBJECT IDENTIFIER ::= { ciscoInterfaceXcvrMonMIBConform 1 }
+ciscoInterfaceXcvrMonMIBGroups OBJECT IDENTIFIER ::= { ciscoInterfaceXcvrMonMIBConform 2 }
+
+CiscoInterfaceXcvrMonitorStatus ::= INTEGER {
+        highSet(1),
+        lowSet(2),
+        highClear(3),
+        lowClear(4),
+        normal(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention defines the status of the
+--    monitoring parameter for a given sensor type in 
+--    transceiver digital diagnostics on an interface.
+--    
+--    The value of the monitoring parameter for a given
+--    sensor lies are bounded within maximum (high) and
+--    minimum (low) limits. If the current value is over 
+--    the high limit, this status is set to 'highSet'. Upon
+--    the value of the sensor coming back into the normal
+--    range (between high and low values), this status is
+--    set to 'highClear'. 
+--    
+--    Similarly, if the current value is below the low limit, 
+--    this status is set to 'lowSet'. Upon the value the 
+--    sensor coming back into normal range subsequently, this 
+--    status is set to 'lowClear'.
+--    
+--    If the current value is stays within the high and low 
+--    limits, this status is set to 'normal'. Also, subsequently 
+--    after the status had been either 'highClear' or 
+--    'lowClear', if the value is within the high and low 
+--    limits, this status is set to 'normal'.
+
+cIfXcvrMonDigitalDiagTempAlarm OBJECT-TYPE
+    SYNTAX CiscoInterfaceXcvrMonitorStatus
+--    Rsyntax INTEGER {
+--        highSet(1),
+--        lowSet(2),
+--        highClear(3),
+--        lowClear(4),
+--        normal(5)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of temperature alarm flag on the
+        temperature sensor of the transceiver in the interface."
+    ::= { ciscoInterfaceXcvrMonMIBObjects 1 }
+
+cIfXcvrMonDigitalDiagTempWarning OBJECT-TYPE
+    SYNTAX CiscoInterfaceXcvrMonitorStatus
+--    Rsyntax INTEGER {
+--        highSet(1),
+--        lowSet(2),
+--        highClear(3),
+--        lowClear(4),
+--        normal(5)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of temperature warning flag on the
+        temperature sensor of the transceiver in the interface."
+    ::= { ciscoInterfaceXcvrMonMIBObjects 2 }
+
+cIfXcvrMonDigitalDiagVoltAlarm OBJECT-TYPE
+    SYNTAX CiscoInterfaceXcvrMonitorStatus
+--    Rsyntax INTEGER {
+--        highSet(1),
+--        lowSet(2),
+--        highClear(3),
+--        lowClear(4),
+--        normal(5)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of voltage alarm flag on the
+        voltage sensor of the transceiver in the interface."
+    ::= { ciscoInterfaceXcvrMonMIBObjects 3 }
+
+cIfXcvrMonDigitalDiagVoltWarning OBJECT-TYPE
+    SYNTAX CiscoInterfaceXcvrMonitorStatus
+--    Rsyntax INTEGER {
+--        highSet(1),
+--        lowSet(2),
+--        highClear(3),
+--        lowClear(4),
+--        normal(5)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of voltage warning flag on the
+        voltage sensor of the transceiver in the interface."
+    ::= { ciscoInterfaceXcvrMonMIBObjects 4 }
+
+cIfXcvrMonDigitalDiagCurrAlarm OBJECT-TYPE
+    SYNTAX CiscoInterfaceXcvrMonitorStatus
+--    Rsyntax INTEGER {
+--        highSet(1),
+--        lowSet(2),
+--        highClear(3),
+--        lowClear(4),
+--        normal(5)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of current alarm flag on the
+        current sensor of the transceiver in the interface."
+    ::= { ciscoInterfaceXcvrMonMIBObjects 5 }
+
+cIfXcvrMonDigitalDiagCurrWarning OBJECT-TYPE
+    SYNTAX CiscoInterfaceXcvrMonitorStatus
+--    Rsyntax INTEGER {
+--        highSet(1),
+--        lowSet(2),
+--        highClear(3),
+--        lowClear(4),
+--        normal(5)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of current warning flag on the
+        current sensor of the transceiver in the interface."
+    ::= { ciscoInterfaceXcvrMonMIBObjects 6 }
+
+cIfXcvrMonDigitalDiagRxPwrAlarm OBJECT-TYPE
+    SYNTAX CiscoInterfaceXcvrMonitorStatus
+--    Rsyntax INTEGER {
+--        highSet(1),
+--        lowSet(2),
+--        highClear(3),
+--        lowClear(4),
+--        normal(5)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of Rx power alarm flag on the
+        Rx power sensor of the transceiver in the interface."
+    ::= { ciscoInterfaceXcvrMonMIBObjects 7 }
+
+cIfXcvrMonDigitalDiagRxPwrWarning OBJECT-TYPE
+    SYNTAX CiscoInterfaceXcvrMonitorStatus
+--    Rsyntax INTEGER {
+--        highSet(1),
+--        lowSet(2),
+--        highClear(3),
+--        lowClear(4),
+--        normal(5)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of Rx power warning flag on the
+        Rx power sensor of the transceiver in the interface."
+    ::= { ciscoInterfaceXcvrMonMIBObjects 8 }
+
+cIfXcvrMonDigitalDiagTxPwrAlarm OBJECT-TYPE
+    SYNTAX CiscoInterfaceXcvrMonitorStatus
+--    Rsyntax INTEGER {
+--        highSet(1),
+--        lowSet(2),
+--        highClear(3),
+--        lowClear(4),
+--        normal(5)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of Tx power alarm flag on the
+        Tx power sensor of the transceiver in the interface."
+    ::= { ciscoInterfaceXcvrMonMIBObjects 9 }
+
+cIfXcvrMonDigitalDiagTxPwrWarning OBJECT-TYPE
+    SYNTAX CiscoInterfaceXcvrMonitorStatus
+--    Rsyntax INTEGER {
+--        highSet(1),
+--        lowSet(2),
+--        highClear(3),
+--        lowClear(4),
+--        normal(5)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of Tx power warning flag on the
+        Tx power sensor of the transceiver in the interface."
+    ::= { ciscoInterfaceXcvrMonMIBObjects 10 }
+
+cIfXcvrMonDigitalDiagTxFaultAlarm OBJECT-TYPE
+    SYNTAX CiscoInterfaceXcvrMonitorStatus
+--    Rsyntax INTEGER {
+--        highSet(1),
+--        lowSet(2),
+--        highClear(3),
+--        lowClear(4),
+--        normal(5)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The current status of Tx fault count flag on the
+        transceiver in the interface."
+    ::= { ciscoInterfaceXcvrMonMIBObjects 11 }
+
+cIfXcvrMonStatusChangeNotifEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether cIfXcvrMonStatusChangeNotif should be
+        generated."
+    ::= { ciscoInterfaceXcvrMonMIBObjects 12 }
+
+cIfXcvrMonStatusChangeNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoInterfaceXcvrMonitorMIB
+    VARIABLES {
+        ifName, cIfXcvrMonDigitalDiagTempAlarm, 
+        cIfXcvrMonDigitalDiagTempWarning, 
+        cIfXcvrMonDigitalDiagVoltAlarm, 
+        cIfXcvrMonDigitalDiagVoltWarning, 
+        cIfXcvrMonDigitalDiagCurrAlarm, 
+        cIfXcvrMonDigitalDiagCurrWarning, 
+        cIfXcvrMonDigitalDiagRxPwrAlarm, 
+        cIfXcvrMonDigitalDiagRxPwrWarning, 
+        cIfXcvrMonDigitalDiagTxPwrAlarm, 
+        cIfXcvrMonDigitalDiagTxPwrWarning, 
+        cIfXcvrMonDigitalDiagTxFaultAlarm }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification trap indicates the current status of the
+        alarm and warning monitoring parameters for all the sensors 
+        based on the digital diagnostic monitoring information.
+        This notification is generated whenever there is a change 
+        in the status of atleast one of the monitoring parameters
+        of the sensors on the transceiver in an interface."
+    ::= 1
+
+cIfXcvrDigitalDiagMonStatusGroup OBJECT IDENTIFIER ::= { ciscoInterfaceXcvrMonMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of Cisco specific Digital Diagnostics
+--    monitoring status information.
+--  objects
+--    cIfXcvrMonDigitalDiagTempAlarm, 
+--    cIfXcvrMonDigitalDiagTempWarning, 
+--    cIfXcvrMonDigitalDiagVoltAlarm, 
+--    cIfXcvrMonDigitalDiagVoltWarning, 
+--    cIfXcvrMonDigitalDiagCurrAlarm, 
+--    cIfXcvrMonDigitalDiagCurrWarning, 
+--    cIfXcvrMonDigitalDiagRxPwrAlarm, 
+--    cIfXcvrMonDigitalDiagRxPwrWarning, 
+--    cIfXcvrMonDigitalDiagTxPwrAlarm, 
+--    cIfXcvrMonDigitalDiagTxPwrWarning, 
+--    cIfXcvrMonDigitalDiagTxFaultAlarm, 
+--    cIfXcvrMonStatusChangeNotifEnable
+
+cIfXcvrMonStatusChangeNotifGroup OBJECT IDENTIFIER ::= { ciscoInterfaceXcvrMonMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of Cisco specific Digital Diagnostics
+--    monitoring notifications.
+--  notifications
+--    cIfXcvrMonStatusChangeNotif
+
+cIfXcvrMonMIBCompliance OBJECT IDENTIFIER ::= { ciscoInterfaceXcvrMonMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    This is a default module-compliance
+--    containing default object groups.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cIfXcvrDigitalDiagMonStatusGroup
+--   MandGroup
+--    cIfXcvrMonStatusChangeNotifGroup
+--   ObjVar
+--    cIfXcvrMonStatusChangeNotifEnable
+
+
+END
+

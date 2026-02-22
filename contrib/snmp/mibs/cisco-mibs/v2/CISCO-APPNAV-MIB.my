@@ -1,0 +1,863 @@
+-- *****************************************************************
+-- CISCO-APPNAV-MIB.my
+--   
+-- July 2011, Chetan Patel
+--   
+-- Copyright (c) 2010-2012 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-APPNAV-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoAppNavMIB MODULE-IDENTITY
+    LAST-UPDATED    "201206070000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service 
+
+            Postal: 170 W Tasman Drive 
+
+            San Jose, CA  95134
+
+            USA 
+
+
+            Tel: +1 800 553-NETS 
+
+            E-mail: cs-waas@cisco.com"
+    DESCRIPTION
+        "This MIB module defines SNMP management objects describing the
+        AppNav technology. A device, which implements the AppNav
+        technology, is known as the AppNav controller. The AppNav
+        controller intelligently navigates application traffic to a
+        group of devices, which offer services to the application
+        traffic. A device, which offers services to the application
+        traffic is known as service node.  
+
+        As an example, the WAN optimization service uses the AppNav
+        technology, where the AppNav controller intercepts applications
+        traffic and redirects it to service nodes, which offer the
+        WAN optimization service.
+
+        A deployment may use more than one AppNav controllers and
+        service nodes to provide high availability and scalability. In
+        such deployments, AppNav controllers and service nodes together
+        form a cluster, which is known as an AppNav cluster.
+
+        Definitions of various entities related to the AppNav technology
+        is as follows:
+
+        AppNav controller: It is a device that intercepts application
+        traffic and navigates (redirects) it to service nodes.
+
+        Service node: It is a device that offers services to the traffic
+        navigated (redirected) to it by the AppNav controller.
+
+        AppNav controller group: An AppNav controller group is a group
+        of one or more AppNav controllers. The AppNav controllers in the
+        AppNav controller group communicate with each other regarding
+        the connections being redirected by them, so that they redirect
+        traffic to the right service node, irrespective of which AppNav
+        controller receives packets for a given connection. For example,
+        if particular connection is served by the service node A then
+        that connection should always be served by the service node A
+        until client or server terminates it. This mechanism is needed
+        in the asymmetric network topologies, where packets may take
+        different paths for forward and return journey.
+
+        Service node group: A service node group is a group of one or
+        more service nodes. The AppNav controller intercepts and
+        redirects application traffic to service nodes in a service node
+        group. The service nodes update their load status to the AppNav 
+        controllers, so that they can do intelligent load distribution
+        among the available service nodes.
+
+        AppNav Cluster: An AppNav controller group and a service node
+        group together form a cluster, which is known as an AppNav
+        cluster. An AppNav cluster is also known as a service context."
+    REVISION        "201206070000Z"
+    DESCRIPTION
+        "Added zombie and inactive states to CAppNavCMStates."
+    REVISION        "201205220000Z"
+    DESCRIPTION
+        "Added cAppNavServContextJoinState in cAppNavServContextTable and
+        modified CAppNavServContextOpStates."
+    REVISION        "201204100000Z"
+    DESCRIPTION
+        "There was a typo error in the name of the compliance object
+        ciscoAppNavClusterStatisticsMIBCompliance. This object is
+        now renamed as ciscoAppNavMIBCompliance."
+    REVISION        "201203260000Z"
+    DESCRIPTION
+        "Initial version of this MIB"
+    ::= { ciscoMgmt 791 }
+
+
+
+CAppNavServContextJoinStates ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Represents various join states of the service context:
+
+        unknown         : This state indicates an internal error.
+
+        notConfigured   : This state indicates that the service context
+                          was enabled without the graceful option.
+
+        started         : This state indicates that the service context
+                          was enabled with the graceful option and the 
+                          AppNav controller is currently in the Joining 
+                          state.
+
+        aborted         : This state indicates that the service context
+                          was disabled while the AppNav controller was 
+                          going through the joining process.
+
+        completed       : This state indicates that the service context
+                          was enabled with the graceful option and the
+                          AppNav controller completed the joining 
+                          process."
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        notConfigured(2),
+                        started(3),
+                        aborted(4),
+                        completed(5)
+                    }
+
+CAppNavCMStates ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Represents the cluster membership states of AppNav controllers
+        and service nodes.
+
+        dead         : This state indicates that contact to the given 
+                       AppNav controller or service node from the
+                       AppNav cluster is lost.
+
+        alive        : This state indicates that the given AppNav  
+                       controller or service node is in contact of the 
+                       AppNav cluster.
+
+        excluded     : This state indicates that given AppNav 
+                       controller/service node is not a part of the 
+                       AppNav cluster.
+
+        partial      : This state indicates that the given AppNav 
+                       controller/service node is partially part of the
+                       AppNav cluster.
+
+        na           : This state indicates that the given AppNav 
+                       controller/service node has no status
+                       information available when service context is in 
+                       the admin disabled state.
+
+        zombie       : This state indicates that the given AppNav
+                       controller is removed from config but is still 
+                       alive.
+
+        inactive     : This state indicates that the given AppNav
+                       controller is added to config but is inactive 
+                       because of zombies."
+    SYNTAX          INTEGER {
+                        dead(1),
+                        alive(2),
+                        excluded(3),
+                        partial(4),
+                        na(5),
+                        zombie(6),
+                        inactive(7)
+                    }
+
+CAppNavIRStates ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Represents the interception readiness states of the AppNav
+        controller. The interception readiness state indicates whether
+        AppNav controller is ready to intercept application traffic or
+        not.
+
+        ready       : This state indicates that the AppNav controller
+                      is ready to do interception.
+
+        notReady    : This state indicates that the AppNav controller
+                      is not ready to do interception.
+
+        na          : This state indicates that this state is not    
+                      applicable to the AppNav controller."
+    SYNTAX          INTEGER  {
+                        ready(1),
+                        notReady(2),
+                        na(3)
+                    }
+
+CAppNavServContextOpStates ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Represents various operational states of the service context:
+
+        initializing              : This state indicates that the 
+                                    service context is in the 
+                                    initialization state.
+
+        converging                : This state indicates that the
+                                    service context is in the 
+                                    converging state. This state is 
+                                    acquired when the AppNav controller
+                                    detects the presence of a new 
+                                    AppNav controller or a service 
+                                    node, or loss of liveliness with 
+                                    any AppNav controller or service  
+                                    node in the service context, and is
+                                    waiting to re-converge.
+
+        internalError             : This state indicates that service
+                                    context is in the internal error   
+                                    state. This state is acquired when 
+                                    the AppNav controller fails to 
+                                    re-converge upon any change in
+                                    service context. In this state, 
+                                    traffic redirection is stopped for 
+                                    new connections and existing 
+                                    connections are redirected on the 
+                                    best effort basis.
+
+        degraded                  : This state indicates that the 
+                                    service context is in the degraded 
+                                    state. This state is acquired when 
+                                    no single fully connected subset of
+                                    configured AppNav controllers and 
+                                    service nodes found. In this state,
+                                    traffic redirection is turned off 
+                                    for new connections.
+
+        operational               : This state indicates that the 
+                                    service context is in the 
+                                    operational state.
+
+        adminDisabled             : This state indicates that the 
+                                    service context is disabled by an 
+                                    admin.
+
+        initializingJoining       : This state indicates that the    
+                                    service context is in the 
+                                    initializing joining state. 
+                                    This state is acquired when the 
+                                    AppNav controller is in the 
+                                    initializing state of joining 
+                                    process.
+
+        convergingJoining         : This state indicates that the
+                                    service context is in the
+                                    converging joining state. This
+                                    state is acquired when the AppNav 
+                                    controller detects the presence of
+                                    a new AppNav controller or a service
+                                    node, or loss of liveliness with 
+                                    any AppNav controller or service 
+                                    node in the service context, and is
+                                    waiting to re-converge.
+
+        operationalJoining        : This state indicates that the
+                                    service context is stuck in joining
+                                    state because of cluster view is 
+                                    full but either the number of 
+                                    non-joining AppNav controllers in 
+                                    the view is 1 or the set of Service
+                                    Nodes seen by this AppNav 
+                                    controllers is smaller than the set
+                                    of Service Nodes seen by the 
+                                    existing cluster.
+
+        degradedJoining           : This state indicates that the
+                                    service context is stuck in joining
+                                    state because the cluster view is
+                                    degraded when this AppNav
+                                    controller is part of the cluster."
+    SYNTAX          INTEGER {
+                        initializing(1),
+                        converging(2),
+                        internalError(3),
+                        degraded(4),
+                        operational(5),
+                        adminDisabled(6),
+                        initializingJoining(7),
+                        convergingJoining(8),
+                        operationalJoining(9),
+                        degradedJoining(10)
+                    }
+ciscoAppNavMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoAppNavMIB 0 }
+
+ciscoAppNavMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoAppNavMIB 1 }
+
+ciscoAppNavMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoAppNavMIBConform 1 }
+
+-- Service context object group
+
+cAppNavServContext  OBJECT IDENTIFIER
+    ::= { ciscoAppNavMIBObjects 1 }
+
+-- AppNav controller group object group
+
+cAppNavACG  OBJECT IDENTIFIER
+    ::= { ciscoAppNavMIBObjects 2 }
+
+-- Service node group object group
+
+cAppNavSNG  OBJECT IDENTIFIER
+    ::= { ciscoAppNavMIBObjects 3 }
+
+-- AppNav controller object group
+
+cAppNavAC  OBJECT IDENTIFIER
+    ::= { ciscoAppNavMIBObjects 4 }
+
+-- Service node object group
+
+cAppNavSN  OBJECT IDENTIFIER
+    ::= { ciscoAppNavMIBObjects 5 }
+
+
+cAppNavServContextTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CAppNavServContextEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the objects, which gives information related
+        to the service contexts configured on the AppNav controller."
+    ::= { cAppNavServContext 1 }
+
+cAppNavServContextEntry OBJECT-TYPE
+    SYNTAX          CAppNavServContextEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describing the objects, which gives information
+        related to a service context. The AppNav controller creates a
+        new entry, when a new service context gets configured through
+        the management interface. The AppNav controller deletes an entry
+        for a given service context when it is removed from the
+        configuration
+        through the management interface."
+    INDEX           { cAppNavServContextIndex } 
+    ::= { cAppNavServContextTable 1 }
+
+CAppNavServContextEntry ::= SEQUENCE {
+        cAppNavServContextIndex       Unsigned32,
+        cAppNavServContextName        OCTET STRING,
+        cAppNavServContextCurrOpState CAppNavServContextOpStates,
+        cAppNavServContextLastOpState CAppNavServContextOpStates,
+        cAppNavServContextIRState     CAppNavIRStates,
+        cAppNavServContextJoinState   CAppNavServContextJoinStates
+}
+
+cAppNavServContextIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an index of the
+        cAppNavServiceContextTable. It is an arbitrary unsigned integer
+        value that uniquely identifies an entry in
+        cAppNavServiceContextTable. The value for each entry must remain
+        constant at least from one re-initialization of the entity's
+        network management system to the next re-initialization." 
+    ::= { cAppNavServContextEntry 1 }
+
+cAppNavServContextName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the service context." 
+    ::= { cAppNavServContextEntry 2 }
+
+cAppNavServContextCurrOpState OBJECT-TYPE
+    SYNTAX          CAppNavServContextOpStates
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current operational state of the
+        service context." 
+    ::= { cAppNavServContextEntry 3 }
+
+cAppNavServContextLastOpState OBJECT-TYPE
+    SYNTAX          CAppNavServContextOpStates
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the last operational state of the service
+        context." 
+    ::= { cAppNavServContextEntry 4 }
+
+cAppNavServContextIRState OBJECT-TYPE
+    SYNTAX          CAppNavIRStates
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Interception Readiness(IR) state of
+        the service context." 
+    ::= { cAppNavServContextEntry 5 }
+
+cAppNavServContextJoinState OBJECT-TYPE
+    SYNTAX          CAppNavServContextJoinStates
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the join state of the service context." 
+    ::= { cAppNavServContextEntry 6 }
+ 
+
+
+cAppNavACGTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CAppNavACGEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the objects, which gives information related
+        to the AppNav controller group configured on the AppNav
+        controller."
+    ::= { cAppNavACG 1 }
+
+cAppNavACGEntry OBJECT-TYPE
+    SYNTAX          CAppNavACGEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describing the objects, which gives information
+        related to the AppNav controller group configured on the AppNav
+        controller. The AppNav controller creates a new entry when a new
+        AppNav controller group gets configured on the AppNav controller
+        through the management interface. The AppNav controller deletes
+        an entry for a given AppNav controller group, when it is removed
+        from the configuration through the management interface."
+    INDEX           { cAppNavACGIndex } 
+    ::= { cAppNavACGTable 1 }
+
+CAppNavACGEntry ::= SEQUENCE {
+        cAppNavACGIndex           Unsigned32,
+        cAppNavACGName            OCTET STRING,
+        cAppNavACGServContextName OCTET STRING
+}
+
+cAppNavACGIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an index of the cAppNavACGTable. It is
+        an arbitrary unsigned integer value that uniquely identifies an
+        entry in cAppNavACGTable. The value for each entry must remain
+        constant at least from one re-initialization of the entity's
+        network management system to the next re-initialization." 
+    ::= { cAppNavACGEntry 1 }
+
+cAppNavACGName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the AppNav controller group." 
+    ::= { cAppNavACGEntry 2 }
+
+cAppNavACGServContextName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..96))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the service context to which AppNav
+        controller belongs." 
+    ::= { cAppNavACGEntry 3 }
+ 
+
+
+cAppNavSNGTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CAppNavSNGEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the objects, which gives information related
+        to the service node group configured on the AppNav controller."
+    ::= { cAppNavSNG 1 }
+
+cAppNavSNGEntry OBJECT-TYPE
+    SYNTAX          CAppNavSNGEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry desribing the objects, which gives information
+        regarding the service node groups configured on the AppNav
+        controller. An AppNav controller creates a new entry, when a new
+        service node group gets configured on the system through the
+        management interface. The AppNav controller deletes an entry for
+        a given service node group, when it is removed from the
+        configuration through the management interface."
+    INDEX           { cAppNavSNGIndex } 
+    ::= { cAppNavSNGTable 1 }
+
+CAppNavSNGEntry ::= SEQUENCE {
+        cAppNavSNGIndex           Unsigned32,
+        cAppNavSNGName            OCTET STRING,
+        cAppNavSNGServContextName OCTET STRING
+}
+
+cAppNavSNGIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies an index of the cAppNavSNGTable. It is an
+        arbitrary unsigned integer value that uniquely identifies an
+        entry in  cAppNavSNGTable. The value for each entry  must remain
+        constant at least from one re-initialization of the entity's
+        network management system to the next re-initialization." 
+    ::= { cAppNavSNGEntry 1 }
+
+cAppNavSNGName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of service node group." 
+    ::= { cAppNavSNGEntry 2 }
+
+cAppNavSNGServContextName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the service context to which
+        given service node group belongs." 
+    ::= { cAppNavSNGEntry 3 }
+ 
+
+
+cAppNavACTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CAppNavACEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the objects, which give information related to
+        the AppNav controllers configured on the AppNav controller to
+        assign them to the service context."
+    ::= { cAppNavAC 1 }
+
+cAppNavACEntry OBJECT-TYPE
+    SYNTAX          CAppNavACEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describing the objects, which gives information
+        related to the AppNav controllers configured on the AppNav
+        controller to assign them to the service context. An AppNav
+        controller creates a new entry, when a new AppNav controller
+        gets
+        configured on the AppNav controller through the management
+        interface. The AppNav controller deletes an entry for a given
+        AppNav controller, when it is removed from the configuration
+        through the management interface."
+    INDEX           { cAppNavACIndex } 
+    ::= { cAppNavACTable 1 }
+
+CAppNavACEntry ::= SEQUENCE {
+        cAppNavACIndex           Unsigned32,
+        cAppNavACIpAddrType      InetAddressType,
+        cAppNavACIpAddr          InetAddress,
+        cAppNavACServContextName OCTET STRING,
+        cAppNavACACGName         OCTET STRING,
+        cAppNavACCurrentCMState  CAppNavCMStates
+}
+
+cAppNavACIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an index of the cAppNavACTable. It is an
+        arbitrary unsigned integer value that uniquely identifies an
+        entry in  cAppNavACTable. The value for each entry must remain
+        constant at least from one re-initialization of the entity's
+        network management system to the next re-initialization." 
+    ::= { cAppNavACEntry 1 }
+
+cAppNavACIpAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the address type of the cAppNavACIpAddr.
+        The cAppNavACEntries are only valid for address type of IPv4 and
+        IPv6." 
+    ::= { cAppNavACEntry 2 }
+
+cAppNavACIpAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP address of the AppNav controller." 
+    ::= { cAppNavACEntry 3 }
+
+cAppNavACServContextName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the service context to which
+        given AppNav controller belongs." 
+    ::= { cAppNavACEntry 4 }
+
+cAppNavACACGName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the AppNav controller group
+        to which given AppNav controller belongs." 
+    ::= { cAppNavACEntry 5 }
+
+cAppNavACCurrentCMState OBJECT-TYPE
+    SYNTAX          CAppNavCMStates
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current cluster membership state of
+        the given AppNav controller." 
+    ::= { cAppNavACEntry 6 }
+ 
+
+
+cAppNavSNTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CAppNavSNEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the objects, which gives information related
+        to the service nodes configured on the AppNav controller to
+        assign them to the service context."
+    ::= { cAppNavSN 1 }
+
+cAppNavSNEntry OBJECT-TYPE
+    SYNTAX          CAppNavSNEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describing the objects, which gives information
+        related to the service nodes configured on the AppNav controller
+        to assign them to the service context. An AppNav controller
+        creates a new entry, when a new service node gets configured on
+        the system through the management interface. An AppNav
+        controller deletes an entry for a given service node, when it is
+        removed from the configuration through the management
+        interface."
+    INDEX           { cAppNavSNIndex } 
+    ::= { cAppNavSNTable 1 }
+
+CAppNavSNEntry ::= SEQUENCE {
+        cAppNavSNIndex           Unsigned32,
+        cAppNavSNIpAddrType      InetAddressType,
+        cAppNavSNIpAddr          InetAddress,
+        cAppNavSNServContextName OCTET STRING,
+        cAppNavSNSNGName         OCTET STRING,
+        cAppNavSNCurrentCMState  CAppNavCMStates
+}
+
+cAppNavSNIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an index of the cAppNavSNTable. It is an
+        arbitrary unsigned integer value that uniquely identifies an
+        entry in  cAppNavSNTable. The value for each entry must remain 
+        constant at least from one re-initialization of the entity's 
+        network management system to the next re-initialization." 
+    ::= { cAppNavSNEntry 1 }
+
+cAppNavSNIpAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the address type of cacSnIpAddr.
+        cacSNEntries are only valid for address type of IPv4 and 
+        IPv6." 
+    ::= { cAppNavSNEntry 2 }
+
+cAppNavSNIpAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP address of the given service
+        node." 
+    ::= { cAppNavSNEntry 3 }
+
+cAppNavSNServContextName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the service context to which
+        given service node belongs." 
+    ::= { cAppNavSNEntry 4 }
+
+cAppNavSNSNGName OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the service node group to
+        which given service node belongs." 
+    ::= { cAppNavSNEntry 5 }
+
+cAppNavSNCurrentCMState OBJECT-TYPE
+    SYNTAX          CAppNavCMStates
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicats the current cluster membership state of
+        the given service node." 
+    ::= { cAppNavSNEntry 6 }
+ 
+
+ciscoAppNavMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoAppNavMIBConform 2 }
+
+
+ciscoAppNavMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cAppNavServiceContextGroup,
+                        cAppNavACGGroup,
+                        cAppNavSNGGroup,
+                        cAppNavACGroup,
+                        cAppNavSNGroup
+                    }
+    ::= { ciscoAppNavMIBCompliances 1 }
+
+ciscoAppNavMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups. This compliance deprecated
+        ciscoAppNavMIBCompliance."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cAppNavServiceContextGroup,
+                        cAppNavACGGroup,
+                        cAppNavSNGGroup,
+                        cAppNavACGroup,
+                        cAppNavSNGroup,
+                        cAppNavServiceContextGroupRev1
+                    }
+    ::= { ciscoAppNavMIBCompliances 2 }
+
+-- Units of Conformance
+
+cAppNavServiceContextGroup OBJECT-GROUP
+    OBJECTS         {
+                        cAppNavServContextCurrOpState,
+                        cAppNavServContextLastOpState,
+                        cAppNavServContextIRState,
+                        cAppNavServContextName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group includes objects which gives information for service
+        context configured on the AppNav controller."
+    ::= { ciscoAppNavMIBGroups 1 }
+
+cAppNavACGGroup OBJECT-GROUP
+    OBJECTS         {
+                        cAppNavACGServContextName,
+                        cAppNavACGName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group includes objects, which give information related to
+        AppNav controller group configured on the AppNav controller."
+    ::= { ciscoAppNavMIBGroups 2 }
+
+cAppNavSNGGroup OBJECT-GROUP
+    OBJECTS         {
+                        cAppNavSNGServContextName,
+                        cAppNavSNGName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group includes objects, which gives information related to
+        the service node group configured on the AppNav controller."
+    ::= { ciscoAppNavMIBGroups 3 }
+
+cAppNavACGroup OBJECT-GROUP
+    OBJECTS         {
+                        cAppNavACServContextName,
+                        cAppNavACACGName,
+                        cAppNavACCurrentCMState,
+                        cAppNavACIpAddrType,
+                        cAppNavACIpAddr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group includes objects, which gives information related to
+        AppNav controllers configured on the AppNav controller to
+        assign them to the AppNav cluster."
+    ::= { ciscoAppNavMIBGroups 4 }
+
+cAppNavSNGroup OBJECT-GROUP
+    OBJECTS         {
+                        cAppNavSNServContextName,
+                        cAppNavSNSNGName,
+                        cAppNavSNCurrentCMState,
+                        cAppNavSNIpAddrType,
+                        cAppNavSNIpAddr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects, which gives information related to
+        service node configured on AppNav controller to assign them to
+        the AppNav cluster."
+    ::= { ciscoAppNavMIBGroups 5 }
+
+cAppNavServiceContextGroupRev1 OBJECT-GROUP
+    OBJECTS         { cAppNavServContextJoinState }
+    STATUS          current
+    DESCRIPTION
+        "This group includes objects which gives information for
+        service
+        context configured on the AppNav controller."
+    ::= { ciscoAppNavMIBGroups 6 }
+
+END
+
+
+
+
+

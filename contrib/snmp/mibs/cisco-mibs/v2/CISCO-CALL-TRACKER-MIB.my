@@ -1,0 +1,1769 @@
+ -- *****************************************************************
+-- CISCO-CALL-TRACKER-MIB.my: Call Progress and Status Tracking MIB
+--
+-- March 2000, Ed Richardson
+--
+-- Copyright (c) 2000, 2004 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+
+CISCO-CALL-TRACKER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        NOTIFICATION-TYPE,
+        OBJECT-TYPE,
+        IpAddress,
+        Gauge32,
+        Integer32,
+        Unsigned32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP,
+        NOTIFICATION-GROUP
+                FROM SNMPv2-CONF
+        DisplayString,
+        TimeStamp,
+        TruthValue,
+        TEXTUAL-CONVENTION
+                FROM SNMPv2-TC
+        ciscoMgmt
+                FROM CISCO-SMI
+        AbsoluteCounter32
+                FROM DIAL-CONTROL-MIB;
+ 
+ 
+ciscoCallTrackerMIB MODULE-IDENTITY
+        LAST-UPDATED    "200504120000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+ 
+                Tel: +1 800 553-NETS
+ 
+                E-mail: cs-dial@cisco.com"
+        DESCRIPTION
+                "This MIB module provides information for tracking the
+                 progress and status of a data call from the hardware
+                 layer through the application or service layer.
+
+                 A data call is a call setup via a signaling
+                 protocol (e.g., ISDN D Channel signaling) on the
+                 Public Switching Telephony Network to a
+                 Network Access Server in order to transfer data,
+                 either as a byte stream (e.g., terminal emulation)
+                 or in a packet format (e.g., PPP packets) from a
+                 data terminal (e.g., Personal Computer) to a
+                 data network (e.g., Internet).
+                "
+        REVISION        "200504120000Z"
+        DESCRIPTION
+                "[1] CctCallCategory - added syncData
+                 [2] CctCallCategory - added lapb-ta
+                 [3] Added new textual convention CctCallSigType
+                 [4] Added cctActiveCallSignalingType to cctActiveTable
+                 [5] Added cctHistoryCallSignalingType to
+                     cctHistoryTable
+                "
+        REVISION        "200402020000Z"
+        DESCRIPTION
+                "Included mgcpData in CctCallCategory."
+        REVISION        "200002100000Z"
+        DESCRIPTION
+                "Initial version of this MIB."
+        ::= { ciscoMgmt 163 }
+
+
+--
+-- Textual Conventions
+--
+
+
+--
+--  Call Identifier textual convention
+--
+
+
+CctCallId ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION
+        "Represents a Call Identifier.
+         The call identifier is a monotonically assigned, positive
+         integer which uniquely identifies the call within the
+         system.
+        "
+        SYNTAX      Unsigned32 (1..4294967295)
+
+
+--
+--  Call Service Type textual convention
+--
+CctServiceType ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION
+            "Represents possible service types.
+             none     - No service associated with call.
+             other    - Service active, but none of the following.
+             slip     - Serial Line IP
+             ppp      - PPP
+             mp       - Multilink PPP (RFC 1990)
+             tcpClear - Byte stream over TCP
+             telnet   - TELNET
+             exec     - terminal server
+             l2f      - Virtual Private Data Network service (VPDN)
+                        using Layer 2 Forwarding protocol
+             l2tp     - Virtual Private Data Network service (VPDN)
+                        using Layer 2 Tunneling Protocol
+            "
+        SYNTAX      INTEGER {
+            none        (1),
+            other       (2),
+            slip        (3),
+            ppp         (4),
+            mp          (5),
+            tcpClear    (6),
+            telnet      (7),
+            exec        (8),
+            l2f         (9),
+            l2tp        (10)
+        }
+
+
+--
+--  Call Category textual convention
+--
+CctCallCategory ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION
+            "Represents possible call categories or types.
+             none        - No call category associated with call
+             other       - None of the following
+             modem       - Modem call
+             isdn-sync   - ISDN sync digital call
+                           Now mapped to syncData
+             v110        - V110 Call
+             v120        - V120 Call
+             cas-digital - Channel Associated Signaling
+                           (CAS) 56k data call
+             mgcpData    - MGCP data call
+                           Now mapped to syncData
+             syncData    - Sync digital data call for any 
+                           call control
+             lapb-ta     - LAPB or LAPB-TA call
+            "
+        SYNTAX      INTEGER {
+            none         (1),
+            other        (2),
+            modem        (3),
+            isdnSync     (4),
+            v110         (5),
+            v120         (6),
+            casDigital   (7),
+            mgcpData     (8),
+            syncData     (9),
+            lapb-ta      (10)
+        }
+
+--
+--  Call Signaling Type textual convention
+--
+CctCallSigType ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION
+            "Represents supported signaling types for a call.
+
+             Unknown    - Signaling origin of call type unknown.
+             External   - Signaling origin of call type by external 
+                          agent e.g. MGCP, H.248
+             Q931       - Signaling origin of call type by Q.931/ISDN
+             Autodetect - Signaling of call type by automatic detection 
+            "
+        SYNTAX      INTEGER {
+            unknown      (1),
+            external     (2),
+            q931         (3),
+            autoDetect   (4)
+        }
+
+
+-- Call Tracker MIB objects definitions
+
+cctMIBObjects OBJECT IDENTIFIER ::= { ciscoCallTrackerMIB 1 }
+
+
+-- The Call Tracker MIB consists of the following groups
+-- [1] Call Tracker General Group (cctGeneral)
+-- [2] Call Tracker Active Group  (cctActive)
+-- [3] Call Tracker History Group (cctHistory)
+-- [4] Call Tracker Notification Configuration Group
+--                  (cctNotificationConfig)
+
+cctGeneral             OBJECT IDENTIFIER ::= { cctMIBObjects 1 }
+cctActive              OBJECT IDENTIFIER ::= { cctMIBObjects 2 }
+cctHistory             OBJECT IDENTIFIER ::= { cctMIBObjects 3 }
+cctNotificationConfig  OBJECT IDENTIFIER ::= { cctMIBObjects 4 }
+
+
+
+-- *****************************************************************
+-- Call Tracker General Group
+-- *****************************************************************
+
+
+cctCallIdPrefix OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object may be used in conjunction with objects of
+             type CctCallId to provide call references which are
+             unique across system re-initializations.
+
+             This value is generated at system re-initialization.
+             It is a 32-bit random number, with very low likely-hood
+             of repeating within the lifetime of the system.
+            "
+        ::= { cctGeneral 1 }
+
+
+
+-- *****************************************************************
+-- Call Tracker Active Group
+-- *****************************************************************
+--
+--
+
+
+-- Active Table statistics
+
+cctActiveTableNumberEntries OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of entries currently in the
+             cctActiveTable.
+            "
+        ::= { cctActive 1 }
+
+cctActiveTableHighWaterMark OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Maximum number of entries present in cctActiveTable
+             since last system re-initialization.
+
+             This corresponds to the maximum value reported by
+             cctActiveTableNumberEntries.
+            "
+        ::= { cctActive 2 }
+
+--
+-- Call Active Table
+--
+
+
+cctActiveTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CctActiveEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "This table contains entries for active calls in the 
+             system. All such calls either originate or terminate
+             at this system.
+
+             The table is indexed by call ID assigned to the call.
+            "
+        ::= { cctActive 3 }
+
+
+cctActiveEntry OBJECT-TYPE
+        SYNTAX      CctActiveEntry
+        MAX-ACCESS  not-accessible 
+        STATUS      current
+        DESCRIPTION
+            "The information regarding a single call.
+
+             Entries are created when a setup request is first
+             received by the system.
+
+             Entries are removed when a call is terminated or
+             rejected. A corresponding entry is created in the
+             cctHistoryTable.
+            "
+        INDEX       { cctActiveCallId }
+        ::= { cctActiveTable 1 }
+
+
+CctActiveEntry ::=
+        SEQUENCE {
+            cctActiveCallId                  CctCallId,
+            cctActiveSetupTime               TimeStamp,
+            cctActiveOrigin                  INTEGER,
+            cctActiveConnectionTime          TimeStamp,
+            cctActivePhysicalLayerReadyTime  TimeStamp,
+            cctActiveServiceUpTime           TimeStamp,
+            cctActiveServiceType             CctServiceType,
+            cctActiveUserValidationTime      TimeStamp,
+            cctActiveUserId                  DisplayString,
+            cctActiveUserIpAddr              IpAddress,
+            cctActiveUserSubnetMask          IpAddress,
+            cctActiveAccountingSessionId     DisplayString,
+            cctActiveCallCategory            CctCallCategory,
+            cctActiveInitialRxRate           Unsigned32,
+            cctActiveInitialTxRate           Unsigned32,
+            cctActiveResourceSlot            Integer32,
+            cctActiveResourcePort            Integer32,
+            cctActiveEntrySlot               Integer32,
+            cctActiveEntryPort               Integer32,
+            cctActiveEntryDs1                Integer32,
+            cctActiveEntryChannel            Integer32,
+            cctActiveCalledPartyId           DisplayString,
+            cctActiveCallingPartyId          DisplayString,
+            cctActiveMpBundleId              Unsigned32,
+            cctActiveChargedUnits            AbsoluteCounter32,
+            cctActiveReceiveBytes            AbsoluteCounter32,
+            cctActiveTransmitBytes           AbsoluteCounter32,
+            cctActiveCallSignalingType       CctCallSigType
+        }
+
+
+cctActiveCallId OBJECT-TYPE
+        SYNTAX      CctCallId
+        MAX-ACCESS  not-accessible 
+        STATUS      current
+        DESCRIPTION
+            "Represents a Call Identifier.
+             The call identifier is a monotonically increasing
+             unsigned integer which uniquely identifies the call
+             within the system.
+
+             The Call ID is represented as an unsigned 32-bit
+             integer. After 4,294,967,295 calls, the ID will wrap
+             and the 4,294,967,296th call will receive the next
+             smallest available id starting from 1.
+
+             Zero is not a valid value.
+            "
+        ::= { cctActiveEntry 1 }
+
+
+cctActiveSetupTime  OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Value of sysUpTime when the call is first made known to
+             the system.
+            "
+        ::= { cctActiveEntry 2 }
+
+
+cctActiveOrigin  OBJECT-TYPE
+        SYNTAX      INTEGER {
+           originate(1),
+           answer(2)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object indicates how the call was created.
+
+                originate(1) - The call was initiated locally with
+                               the system sending the setup request.
+                               Dialout
+
+                answer(2)    - The call was initiated remotely and
+                               the system received the setup request.
+                               Dialin
+            "
+        ::= { cctActiveEntry 3 }
+
+
+cctActiveConnectionTime  OBJECT-TYPE
+        SYNTAX      TimeStamp 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Value of sysUpTime when the system connected the call.
+            "
+        ::= { cctActiveEntry 4 }
+
+
+
+cctActivePhysicalLayerReadyTime  OBJECT-TYPE
+        SYNTAX      TimeStamp 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Value of sysUpTime when the physical layer for the call
+             achieved a steady state and the call is ready for higher
+             protocol layers to begin.
+
+             In the case of modem calls, the physical layer for the
+             call achieves a steady state when the data rates,
+             modulations, and error correcting protocols have been
+             negotiated between the originating and answering modems.
+
+             This is primarily intended for calls which connect to a
+             processing resource identified by cctActiveResourceSlot
+             and cctActiveResourcePort.
+             It also applies to digital calls using adaptive rate
+             technologies such as V.110 and V.120.
+            "
+        ::= { cctActiveEntry 5 }
+
+
+cctActiveServiceUpTime  OBJECT-TYPE
+        SYNTAX      TimeStamp 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Value of sysUpTime when the call service type identified
+             in cctActiveServiceType was established.
+            "
+        ::= { cctActiveEntry 6 }
+
+
+cctActiveServiceType  OBJECT-TYPE
+        SYNTAX      CctServiceType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Service associated with the call.
+
+             This is the highest level of service known to the system
+             for the call. The service represents the encapsulation
+             protocol layer active for the call.
+
+             In the case of multiple services on a given call, the last
+             service activated will be reported.
+            "
+        ::= { cctActiveEntry 7 }
+
+
+cctActiveUserValidationTime  OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Value of sysUpTime when the user identification
+             associated with this call was validated.
+
+             See cctActiveUserId for description of user
+             identification.
+            "
+        ::= { cctActiveEntry 8 }
+
+
+cctActiveUserId OBJECT-TYPE
+        SYNTAX      DisplayString(SIZE(0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The User login ID or zero length string if unavailable.
+            "
+        ::= { cctActiveEntry 9 }
+
+
+cctActiveUserIpAddr OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The IP address assigned to the cctActiveUserId for
+             this call or 0.0.0.0 if not applicable or unavailable.
+            "
+        ::= { cctActiveEntry 10 }
+
+
+cctActiveUserSubnetMask OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The IP subnet mask assigned to the cctActiveUserId for
+             this call or 0.0.0.0 if not applicable or unavailable.
+            "
+        ::= { cctActiveEntry 11 }
+
+
+cctActiveAccountingSessionId OBJECT-TYPE
+        SYNTAX      DisplayString(SIZE(0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Accounting session identification assigned to this call
+             by AAA.
+
+             The session ID is sent by AAA to RADIUS as the
+             Acct-Session-Id attribute or TACACS+ as the task_id.
+ 
+             If no accounting session ID is assigned, the value is a 
+             null string.
+            "
+        REFERENCE
+            "RFC 2139 RADIUS Accounting
+             The TACACS+ Protocol Version 1.78, Internet Draft
+            "
+        ::= { cctActiveEntry 12 }
+
+
+cctActiveCallCategory OBJECT-TYPE
+        SYNTAX     CctCallCategory
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "The call category or type
+            "
+        ::= { cctActiveEntry 13 }
+        
+
+cctActiveInitialRxRate OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "bits per second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Initial receive data rate for this call.
+             If call is a synchronous digital call such as ISDN sync,
+             this value is the data rate of the B-channel.
+
+             If call is asynchronous, even if using a synchronous
+             transmission medium such as ISDN, the value is
+             determined by the resource providing the asynchronous
+             processing. For modem calls, this value corresponds to
+             the value of cmRXRate from CISCO-MODEM-MGMT-MIB,
+             immediately after the modem has completed initial
+             negotiations.
+
+             This value does not change, even if the data rate varies
+             during the call.
+
+             This value will be zero until an initial data rate has
+             been determined.
+            "
+        ::= { cctActiveEntry 14 }
+
+
+cctActiveInitialTxRate OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "bits per second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Initial transmit data rate for this call.
+             If call is a synchronous digital call such as ISDN sync,
+             this value is the data rate of the B-channel.
+
+             If call is asynchronous, even if using a synchronous
+             transmission medium such as ISDN, the value is
+             determined by the resource providing the asynchronous
+             processing. For modem calls, this value corresponds to
+             the value of cmTXRate from CISCO-MODEM-MGMT-MIB,
+             immediately after the modem has completed initial
+             negotiations.
+
+             This value does not change, even if the data rate varies
+             during the call.
+
+             This value will be zero until an initial data rate has
+             been determined.
+            "
+        ::= { cctActiveEntry 15 }
+
+
+cctActiveResourceSlot OBJECT-TYPE
+        SYNTAX     Integer32 (-1..214783647)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Identification of the processing resource allocated to
+             the call.
+
+             In the case of a call requiring a modem resource, this
+             is the value of cmSlotIndex from CISCO-MODEM-MGMT-MIB.
+
+             This value along with cctActiveResourcePort uniquely
+             identifies a resource port.
+
+             Value is -1 if call does not utilize such a resource.
+            "
+        ::= { cctActiveEntry 16 }
+ 
+ 
+cctActiveResourcePort OBJECT-TYPE
+        SYNTAX     Integer32 (-1..214783647)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Identification of the processing resource allocated to
+             the call.
+
+             In the case of a call requiring a modem resource, this
+             is the value of cmPortIndex from CISCO-MODEM-MGMT-MIB.
+
+             This value along with cctActiveResourceSlot uniquely
+             identifies a resource port.
+
+             Value is -1 if call does not utilize such a resource.
+            "
+        ::= { cctActiveEntry 17 }
+ 
+
+cctActiveEntrySlot OBJECT-TYPE
+        SYNTAX      Integer32 (0..214783647)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The device slot containing the port on which the call
+             exists.
+            "
+        ::= { cctActiveEntry 18 }
+
+
+cctActiveEntryPort OBJECT-TYPE
+        SYNTAX      Integer32 (0..214783647)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The physical port within the device slot on which the
+             call exists.
+            "
+        ::= { cctActiveEntry 19 }
+
+
+cctActiveEntryDs1 OBJECT-TYPE
+        SYNTAX      Integer32 (0..214783647)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The DS1 link containing the call. This may be a DS1
+             contained within a larger grouping of multiple DS1s
+             within a single physical port.
+
+             If the physical port is of type DS1, this value is
+             identical to cctActiveEntryPort.
+
+             If the DS1 is a logical subinterface within the
+             physical port, this value is the number of the DS1
+             within this slot.
+
+             Examples:
+               8 port DS1 card - cctActiveEntryPort and
+                                 cctActiveEntryDs1 will have
+                                 identical values.
+               3 port T3 card  - cctActiveEntryPort represents
+                                 T3 ports.
+                                 cctActiveEntryEntryDs1 represents
+                                 logical T1 interfaces.
+                                 Each T3 contains 28 T1 interfaces.
+                                 The T1 interfaces are numbered
+                                 sequentially across the entire
+                                 T3 card.
+            "   
+
+        ::= { cctActiveEntry 20 }
+
+
+cctActiveEntryChannel OBJECT-TYPE
+        SYNTAX      Integer32 (0..214783647)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The channel or timeslot within the cctActiveEntryDs1
+             allocated to the call.
+            "
+        ::= { cctActiveEntry 21 }
+
+
+cctActiveCalledPartyId OBJECT-TYPE
+        SYNTAX     DisplayString(SIZE(0..64))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "The called telephone number for this call.
+             For calls answered by the system, this corresponds to
+             the Dialed Number Identification (DNIS).
+
+             For calls originated by the system, this is the
+             destination number.
+
+             If not available this is a zero-length string.
+            "
+        ::= { cctActiveEntry 22 }
+
+
+cctActiveCallingPartyId OBJECT-TYPE
+        SYNTAX     DisplayString(SIZE(0..64))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "The calling telephone number for this call.
+             For calls answered by the system, this corresponds to
+             the calling identification (CLID).
+
+             For calls originated by the system, this is the
+             number associated with the device.
+             For the interworking call, this object contains the
+             translated calling party number if there is a
+             translation rule is associated with dial plan for making
+             this outgoing call.
+
+             If not available this is a zero-length string.
+            "
+        ::= { cctActiveEntry 23 }
+
+
+cctActiveMpBundleId OBJECT-TYPE
+        SYNTAX     Unsigned32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Multilink PPP bundle identification for call if
+             cctActiveServiceType has the value 'mp'.
+
+             If the value of cctActiveServiceType for this call is
+             not 'mp', then the value of this object is not
+             meaningful.
+            "
+        ::= { cctActiveEntry 24 }
+
+
+cctActiveChargedUnits OBJECT-TYPE
+        SYNTAX     AbsoluteCounter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "The number of charged units for this connection.
+             For incoming calls or if charging information is
+             not supplied by the switch, the value of this object
+             will be zero.
+            "
+        REFERENCE
+            "AOC-D defined in ETSI Standard: ETS 300 179
+            "
+        ::= { cctActiveEntry 25 }
+
+
+cctActiveReceiveBytes OBJECT-TYPE
+        SYNTAX     AbsoluteCounter32
+        UNITS      "bytes"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "The number of bytes received on the call.  All the
+             'raw' bytes are counted including any protocol headers
+             which may or may not be present depending on the value
+             of cctActiveServiceType.
+            "
+        ::= { cctActiveEntry 26 }
+
+
+cctActiveTransmitBytes OBJECT-TYPE
+        SYNTAX     AbsoluteCounter32
+        UNITS      "bytes"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "The number of bytes transmitted on the call.  All the
+             'raw' bytes are counted including any protocol headers
+             which may or may not be present depending on the value
+             of cctActiveServiceType.
+            "
+        ::= { cctActiveEntry 27 }
+
+
+cctActiveCallSignalingType OBJECT-TYPE
+        SYNTAX     CctCallSigType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Signaling type used to setup the call.
+            "
+        ::= { cctActiveEntry 28 }
+
+
+
+-- *****************************************************************
+-- Call Tracker History Group
+-- *****************************************************************
+
+-- When a call is terminated or rejected without answering, it
+-- is moved from the active table to the history table.
+
+
+cctHistoryTableEntriesLimit OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..2147483647)
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "The upper limit on the number of entries that the
+             cctHistoryTable may contain.
+
+             A value of zero will prevent any history from being
+             retained.
+
+             This value may not exceed the system specific limit
+             provided in cctHistoryTableMaxEntries.
+            "
+        ::= { cctHistory 1 }
+
+cctHistoryTableMaxEntries OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The maximum allowed table length supported by this
+             system. The value of cctHistoryTableEntriesLimit may
+             not exceed this value.
+            "
+        ::= { cctHistory 2 }
+
+
+cctHistoryTableRetainTimer OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..2147483647)
+        UNITS       "minutes"
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "The maximum amount of time that an entry will be
+             maintained within the cctHistoryTable before being
+             deleted.
+
+             A value of zero will prevent any history from being
+             retained.
+            "
+        ::= { cctHistory 3 }
+
+
+-- The next two objects provide statistics to aid in
+-- tuning the size of the cctHistoryTable.
+
+cctHistoryTableNumberEntries OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Count of the number of entries currently in the
+             cctHistoryTable.
+            "
+        ::= { cctHistory 4 }
+
+
+cctHistoryTableHighWaterMark OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Maximum number of entries present in cctHistoryTable
+             since last system re-initialization or the value
+             of cctHistoryTableEntriesLimit has been changed.
+
+             This corresponds to the maximum value reported by
+             cctHistoryTableNumberEntries.
+
+             Changing the value of cctHistoryTableEntriesLimit resets
+             this value to zero.
+            "
+        ::= { cctHistory 5 }
+
+
+cctHistoryTableNewestIndex OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..4294967295)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object provides the index value of the most
+             recent entry currently in the cctHistoryTable.
+
+             A value of zero indicates there has never been an
+             entry in the table or all entries have expired.
+            "
+        ::= { cctHistory 6 }
+
+
+--
+-- Call Tracker History Table
+-- 
+
+cctHistoryTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CctHistoryEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "This table provides information on terminated calls.
+            "
+        ::= { cctHistory 7 }
+
+cctHistoryEntry OBJECT-TYPE
+        SYNTAX      CctHistoryEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "The information regarding a single terminated call.
+
+             An entry of this table is created when the system
+             initiates, detects, or is notified of a call
+             termination. Resources allocated to the call may
+             still be in use by the call when the entry is created.
+
+             An entry is deleted when it has existed in this table
+             longer than cctHistoryTableRetainTimer minutes.
+
+             An entry is also removed if the table is full and a new
+             entry needs to be created to accommodate a terminated
+             call. The oldest entry in the table will be deleted.
+            "
+        INDEX       { cctHistoryIndex }
+        ::= { cctHistoryTable 1 }
+
+
+CctHistoryEntry ::=
+        SEQUENCE {
+            cctHistoryIndex                     Unsigned32,
+            cctHistoryCallId                    CctCallId,
+            cctHistorySetupTime                 TimeStamp,
+            cctHistoryOrigin                    INTEGER,
+            cctHistoryConnectionTime            TimeStamp,
+            cctHistoryPhysicalLayerReadyTime    TimeStamp,
+            cctHistoryServiceUpTime             TimeStamp,
+            cctHistoryServiceType               CctServiceType,
+            cctHistoryUserValidationTime        TimeStamp,
+            cctHistoryUserId                    DisplayString,
+            cctHistoryUserIpAddr                IpAddress,
+            cctHistoryUserSubnetMask            IpAddress,
+            cctHistoryAccountingSessionId       DisplayString,
+            cctHistoryCallCategory              CctCallCategory,
+            cctHistoryInitialRxRate             Unsigned32,
+            cctHistoryInitialTxRate             Unsigned32,
+            cctHistoryResourceSlot              Integer32,
+            cctHistoryResourcePort              Integer32,
+            cctHistoryEntrySlot                 Integer32,
+            cctHistoryEntryPort                 Integer32,
+            cctHistoryEntryDs1                  Integer32,
+            cctHistoryEntryChannel              Integer32,
+            cctHistoryCalledPartyId             DisplayString,
+            cctHistoryCallingPartyId            DisplayString,
+            cctHistoryMpBundleId                Unsigned32,
+            cctHistoryChargedUnits              Gauge32,
+            cctHistoryReceiveBytes              Gauge32,
+            cctHistoryTransmitBytes             Gauge32,
+            cctHistoryDisconnectTime            TimeStamp,
+            cctHistoryDisconnectReasonText      DisplayString,
+            cctHistoryCallSignalingType         CctCallSigType
+        }
+
+cctHistoryIndex OBJECT-TYPE
+        SYNTAX      Unsigned32 (1..4294967295)
+        MAX-ACCESS  not-accessible 
+        STATUS      current
+        DESCRIPTION
+            "A monotonically increasing integer for the sole purpose
+             of indexing terminated calls.  When it reaches the
+             maximum value the agent wraps the value back to 1 and
+             will flush existing entries."
+        ::= { cctHistoryEntry 1 }
+
+
+cctHistoryCallId OBJECT-TYPE
+        SYNTAX      CctCallId
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The call identifier for the call.
+             This is the same value assigned to the call in
+             cctActiveCallId when it was in the cctActiveTable.
+
+             It is possible for two cctHistoryEntry entries to have
+             the same cctHistoryCallId if one very long running call
+             terminates after the cctActiveCallId has wrapped around
+             and is reassigned to a new short lived call.
+            "
+        ::= { cctHistoryEntry 2 }
+
+
+cctHistorySetupTime  OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Value of sysUpTime when the call was first made known to
+             the system.
+            "
+        ::= { cctHistoryEntry 3 }
+
+
+cctHistoryOrigin  OBJECT-TYPE
+        SYNTAX      INTEGER {
+           originate(1),
+           answer(2)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object indicates how the call was created.
+
+                originate(1) - The call was initiated locally with
+                               the system sending the setup request.
+                               Dialout
+
+                answer(2)    - The call was initiated remotely and
+                               the system received the setup request.
+                               Dialin
+            "
+        ::= { cctHistoryEntry 4 }
+
+
+cctHistoryConnectionTime  OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Value of sysUpTime when the system connected the call.
+            "
+        ::= { cctHistoryEntry 5 }
+
+
+cctHistoryPhysicalLayerReadyTime  OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Value of sysUpTime when the physical layer for the call
+             achieved a steady state and the call is ready for higher
+             protocol layers to begin.
+
+             In the case of modem calls, the physical layer for the
+             call achieves a steady state when the data rates,
+             modulations, and error correcting protocols have been
+             negotiated between the originating and answering modems.
+
+             This is primarily intended for calls which connect to a
+             processing resource identified by cctHistoryResourceSlot 
+             and cctHistoryResourcePort.
+             It also applies to digital calls using adaptive rate
+             technologies such as V.110 and V.120.
+            "
+        ::= { cctHistoryEntry 6 }
+
+
+cctHistoryServiceUpTime  OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Value of sysUpTime when the call service type identified
+             in cctHistoryServiceType was established.
+            "
+        ::= { cctHistoryEntry 7 }
+
+
+cctHistoryServiceType  OBJECT-TYPE
+        SYNTAX      CctServiceType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Service associated with the call.
+
+             This is the highest level of service known to the system
+             for the call. The service represents the encapsulation
+             protocol layer active for the call.
+
+             In the case of multiple services on a given call, the last
+             service activated will be reported.
+            "
+        ::= { cctHistoryEntry 8 }
+
+
+cctHistoryUserValidationTime  OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Value of sysUpTime when the user identification
+             associated with this call was validated.
+
+             See cctHistoryUserId for description of user
+             identification.
+            "
+        ::= { cctHistoryEntry 9 }
+
+
+cctHistoryUserId OBJECT-TYPE
+        SYNTAX      DisplayString(SIZE(0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The User login ID or zero length string if unavailable.
+
+             If this contains a non-zero length string, and
+             cctHistoryUserValidationTime is zero, then the user
+             failed validation.
+            "
+        ::= { cctHistoryEntry 10 }
+
+
+cctHistoryUserIpAddr OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The IP address assigned to the cctHistoryUserId for
+             this call or 0.0.0.0 if not applicable or unavailable.
+            "
+        ::= { cctHistoryEntry 11 }
+
+
+cctHistoryUserSubnetMask OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The IP subnet mask assigned to the cctHistoryUserId for
+             this call or 0.0.0.0 if not applicable or unavailable.
+            "
+        ::= { cctHistoryEntry 12 }
+
+
+cctHistoryAccountingSessionId OBJECT-TYPE
+        SYNTAX      DisplayString(SIZE(0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Accounting session identification assigned to this call
+             by AAA.
+
+             The session ID is sent by AAA to RADIUS as the
+             Acct-Session-Id attribute or TACACS+ as the task_id.
+
+             If no accounting session ID is assigned, the value is a
+             null string.
+            "
+        REFERENCE
+            "RFC 2139 RADIUS Accounting
+             The TACACS+ Protocol Version 1.78, Internet Draft
+            "
+        ::= { cctHistoryEntry 13 }
+        
+
+cctHistoryCallCategory OBJECT-TYPE
+        SYNTAX     CctCallCategory
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "The call category or type
+            "
+        ::= { cctHistoryEntry 14 }
+        
+
+cctHistoryInitialRxRate OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "bits per second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Initial receive data rate for this call.
+             If call is a synchronous digital call such as ISDN sync,
+             this value is the data rate of the B-channel.
+
+             If call is asynchronous, even if using a synchronous
+             transmission medium such as ISDN, the value is
+             determined by the resource providing the asynchronous
+             processing. For modem calls, this value corresponds to
+             the value of cmRXRate from CISCO-MODEM-MGMT-MIB,
+             immediately after the modem has completed initial
+             negotiations.
+
+             This value does not change, even if the data rate varies
+             during the call.
+
+             This value will be zero if the call terminated prior to
+             an initial data rate determination.
+            "
+        ::= { cctHistoryEntry 15 }
+
+
+cctHistoryInitialTxRate OBJECT-TYPE
+        SYNTAX     Unsigned32
+       UNITS       "bits per second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Initial transmit data rate for this call.
+             If call is a synchronous digital call such as ISDN sync,
+             this value is the data rate of the B-channel.
+
+             If call is asynchronous, even if using a synchronous
+             transmission medium such as ISDN, the value is
+             determined by the resource providing the asynchronous
+             processing. For modem calls, this value corresponds to
+             the value of cmTXRate from CISCO-MODEM-MGMT-MIB,
+             immediately after the modem has completed initial
+             negotiations.
+
+             This value does not change, even if the data rate varies
+             during the call.
+
+             This value will be zero if the call terminated prior to
+             an initial data rate determination.
+            "
+        ::= { cctHistoryEntry 16 }
+
+
+cctHistoryResourceSlot OBJECT-TYPE
+        SYNTAX     Integer32 (-1..214783647)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Identification of processing resource allocated to call.
+
+             In the case of a call requiring a modem resource, this is
+             the value of cmSlotIndex from CISCO-MODEM-MGMT-MIB.
+
+             This value along with cctHistoryResourcePort uniquely
+             identifies a resource port.
+
+             Value is -1 if call does not utilize such a resource.
+            "
+        ::= { cctHistoryEntry 17 }
+ 
+ 
+cctHistoryResourcePort OBJECT-TYPE
+        SYNTAX     Integer32 (-1..214783647)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Identification of processing resource allocated to call.
+
+             In the case of a call requiring a modem resource, this is
+             the value of cmPortIndex from CISCO-MODEM-MGMT-MIB.
+
+             This value along with cctHistoryResourceSlot uniquely
+             identifies a resource port.
+
+             Value is -1 if call does not utilize such a resource.
+            "
+        ::= { cctHistoryEntry 18 }
+
+
+cctHistoryEntrySlot OBJECT-TYPE
+        SYNTAX      Integer32 (0..214783647)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The device slot containing the port on which the call
+             existed.
+            "
+        ::= { cctHistoryEntry 19 }
+
+
+cctHistoryEntryPort OBJECT-TYPE
+        SYNTAX      Integer32 (0..214783647)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The physical port within the device slot on which the
+             call existed.
+            "
+        ::= { cctHistoryEntry 20 }
+
+
+cctHistoryEntryDs1 OBJECT-TYPE
+        SYNTAX      Integer32 (0..214783647)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The DS1 link containing the call. This may be a DS1
+             contained within a larger grouping of multiple DS1s
+             within a single physical port.
+
+             If the physical port is of type DS1, this value is
+             identical to cctActiveEntryPort.
+
+             If the DS1 is a logical subinterface within the
+             physical port, this value is the number of the DS1
+             within this slot.
+
+             Examples:
+               8 port DS1 card - cctActiveEntryPort and
+                                 cctActiveEntryDs1 will have
+                                 identical values.
+               3 port T3 card  - cctActiveEntryPort represents
+                                 T3 ports.
+                                 cctActiveEntryEntryDs1 represents
+                                 logical T1 interfaces.
+                                 Each T3 contains 28 T1 interfaces.
+                                 The T1 interfaces are numbered
+                                 sequentially across the entire
+                                 T3 card.
+            "
+
+        ::= { cctHistoryEntry 22 }
+
+
+cctHistoryEntryChannel OBJECT-TYPE
+        SYNTAX      Integer32 (0..214783647)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The channel or timeslot within the cctHistoryEntryDs1
+             which was allocated to the call.
+            "
+        ::= { cctHistoryEntry 23 }
+
+
+cctHistoryCalledPartyId OBJECT-TYPE
+        SYNTAX     DisplayString(SIZE(0..64))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "The called telephone number for this call.
+             For calls answered by the system, this corresponds to
+             the Dialed Number Identification (DNIS).
+
+             For calls originated by the system, this is the
+             destination number.
+
+             If not available the string length is zero.
+            "
+        ::= { cctHistoryEntry 24 }
+
+
+cctHistoryCallingPartyId OBJECT-TYPE
+        SYNTAX     DisplayString(SIZE(0..64))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "The calling telephone number for this call.
+             For calls answered by the system, this corresponds to
+             the calling identification (CLID).
+
+             For calls originated by the system, this is the
+             number associated with the device.
+             For the interworking call, this object contains the
+             translated calling party number if there is a
+             translation rule is associated with dial plan for making
+             this outgoing call.
+
+             If not available this is a zero-length string.
+            "
+        ::= { cctHistoryEntry 25 }
+
+
+cctHistoryMpBundleId OBJECT-TYPE
+        SYNTAX     Unsigned32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Multilink PPP bundle identification for call if
+             cctHistoryServiceType has the value 'mp'.
+
+             If the value of cctHistoryServiceType for this call is
+             not 'mp', then the value of this object is not
+             meaningful.
+            "
+        ::= { cctHistoryEntry 26 }
+
+
+cctHistoryChargedUnits OBJECT-TYPE
+        SYNTAX     Gauge32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "The number of charged units for this connection.
+             For incoming calls or if charging information is
+             not supplied by the switch, the value of this object
+             will be zero.
+            "
+        REFERENCE
+            "AOC-D defined in ETSI Standard: ETS 300 179
+            "
+        ::= { cctHistoryEntry 27 }
+
+
+cctHistoryReceiveBytes OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "bytes"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "The number of bytes received on the call.  All the
+             'raw' bytes are counted including any protocol headers
+             which may or may not be present depending on the value
+             of cctHistoryServiceType.
+            "
+        ::= { cctHistoryEntry 28 }
+
+
+cctHistoryTransmitBytes OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "bytes"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "The number of bytes transmitted on the call.  All the
+             'raw' bytes are counted including any protocol headers
+             which may or may not be present depending on the value
+             of cctHistoryServiceType.
+            "
+        ::= { cctHistoryEntry 29 }
+
+
+cctHistoryDisconnectTime  OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Value of sysUpTime when call was disconnected.
+
+             This is when the system initiates, detects, or is
+             notified of call termination.
+
+             This is the call duration from initial setup request.
+            "
+        ::= { cctHistoryEntry 30 }
+
+
+cctHistoryDisconnectReasonText OBJECT-TYPE
+        SYNTAX     DisplayString (SIZE(0..255))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Text description of the disconnect reason provided.
+
+             Value is zero-length string if no text is available.
+            "
+        ::= { cctHistoryEntry 31 }
+
+
+cctHistoryCallSignalingType OBJECT-TYPE
+        SYNTAX     CctCallSigType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Signaling type used to setup the call.
+            "
+        ::= { cctHistoryEntry 32 }
+
+
+
+-- *****************************************************************
+-- Call Tracker Notification Configuration Group
+-- *****************************************************************
+
+cctCallSetupTermNotifyEnable OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "This variable controls generation of
+             cctCallSetupNotification and
+             cctCallTerminateNotification.
+
+             When this variable is 'true(1)', generation of
+             these notifications is enabled.  When this
+             variable is 'false(2)', generation is disabled.
+
+             The default value is 'false(2)'.
+            "
+        ::= { cctNotificationConfig 1 }
+
+
+-- *****************************************************************
+-- Notifications
+-- *****************************************************************
+cctMIBNotificationPrefix  OBJECT IDENTIFIER ::=
+                                { ciscoCallTrackerMIB 2 }
+cctMIBNotifications       OBJECT IDENTIFIER ::=
+                                { cctMIBNotificationPrefix 0 }
+
+
+cctCallSetupNotification NOTIFICATION-TYPE
+    OBJECTS     {
+                  cctActiveSetupTime,
+                  cctActiveCalledPartyId,
+                  cctActiveCallingPartyId,
+                  cctActiveCallCategory
+                }
+    STATUS      current
+    DESCRIPTION
+        "A Call Tracker Setup notification is generated whenever
+         a new active call entry is created in the cctActiveTable.
+        "
+    ::= { cctMIBNotifications 1 }
+
+
+cctCallTerminateNotification NOTIFICATION-TYPE
+    OBJECTS     {
+                  cctHistoryCallId
+                }
+    STATUS      current
+    DESCRIPTION
+        "A Call Tracker Terminate notification is generated whenever
+         a new history call entry is created in the cctHistoryTable.
+        "
+    ::= { cctMIBNotifications 2 }
+
+-- *****************************************************************
+-- Conformance and Compliances
+-- *****************************************************************
+
+cctMIBConformance OBJECT IDENTIFIER ::=
+                                { ciscoCallTrackerMIB 3 }
+cctMIBCompliances OBJECT IDENTIFIER ::=
+                                { cctMIBConformance 1 }
+cctMIBGroups      OBJECT IDENTIFIER ::=
+                                { cctMIBConformance 2 }
+
+-- compliance statements
+
+cctMIBCompliance MODULE-COMPLIANCE
+        STATUS      deprecated -- superceded by cctMIBComplianceRev1
+        DESCRIPTION
+            "The compliance statement for entities which
+             implement the CISCO CALL TRACKER MIB"
+        MODULE      -- this module
+        MANDATORY-GROUPS
+            {
+              cctGeneralGroup,
+              cctActiveGroup,
+              cctHistoryGroup,
+              cctNotificationConfigGroup,
+              cctNotificationGroup
+            }
+
+        ::= { cctMIBCompliances 1 }
+
+cctMIBComplianceRev1 MODULE-COMPLIANCE
+        STATUS      current
+        DESCRIPTION
+            "The compliance statement for entities which
+             implement the CISCO CALL TRACKER MIB"
+        MODULE      -- this module
+        MANDATORY-GROUPS
+            {
+              cctGeneralGroup,
+              cctActiveGroupRev1,
+              cctHistoryGroupRev1,
+              cctNotificationConfigGroup,
+              cctNotificationGroup
+            }
+
+        ::= { cctMIBCompliances 2 }
+
+-- units of conformance
+
+
+cctGeneralGroup OBJECT-GROUP
+        OBJECTS {
+            cctCallIdPrefix
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing the
+             general information.
+            "
+        ::= { cctMIBGroups 1 }
+
+cctActiveGroup OBJECT-GROUP
+        OBJECTS {
+            cctActiveTableNumberEntries,
+            cctActiveTableHighWaterMark,
+            cctActiveSetupTime,
+            cctActiveOrigin,
+            cctActiveConnectionTime,
+            cctActivePhysicalLayerReadyTime,
+            cctActiveServiceUpTime,
+            cctActiveServiceType,
+            cctActiveUserValidationTime,
+            cctActiveUserId,
+            cctActiveUserIpAddr,
+            cctActiveUserSubnetMask,
+            cctActiveAccountingSessionId,
+            cctActiveCallCategory,
+            cctActiveInitialRxRate,
+            cctActiveInitialTxRate,
+            cctActiveResourceSlot,
+            cctActiveResourcePort, 
+            cctActiveEntrySlot,
+            cctActiveEntryPort, 
+            cctActiveEntryDs1, 
+            cctActiveEntryChannel,
+            cctActiveCalledPartyId,
+            cctActiveCallingPartyId, 
+            cctActiveMpBundleId, 
+            cctActiveChargedUnits,
+            cctActiveReceiveBytes,
+            cctActiveTransmitBytes
+        }
+        STATUS      deprecated -- superceded by cctActiveGroupRev1
+        DESCRIPTION
+            "A collection of objects providing the
+             active call information.
+            "
+        ::= { cctMIBGroups 2 }
+
+cctHistoryGroup OBJECT-GROUP
+        OBJECTS {
+            cctHistoryTableEntriesLimit,
+            cctHistoryTableMaxEntries,
+            cctHistoryTableRetainTimer,
+            cctHistoryTableNumberEntries,
+            cctHistoryTableHighWaterMark,
+            cctHistoryTableNewestIndex,
+            cctHistoryCallId,
+            cctHistorySetupTime,
+            cctHistoryOrigin,
+            cctHistoryConnectionTime,
+            cctHistoryPhysicalLayerReadyTime,
+            cctHistoryServiceUpTime,
+            cctHistoryServiceType,
+            cctHistoryUserValidationTime,
+            cctHistoryUserId,
+            cctHistoryUserIpAddr,
+            cctHistoryUserSubnetMask,
+            cctHistoryAccountingSessionId,
+            cctHistoryCallCategory,
+            cctHistoryInitialRxRate,
+            cctHistoryInitialTxRate,
+            cctHistoryResourceSlot,
+            cctHistoryResourcePort, 
+            cctHistoryEntrySlot,
+            cctHistoryEntryPort, 
+            cctHistoryEntryDs1, 
+            cctHistoryEntryChannel,
+            cctHistoryCalledPartyId,
+            cctHistoryCallingPartyId, 
+            cctHistoryMpBundleId, 
+            cctHistoryChargedUnits,
+            cctHistoryReceiveBytes,
+            cctHistoryTransmitBytes,
+            cctHistoryDisconnectTime,
+            cctHistoryDisconnectReasonText
+        }
+        STATUS      deprecated -- superceded by cctHistoryGroupRev1
+        DESCRIPTION
+            "A collection of objects providing the
+             historical call information.
+            "
+        ::= { cctMIBGroups 3 }
+
+cctNotificationConfigGroup OBJECT-GROUP
+        OBJECTS {
+            cctCallSetupTermNotifyEnable
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing the
+             notification configuration.
+            "
+        ::= { cctMIBGroups 4 }
+
+cctNotificationGroup NOTIFICATION-GROUP
+        NOTIFICATIONS {
+            cctCallSetupNotification,
+            cctCallTerminateNotification
+        }
+        STATUS current
+        DESCRIPTION
+            "The collection of notifications used for
+             call status changes.
+            "
+        ::= { cctMIBGroups 5 }
+
+cctActiveGroupRev1 OBJECT-GROUP
+        OBJECTS {
+            cctActiveTableNumberEntries,
+            cctActiveTableHighWaterMark,
+            cctActiveSetupTime,
+            cctActiveOrigin,
+            cctActiveConnectionTime,
+            cctActivePhysicalLayerReadyTime,
+            cctActiveServiceUpTime,
+            cctActiveServiceType,
+            cctActiveUserValidationTime,
+            cctActiveUserId,
+            cctActiveUserIpAddr,
+            cctActiveUserSubnetMask,
+            cctActiveAccountingSessionId,
+            cctActiveCallCategory,
+            cctActiveInitialRxRate,
+            cctActiveInitialTxRate,
+            cctActiveResourceSlot,
+            cctActiveResourcePort,
+            cctActiveEntrySlot,
+            cctActiveEntryPort,
+            cctActiveEntryDs1,
+            cctActiveEntryChannel,
+            cctActiveCalledPartyId,
+            cctActiveCallingPartyId,
+            cctActiveMpBundleId,
+            cctActiveChargedUnits,
+            cctActiveReceiveBytes,
+            cctActiveTransmitBytes,
+            cctActiveCallSignalingType
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing the
+             active call information.
+            "
+        ::= { cctMIBGroups 6 }
+
+cctHistoryGroupRev1 OBJECT-GROUP
+        OBJECTS {
+            cctHistoryTableEntriesLimit,
+            cctHistoryTableMaxEntries,
+            cctHistoryTableRetainTimer,
+            cctHistoryTableNumberEntries,
+            cctHistoryTableHighWaterMark,
+            cctHistoryTableNewestIndex,
+            cctHistoryCallId,
+            cctHistorySetupTime,
+            cctHistoryOrigin,
+            cctHistoryConnectionTime,
+            cctHistoryPhysicalLayerReadyTime,
+            cctHistoryServiceUpTime,
+            cctHistoryServiceType,
+            cctHistoryUserValidationTime,
+            cctHistoryUserId,
+            cctHistoryUserIpAddr,
+            cctHistoryUserSubnetMask,
+            cctHistoryAccountingSessionId,
+            cctHistoryCallCategory,
+            cctHistoryInitialRxRate,
+            cctHistoryInitialTxRate,
+            cctHistoryResourceSlot,
+            cctHistoryResourcePort,
+            cctHistoryEntrySlot,
+            cctHistoryEntryPort,
+            cctHistoryEntryDs1,
+            cctHistoryEntryChannel,
+            cctHistoryCalledPartyId,
+            cctHistoryCallingPartyId,
+            cctHistoryMpBundleId,
+            cctHistoryChargedUnits,
+            cctHistoryReceiveBytes,
+            cctHistoryTransmitBytes,
+            cctHistoryDisconnectTime,
+            cctHistoryDisconnectReasonText,
+            cctHistoryCallSignalingType
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing the
+             historical call information.
+            "
+        ::= { cctMIBGroups 7 }
+
+END
+

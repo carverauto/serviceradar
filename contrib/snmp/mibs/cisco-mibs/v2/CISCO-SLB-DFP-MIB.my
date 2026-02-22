@@ -1,0 +1,305 @@
+-- *****************************************************************
+-- CISCO-SLB-DFP-MIB.my: MIB for Server Load Balancing Clients
+--   
+-- July 2008, Abhishek Tanwar
+--   
+-- Copyright (c) 2008-2009 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-SLB-DFP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    EntPhysicalIndexOrZero
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSlbDfpMIB MODULE-IDENTITY
+    LAST-UPDATED    "200901290000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+
+            Postal:170 W. Tasman Drive
+
+            San Jose, CA  95134
+
+            USA
+
+
+            Tel:+1 800 553-NETS
+
+
+            E-mail:cs-asngw@cisco.com"
+    DESCRIPTION
+        "This MIB reports the congestion status of the real server.
+        A server can be in congested state due to high memory
+        consumption, high CPU utilization or high number of clients
+        being served by it. Congestion can cause delay in server
+        response time.
+        DFP (Dynamic Feedback Protocol) weight values are used as a
+        metric to monitor the congestion of the server.
+
+        This MIB generates notifications when congestion state
+        is detected on the real server.   
+        DFP weight is calculated as follows
+
+        BindingWeight=(Maxbindings-numberOfBindings)/Maxbindings
+
+        CPUMemWeight=(cpu + mem)/32
+
+        Weight = BindingWeight*CPUMemWeight*dfp_max_weight
+
+        Here,
+         - Maxbindings is the maximum number of bindings allowed on the
+        server.
+         - dfp_max_weight is the maximum possible value of DFP weight
+        (24).
+         - numberOfBindings is the number of mobile bindings currently
+        present with the server.
+
+        The DFP weight at which congestion is detected is configurable.
+         If the DFP weight of the system falls below this value, then
+        the system is treated as congested and notification is
+        generated."
+    REVISION        "200901290000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 689 }
+
+
+ciscoSlbDfpMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoSlbDfpMIB 0 }
+
+ciscoSlbDfpMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSlbDfpMIB 1 }
+
+ciscoSlbDfpMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSlbDfpMIB 2 }
+
+
+cslbcDfpCongestionOnsetThreshold OBJECT-TYPE
+    SYNTAX          CslbcDfpValue
+    UNITS           "DFP weight"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifes when congestion occurs.  When the DFP
+        level of the system drops below this value, the system is
+        marked as congested.  This value is same for all the
+        processors."
+    DEFVAL          { 0 } 
+    ::= { ciscoSlbDfpMIBObjects 1 }
+
+cslbcDfpCongestionAbateThreshold OBJECT-TYPE
+    SYNTAX          CslbcDfpValue
+    UNITS           "DFP weight"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies when decongestion occurs.  When the DFP
+        level of the system rises above this value, the system is
+        marked as decongested.  This value is same for all processors."
+    DEFVAL          { 0 } 
+    ::= { ciscoSlbDfpMIBObjects 2 }
+
+cslbcDfpCongestionThresholdType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        reject(1),
+                        abort(2),
+                        redirect(3),
+                        drop(4)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the action taken when the congestion
+        threshold is reached.
+        The valid congestion action type are
+        o reject - Incoming registration requests will be rejected when
+        this congestion type is configured.
+        o abort - Registration request being processed will be aborted
+        when this congestion type is configured.
+        o redirect - Incoming registration requests will be redirected
+        to another Home Agent when this congestion type is configured.
+        o drop - Existing idle mobile IP bindings will be dropped when
+        this congestion type is configured.
+
+        A mobile IP binding is a record present with the server that 
+        associates the home address given to the mobile node by its
+        home network with the care of address granted to it by the
+        foreign network while it is roaming.  
+        The Home Agent is a real server that maintains mobile 
+        bindings." 
+    ::= { ciscoSlbDfpMIBObjects 3 }
+
+cslbcProcessorDfpValTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CslbcProcessorDfpValEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the DFP status for each processor for which
+        DFP weights are monitored."
+    ::= { ciscoSlbDfpMIBObjects 4 }
+
+cslbcProcessorDfpValEntry OBJECT-TYPE
+    SYNTAX          CslbcProcessorDfpValEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The entry contains DFP value for one processor.
+        A row is added to this table when congestion needs to be
+        monitored on a processor. Row is deleted when congestion no
+        longer needs to be monitored."
+    INDEX           { cslbcProcessorDfpValPhysicalIndex } 
+    ::= { cslbcProcessorDfpValTable 1 }
+
+CslbcProcessorDfpValEntry ::= SEQUENCE {
+        cslbcProcessorDfpValPhysicalIndex EntPhysicalIndexOrZero,
+        cslbcProcessorDfpValDescription   SnmpAdminString,
+        cslbcProcessorDfpValDfpValue      CslbcDfpValue
+}
+
+cslbcProcessorDfpValPhysicalIndex OBJECT-TYPE
+    SYNTAX          EntPhysicalIndexOrZero
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This element contains the index of the physical entity or
+        identifier of the processor for which the DFP value is
+        maintained." 
+    ::= { cslbcProcessorDfpValEntry 1 }
+
+cslbcProcessorDfpValDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This element contains the description for the congestion
+        configured on for processor." 
+    ::= { cslbcProcessorDfpValEntry 2 }
+
+cslbcProcessorDfpValDfpValue OBJECT-TYPE
+    SYNTAX          CslbcDfpValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates DFP value for the processor." 
+    ::= { cslbcProcessorDfpValEntry 3 }
+ 
+
+
+CslbcDfpValue ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "This textual convention defines valid ranges DFP values
+        similar to slbDfpRealWeight object defined in CISCO-SLB-MIB."
+    SYNTAX          Unsigned32 (0..65535)
+
+cslbcSlbDfpCongestionOnset NOTIFICATION-TYPE
+    OBJECTS         {
+                        cslbcProcessorDfpValDescription,
+                        cslbcProcessorDfpValDfpValue,
+                        cslbcDfpCongestionThresholdType,
+                        cslbcDfpCongestionOnsetThreshold
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The server generates this notification when value of
+        cslbcInstanceDfpValue object drops below the threshold
+        indicated
+        by the cslbcDfpCongestionOnsetThreshold object."
+   ::= { ciscoSlbDfpMIBNotifs 1 }
+
+cslbcSlbDfpCongestionAbate NOTIFICATION-TYPE
+    OBJECTS         {
+                        cslbcProcessorDfpValDescription,
+                        cslbcProcessorDfpValDfpValue,
+                        cslbcDfpCongestionAbateThreshold,
+                        cslbcDfpCongestionThresholdType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The server generates this notification when value of
+        cslbcInstanceDfpValue object rises above the threshold
+        indicated
+        by the cslbcDfpCongestionAbateThreshold object."
+   ::= { ciscoSlbDfpMIBNotifs 2 }
+-- Conformance
+
+ciscoSlbDfpMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSlbDfpMIBConform 1 }
+
+ciscoSlbDfpMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSlbDfpMIBConform 2 }
+
+
+ciscoSlbDfpMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        ciscoSlbDfp MIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoSlbDfpInstanceGroup,
+                        cslbcSlbDfpScalarsGroup,
+                        cslbcSlbDfpCongestionGroup
+                    }
+    ::= { ciscoSlbDfpMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoSlbDfpInstanceGroup OBJECT-GROUP
+    OBJECTS         {
+                        cslbcProcessorDfpValDescription,
+                        cslbcProcessorDfpValDfpValue
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group represents the fields that identifies the processor
+        and associated DFP value."
+    ::= { ciscoSlbDfpMIBGroups 1 }
+
+cslbcSlbDfpScalarsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cslbcDfpCongestionOnsetThreshold,
+                        cslbcDfpCongestionAbateThreshold,
+                        cslbcDfpCongestionThresholdType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group represents the set of thresholds against which the
+        DFP value is compared."
+    ::= { ciscoSlbDfpMIBGroups 2 }
+
+cslbcSlbDfpCongestionGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cslbcSlbDfpCongestionOnset,
+                        cslbcSlbDfpCongestionAbate
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This groutp represents the group of notifications on Home
+        Agent."
+    ::= { ciscoSlbDfpMIBGroups 3 }
+
+END

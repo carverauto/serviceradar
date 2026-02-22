@@ -1,0 +1,190 @@
+-- *****************************************************************
+-- CISCO-LICENSE-MGR-CAPABILITY.my:
+-- AGENT-CAPABILITIES for CISCO-LICENSE-MGR-MIB
+--   
+-- March 2006, Roopeshakumar N. Shalgar
+--   
+-- Copyright (c) 2006, 2008 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-LICENSE-MGR-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoLicenseMgrCapability MODULE-IDENTITY
+    LAST-UPDATED    "200807210000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-san@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-LICENSE-MGR-MIB."
+    REVISION        "200807210000Z"
+    DESCRIPTION
+        "Added VARIATIONS for MIB objects clmLicenseGracePeriod and
+        clmNotificationsEnable to ciscoLicenseMgrCapabilityACSWV03R000
+        agent capability.
+
+        Added capability statement ciscoLicMgrCapc4710aceVA1R700 for
+        ACE 4710 Application Control Engine Appliance."
+    REVISION        "200603080000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoLicenseMgrCapabilityACSWV03R000 for 
+        Application Control Engine (ACE)."
+    ::= { ciscoAgentCapability 495 }
+
+
+
+ciscoLicenseMgrCapabilityACSWV03R000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0"
+    STATUS          current
+    DESCRIPTION
+        "ACSW (Application Control Software) 3.0 CISCO
+        LICENSE MGR MIB capabilities"
+
+    SUPPORTS        CISCO-LICENSE-MGR-MIB
+    INCLUDES        {
+                        clmNoOfInstalledLicensesGroup,
+                        clmLicenseInformationGroup2,
+                        clmNotificationsEnableGroup,
+                        clmNotificationGroup
+                    }
+    VARIATION       clmLicenseGracePeriod
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       clmNotificationsEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP SET operation not supported."
+
+    VARIATION       clmLicenseExpiryNotify
+    DESCRIPTION
+        "clmLicenseExpiryNotify is sent when an installed
+        feature license expires. Additonal varbinds
+        clogOriginIDType and clogOriginID are included
+        in the notification pdu to help in recognizing
+        from which particular Virtual Context of a slot
+        of a Chassis the notification was sent."
+
+    VARIATION       clmNoLicenseForFeatureNotify
+    DESCRIPTION
+        "clmNoLicenseForFeatureNotify is sent when the
+        system detects that there is no license installed
+        for a specific feature. Additonal varbinds
+        clogOriginIDType and clogOriginID are included in
+        the notification pdu at the end. This helps in
+        recognizing from which particular Virtual Context
+        of a slot of a Chassis, this notification was
+        sent."
+
+    VARIATION       clmLicenseFileMissingNotify
+    DESCRIPTION
+        "clmLicenseFileMissingNotify signifies that one or
+        more installed license files are missing. Additonal
+        varbinds clogOriginIDType and clogOriginID are
+        included in the notification pdu at the end. This
+        helps in recognizing from which particular Virtual
+        Context of a slot of a Chassis, this notification
+        was sent."
+
+    VARIATION       clmLicenseExpiryWarningNotify
+    DESCRIPTION
+        "clmLicenseExpiryWarningNotify signifies that
+        installed feature license is about to expire.
+        Additonal varbinds clogOriginIDType and
+        clogOriginID are included in the notification pdu
+        at the end. This helps in recognizing from which
+        particular Virtual Context of a slot of a Chassis,
+        this notification was sent."
+
+    ::= { ciscoLicenseMgrCapability 2 }
+
+ciscoLicMgrCapc4710aceVA1R700 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7)
+                 for ACE 4710 Application Control Engine 
+                 Appliance"
+    STATUS          current
+    DESCRIPTION
+        "ACSW (Application Control Software) A1(7) CISCO
+        LICENSE MGR MIB capabilities"
+
+    SUPPORTS        CISCO-LICENSE-MGR-MIB
+    INCLUDES        {
+                        clmNoOfInstalledLicensesGroup,
+                        clmLicenseInformationGroup2,
+                        clmNotificationsEnableGroup,
+                        clmNotificationGroup
+                    }
+    VARIATION       clmLicenseGracePeriod
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       clmNotificationsEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP set operation not supported."
+
+    VARIATION       clmLicenseExpiryNotify
+    DESCRIPTION
+        "clmLicenseExpiryNotify is sent when an installed
+        feature license expires. Additonal varbinds
+        clogOriginIDType and clogOriginID are included
+        in the notification pdu to help in recognizing
+        from which particular Virtual Context of a slot
+        of a Chassis the notification was sent."
+
+    VARIATION       clmNoLicenseForFeatureNotify
+    DESCRIPTION
+        "clmNoLicenseForFeatureNotify is sent when the
+        system detects that there is no license installed
+        for a specific feature. Additonal varbinds
+        clogOriginIDType and clogOriginID are included in
+        the notification pdu at the end. This helps in
+        recognizing from which particular Virtual Context
+        of a slot of a Chassis, this notification was
+        sent."
+
+    VARIATION       clmLicenseFileMissingNotify
+    DESCRIPTION
+        "clmLicenseFileMissingNotify signifies that one or
+        more installed license files are missing. Additonal
+        varbinds clogOriginIDType and clogOriginID are
+        included in the notification pdu at the end. This
+        helps in recognizing from which particular Virtual
+        Context of a slot of a Chassis, this notification
+        was sent."
+
+    VARIATION       clmLicenseExpiryWarningNotify
+    DESCRIPTION
+        "clmLicenseExpiryWarningNotify signifies that
+        installed feature license is about to expire.
+        Additonal varbinds clogOriginIDType and
+        clogOriginID are included in the notification pdu
+        at the end. This helps in recognizing from which
+        particular Virtual Context of a slot of a Chassis,
+        this notification was sent."
+
+    ::= { ciscoLicenseMgrCapability 3 }
+
+END

@@ -1,0 +1,263 @@
+-- MIB file created 27-Jan-2005 23:18:34, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-TBRIDGE-DEV-IF-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-TBRIDGE-DEV-IF-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    MacAddress
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoTBridgeDevIfMIB OBJECT IDENTIFIER ::= { ciscoMgmt 269 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200204030001Z
+--  OrgName
+--    Cisco System Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 West Tasman Drive,
+--            San Jose CA 95134-1706.
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-dot11@cisco.com
+--  Descr
+--    This MIB module provides network management support 
+--    for configuration and status information of devices 
+--    supporting transparent bridging functions.
+--  RevDate
+--    200204030001Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoTBridgeDevIfMIBObjects OBJECT IDENTIFIER ::= { ciscoTBridgeDevIfMIB 1 }
+ctbrDevInterface OBJECT IDENTIFIER ::= { ciscoTBridgeDevIfMIBObjects 1 }
+ciscoTBridgeDevIfMIBConformance OBJECT IDENTIFIER ::= { ciscoTBridgeDevIfMIB 2 }
+ciscoTBridgeDevIfMIBCompliances OBJECT IDENTIFIER ::= { ciscoTBridgeDevIfMIBConformance 1 }
+ciscoTBridgeDevIfMIBGroups OBJECT IDENTIFIER ::= { ciscoTBridgeDevIfMIBConformance 2 }
+
+ctbrDevInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CtbrDevInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides configuration and information
+        of the device interfaces supporting transparent
+        bridging. This table has a sparse dependent 
+        relationship with the ifTable."
+    ::= { ctbrDevInterface 1 }
+
+ctbrDevInterfaceEntry OBJECT-TYPE
+    SYNTAX CtbrDevInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry provides MAC and IP address related 
+        configuration information of an interface."
+    INDEX { ifIndex }
+    ::= { ctbrDevInterfaceTable 1 }
+
+CtbrDevInterfaceEntry ::= SEQUENCE {
+    ctbrDefaultPhyAddress MacAddress,
+    ctbrPhyAddress MacAddress,
+    ctbrDefaultIpAddrType InetAddressType,
+    ctbrDefaultIpAddress InetAddress,
+    ctbrDefaultIpMaskType InetAddressType,
+    ctbrDefaultIpMask InetAddress,
+    ctbrIpAddressType InetAddressType,
+    ctbrIpAddress InetAddress,
+    ctbrIpMaskType InetAddressType,
+    ctbrIpMask InetAddress,
+    ctbrMSDUMaxLength Gauge
+    }
+
+ctbrDefaultPhyAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The default, factory-assigned MAC address of
+        the interface.  Guaranteed to be unique across
+        all IEEE 802 devices."
+    ::= { ctbrDevInterfaceEntry 1 }
+
+ctbrPhyAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The MAC address to be used by the interface.
+        If ctbrDefaultPhyAddress is used, 
+        this is '00:00:00:00:00:00'."
+    ::= { ctbrDevInterfaceEntry 2 }
+
+ctbrDefaultIpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address type of the 
+        ctbrDefaultIpAddress object."
+    ::= { ctbrDevInterfaceEntry 3 }
+
+ctbrDefaultIpAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The default IP address of the interface. If BOOTP 
+        or DHCP is enabled, this may be overridden by the 
+        BOOTP or DHCP server."
+    ::= { ctbrDevInterfaceEntry 4 }
+
+ctbrDefaultIpMaskType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address type of the 
+        ctbrDefaultIpMask object."
+    ::= { ctbrDevInterfaceEntry 5 }
+
+ctbrDefaultIpMask OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The default IP netmask of the interface. If BOOTP 
+        or DHCP is enabled, this may be overridden by the 
+        BOOTP or DHCP server."
+    ::= { ctbrDevInterfaceEntry 6 }
+
+ctbrIpAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address type of the 
+        ctbrIpAddress object."
+    ::= { ctbrDevInterfaceEntry 7 }
+
+ctbrIpAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address currently in use by the interface."
+    ::= { ctbrDevInterfaceEntry 8 }
+
+ctbrIpMaskType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address type of the ctbrIpMask
+        object."
+    ::= { ctbrDevInterfaceEntry 9 }
+
+ctbrIpMask OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The IP netmask currently in use by the interface."
+    ::= { ctbrDevInterfaceEntry 10 }
+
+ctbrMSDUMaxLength OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum length of the data portion of a packet
+         for this particular interface.  This is the
+         maximum MAC Service Data Unit length, which is
+         greater than or equal to ifMtu, depending on
+         the configured MAC-level encapsulation."
+    ::= { ctbrDevInterfaceEntry 11 }
+
+ctbrDevIfConfigGroup OBJECT IDENTIFIER ::= { ciscoTBridgeDevIfMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Information to support configuration of network 
+--    interfaces.
+--  objects
+--    ctbrDefaultPhyAddress, ctbrPhyAddress, ctbrDefaultIpAddrType, 
+--    ctbrDefaultIpAddress, ctbrDefaultIpMaskType, 
+--    ctbrDefaultIpMask, ctbrIpAddressType, ctbrIpAddress, 
+--    ctbrIpMaskType, ctbrIpMask, ctbrMSDUMaxLength
+
+ciscoTBridgeDevIfCompliance OBJECT IDENTIFIER ::= { ciscoTBridgeDevIfMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the 
+--    interface configuration ctbrDevIfConfigGroup.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ctbrDevIfConfigGroup
+
+
+END
+

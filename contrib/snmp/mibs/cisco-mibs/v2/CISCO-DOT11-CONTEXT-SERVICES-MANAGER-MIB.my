@@ -1,0 +1,688 @@
+-- *******************************************************************
+-- CISCO-DOT11-CONTEXT-SERVICES-MANAGER-MIB.my 
+--
+-- October 2003, Francis Pang 
+--
+-- Copyright (c) 2003 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+--
+CISCO-DOT11-CONTEXT-SERVICES-MANAGER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS 
+        MODULE-IDENTITY, 
+        OBJECT-TYPE,
+        Counter32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        TEXTUAL-CONVENTION,
+        TimeInterval
+                FROM SNMPv2-TC
+        InetAddressType,
+        InetAddress
+                FROM INET-ADDRESS-MIB
+        ciscoMgmt  
+                FROM CISCO-SMI;
+
+
+--********************************************************************
+--*  MODULE IDENTITY
+--********************************************************************
+
+ciscoDot11CsMgrMIB MODULE-IDENTITY
+        LAST-UPDATED    "200311020000Z"
+        ORGANIZATION    "Cisco Systems Inc."
+        CONTACT-INFO  
+               "        Cisco Systems,
+                        Customer Service
+                        Postal: 170 West Tasman Drive
+			San Jose, CA  95134
+			USA
+                        Tel: +1 800 553-NETS                 
+            
+                E-mail: cs-dot11@cisco.com"
+
+        DESCRIPTION
+                "This MIB is intended to be implemented on IEEE 
+                802.11 Wireless LAN management devices for Access 
+                Points and Wireless Bridges participating in the 
+                context management process and making use of 
+                the services provided by entities offering WDS
+                and WNS.  This MIB allows NMS to access individual
+                configuration of wireless stations through the
+                SNMP agent at the management device, i.e. WSA. 
+
+                The term '802.11 station' or 'wireless station' 
+                refers to one of the Access Point or Wireless 
+                Bridge throughout the MIB unless stated otherwise.
+                 
+                The hierarchy of the devices offering the wireless
+                domain and network services looks like the following.
+                                                      
+                             += = = = +
+                             |        |
+                             |  WNS   |  (Campus level)
+                             |        |
+                             += = = = +
+                             /        \
+                            /          \
+                           /            \
+                          /              \
+                         \/              \/
+                      += = =+          += = =+
+                      |     |          |     | 
+                      | WNS |          | WNS |  
+                      |     |          |     |
+                      += = =+          += = =+
+                      /    \                \
+                     /      \                \
+                    /        \                \
+                   /          \                \
+                  \/          \/               \/
+             +=====+      +=====+   +-----+   +=====+
+             |     |      |     |   |     |   |     |
+             | WDS |      | WDS |   | WSA |   | WDS | ( Subnet
+             |     |      |     |   |     |   |     |   level-
+             +=====+      +=====+   +-----+   +=====+   Single
+                /  \            \      :: ::      \   broadcast 
+               /    \            \     ::   ::     \   domain )
+              /      \            \    ::    ::     \
+             /        \            \   ::     ::     \
+            /          \            \  ::      ::     \
+           \/          \/           \/ ::       ::    \/
+        +~-~-~+      +~-~-~+       +~-~-~+        +~-~-~+
+        +     +      +     +       +     +        +     +
+        + AP  +      + AP  +       + AP  +        + AP  +
+        +     +      +     +       +     +        +     +
+        +~-~-~+      +~-~-~+       +~-~-~+        +~-~-~+
+          ..            .             .               .
+         .  .            .             .               .
+        .    .            .             .               .
+       .      .            .             .               .
+      .        .            .             .               .
+     \/        \/           \/            \/               \/
+   +.....+  +.....+      +-.-.-.+       +~-~-~+         +......+
+   +     +  +     +      +      +       +     +         +      + 
+   + MN  +  + MN  +      + WGB  +       + AP  +         +  MN  +
+   +     +  +     +      +      +       +     +         +      +
+   +.....+  +.....+      +-.-.-.+       +~-~-~+         +......+
+                           .             .  .
+                          .             .    .
+                         .             .      .
+                        .             .        .
+                       \/            \/        \/
+                    ++++++++      +......+   +......+
+                    +      +      +      +   +      +
+                    + EN   +      +  MN  +   +  MN  +
+                    +      +      +      +   +      +
+                    ++++++++      +......+   +......+
+
+
+                The diagram above depicts the overall campus network
+                hierarchy and the services being offered at various
+                levels in the hierarchy.  Here, authentication
+                services for infrastructure nodes are offered by the
+                root node, the node providing WNS at the topmost
+                (Campus) level.  This node spans an enterprise campus
+                that resides in a geographic location.  In this case,
+                an 802.11 station performs initial authentication
+                with the topmost WNS entity. It also gets the keys
+                needed for secure context transfer by communication
+                with that entity.
+
+                WNS are offered at various levels as shown in the
+                hierarchy to achieve scalability.  WNS at the
+                subsequent levels other than the root level include
+                authentication services for MNs and are typically
+                confined to a single building.
+
+                At the broadcast domain level, the WDS includes
+                authentication and registration services for the APs.
+                An AP provides proxy authentication and  registration
+                services for the MNs.  The APs that connect to parent
+                APs through the wireless interface ( as shown by the
+                dotted lines ) are Repeater-APs.  The WGBs are managed
+                in the same manner as the MNs.  However, the Ethernet
+                Nodes ( EN ) that are connected to the WGB won't be
+                served as part of the WDS.
+                 
+                                  GLOSSARY
+
+                Access Point ( AP )
+
+                Any entity that contains an 802.11 medium access
+                control ( MAC ) and physical layer ( PHY ) interface
+                and provides access to the distribution services via
+                the wireless medium for associated clients.
+
+                Wireless Bridge 
+
+                An 802.11 entity that provides wireless connectivity
+                between two wired LAN segments and is used in point-
+                to-point or point-to-multipoint configurations.
+
+                Mobile Node ( MN )
+
+                A roaming 802.11 wireless device in a wireless
+                network associated with an access point.
+
+
+                WorkGroup Bridge ( WGB )
+                
+                A work-group bridge is a non-STP AP with an 802.11
+                primary port and a secondary Ethernet port that
+                provides access to a non-STP secondary Ethernet LAN
+                segment.  STP refers to the IEEE 802.1D Spanning Tree
+                Protocol.  An 'STP AP' executes the 802.1D STP and
+                the 802.1D STP is operated on an 'STP link'.  A
+                'non-STP AP' does not execute the 802.1D STP.
+
+                Repeater-AP
+
+                A repeater is a 'wireless AP' that is attached to a
+                parent AP on an 802.11 primary port.  The Ethernet
+                port is disabled in a Repeater-AP.
+
+                Infrastructure Node ( IN )
+                 
+                This term refers to Access Points, Wireless Bridges
+                and those devices that implement and offer WNS and
+                WDS as shown in the network hierarchy.
+
+                Ethernet Node ( EN )
+ 
+                The node that gets the uplink to the Wireless AP
+                via the WGB.  This node connects to the WGB through
+                its primary Ethernet port.
+
+                Context
+
+                The mobility context for an MN includes its current
+                mobility bindings with the APs, IP/802 address
+                bindings, cached configuration parameters, QoS state,
+                IP group membership, authentication state, accounting
+                statistics, and other dynamically derived protocol
+                state information.
+
+                Wireless Domain Services
+
+                The set of services being offered at a particular
+                broadcast domain that may be an IP subnet or a
+                particular VLAN.  The services include the following.
+
+                1. MN security credential caching to provide seamless,
+                secure intra-subnet roaming.
+                
+                2. Authenticated context transfer for roaming client
+                within the subnet.
+
+                Since, by definition, the WDS are bound to one subnet
+                ( broadcast domain ), if implemented in a device
+                spanning multiple subnets, the implementation should
+                take care to provide separate set of services for
+                each of the subnets.
+                               
+
+                Wireless Network Services
+
+                The set of services that can be visualized as being
+                offered at various levels other than the lowest
+                (subnet) level of a hierarchical campus network.
+
+                At the topmost level, infrastructure authentication
+                services for all the devices in the network that
+                provide WNS and WDS are offered.  In case if WNS are
+                not distributed at several levels as shown in the
+                hierarchy above and is confined to be offered only at
+                a single topmost level, the services offered also
+                include authentication services for the MNs.
+                
+                WNS Entity
+
+                The logical entity that resides in an infrastructure
+                node and offers WNS to the descendants of that
+                infrastructure node in the wireless services
+                hierarchy.
+
+                WDS Entity
+
+                The logical entity that resides in an infrastructure
+                node and offers WDS to the descendants of that
+                infrastructure node in the wireless services
+                hierarchy.
+
+                WS Entity
+
+                Refers to one of WNS / WDS Entities.
+
+                Parent Node
+
+                The entity that immediately precedes an infrastructure
+                node in the hierarchy.  For mobile nodes, the parent
+                APs provide proxy wireless services by talking to their
+                immediate parent entities providing WDS.
+
+                Root Node
+
+                The entity that is at the highest level in the network 
+                hierarchy.  The root node acts as the IN Authenticator
+                for the infrastructure nodes.  In case if WNS are not
+                distributed, the root node also acts as the Mobile Node
+                Authenticator ( See description below ).
+
+                Descendant
+
+                A node that is in the sub-tree of the campus hierarchy
+                tree rooted at the node providing WNS at the campus
+                level.
+
+                Infrastructure Node ( IN ) Authenticator
+
+                The logical entity that communicates with the AAA
+                server and provides authentication services for the
+                infrastructure nodes.  Details of the IN Authenticator
+                has to be configured in the device providing WDS
+                manually.  The AP learns about the IN Authenticator
+                automatically upon registering with its immediate
+                parent.  The WDS also includes MN authentication
+                services if the entity providing WDS is at the
+                topmost level in the hierarchy.
+
+                Mobile Node ( MN ) Authenticator
+
+                The logical entity that communicates with the AAA
+                server and provides authentication services for mobile
+                nodes.  An infrastructure node learns the whereabouts
+                of the MN Authenticator from the root node.
+
+                Wireless Network Manager ( WNM )
+
+                The network management system that manages the
+                entire hierarchy of devices providing WNS and WDS.
+
+                Advertisement
+
+                The process by which the Access Points identify their
+                parent entities providing WDS.  APs listen to the
+                advertisements of the WDS entities and gets registered
+                with one of those entities to facilitate secured
+                context transfer.
+ 
+                WLCCP
+
+                Wireless LAN Context Control Protocol.  Used to
+                establish and manage the network topology and
+                securely manage the 'operational context' for mobile
+                stations in a campus network.                  
+
+                WSA
+  
+                Wireless Switch Architecture.  A layer II switch 
+                which is capable of manage directly and indirectly
+                attached 802.11 stations within a subnet. 
+
+                AAA
+
+                Authentication, Authorization, Accounting
+
+                The method by which users are authenticated,
+                authorized and tracked to gain access and move about
+                inside a network.  A node will request network access
+                through an appropriate protocol to an authentication
+                server that provides protocols and services for
+                providing authentication, authorization and session
+                accounting.
+
+                Service Set Identifier ( SSID )
+
+                802.11 Service Set Identifier.  An SSID identifies a
+                set of mobile nodes grouped into a logical 'service
+                set' and the APs that provide access for the service
+                set.
+
+                
+                Wireless services at subnet level
+                =================================
+ 
+                             +========+
+                             |        |
+                             |  WDS   | ( Subnet level - Broadcast
+                             |        |   domain )
+                             +========+
+                              /      \
+                             /        \
+                            /          \
+                           /            \
+                          /              \
+                         \/              \/
+                       +~-~-~+         +~-~-~+
+                       +     +         +     +
+                       + AP  +         + AP  +
+                       +     +         +     +
+                       +~-~-~+         +~-~-~+
+                       .   .               .
+                      .     .               .
+                     .       .               .
+                    .         .               .
+                   .           .               .
+                  .             .               .
+                 \/             \/              \/
+              +......+       +-.-.-.+        +~-~-~-+
+              +      +       +      +        +      +
+              +  MN  +       + WGB  +        +  AP  +
+              +      +       +      +        +      +
+              +......+       +-.-.-.+        +~-~-~-+
+
+
+                The above diagram depicts how wireless services are
+                being offered in a network rooted at the device
+                implementing WDS.  In such a network, the WDS entity
+                provides authentication services to both the
+                infrastructure and mobile nodes.
+               
+                An 802.11 station in this hierarchy mentioned above
+                performs the following.
+ 
+                1) Provides proxy authentication and registration
+                services to the MNs, WGBs and repeater-APs.  The
+                station forwards all the authentication and
+                registration requests of its clients to its parent
+                node offering WDS and acting as the IN Authenticator
+                to enable the authentication and registration of its
+                clients.
+
+                2) Participates in the election process to elect
+                the node that will provide WDS for a particular
+                broadcast domain."
+        REVISION      "200311020000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 3228 }
+
+
+ciscoDot11CsMgrMIBObjects OBJECT IDENTIFIER 
+        ::= { ciscoDot11CsMgrMIB 1 }
+
+ciscoDot11CsMgrMIBConformance OBJECT IDENTIFIER 
+        ::= { ciscoDot11CsMgrMIB 2 }
+
+ciscoDot11CsMgrClientConfig OBJECT IDENTIFIER 
+        ::= { ciscoDot11CsMgrMIBObjects 1 }
+
+
+Cdot11CsModuleIndex ::= TEXTUAL-CONVENTION
+        STATUS  current
+        DESCRIPTION
+                "An arbitrary value which uniquely identifies the
+                physical module.  The value should be a small 
+                positive integer; index values for different 
+                physical modules are not necessarily contiguous."
+        SYNTAX  INTEGER (1..2147483647)
+
+
+--********************************************************************
+--*  Configuration per parameters  
+--********************************************************************
+
+cDot11CsMgrClientTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CDot11CsMgrClientEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION 
+                "This table contains the list of 802.11 client
+                stations currently managed by this device on the
+                device interfaces.  This manager device may or
+                may not be one of the WDS entities in the
+                network. 
+
+                This table is not applicable on any 802.11 
+                wireless station that implements and supports the
+                CISCO-CONTEXT-SERVICES-CLIENT-MIB. 
+
+                Rows are created internally by the agent when 
+                802.11 stations are attached to it."
+        ::= { ciscoDot11CsMgrClientConfig 1 }
+
+
+cDot11CsMgrClientEntry OBJECT-TYPE
+        SYNTAX     CDot11CsMgrClientEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry represents a 802.11 station entity currently
+                attached and managed by this manager device.  It
+                includes information about the WDS currently associated
+                with the station."
+        INDEX      { cDot11CsMgrClntModuleIndex  }
+        ::= { cDot11CsMgrClientTable 1 }
+
+
+CDot11CsMgrClientEntry ::=
+        SEQUENCE   { 
+                cDot11CsMgrClntModuleIndex       Cdot11CsModuleIndex, 
+                cDot11CsMgrClntAddressType       InetAddressType,  
+                cDot11CsMgrClntParentWdsAddr     InetAddress,
+                cDot11CsMgrClntRootNodeAddr      InetAddress,
+                cDot11CsMgrClntMnAuthenAddr      InetAddress,
+                cDot11CsMgrClntOperMode          INTEGER,
+                cDot11CsMgrClntRegistLifeTime    TimeInterval,
+                cDot11CsMgrClntStateTransitions  Counter32
+                   }
+
+
+cDot11CsMgrClntModuleIndex OBJECT-TYPE
+        SYNTAX     Cdot11CsModuleIndex 
+        MAX-ACCESS not-accessible 
+        STATUS     current
+        DESCRIPTION
+                "This is the 802.11 wireless station module ID 
+                assigned by this context services manager device."
+        ::= { cDot11CsMgrClientEntry 1 }
+
+
+cDot11CsMgrClntAddressType OBJECT-TYPE
+        SYNTAX     InetAddressType
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Represents the type of addresses stored in the
+                objects cDot11CsMgrClntParentWdsAddr,
+                cDot11CsMgrClntRootNodeAddr and
+                cDot11CsMgrClntMnAuthenAddr."
+        REFERENCE
+                "CISCO-DOT11-CONTEXT-SERVICES-CLIENT-MIB, object 
+                cDot11CscAddressType" 
+             
+        ::= { cDot11CsMgrClientEntry 2 }
+
+
+cDot11CsMgrClntParentWdsAddr OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The address of the parent WDS entity the 802.11 
+                station is currently registered with.  The type of
+                InetAddress supported by this object is determined
+                by the cDot11CsMgrClntAddressType object.
+
+                If cDot11CsMgrClntOperMode equals 'distributed', the
+                value returned is 0.0.0.0 to indicate that either 
+                the client node is not registered with a WDS entity
+                or that no parent WDS entity existed when the query
+                was made."
+        REFERENCE
+                "CISCO-DOT11-CONTEXT-SERVICES-CLIENT-MIB, object
+                cDot11CscParentWdsAddress"
+        ::= { cDot11CsMgrClientEntry 3 }
+
+
+cDot11CsMgrClntRootNodeAddr OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The address of the root node the 802.11 station
+                gets authenticated with.  The type of InetAddress
+                supported by this object is determined by the
+                cDot11CsMgrClntAddressType object.
+
+                If the parent WDS entity acts as the root node, this
+                object returns the address of the parent WDS entity.
+
+                If the hierarchy contains a campus level WNS entity,
+                this object returns the address of that WNS entity."
+        REFERENCE
+                "CISCO-DOT11-CONTEXT-SERVICES-CLIENT-MIB, object
+                cDot11CscRootNodeAddress"
+        ::= { cDot11CsMgrClientEntry 4 }
+
+cDot11CsMgrClntMnAuthenAddr OBJECT-TYPE
+        SYNTAX     InetAddress
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The address of the Mobile Node Authenticator to
+                which the 802.11 station forwards authentication
+                requests of the mobile nodes attempting to associate
+                with it.  The type of InetAddress supported by 
+                this object is determined by the
+                cDot11CsMgrClntAddressType object.
+
+                If the parent WDS entity acts as the root node, so
+                that no WNS entity is present in the network
+                hierarchy, this object returns the address of the
+                parent WDS entity.
+
+                If the parent WDS entity has the root WNS entity as
+                its immediate parent, this object returns the 
+                address of the root WNS entity.
+
+                If the WDS entity has a WNS entity, that is not the
+                root node, as its immediate parent, this object
+                returns the address of that WNS entity."
+        REFERENCE
+                "CISCO-DOT11-CONTEXT-SERVICES-CLIENT-MIB, object
+                cDot11CscMnAuthenticatorAddress"
+        ::= { cDot11CsMgrClientEntry 5 }
+
+
+cDot11CsMgrClntOperMode  OBJECT-TYPE
+        SYNTAX     INTEGER { infrastructure(1), distributed(2) }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The current mode of operation of the 802.11
+                station.
+
+                The semantics for this object are as follows.
+
+                infrastructure - An 802.11 station operates in the
+                'infrastructure' mode if it discovers a WDS
+                entity through advertisement messages and registers
+                with it.
+
+                distributed - If the 802.11 station couldn't
+                discover a WDS entity or has lost contact with the
+                its parent WDS entity, then the station operates in
+                the 'distributed' mode.  However, the station
+                listens for the advertisement messages from the WDS
+                entity in the background to get back to the
+                'infrastructure' mode."
+        REFERENCE
+                "CISCO-DOT11-CONTEXT-SERVICES-CLIENT-MIB, object
+                cDot11CscOperMode"
+        ::= { cDot11CsMgrClientEntry 6 }
+
+
+cDot11CsMgrClntRegistLifeTime OBJECT-TYPE
+        SYNTAX     TimeInterval
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "The maximum time after which the registration of
+                the 802.11 station with its parent WDS entity
+                expires."
+        REFERENCE
+                "CISCO-DOT11-CONTEXT-SERVICES-CLIENT-MIB, object
+                cDot11CscRegistrationLifeTime"
+        ::= { cDot11CsMgrClientEntry 7 }
+
+
+cDot11CsMgrClntStateTransitions OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "This object counts the number of times the 802.11
+                station has transitioned between the infrastructure
+                and distributed modes since the last reboot."
+        REFERENCE
+                "CISCO-DOT11-CONTEXT-SERVICES-CLIENT-MIB, object
+                cDot11CscStateTransitions"
+        ::= { cDot11CsMgrClientEntry 8 }
+
+
+--********************************************************************
+--*  End of 802.11 station Global Configuration parameters
+--********************************************************************
+
+                                         
+--********************************************************************
+--   Conformance information
+--********************************************************************
+
+ciscoDot11CsMgrMIBCompliances OBJECT IDENTIFIER 
+        ::= { ciscoDot11CsMgrMIBConformance 1 }
+
+ciscoDot11CsMgrMIBGroups OBJECT IDENTIFIER 
+        ::= { ciscoDot11CsMgrMIBConformance 2 }
+
+
+--********************************************************************
+--*    Compliance statements  
+--********************************************************************
+
+ciscoDot11CsMgrMIBCompliance MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for the SNMP entities that
+                 implement the ciscoDot11CsMgrMIB module."
+        MODULE MANDATORY-GROUPS {
+                ciscoDot11CsMgrClientGroup
+                                } 
+        ::= { ciscoDot11CsMgrMIBCompliances 1 }
+
+
+--********************************************************************
+--*    Units of conformance  
+--********************************************************************
+
+ciscoDot11CsMgrClientGroup OBJECT-GROUP
+        OBJECTS {
+                cDot11CsMgrClntAddressType,  
+                cDot11CsMgrClntParentWdsAddr,
+                cDot11CsMgrClntRootNodeAddr,
+                cDot11CsMgrClntMnAuthenAddr,
+                cDot11CsMgrClntOperMode,
+                cDot11CsMgrClntRegistLifeTime,
+                cDot11CsMgrClntStateTransitions
+                }                
+        STATUS  current
+        DESCRIPTION
+                "This collection of objects provide information about
+                 individual 802.11 station's parent WDS, its mode of
+                 operation, the address of the IN/MN authenticators,
+                 its registration life time and the number of times
+                 the station has switched between the two modes."
+        ::= { ciscoDot11CsMgrMIBGroups 1 }
+
+
+--********************************************************************
+--*   End of units of conformance  
+--********************************************************************
+
+END
+

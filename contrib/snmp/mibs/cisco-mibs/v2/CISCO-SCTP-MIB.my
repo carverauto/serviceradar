@@ -1,0 +1,1624 @@
+  -- *****************************************************************
+-- January 2001, CISCO-SCTP-MIB.
+--
+-- Copyright (c) 2001, 2005 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+-- Caution.  This MIB is temporary and experimental.  In the future it 
+-- will be removed from products, perhaps with short notice, in favor 
+-- of more standard or generic MIBs.  Application developers should not 
+-- depend on long-term access to this MIB.
+-- *****************************************************************
+-- This MIB is based on the second and third drafts of module 
+-- developed for the SIGTRAN IETF group.
+--  'draft-ietf-sigtran-sctp-mib-02.txt'
+--  'draft-ietf-sigtran-sctp-mib-03.txt'
+--
+--  The prefix for the object identifiers has been changed 
+--  from "sctp" to "ceSctp" to prevent future conflict with 
+--  the later approved version of the SCTP MIB.
+--  The following objects have been rename in this implementation
+--  to conform to with existing MIBs in the Cisco branch.
+--  sctpAssocRemAddressHeartBeatFlag  -> ceSctpAssocRemAddressHtBtFlag  
+--  sctpAssocRemAddressHeartBeatTimer -> ceSctpAssocRemAddressHtBtTime  
+--  sctpAssocRemAddressMaxPathRetrans -> ceSctpAssocRemAddressMaxRetran 
+--  sctpAssocRemAddressRetransCount   -> ceSctpAssocRemAddressRetransCnt
+--
+--  The following objects were move from the scalar section to the
+--  Association table. 
+--  sctpRtoMin       -    sctpRtoMin       
+--  sctpRtoMax       -    sctpRtoMax       
+--  sctpRtoInitial      sctpRtoInitial   
+--  sctpValCookieLife   sctpValCookieLife
+--  sctpMaxInitRetr     sctpMaxInitRetr  
+--  sctpInitialT1       sctpInitialT1                                 
+--  sctpInitialT2       sctpInitialT2    
+--                     
+--  The following objects were added to the Association Table.
+--  sctpAssocCongestionLevels          
+--  sctpAssocCongestionLevelsCur       
+--  sctpAssocCongestionAbate1          
+--  sctpAssocCongestionAbate2          
+--  sctpAssocCongestionAbate3          
+--  sctpAssocCongestionOnset1          
+--  sctpAssocCongestionOnset2          
+--  sctpAssocCongestionOnset3          
+--  sctpAssocULPDatagramsQueued 
+--  sctpAssocULPDatagramsQueuedHigh 
+--
+-- *****************************************************************
+
+CISCO-SCTP-MIB DEFINITIONS ::= BEGIN
+
+  IMPORTS
+      MODULE-IDENTITY, 
+      OBJECT-TYPE, 
+      Counter32,
+      Counter64, 
+      TimeTicks,
+      Unsigned32
+           FROM SNMPv2-SMI                 
+      MODULE-COMPLIANCE, OBJECT-GROUP
+           FROM SNMPv2-CONF              
+      RowStatus,
+      TEXTUAL-CONVENTION
+           FROM SNMPv2-TC                
+--  the following types were defined directly in the textual 
+--  conventions section
+--  InetAddressType, InetAddress
+--           FROM INET-ADDRESS-MIB          RFC2851
+
+     ciscoExperiment
+                FROM CISCO-SMI;        
+
+    ceSctpMIB MODULE-IDENTITY
+      LAST-UPDATED "200512210000Z"
+      ORGANIZATION    "Cisco Systems, Inc."
+      CONTACT-INFO
+        "       Cisco Systems
+            Customer Service
+
+        Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+           Tel: +1 800 553-NETS
+            
+            E-mail:    tac@cisco.com"
+
+      DESCRIPTION
+           "The MIB module for managing SCTP implementation."
+      REVISION "200512210000Z"
+      DESCRIPTION
+              "Updated the imports such that Unsigned32 is imported from
+              SNMPv2-SMI instead of CISCO-TC." 
+      REVISION "200106070000Z"
+      DESCRIPTION
+           "MIB module developed for the SIGTRAN IETF group. Based on
+           SCTP, RFC2960"
+      ::= { ciscoExperiment 74 }
+      
+--  ********************************************************************
+--  *                                                                  *
+--  * Textual Conventions                                              *
+--  *                                                                  *
+--  ********************************************************************
+   InetAddressType ::= TEXTUAL-CONVENTION
+     STATUS      current
+     DESCRIPTION
+         "A value that represents a type of Internet address.
+
+          unknown(0)  An unknown address type. This value MUST
+                      be used if the value of the corresponding
+                      InetAddress object is a zero-length string.
+                      It may also be used to indicate an IP address
+                      which is not in one of the formats defined
+                      below.
+
+          ipv4(1)     An IPv4 address as defined by the
+                      InetAddressIPv4 textual convention.
+
+          ipv6(2)     An IPv6 address as defined by the
+                      InetAddressIPv6 textual convention.
+
+          dns(16)     A DNS domain name as defined by the
+                      InetAddressDNS textual convention.
+
+          Each definition of a concrete InetAddressType value must be
+          accompanied by a definition of a textual convention for use
+          with that InetAddressType.
+
+          The InetAddressType textual convention SHOULD NOT be subtyped
+          in object type definitions to support future extensions. It
+          MAY be subtyped in compliance statements in order to require
+          only a subset of these address types for a compliant
+          implementation."
+     SYNTAX      INTEGER {
+                     unknown(0),
+                     ipv4(1),    -- these named numbers are aligned
+                     ipv6(2),    -- with AddressFamilyNumbers from
+                     dns(16)     -- IANA-ADDRESS-FAMILY-NUMBERS-MIB
+                 }
+
+   InetAddress ::= TEXTUAL-CONVENTION
+     STATUS       current
+     DESCRIPTION
+         "Denotes a generic Internet address.
+
+          An InetAddress value is always interpreted within the
+          context of an InetAddressType value. The InetAddressType
+          object which defines the context must be registered
+          immediately before the object which uses the InetAddress
+          textual convention. In other words, the object identifiers
+          for the InetAddressType object and the InetAddress object
+          MUST have the same length and the last sub-identifier of
+          the InetAddressType object MUST be 1 less than the last
+          sub-identifier of the InetAddress object.
+
+          When this textual convention is used as the syntax of an
+          index object, there may be issues with the limit of 128
+          sub-identifiers specified in SMIv2, STD 58. In this case,
+          the OBJECT-TYPE declaration MUST include a 'SIZE' clause
+          to limit the number of potential instance sub-identifiers."
+     SYNTAX      OCTET STRING (SIZE (0..255))
+
+
+    -- Top-level structure of the MIB
+
+    ceSctpObjects      OBJECT IDENTIFIER ::= { ceSctpMIB 1 }
+    ceSctpConformance  OBJECT IDENTIFIER ::= { ceSctpMIB 2 }
+
+    ceSctpScalars      OBJECT IDENTIFIER ::= { ceSctpObjects 1 }
+    ceSctpTables       OBJECT IDENTIFIER ::= { ceSctpObjects 2 }
+
+
+    -- ************************************************************
+    -- PROTOCOL GENERAL VARIABLES
+    -- ************************************************************
+
+    ceSctpRtoAlgorithm OBJECT-TYPE
+      SYNTAX         INTEGER {
+                          other(1),      -- Other new one. Future use
+                          vanj(2)        -- Van Jacobson's algorithm
+                     }
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The algorithm used to determine the timeout value (T3-rtx)
+           used for re-transmitting unacknowledged chunks."
+
+      ::= { ceSctpScalars 1 }
+
+
+    ceSctpMaxAssociations OBJECT-TYPE
+      SYNTAX         Unsigned32(1..1024)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The maximum number of associations that can be supported
+            by this implementation. set to zero to indicate unlimited."
+
+      ::= { ceSctpScalars 2 }
+
+
+    --*****************************************************************
+    -- STATE-RELATED STATISTICS
+    --*****************************************************************
+    ceSctpCurrEstab OBJECT-TYPE
+      SYNTAX         Counter32
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The number of SCTP associations for which the current state
+            is either ESTABLISHED, SHUTDOWN-RECEIVED or 
+            SHUTDOWN-PENDING."
+
+      ::= { ceSctpScalars 3 }
+
+    ceSctpActiveEstab OBJECT-TYPE
+      SYNTAX         Counter32
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The number of times that SCTP associations have made a 
+            direct transition to the ESTABLISH state from the 
+            COOKIE-ECHOED state: COOKIE-ECHOED -> ESTABLISHED. The 
+            upper layer has initiated the association attempt."
+
+      ::= { ceSctpScalars 4 }
+
+
+    ceSctpPassiveEstab OBJECT-TYPE
+      SYNTAX         Counter32
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The number of times that SCTP associations have made a 
+            direct transition to the ESTABLISHED state from the CLOSED
+            state: CLOSED -> ESTABLISHED. The remote endpoint has 
+            initiated the association attempt."
+
+      ::= { ceSctpScalars 5 }
+
+
+    ceSctpAborted OBJECT-TYPE
+      SYNTAX         Counter32
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The number of times that SCTP associations have made a 
+            direct transition to the CLOSED state from any state using
+            the primitive 'ABORT': AnyState --Abort--> CLOSED. 
+            Ungraceful termination of the association."
+
+      ::= { ceSctpScalars 6 }
+
+
+    ceSctpShutdowns OBJECT-TYPE
+      SYNTAX         Counter32
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The number of times that SCTP associations have made a 
+            direct transition to the CLOSE state from either the 
+            SHUTDOWN-SENT state or the SHUTDOWN-ACK-SENT state. 
+            Graceful termination of the association."
+
+      ::= { ceSctpScalars 7}
+
+    --**************************************************************
+    -- OTHER LAYER STATISTICS
+    --**************************************************************
+
+    ceSctpStatBytesRec OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of bytes received(does not include retransmissions)."
+
+      ::= { ceSctpScalars 8 }
+
+
+    ceSctpStatBytesSent OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of bytes sent(does not include retransmissions)."
+
+      ::= { ceSctpScalars 9 }
+
+    ceSctpStatChunksDiscard OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of chunks that were discarded."
+
+      ::= { ceSctpScalars 10 }
+      
+    ceSctpStatChunksSent OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of SCTP control and data chunks, sent to the 
+            peers (no retransmissions included)."
+
+      ::= { ceSctpScalars 11 }
+      
+    ceSctpStatChunksSentControl OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of SCTP control chunks sent to the peers (no
+           retransmissions included)."
+
+      ::= { ceSctpScalars 12 }
+      
+    ceSctpStatChunksSentOrdered OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of SCTP data chunks sent that required order to be 
+            maintained. (no retransmissions included)."
+
+      ::= { ceSctpScalars 13 }
+      
+    ceSctpStatChunksSentUnOrdered OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of SCTP data chunks sent that do not required order  
+            to be maintained. (no retransmissions included)."
+
+      ::= { ceSctpScalars 14 }
+      
+    ceSctpStatChunksRec OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of SCTP control and data chunks, received from the
+            peers (no retransmissions included)."
+
+      ::= { ceSctpScalars 15 }
+      
+    ceSctpStatChunksRecControl OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of SCTP control chucks received from peers (no
+            retransmissions included)."
+
+      ::= { ceSctpScalars 16 }
+      
+    ceSctpStatChunksRecOrdered OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of SCTP data chunks received that required order to 
+            be maintained. (no retransmissions included)."
+
+      ::= { ceSctpScalars 17 }
+      
+    ceSctpStatChunksRecUnOrdered OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of SCTP data chunks received that do not required 
+            order  to be maintained. (no retransmissions included)."
+
+      ::= { ceSctpScalars 18 }
+      
+    ceSctpStatDatagramsRec OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number datagrams sent(does not include retransmissions)."
+
+      ::= { ceSctpScalars 19 }
+      
+    ceSctpStatDatagramsSent OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number datagrams sent(does not include retransmissions)."
+
+      ::= { ceSctpScalars 20 }
+      
+    ceSctpStatFragmentedUsrMessages OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of user messages that have to be fragmented because
+            of the MTU."
+
+      ::= { ceSctpScalars 21 }
+
+
+    ceSctpStatReassembledUsrMessages OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of user messages reassembled."
+
+      ::= { ceSctpScalars 22 }
+      
+      
+    ceSctpStatChunksReTrans OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of chunks that were re-transmitted."
+
+      ::= { ceSctpScalars 23 }
+
+
+    ceSctpStatOutOfBlue OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of out of the blue packets (SCTP packet correctly
+           formed -right checksum- but the receiver is not able to
+           identify the association to which this packet belongs)
+           received  by the host."
+
+      ::= { ceSctpScalars 24 }
+
+    ceSctpStatT1expired OBJECT-TYPE
+      SYNTAX         Counter32
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of times that T1 timer expired (timer for sending
+           either INIT or COOKIE-ECHO chunks and receiving an
+           acknowledgment)."
+
+      ::= { ceSctpScalars 25  }
+
+    ceSctpStatT2expired OBJECT-TYPE
+      SYNTAX         Counter32
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of times that T2-shutdown timer expired (shutdown
+           timer)."
+
+      ::= { ceSctpScalars 26  }
+
+
+    -- *************************************************************
+    -- SCTP ASSOCIATION DESCRIPTION PARAMETERS
+    -- *************************************************************
+
+
+    -- *************************************************************
+    -- The SCTP Association TABLE
+    -- *************************************************************
+
+    -- The SCTP association table contains information about each
+    -- association that the local endpoint is taking part.
+
+
+    ceSctpAssocTable OBJECT-TYPE
+      SYNTAX         SEQUENCE OF CeSctpAssocEntry
+      MAX-ACCESS     not-accessible
+      STATUS         current
+      DESCRIPTION
+           "A table containing SCTP association-specific information."
+
+      ::= { ceSctpTables 1 }
+
+    ceSctpAssocEntry OBJECT-TYPE
+      SYNTAX         CeSctpAssocEntry
+      MAX-ACCESS     not-accessible
+      STATUS         current
+      DESCRIPTION
+           "General common variables and statistics for the whole
+           association."
+      INDEX          { ceSctpAssocId }
+
+      ::= { ceSctpAssocTable 1 }
+
+
+    CeSctpAssocEntry ::= SEQUENCE {
+      ceSctpAssocId                        Unsigned32,
+      ceSctpAssocState                     INTEGER,
+      ceSctpAssocUpTime                    TimeTicks,
+      ceSctpAssocRtoMin                    Unsigned32,
+      ceSctpAssocRtoMax                    Unsigned32,
+      ceSctpAssocRtoInitial                Unsigned32,
+      ceSctpAssocValCookieLife             Unsigned32,
+      ceSctpAssocMaxInitRetr               Unsigned32,
+      ceSctpAssocInitialT1                 Unsigned32,
+      ceSctpAssocInitialT2                 Unsigned32,
+      ceSctpAssocRemHostName               OCTET STRING,
+      ceSctpAssocLocalSCTPPort             Unsigned32,
+      ceSctpAssocRemSCTPPort               Unsigned32,
+      ceSctpAssocRemPrimaryAddressType     InetAddressType,
+      ceSctpAssocRemPrimaryAddress         InetAddress,
+      ceSctpAssocCongestionLevels          Unsigned32,
+      ceSctpAssocCongestionLevelsCur       Unsigned32,
+      ceSctpAssocCongestionAbate1          Unsigned32,
+      ceSctpAssocCongestionAbate2          Unsigned32,
+      ceSctpAssocCongestionAbate3          Unsigned32,
+      ceSctpAssocCongestionOnset1          Unsigned32,
+      ceSctpAssocCongestionOnset2          Unsigned32,
+      ceSctpAssocCongestionOnset3          Unsigned32,
+      ceSctpAssocInStreams                 Unsigned32,
+      ceSctpAssocOutStreams                Unsigned32,
+      ceSctpAssocMaxRetr                   Unsigned32,
+      ceSctpAssocMTU                       Unsigned32,
+      ceSctpAssocLocRecWnd                 Unsigned32,
+      ceSctpAssocLocRecWndLowMark          Unsigned32,
+      ceSctpAssocLocRecWndZeroCnt          Counter64,     -- Statistic 
+      ceSctpAssocRemRecWnd                 Unsigned32,
+      ceSctpAssocRemRecWndLowMark          Unsigned32,
+      ceSctpAssocRemRecWndZeroCnt          Counter64,     -- Statistic 
+      ceSctpAssocULPDatagramsQueued        Unsigned32, 
+      ceSctpAssocULPDatagramsQueuedHigh    Unsigned32, 
+      ceSctpAssocChecksumErrorCounter      Counter64,     -- Statistic
+      ceSctpAssocBytesSent                 Counter64,     -- Statistic
+      ceSctpAssocBytesRec                  Counter64,     -- Statistic       
+      ceSctpAssocChunksDiscarded           Counter64,     -- Statistic 
+      ceSctpAssocChunksRec                 Counter64,     -- Statistic 
+      ceSctpAssocChunksRecControl          Counter64,     -- Statistic 
+      ceSctpAssocChunksRecOrdered          Counter64,     -- Statistic 
+      ceSctpAssocChunksRecUnOrdered        Counter64,     -- Statistic 
+      ceSctpAssocChunksRecOutOrder         Counter64,     -- Statistic
+      ceSctpAssocChunksReTrans             Counter64,     -- Statistic 
+      ceSctpAssocChunksSent                Counter64,     -- Statistic
+      ceSctpAssocChunksSentControl         Counter64,     -- Statistic 
+      ceSctpAssocChunksSentOrdered         Counter64,     -- Statistic 
+      ceSctpAssocChunksSentUnOrdered       Counter64,     -- Statistic 
+      ceSctpAssocDatagramsRec              Counter64,     -- Statistic  
+      ceSctpAssocDatagramsSent             Counter64,     -- Statistic  
+      ceSctpAssocRowStatus                 RowStatus
+      }
+
+
+    ceSctpAssocId OBJECT-TYPE
+      SYNTAX         Unsigned32(0..1024)
+      MAX-ACCESS     not-accessible
+      STATUS         current
+      
+      DESCRIPTION
+           "Association Identification. Value identifying the 
+            association (typically the Initiate Verification Tag)."
+           
+      ::= { ceSctpAssocEntry 1 }
+
+
+    ceSctpAssocState OBJECT-TYPE
+      SYNTAX         INTEGER {
+                          closed(1),
+                          cookieWait(2),
+                          cookieEchoed(3),
+                          established(4),
+                          shutdownPending(5),
+                          shutdownSent(6),
+                          shutdownReceived(7),
+                          shutdownAckSent(8),
+                          deleteTCB(9),
+                          retrieval(10)
+                          }
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The state of this SCTP association.
+           As in TCP, the only value which may be set by a management
+           station is deleteTCB. Accordingly, it is appropriate for
+           an agent to return a 'badValue' response if a management
+           station attempts to set this object to any other value.
+           If a management station sets this object to the value
+           deleteTCB(9), then this has the effect of deleting the TCB
+            (as defined in SCTP) of the corresponding association on
+           the managed node, resulting in immediate termination of the
+           association.
+           As an implementation-specific option, an ABORT chunk may be
+           sent from the managed node to the other SCTP endpoint."
+
+      ::= { ceSctpAssocEntry 2  }
+      
+    ceSctpAssocUpTime   OBJECT-TYPE
+      SYNTAX         TimeTicks
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Time association has been in established state."
+
+      ::= { ceSctpAssocEntry 3 }
+                             
+    --**************************************************************
+    -- Association parameters adjustable by ULP
+    --**************************************************************
+
+    ceSctpAssocRtoMin OBJECT-TYPE
+      SYNTAX         Unsigned32(1000..3600000)
+      UNITS          "milliseconds"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The minimum value permitted by a SCTP implementation for
+            the retransmission timeout, measured in milliseconds.  More
+            refined semantics for objects of this type depend upon the
+            algorithm used to determine the retransmission timeout.
+            Minimum recommended value is 1000 milliseconds. Some 
+            telephone applications could require less than 1 second."
+
+      ::= { ceSctpAssocEntry 4 }
+
+
+    ceSctpAssocRtoMax OBJECT-TYPE
+      SYNTAX         Unsigned32(1000..3600000)
+      UNITS          "milliseconds"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The maximum value permitted by a SCTP implementation for 
+            the retransmission timeout, measured in milliseconds.  More
+            refined semantics for objects of this type depend upon the
+            algorithm used to determine the retransmission timeout.
+            Recommended value is 60000 milliseconds."
+
+        ::= { ceSctpAssocEntry 5 }
+
+
+    ceSctpAssocRtoInitial OBJECT-TYPE
+      SYNTAX         Unsigned32(1000..3600000)
+      UNITS          "milliseconds"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Initial value for the Retransmission timer. Recommended 
+            value is 3000 milliseconds."
+
+      ::= { ceSctpAssocEntry 6 }
+
+
+    ceSctpAssocValCookieLife OBJECT-TYPE
+      SYNTAX         Unsigned32(1000..3600000)
+      UNITS          "milliseconds"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Valid cookie life in the 4-way start-up handshake 
+            procedure. Recommended value: 60000 milliseconds."
+      ::= { ceSctpAssocEntry 7 }
+
+
+    ceSctpAssocMaxInitRetr OBJECT-TYPE
+      SYNTAX         Unsigned32(1000..3600000)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The maximum number of retransmissions at the start-up 
+            phase (INIT and COOKIE ECHO chunks). Recommended 
+            value: 8 attempts."
+
+      ::= { ceSctpAssocEntry 8 }
+
+    ceSctpAssocInitialT1 OBJECT-TYPE
+      SYNTAX         Unsigned32(1000..3600000)
+      UNITS          "milliseconds"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Initial value for the Start-up T1 timer."
+
+      ::= { ceSctpAssocEntry 9 }
+
+
+    ceSctpAssocInitialT2 OBJECT-TYPE
+      SYNTAX         Unsigned32(1000..3600000)
+      UNITS          "milliseconds"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Initial value for the Shutdown T2-shutdown timer."
+
+      ::= { ceSctpAssocEntry 10 }
+
+    ceSctpAssocRemHostName OBJECT-TYPE
+      SYNTAX         OCTET STRING (SIZE(0..255))
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Peer's DNS name. If no DNS domain name was received at init
+           time (embedded in the INIT or INIT-ACK chunk) from the peer,
+           this entry will be meaningless, therefore it will contain a
+           NULL value. Otherwise, the remote host name received at init
+           time will be stored."
+
+      ::= { ceSctpAssocEntry 11 }
+
+
+    ceSctpAssocLocalSCTPPort OBJECT-TYPE
+      SYNTAX         Unsigned32(4096..32767)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Local SCTP port number used for this association."
+
+      ::= { ceSctpAssocEntry 12 }
+
+
+    ceSctpAssocRemSCTPPort OBJECT-TYPE
+      SYNTAX         Unsigned32(4096..32767)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Remote SCTP port number used for this association."
+
+      ::= { ceSctpAssocEntry 13 }
+
+
+    ceSctpAssocRemPrimaryAddressType OBJECT-TYPE
+      SYNTAX         InetAddressType
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Internet type of primary destination IP address.
+           -  unknown (0) An unknown address type. This value MUST be
+              used if the value of the corresponding InetAddress object
+              is a zero-length string. It may also be used to indicate 
+              an IP address different from IPv4 or IPv6. This value is
+              used in this MIB for error conditions.
+
+           -  ipv4 (1): An IPv4 address as defined by the 
+              InetAddressIPv4 textual convention [RFC2851].
+
+           -  ipv6 (2): An IPv6 address as defined by the 
+              InetAddressIPv6 textual convention [RFC2851]."
+
+      ::= { ceSctpAssocEntry 14 }
+      
+    ceSctpAssocRemPrimaryAddress OBJECT-TYPE
+      SYNTAX         InetAddress
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Primary destination IP address. An InetAddress value is
+           always interpreted within the context of an InetAddressType
+           value. This value will be filled in after INIT or INIT ACK
+           messages have been received (when the primary path is 
+           selected by SCTP)."
+
+      ::= { ceSctpAssocEntry 15 }
+
+
+    ceSctpAssocCongestionLevels          OBJECT-TYPE
+      SYNTAX         Unsigned32(0..4)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of supported congestion Levels."
+
+      ::= { ceSctpAssocEntry 16 }
+
+    ceSctpAssocCongestionLevelsCur       OBJECT-TYPE
+      SYNTAX         Unsigned32(0..4)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Current congestion level."
+
+      ::= { ceSctpAssocEntry 17 }
+
+    ceSctpAssocCongestionAbate1          OBJECT-TYPE
+      SYNTAX         Unsigned32(0..32767)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Threshold used to abate congestion level 1."
+
+      ::= { ceSctpAssocEntry 18 }
+
+    ceSctpAssocCongestionAbate2          OBJECT-TYPE
+      SYNTAX         Unsigned32(0..32767)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Threshold used to abate congestion level 2."
+
+      ::= { ceSctpAssocEntry 19 }
+
+    ceSctpAssocCongestionAbate3          OBJECT-TYPE
+      SYNTAX         Unsigned32(0..32767)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Threshold used to abate congestion level 3."
+
+      ::= { ceSctpAssocEntry 20 }
+
+    ceSctpAssocCongestionOnset1          OBJECT-TYPE
+      SYNTAX         Unsigned32(0..32767)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Threshold used to mark onset of congestion level 1."
+
+      ::= { ceSctpAssocEntry 21 }
+
+    ceSctpAssocCongestionOnset2          OBJECT-TYPE
+      SYNTAX         Unsigned32(0..32767)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Threshold used to mark onset of congestion level 2."
+
+      ::= { ceSctpAssocEntry 22 }
+
+      
+    ceSctpAssocCongestionOnset3          OBJECT-TYPE
+      SYNTAX         Unsigned32(0..32767)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Threshold used to mark onset of congestion level 3."
+
+      ::= { ceSctpAssocEntry 23 }
+
+    ceSctpAssocInStreams OBJECT-TYPE
+      SYNTAX         Unsigned32(1..65535)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Inbound Streams according to the negotiation at association
+            start up. This parameter has to be read-only by the 
+            manager."
+
+      ::= { ceSctpAssocEntry 24 }
+
+    ceSctpAssocOutStreams OBJECT-TYPE
+      SYNTAX         Unsigned32(1..65535)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Outbound Streams according to the negotiation at 
+            association start up. This parameter has to be read-only 
+            by the manager."
+
+      ::= { ceSctpAssocEntry 25 }
+
+
+    ceSctpAssocMaxRetr OBJECT-TYPE
+      SYNTAX         Unsigned32(1..32767)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The maximum number of data retransmissions. This value is
+            specific for each association and the upper layer can be 
+            able to change it calling the appropriate primitives. This 
+            value has to be smaller than the addition of all the 
+            maximum number for all the paths 
+            (sctpAssocRemAddressMaxPathRetran). Recommended
+            value: 10 attempts."
+
+      ::= { ceSctpAssocEntry 26 }
+
+
+    ceSctpAssocMTU OBJECT-TYPE
+      SYNTAX         Unsigned32(1..65535)
+      UNITS          "bytes"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The Maximum Transmission Size to be used by this 
+            association. The size will the smallest MTU size supported
+            by any of the IP Addresses used by the association."
+
+      ::= { ceSctpAssocEntry 27 }
+      
+    ceSctpAssocLocRecWnd OBJECT-TYPE
+      SYNTAX         Unsigned32(1..65535)
+      UNITS          "bytes"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The current local receive window size for this 
+            association."
+
+      ::= { ceSctpAssocEntry 28 }
+      
+    ceSctpAssocLocRecWndLowMark OBJECT-TYPE
+      SYNTAX         Unsigned32(0..65535)
+      UNITS          "bytes"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Low water mark for Local Receive Window Size."
+
+      ::= { ceSctpAssocEntry 29 }
+      
+    ceSctpAssocLocRecWndZeroCnt OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of times the Local Receive window reached 
+            zero bytes."
+
+      ::= { ceSctpAssocEntry 30 }
+      
+      
+    ceSctpAssocRemRecWnd OBJECT-TYPE
+      SYNTAX         Unsigned32(0..65535)
+      UNITS          "bytes"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The Remote Receive Window Size for this association."
+
+      ::= { ceSctpAssocEntry 31 }
+      
+    ceSctpAssocRemRecWndLowMark OBJECT-TYPE
+      SYNTAX         Unsigned32(0..65535)
+      UNITS          "bytes"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Low water mark for Remote Receive Window Size."
+
+      ::= { ceSctpAssocEntry 32 }
+      
+    ceSctpAssocRemRecWndZeroCnt OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of times the Remote Receive window reached 
+            zero bytes."
+
+      ::= { ceSctpAssocEntry 33 }
+      
+      
+    ceSctpAssocULPDatagramsQueued OBJECT-TYPE
+      SYNTAX         Unsigned32(0..65535) 
+      UNITS          "DataGrams"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of data grams waiting to be sent."
+
+      ::= { ceSctpAssocEntry 34 }
+      
+    ceSctpAssocULPDatagramsQueuedHigh OBJECT-TYPE
+      SYNTAX         Unsigned32(0..65535) 
+      UNITS          "DataGrams"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "High water mark for data grams waiting to be sent."
+
+      ::= { ceSctpAssocEntry 35 }
+      
+    --**************************************************************
+    -- Association Statistics
+    --**************************************************************
+                          
+    ceSctpAssocChecksumErrorCounter OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of SCTP packets received from the peers with an
+           invalid checksum."
+
+      ::= { ceSctpAssocEntry 36 }
+      
+    ceSctpAssocBytesSent  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of bytes sent by this association."
+
+      ::= { ceSctpAssocEntry 37 }
+      
+    ceSctpAssocBytesRec  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of bytes received by this association."
+
+      ::= { ceSctpAssocEntry 38 }
+      
+    ceSctpAssocChunksDiscarded  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Total number of Chucks discarded by this association."
+
+      ::= { ceSctpAssocEntry 39 }
+      
+    ceSctpAssocChunksRec  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Total number of Chucks received by this association."
+
+      ::= { ceSctpAssocEntry 40 }
+      
+    ceSctpAssocChunksRecControl  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of control Chucks received by this association."
+
+      ::= { ceSctpAssocEntry 41 }
+      
+    ceSctpAssocChunksRecOrdered  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of Chucks received by this association where order
+            is required."
+
+      ::= { ceSctpAssocEntry 42 }
+      
+    ceSctpAssocChunksRecUnOrdered  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of Chucks received by this association where order
+            is not required."
+
+      ::= { ceSctpAssocEntry 43 }
+      
+    ceSctpAssocChunksRecOutOrder  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of Chucks received out of order by this 
+            association."
+
+      ::= { ceSctpAssocEntry 44 }
+      
+    ceSctpAssocChunksReTrans    OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Total number of Chucks retransmitted by this association."
+
+      ::= { ceSctpAssocEntry 45 }
+      
+    ceSctpAssocChunksSent  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Total number of Chucks sent by this association."
+
+      ::= { ceSctpAssocEntry 46 }
+      
+    ceSctpAssocChunksSentControl  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of control Chucks sent by this association."
+
+      ::= { ceSctpAssocEntry 47 }
+      
+    ceSctpAssocChunksSentOrdered  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of Chucks sent by this association where order 
+            is required."
+
+      ::= { ceSctpAssocEntry 48 }
+      
+    ceSctpAssocChunksSentUnOrdered  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of Chucks sent by this association where order 
+            is not required."
+
+      ::= { ceSctpAssocEntry 49 }
+      
+    ceSctpAssocDatagramsRec  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of packets received by this association."
+
+      ::= { ceSctpAssocEntry 50 }
+      
+    ceSctpAssocDatagramsSent  OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of packets sent by this association."
+
+      ::= { ceSctpAssocEntry 51 }
+      
+    ceSctpAssocRowStatus OBJECT-TYPE
+      SYNTAX         RowStatus
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "An object that allows entries in this table to be created 
+           and deleted using the RowStatus convention.
+
+           A row in this table will be created after creating the TCB
+           in both sides of the association. The creation of this row
+           implies the creation of at least another row (depending on
+           the number of local and remote addresses) in the tables
+           sctpAssocLocalAddressTable and sctpAssocRemAddressTable.
+
+           A row is deleted in sctpAssocTable when an association turns
+           down (i.e., when the TCB is deleted according to [sctp] in
+           both sides of the association). The deletion of a row in
+           sctpAssocTable implies the deletion of the tables related
+           to this association (sctpAssocLocalAddressTable and
+           sctpAssocRemAddressTable).
+           Also, a row is deleted in sctpAssocTable when a set operation
+           is received from the manager with destroy option."
+
+      ::= {ceSctpAssocEntry 52 }
+
+      
+      
+    -- *************************************************************
+    -- Local Address TABLE
+    -- *************************************************************
+
+    ceSctpAssocLocalAddressTable OBJECT-TYPE
+      SYNTAX         SEQUENCE OF CeSctpAssocLocalAddressEntry 
+      MAX-ACCESS     not-accessible
+      STATUS         current
+      DESCRIPTION
+           "Expanded table of ceSctpAssocTable based on the AssocId
+            index. It shows several interesting data for each local 
+            address which takes part in this association."
+
+      ::= { ceSctpTables 2 }
+
+    ceSctpAssocLocalAddressEntry OBJECT-TYPE
+      SYNTAX         CeSctpAssocLocalAddressEntry
+      MAX-ACCESS     not-accessible
+      STATUS         current
+      DESCRIPTION
+           "Local information about the available addresses."
+      INDEX     {    ceSctpAssocId,   -- shared index
+                     ceSctpAssocLocalAddressIPType,
+                     ceSctpAssocLocalAddressIP }
+
+      ::= { ceSctpAssocLocalAddressTable 1 }
+
+
+    CeSctpAssocLocalAddressEntry ::= SEQUENCE {
+      ceSctpAssocLocalAddressIPType        InetAddressType,
+      ceSctpAssocLocalAddressIP            InetAddress,
+      ceSctpAssocLocalAddressRowStatus     RowStatus
+      }
+
+
+    ceSctpAssocLocalAddressIPType OBJECT-TYPE
+      SYNTAX         InetAddressType
+      MAX-ACCESS     not-accessible
+      STATUS         current
+      DESCRIPTION
+           "Internet type of local IP address used for this association.
+           -  unknown (0) An unknown address type. This value MUST be
+              used if the value of the corresponding InetAddress object
+              is a zero-length string. It may also be used to indicate  
+              an IP address different from IPv4 or IPv6. This value is 
+              used in this MIB for error conditions.
+
+           -  ipv4 (1): An IPv4 address as defined by the 
+              InetAddressIPv4 textual convention [RFC2851].
+
+           -  ipv6 (2): An IPv6 address as defined by the 
+              InetAddressIPv6 textual convention [RFC2851]."
+
+      ::= { ceSctpAssocLocalAddressEntry 1 }
+
+
+    ceSctpAssocLocalAddressIP OBJECT-TYPE
+      SYNTAX         InetAddress
+      MAX-ACCESS     not-accessible
+      STATUS         current
+      DESCRIPTION
+           "The value of a local IP address available for this
+            association. An InetAddress value is always interpreted 
+            within the context of an InetAddressType value. If SCTP are 
+            using DNS names, the mapping to IP address-es will be done 
+            at reception of INIT or INIT_ACK messages."
+
+      ::= { ceSctpAssocLocalAddressEntry 2 }
+
+    ceSctpAssocLocalAddressRowStatus OBJECT-TYPE
+      SYNTAX         RowStatus
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "An object that allows entries in this table to be created 
+           and deleted using the RowStatus convention.
+           A row in this table will be created per local IP address
+           defined for this association. The creation takes part when a
+           new row in the sctpAssocTable is created or when a new IP
+           address is added in the local interface (if this function is
+           enabled by the SCTP layer).
+           A row in this table will be deleted per local IP address
+           reserved for the association when the corresponding row in
+           sctpAssocTable is deleted or when an IP address is removed
+           from the local interface (if this function is enabled by the
+           SCTP layer)."
+
+      ::= { ceSctpAssocLocalAddressEntry 3 }
+
+
+    -- *************************************************************
+    -- Remote Addresses TABLE
+    -- *************************************************************
+
+    ceSctpAssocRemAddressTable OBJECT-TYPE
+      SYNTAX         SEQUENCE OF CeSctpAssocRemAddressEntry
+      MAX-ACCESS     not-accessible
+      STATUS         current
+      DESCRIPTION
+           "Expanded table of ceSctpAssocTable based on the AssocId 
+            index.  It shows several interesting data for each remote 
+            peer IP address which is used in this association."
+
+      ::= { ceSctpTables 3 }
+
+
+    ceSctpAssocRemAddressEntry OBJECT-TYPE
+      SYNTAX         CeSctpAssocRemAddressEntry
+      MAX-ACCESS     not-accessible
+      STATUS         current
+      DESCRIPTION
+           "Information about THE most important variables for every
+           remote IP address "
+      INDEX   { ceSctpAssocId,   -- shared index
+                ceSctpAssocRemAddressIPType,
+                ceSctpAssocRemAddressIP }
+
+      ::= { ceSctpAssocRemAddressTable 1 }
+
+
+    CeSctpAssocRemAddressEntry ::= SEQUENCE {
+      ceSctpAssocRemAddressIPType          InetAddressType,
+      ceSctpAssocRemAddressIP              InetAddress,
+      ceSctpAssocRemAddressStatus          INTEGER,
+      ceSctpAssocRemAddressRTO             Unsigned32,
+      ceSctpAssocRemAddressHtBtFlag        INTEGER,
+      ceSctpAssocRemAddressHtBtTime        Unsigned32,
+      ceSctpAssocRemAddressMaxRetran       Unsigned32,
+      ceSctpAssocRemAddressRetransCnt      Counter64,     -- Statistic
+      ceSctpAssocRemAddressSRTT            Unsigned32,
+      ceSctpAssocRemAddressRowStatus       RowStatus
+      }
+
+
+    ceSctpAssocRemAddressIPType OBJECT-TYPE
+      SYNTAX         InetAddressType
+      MAX-ACCESS     not-accessible
+      STATUS         current
+      DESCRIPTION
+           "Internet type of a remote IP address available for this
+           association.
+           -  unknown (0) An unknown address type. This value MUST be
+              used if the value of the corresponding InetAddress object
+              is a zero-length string. It may also be used to indicate 
+              an IP address different from IPv4 or IPv6. This value is 
+              used in this MIB for error conditions.
+
+           -  ipv4 (1): An IPv4 address as defined by the 
+              InetAddressIPv4 textual convention [RFC2851].
+
+           -  ipv6 (2): An IPv6 address as defined by the 
+              InetAddressIPv6 textual convention [RFC2851]."
+
+      ::= { ceSctpAssocRemAddressEntry 1 }
+
+    ceSctpAssocRemAddressIP OBJECT-TYPE
+      SYNTAX         InetAddress
+      MAX-ACCESS     not-accessible
+      STATUS         current
+      DESCRIPTION
+           "The value of a remote IP address available for this
+            association. An InetAddress value is always interpreted 
+            within the context of an InetAddressType value."
+
+      ::= { ceSctpAssocRemAddressEntry 2 }
+
+
+    ceSctpAssocRemAddressStatus OBJECT-TYPE
+      SYNTAX         INTEGER {
+                          active(0),
+                          inactive(1),
+                          failed(2)
+                     }
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The current status of the remote transport address, 
+            according to [SCTP].
+            active   - Destination is alive and active
+            inActive - Destination used as source address only  
+            failed   - Destination has failed"
+
+      ::= { ceSctpAssocRemAddressEntry 3 }
+
+
+    ceSctpAssocRemAddressRTO OBJECT-TYPE   -- T3-rtx- Timer
+      SYNTAX         Unsigned32(0..65535)
+      UNITS          "milliseconds"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The current Retransmision Time-Out. T3-rtx timer as defined
+           in the protocol SCTP."
+      ::= { ceSctpAssocRemAddressEntry 4 }
+
+    ceSctpAssocRemAddressHtBtFlag OBJECT-TYPE
+      SYNTAX         INTEGER {
+                          active(0),
+                          inactive(1)
+                      }
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The optional Heartbeat associated to one destination
+            transport address could be active or not (value equal to 1
+            or 0, respectively).
+
+            An active destination transport address is the one 
+            considered available by a peer endpoint for receiving SCTP 
+            packets, as it is described in [sctp]."
+
+      ::= { ceSctpAssocRemAddressEntry 5 }
+
+
+    ceSctpAssocRemAddressHtBtTime  OBJECT-TYPE
+      SYNTAX         Unsigned32(0..65535)
+      UNITS          "milliseconds"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "The current heartbeat time-out. The recommended default 
+            value is 30000 milliseconds."
+
+      ::= { ceSctpAssocRemAddressEntry 6 }
+
+
+
+    ceSctpAssocRemAddressMaxRetran  OBJECT-TYPE
+      SYNTAX         Unsigned32(0..65535)
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Maximum number of DATA retransmissions allowed to a 
+            remote IP address before it is considered inactive, 
+            as defined in [sctp]. Recommended value 5 attempts."
+
+      ::= { ceSctpAssocRemAddressEntry 7 }
+
+
+    -- Remote Address Statistic
+
+    ceSctpAssocRemAddressRetransCnt OBJECT-TYPE
+      SYNTAX         Counter64
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Number of DATA retransmissions as defined in [sctp]."
+
+      ::= { ceSctpAssocRemAddressEntry 8 }
+      
+    ceSctpAssocRemAddressSRTT OBJECT-TYPE
+      SYNTAX         Unsigned32(0..65535)
+      UNITS          "milliseconds"
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "Smoothed Round Trip Time in milliseconds."
+
+      ::= { ceSctpAssocRemAddressEntry 9 }
+      
+    ceSctpAssocRemAddressRowStatus OBJECT-TYPE
+      SYNTAX         RowStatus
+      MAX-ACCESS     read-only
+      STATUS         current
+      DESCRIPTION
+           "An object that allows entries in this table to be created 
+           and deleted using the RowStatus convention.
+
+           A row in this table will be created per remote IP address
+           defined for this association. The creation takes part when a
+           new row in the sctpAssocTable is created or when a new IP
+           address is added in the remote interface (if this function is
+           enabled by the SCTP layer).
+
+           A row in this table will be deleted per remote IP address
+           reserved for the association when the corresponding row in
+           sctpAssocTable is deleted or when an IP address is removed
+           from the local interface (if this function is enabled by the
+           SCTP layer)."
+
+      ::= { ceSctpAssocRemAddressEntry 10 }
+
+
+    -- 4.1 Conformance Information
+
+    ceSctpGroups       OBJECT IDENTIFIER ::= { ceSctpConformance 1 }
+    ceSctpCompliances  OBJECT IDENTIFIER ::= { ceSctpConformance 2 }
+
+
+    -- 4.1.1 Compliance Statements
+
+    ceSctpCompliance MODULE-COMPLIANCE
+      STATUS  current
+      DESCRIPTION
+           "The compliance statement for SNMPv3 entities which 
+            implement SCTP."
+
+      MODULE  -- this module
+
+           MANDATORY-GROUPS    {  ceSctpGeneralVariablesGroup,
+                                  ceSctpAssocTablesVariablesGroup
+                               }
+
+           GROUP ceSctpStateStatGroup
+           DESCRIPTION
+                "The sctp group of objects to control state changes in
+                the SCTP protocol."
+
+           GROUP ceSctpOtherStatGroup
+           DESCRIPTION
+                "The sctp group of objects providing for management of
+                SCTP general statistics."
+
+           GROUP ceSctpAssocStatGroup
+           DESCRIPTION
+                "The sctp group of objects to manage SCTP statistics
+                related to the remote endpoint."
+
+      ::= { ceSctpCompliances 1 }
+
+
+    -- 4.1.2 Units of conformance
+
+    ceSctpGeneralVariablesGroup OBJECT-GROUP
+      OBJECTS   { ceSctpRtoAlgorithm, 
+                  ceSctpMaxAssociations
+                }
+      STATUS    current
+      DESCRIPTION
+           "The sctp group of objects providing for management of SCTP
+           entities. Common parameters for the protocol."
+
+      ::= { ceSctpGroups 1 }
+
+
+    ceSctpStateStatGroup OBJECT-GROUP
+      OBJECTS   { ceSctpCurrEstab, 
+                  ceSctpActiveEstab,
+                  ceSctpPassiveEstab,
+                  ceSctpAborted, 
+                  ceSctpShutdowns
+                }
+      STATUS    current
+      DESCRIPTION
+           "The sctp group of objects to control state changes in the
+           SCTP protocol."
+
+      ::= { ceSctpGroups 2 }
+
+    ceSctpOtherStatGroup OBJECT-GROUP
+      OBJECTS   { ceSctpStatBytesRec,
+                  ceSctpStatBytesSent, 
+                  ceSctpStatChunksDiscard, 
+                  ceSctpStatChunksSent,
+                  ceSctpStatChunksSentControl,
+                  ceSctpStatChunksSentOrdered,
+                  ceSctpStatChunksSentUnOrdered,
+                  ceSctpStatChunksRec,
+                  ceSctpStatChunksRecControl, 
+                  ceSctpStatChunksRecOrdered, 
+                  ceSctpStatChunksRecUnOrdered,
+                  ceSctpStatChunksReTrans,
+                  ceSctpStatDatagramsRec,
+                  ceSctpStatDatagramsSent, 
+                  ceSctpStatFragmentedUsrMessages,
+                  ceSctpStatReassembledUsrMessages,
+                  ceSctpStatOutOfBlue, 
+                  ceSctpStatT1expired,
+                  ceSctpStatT2expired 
+                }
+      STATUS    current
+      DESCRIPTION
+           "The sctp group of objects providing for management of SCTP
+           general statistics."
+
+      ::= { ceSctpGroups 3 }
+
+
+    ceSctpAssocTablesVariablesGroup OBJECT-GROUP
+      OBJECTS   { -- ceSctpAssocId,
+                  ceSctpAssocState,                           
+                  ceSctpAssocUpTime,                          
+                  ceSctpAssocRtoMin,                          
+                  ceSctpAssocRtoMax,                          
+                  ceSctpAssocRtoInitial,                      
+                  ceSctpAssocValCookieLife,                   
+                  ceSctpAssocMaxInitRetr,                     
+                  ceSctpAssocInitialT1,                       
+                  ceSctpAssocInitialT2,                       
+                  ceSctpAssocRemHostName,                     
+                  ceSctpAssocLocalSCTPPort,                   
+                  ceSctpAssocRemSCTPPort,                     
+                  ceSctpAssocRemPrimaryAddressType,           
+                  ceSctpAssocRemPrimaryAddress,               
+                  ceSctpAssocCongestionLevels,                
+                  ceSctpAssocCongestionLevelsCur,             
+                  ceSctpAssocCongestionAbate1,                
+                  ceSctpAssocCongestionAbate2,                
+                  ceSctpAssocCongestionAbate3,                
+                  ceSctpAssocCongestionOnset1,                
+                  ceSctpAssocCongestionOnset2,                
+                  ceSctpAssocCongestionOnset3,                
+                  ceSctpAssocInStreams,                       
+                  ceSctpAssocOutStreams,                      
+                  ceSctpAssocMaxRetr,                         
+                  ceSctpAssocMTU,                             
+                  ceSctpAssocLocRecWnd,                       
+                  ceSctpAssocLocRecWndLowMark,                
+                  ceSctpAssocLocRecWndZeroCnt,                
+                  ceSctpAssocRemRecWnd,                       
+                  ceSctpAssocRemRecWndLowMark,                
+                  ceSctpAssocRemRecWndZeroCnt,                
+                  ceSctpAssocULPDatagramsQueued,                 
+                  ceSctpAssocULPDatagramsQueuedHigh,         
+                  ceSctpAssocChecksumErrorCounter,            
+                  ceSctpAssocBytesRec,                         
+                  ceSctpAssocBytesSent,                        
+                  ceSctpAssocChunksDiscarded,                 
+                  ceSctpAssocChunksRec,                         
+                  ceSctpAssocChunksRecControl,                  
+                  ceSctpAssocChunksRecOrdered,                  
+                  ceSctpAssocChunksRecUnOrdered,                
+                  ceSctpAssocChunksRecOutOrder,             
+                  ceSctpAssocChunksReTrans,                 
+                  ceSctpAssocChunksSent,                        
+                  ceSctpAssocChunksSentControl,                 
+                  ceSctpAssocChunksSentOrdered,                 
+                  ceSctpAssocChunksSentUnOrdered,               
+                  ceSctpAssocDatagramsRec,                         
+                  ceSctpAssocDatagramsSent,                        
+                  ceSctpAssocRowStatus,                 
+               -- ceSctpAssocLocalAddressIPType,
+               -- ceSctpAssocLocalAddressIP,
+                  ceSctpAssocLocalAddressRowStatus,
+               -- ceSctpAssocRemAddressIPType, 
+               -- ceSctpAssocRemAddressIP,
+                  ceSctpAssocRemAddressStatus, 
+                  ceSctpAssocRemAddressRTO,
+                  ceSctpAssocRemAddressHtBtFlag,
+                  ceSctpAssocRemAddressHtBtTime,
+                  ceSctpAssocRemAddressMaxRetran,
+                  ceSctpAssocRemAddressSRTT,
+                  ceSctpAssocRemAddressRowStatus
+                }
+      STATUS    current
+      DESCRIPTION
+           "The sctp group of objects to manage specific local and 
+            remote SCTP variables (local and remote tables)."
+
+      ::= { ceSctpGroups 4 }
+
+
+    ceSctpAssocStatGroup OBJECT-GROUP
+      OBJECTS   {ceSctpAssocRemAddressRetransCnt
+                }
+      STATUS    current
+      DESCRIPTION
+           "The sctp group of objects to manage SCTP statistics related
+            to the remote endpoint."
+
+      ::= { ceSctpGroups 5 }
+
+
+    END
+     
+  
+ 
+ 
+     
+  
+ 
+ 

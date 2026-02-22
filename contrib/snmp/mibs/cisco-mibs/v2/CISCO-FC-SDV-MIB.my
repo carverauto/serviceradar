@@ -1,0 +1,738 @@
+-- ********************************************************************
+-- CISCO-FC-SDV-MIB.my: Fibre Channel SAN Device Virtualization MIB
+--
+-- September 2006, Sanjeev C Joshi
+--
+-- Copyright (c) 2006 by Cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- ********************************************************************
+CISCO-FC-SDV-MIB DEFINITIONS ::= BEGIN
+IMPORTS        
+     MODULE-IDENTITY, OBJECT-TYPE, 
+     Unsigned32                             FROM SNMPv2-SMI
+     MODULE-COMPLIANCE, OBJECT-GROUP        FROM SNMPv2-CONF
+     RowStatus, StorageType,
+     TEXTUAL-CONVENTION                     FROM SNMPv2-TC
+     vsanIndex                              FROM CISCO-VSAN-MIB
+     FcList                                 FROM CISCO-ZS-MIB
+     FcAddressId, FcNameIdOrZero,
+     DomainIdOrZero                         FROM CISCO-ST-TC
+     SnmpAdminString                        FROM SNMP-FRAMEWORK-MIB
+     ciscoMgmt                              FROM CISCO-SMI;
+
+ciscoFcSdvMIB MODULE-IDENTITY
+        LAST-UPDATED        "200609260000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-mds9000@cisco.com"
+        DESCRIPTION
+                "This MIB instrumentation is for managing Fibre
+                 Channel (FC) SAN Device Virtualization (SDV) 
+                 solution on Cisco Fibre Channel devices.
+                 
+            Glossary of the terms used in this MIB:
+            ---------------------------------------
+            Config Commit  - User initiated action that triggers
+                             commiting of configuration to local
+                             device/fabric. Eg. CFS based config 
+                             'commit' as described in CISCO-CFS-MIB.
+                             
+            Domain         - The highest or most significant 
+                             hierarchical level in the three-level
+                             FC addressing hierarchy.
+                             
+            Device Aias    - is a string which can be used to alias a
+                 World Wide Name (WWN).
+                             
+            FCID           - Fibre Channel Address ID. A 24 bit Fabric
+                             unique address identifier.
+                             
+            FCNS           - Fibre Channel Name Server.
+                             
+            Initiator      - The system component that originates an
+                             I/O command over an I/O bus or network.
+                             
+            NWWN           - WWN associated with FC node.
+                             
+            PWWN           - WWN associated with FC port.
+            
+            Real Device    - A hardware entity which includes Link
+                             Control facility. It is directly
+                             connected to a FC fabric and acts as
+                             originator/responder or both.
+                             
+            RSCN    	   - Registered State Change Notification.
+                             RSCN Notifications are sent to Nx_ports
+                             and other switches to notify that an
+                             event has occurred.
+                             
+            SW_RSCN        - Switch Registered State Change
+                             Notification. SW_RSCN Notifications are
+                             sent to neighbouring switches in a
+                             fabric to notify that an event has
+                             occurred.
+                             
+            SCSI           - Acronym for Small Computer System
+                             Interface.
+                             
+            Target         - The system component that receives a
+                             SCSI I/O command command.
+                             
+            Virtual Device - The virtual initiator/target having its
+               (VD)          own device identity and proxies a Real
+                             Device (Initiator/Target) in a FC fabric.
+
+            VT             - Virtual Target.   
+            
+            VI             - Virtual Initiator.
+
+            Virtual Domain - A logical Domain partition in a FC fabric
+                             within which a Virtual Device exists.            
+                                         
+            VSAN           - Virtual Storage Area Network, similar
+                             to a VLAN.
+
+            WWN            - Wide Name (WWN) associated with
+                             a Fibre Channel (FC) entity. A 64 bit
+                             identifier, with a 60 bit value preceded
+                             with a four bit 
+                             Network_Address_Authority_Identifier,
+                             used to identify physical entities in
+                             Fibre Channel.
+                  
+                 The primary motivation for SAN Device Virtualization
+                 is the High availability of storage disk arrays with
+                 no downtime. Redundancy is achieved by duplication
+                 of information and hardware to ensure secondary
+                 device can take over the function of a primary
+                 device when the latter fails. The initiators
+                 (servers) perform I/O to the primary target. 
+                 The secondary target is kept in sync to have a
+                 mirrored copy of the primary target by a replication
+                 mechanism. In the event of a disruption to primary
+                 target, all I/O must be immediately re-routed to 
+                 secondary target so that services running on 
+                 initiators remain un-interrupted. The SDV solution
+                 resides on a Cisco FC Switching Device. The target 
+                 failover is achieved by presenting a virtual proxy
+                 target to initiator with the SDV acting as a conduit
+                 for creating and deleting the proxy (virtual)
+                 target on demand. The Virtual Target or in general
+                 Virtual Device can virtualize (proxy) set of Real
+                 Devices with one Real Device actively mapped as the
+                 primary mapping and the rest as secondary mappings.
+                
+                                                   WWN2,FCID2
+                                                    _____
+                                                   |     |
+                              [Switch Fabric]     /| RT1 |
+                              '''''''''''''''    / |_____|
+                WWN1,FCID1    '             '   /  [Primary Real
+                   ____       '  WWN4,FCID4 '  /    Target Device]
+                  |    |      '  +~~~~~~~+__'_/ 
+                  | I  |->--->'->|  VT   |__'_
+                  |____|      '  +~~~~~~~+  ' \     
+                 [Real Host   '             '  \{On Fail-Over}
+                 (Initiator)] '             '   \   WWN3,FCID3
+                              '''''''''''''''    \  _____
+                             [VT: Virtual Target] \|     |
+                                                   | RT2 |
+                                                   |_____|
+                                                   [Secondary Real
+                                                    Target Device]
+                                                    
+                               -<< Fig 1 >>-
+
+                 In the above figure (Fig 1), 'Switch Fabric'
+                 presents the Virtual Target 'VT' as a proxy device
+                 for real targets 'RT1' and 'RT2'. The Host/Initiator
+                 'I' can discover a virtual target VT and does not
+                 see real targets RT1 and RT2 as accessible targets.
+                 The Virtual Target VT is configured on the switch
+                 and maps to one real target as a primary mapping.
+                 The Initiator performs I/O with VT. When the primary 
+                 target RT1 fails, the secondary real target RT2 can
+                 take over. For the Initiator, failover/migration is
+                 transparent and continues to perform I/O with VT.
+
+                  ___                   ____                  ____
+                 |   |-->--[I->VT]-----[    ]---->--[I->T]---|    |
+                 | I |                 [ VT ]                | RT |
+                 |   |                 [    ]                |    |
+                 |___|--<--[I<-VT]-----[____]----<--[I<-T]---|____|
+
+              [Initiator]             [Virtualized           [Real
+                                       Target]                Target]
+
+                               -<< Fig 2 >>-
+
+                 When the Initiator 'I' performs I/O with VT, the
+                 SDV enabled switch performs FCID address translation
+                 to route FC frames to the real target RT (refer
+                 Fig 2). The I->VT frames are translated as I->T. 
+                 The T->I frames are translated as VT->I. The SDV
+                 manages VT so that other devices (in the same zone)
+                 perceive it as just another device in the fabric.
+                
+                 The cFcSdvVirtDeviceTable is table of Virtual Devices.
+                 The cFcSdvVirtRealDevMapTable is a table of mapping
+                 elements.
+                 
+                 A Virtual Device is represented by a row in the
+                 cFcSdvVirtDeviceTable, and if its value of 
+                 cFcSdvVdRealDevMapList has the value of zero,
+                 then the Virtual Device is not currently mapped to
+                 any Real Devices. Otherwise, the Virtual Device is
+                 mapped to the set of Real Devices with each Real
+                 Device identified by the instance indentifier value
+                 of cFcSdvVirtRealDevMapIndex.
+                "
+        REVISION        "200609260000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 593 }
+
+ciscoFcSdvMIBNotifs  OBJECT IDENTIFIER ::=  { ciscoFcSdvMIB 0 }
+ciscoFcSdvMIBObjects OBJECT IDENTIFIER ::=  { ciscoFcSdvMIB 1 }
+ciscoFcSdvMIBConform OBJECT IDENTIFIER ::=  { ciscoFcSdvMIB 2 }
+
+cFcSdvConfig         OBJECT IDENTIFIER ::=  { ciscoFcSdvMIBObjects 1 }
+
+--
+-- Textual Conventions
+--
+
+CiscoFcSdvDevIdType ::= TEXTUAL-CONVENTION
+        STATUS     current
+        DESCRIPTION
+                "The type of device identifier value.
+
+                 'singleDevPWWN'      - Single addressable device 
+                                        identifiable by PWWN
+
+                 'singleDevDevAlias'  - Single addressable device
+                                        identifiable by Device Alias
+                "
+        SYNTAX     INTEGER {
+                   singleDevPWWN(1),
+                   singleDevDevAlias(2)
+        }
+
+CiscoFcSdvDevId ::= TEXTUAL-CONVENTION
+        STATUS     current
+        DESCRIPTION
+                "This denotes device identifier value to be used
+                 with CiscoFcSdvDevIdType. The CiscoFcSdvDevId is
+                 always interpreted within the context of a
+                 CiscoFcSdvDevIdType value. Every usage of 
+                 CiscoFcSdvDevId textual convention is required
+                 to specify a CiscoFcSdvDevIdType object which
+                 provides the context.
+
+                 The encoding of the CiscoFcSdvDevId object for a
+                 specific device identifier type is as below:
+         
+           -----------------------------------------------------------
+           RealDeviceType    Octets  Contents         Encoding
+           -----------------------------------------------------------
+           singleDevPWWN     1-8     Device Port WWN As in FcNameId of
+                                                     CISCO-ST-TC
+           ------------------------------------------------------------
+           singleDevDevAlias 1-64    DeviceAlias     As in
+                                     Name            SnmpAdminString of
+                                                     SNMP-v2-TC
+           ------------------------------------------------------------
+         "
+        SYNTAX     OCTET STRING (SIZE (1..255))
+
+CiscoFcSdvRealDevMapType ::= TEXTUAL-CONVENTION
+        STATUS     current
+        DESCRIPTION
+                "The type of mapping of Real Device(s) (Initiator/
+                 Target) to which the Virtual Device is virtualized
+                 to.
+
+                 'primaryDevMap'     - primary (current) mapping
+                 'secondaryDevMap'   - secondary (standby) mapping
+                "
+        SYNTAX     INTEGER {
+                   primaryDevMap(1),
+                   secondaryDevMap(2)
+        }    
+        
+--
+-- FC Virtual Device Configuration 
+--
+cFcSdvVirtDeviceTable  OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CFcSdvVirtDeviceEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table lists all the virtual devices configured
+                 on this device.
+
+                 The successful creation of a row in this table,
+                 through the use of the cFCSDMVdRowStatus object,
+                 followed by the 'Config Commit' will also cause
+                 the creation of rows in other tables. Specifically:
+
+                 - The Creation of Device Alias: An entry in the
+                  'cfdaConfigTable' of CISCO-FC-DEVICE-ALIAS-MIB
+                   gets created by the agent with the value of the 
+                   cFcSdvVdName as the instance identifier value of
+                   cfdaConfigDeviceAlias, 'pwwn' as the value of 
+                   cfdaConfigDeviceType and the value of cFcSdvVdPwwn
+                   as the value of cfdaConfigDeviceId. An attempt
+                   to create an already existing Device Alias entry
+                   mapping to different Real Device would fail and
+                   hence results in failure to add Virtual Device
+                   entry in this table. In general, any failure in
+                   Device Alias creation/deletion will have 
+                   corresponding effect of Virtual Device creation
+                   /deletion respectively.
+                    
+                 Similarly the deletion of a row in this table causes
+                 deletion of corresponding rows in other tables. 
+                 Specifically:
+                 
+                 - An entry in the 'cfdaConfigTable' of  
+                   CISCO-FC-DEVICE-ALIAS-MIB that corresponding to
+                   the value of cFcSdvVdName is deleted.
+
+                 Once a Virtual Device gets created successfully,
+                 such a device is available for zone configuration.
+                 The Virtual Device added as Device Alias can be 
+                 used to create the zones and zoneSets using
+                 CISCO-ZS-MIB. The Device Alias is identified as
+                 the 'deviceAlias' type of ZoneMemberType in all
+                 occurrences of usage of ZoneMemberType in the 
+                 zoning tables."
+        ::= { cFcSdvConfig 1 }
+
+cFcSdvVirtDeviceEntry OBJECT-TYPE
+        SYNTAX     CFcSdvVirtDeviceEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry (conceptual row) in the
+                 cFcSdvVirtDeviceTable.
+                 Each entry represents a Virtual Device in a
+                 specific VSAN.
+
+ <cFcSdvVirtDeviceEntry> 
+ +-------+---------+---
+ |VdIndex|
+ +-------+---------+----
+    |     maps to 
+    |     <cFcSdvVirtRealDevMapEntry>
+ +--|----+-------------------+--------------------+-----------------+--
+ |  |____|VirtRealDevMapIndex|VirtRealDeviceIdType| VirtRealDeviceId|..
+ |vdIndex|                   |                    |                 |
+ +-------+-------------------+--------------------+-----------------+--
+                               -<< Fig 3 >>-
+
+                 The above figure (Fig 3) depicts the relationship
+                 that this conceptual row has with conceptual rows
+                 of the other tables for configuring the virtual
+                 device.
+                 
+                 The deletion of a row in this table also causes the
+                 deletion of all the Real Device mapping entries for 
+                 the same combination of vsanIndex and cFcSdvVdIndex
+                 in the cFcSdvVirtRealDevMapTable.
+                 "
+        INDEX      { vsanIndex,
+                     cFcSdvVdIndex }
+        ::= { cFcSdvVirtDeviceTable 1 }
+
+CFcSdvVirtDeviceEntry ::= SEQUENCE {
+        cFcSdvVdIndex             Unsigned32,
+        cFcSdvVdName              SnmpAdminString,
+        cFcSdvVdVirtDomain        DomainIdOrZero,
+        cFcSdvVdFcId              FcAddressId,
+        cFcSdvVdPwwn              FcNameIdOrZero,
+        cFcSdvVdNwwn              FcNameIdOrZero,
+        cFcSdvVdAssignedFcId      FcAddressId,
+        cFcSdvVdRealDevMapList    FcList,
+        cFcSdvVdStorageType       StorageType,
+        cFcSdvVdRowStatus         RowStatus
+}
+
+cFcSdvVdIndex  OBJECT-TYPE
+        SYNTAX        Unsigned32 (1..4096)
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An arbitrary index number of a Virtual Device.
+                 This instance value uniquely identifies a Virtual
+                 Device within the context of a particular VSAN and
+                 in the agent where an instance of this MIB
+                 instrumentation is running."
+        ::= { cFcSdvVirtDeviceEntry 1 }
+
+cFcSdvVdName OBJECT-TYPE
+        SYNTAX     SnmpAdminString (SIZE(1..32))
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "A human readable string representing the name of
+                 this Virtual Device. The value of cFcSdvVdName
+                 should be unique in the system."
+        ::= { cFcSdvVirtDeviceEntry 2}
+
+cFcSdvVdVirtDomain OBJECT-TYPE 
+        SYNTAX     DomainIdOrZero
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The user preference for a persistent Domain Id
+                 for this Virtual Device to indicate a specific
+                 partition (domain) of the Fabric that this 
+                 Virtual Device should belong to. 
+
+                 If the value of this object is not explicitly set
+                 by the user, the system generates and uses a
+                 Virtual Domain from the allowed domains. The value
+                 of '0' indicates no user preference."
+        DEFVAL     { 0 }
+        ::= { cFcSdvVirtDeviceEntry 3 }
+
+cFcSdvVdFcId OBJECT-TYPE 
+        SYNTAX     FcAddressId
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The user preference for a persistent 'FCID' for
+                 this Virtual Device. 
+
+                 The value of the corresponding instance of 
+                 cFcSdvVdVirtDomain specifies the Domain identifier
+                 part of the FCID. When the values for both
+                 cFcSdvVdVirtDomain and cFcSdvVdFcId are specified
+                 during row creation, the Domain ID part of 
+                 cFcSdvVdFcId value should exactly match the value
+                 of cFcSdvVdVirtDomain.
+
+                 If the value of this object is not explicitly set
+                 by the user, the system generates and uses a
+                 FCID for this Virtual Device. The value of 
+                 '000000'h indicates no user preference."
+        DEFVAL     { '000000'h }
+        ::= { cFcSdvVirtDeviceEntry 4 }
+
+cFcSdvVdPwwn OBJECT-TYPE 
+        SYNTAX     FcNameIdOrZero
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The assigned 'PWWN' for this Virtual Device.
+                 The agent assigns this value when the
+                 configuration is committed."
+        ::= { cFcSdvVirtDeviceEntry 5 }         
+
+cFcSdvVdNwwn OBJECT-TYPE 
+        SYNTAX     FcNameIdOrZero
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The assigned 'NWWN' for this Virtual Device.
+                 The agent assigns this value when the 
+                 configuration is committed."  
+        ::= { cFcSdvVirtDeviceEntry 6 }
+
+cFcSdvVdAssignedFcId OBJECT-TYPE 
+        SYNTAX     FcAddressId
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The assigned 'FCID' of this Virtual Device. The
+                 agent assigns this value when the configuration is
+                 committed and the Real Device that this Virtual 
+                 Device virtualizes (corresponding entry in the 
+                 cFcSdvVirtRealDevMapTable where the 
+                 value of cFcSdvVirtRealDevMapType is 
+                 'primaryDevMap') is on-line."
+        ::= { cFcSdvVirtDeviceEntry 7 }        
+        
+cFcSdvVdRealDevMapList  OBJECT-TYPE
+        SYNTAX        FcList(SIZE(0..16))
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The set of Real Device(s) that this Virtual Device
+                 virtualizes in this VSAN.
+
+                 The Real Devices are identified by the instance 
+                 identifier object cFcSdvVirtRealDevMapIndex in the
+                 cFcSdvVirtRealDevMapTable.
+
+                 If a particular bit has a value of '1', then the
+                 corresponding Real Device (indicated by the position
+                 of bit and represented by cFcSdvVirtRealDevMapIndex)
+                 is mapped for virtualization for this Virtual Device.
+                 The bit value of '0' indicates that particular Real
+                 Device is not mapped for virtualization in this 
+                 Virtual Device.
+
+                 This object is read-only; changes to its value
+                 are made by the agent as and when associated
+                 entries are created/deleted in the
+                 cFcSdvVirtRealDevMapTable.
+
+                 The default value is the zero length string."
+        DEFVAL { ''H }
+       ::= { cFcSdvVirtDeviceEntry 8 }        
+        
+cFcSdvVdStorageType OBJECT-TYPE
+        SYNTAX     StorageType
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The storage type for this conceptual row. 
+                 
+                 Conceptual rows having the value of this object as
+                 'readOnly' can not be deleted by the user by setting
+                 the value of cFcSdvVdRowStatus to 'destroy'."
+        DEFVAL     { nonVolatile }            
+        ::= { cFcSdvVirtDeviceEntry 9 }
+       
+cFcSdvVdRowStatus OBJECT-TYPE
+        SYNTAX     RowStatus
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The status of this conceptual row. The value of
+                 this object can not be set to 'active' unless the
+                 value of the corresponding instance of cFcSdvVdName
+                 is unique across all the VSANs in the system.
+                 
+                 Once value of this object is set to 'active', the
+                 value of the corresponding instance of cFcSdvVdName
+                 can not be modified.
+                 
+                 Once value of this object is set to 'active', the
+                 setting the values of the corresponding instance of
+                 cFcSdvVdVirtDomain and cFcSdvVdFcId will take effect
+                 and results into FCID/Domain allocation only after
+                 the Virtual Device comes on-line the next time."
+        ::= { cFcSdvVirtDeviceEntry 10 }        
+
+--
+-- Virtual Device to Real Device Mapping Table
+--
+cFcSdvVirtRealDevMapTable  OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CFcSdvVirtRealDevMapEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table provides list of Real Devices which
+                 are mapped to Virtual Device for Device
+                 Virtualization."
+        ::= { cFcSdvConfig 2 }
+
+cFcSdvVirtRealDevMapEntry OBJECT-TYPE
+        SYNTAX     CFcSdvVirtRealDevMapEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry (conceptual row) in the 
+                 cFcSdvVirtRealDevMapTable. Each entry represents a
+                 Real Device(s) mapped to a Virtual Device for 
+                 virtualization within the scope of a VSAN.
+                 
+                 When the Real Device represented by an entry in
+                 this table whose instance of cFcSdvVirtRealDevMapType
+                 is 'primaryDevMap' comes on-line, the corresponding
+                 Virtual Device that virtualizes such Real Device
+                 also comes on-line and registers itself as one
+                 of logged-in devices in the FCNS database - an 
+                 entry into 'fcNameServerTable' of CISCO-NS-MIB
+                 and SW_RSCN and RSCN are appropriately generated."
+        INDEX      { vsanIndex,
+                     cFcSdvVdIndex,
+                     cFcSdvVirtRealDevMapIndex }
+        ::= { cFcSdvVirtRealDevMapTable 1 }
+
+CFcSdvVirtRealDevMapEntry ::= SEQUENCE {
+        cFcSdvVirtRealDevMapIndex       Unsigned32,
+        cFcSdvVirtRealDeviceIdType      CiscoFcSdvDevIdType,
+        cFcSdvVirtRealDeviceId          CiscoFcSdvDevId,
+        cFcSdvVirtRealDevMapType        CiscoFcSdvRealDevMapType,
+        cFcSdvVirtRealDevMapStorageType StorageType,
+        cFcSdvVirtRealDevMapRowStatus   RowStatus
+}
+
+cFcSdvVirtRealDevMapIndex OBJECT-TYPE
+        SYNTAX     Unsigned32 (1..128)
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An arbitrary index number to identify a Real 
+                 Device(s) mapped to a Virtual Device.
+                 
+                 This instance value uniquely identifies a 
+                 Real Device mapping entry for Virtual Device 
+                 within the context of a particular VSAN and
+                 in the agent where an instance of this MIB
+                 instrumentation is running.  
+                 
+                 When an entry is successfully created in this table,
+                 the agent uses this instance identifier value to
+                 update the value of cFcSdvVdRealDevMapList of
+                 cFcSdvVirtDeviceTable to indicate that this 
+                 Real Device(s) entry is mapped for virtualization in
+                 a Virtual Device (represented by cFcSdvVdIndex)."
+        ::= { cFcSdvVirtRealDevMapEntry 1 }
+
+cFcSdvVirtRealDeviceIdType OBJECT-TYPE
+        SYNTAX     CiscoFcSdvDevIdType
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The type of Real Device identifier represented
+                 by the value of the corresponding instance of
+                 'cFcSdvVirtRealDeviceId' that this Virtual Device
+                  virtualizes to."
+        DEFVAL     { singleDevPWWN }    
+        ::= { cFcSdvVirtRealDevMapEntry 2 }
+
+cFcSdvVirtRealDeviceId OBJECT-TYPE
+        SYNTAX     CiscoFcSdvDevId(SIZE(1..64))
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "This object represents a Real Device(s) identifier
+                 that this Virtual Device virtualizes.
+                 
+                 A Real Device element represented by the combination
+                 of value of this object preceded by the value of
+                 corresponding instance of cFcSdvVirtRealDeviceIdType
+                 should be unique for a Virtual Device within a VSAN.
+
+                 When the value of the corresponding instance of
+                 cFcSdvVirtRealDeviceIdType is 'singleDevDevAlias',
+                 the value of this object is the name of a Device
+                 Alias pointing to a specific entry identified by
+                 the instance identifier  value of 
+                 'cfdaConfigDeviceAlias' of cfdaConfigTable in
+                 the CISCO-FC-DEVICE-ALIAS-MIB."
+        DEFVAL     { '0000000000000000'H }
+        ::= { cFcSdvVirtRealDevMapEntry 3 } 
+
+cFcSdvVirtRealDevMapType OBJECT-TYPE
+        SYNTAX     CiscoFcSdvRealDevMapType
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The mapping association type of the Real Device(s)
+                 (Initiator/Target). There can only be one instance
+                 of this object within a context of a vsan, virtual
+                 device and MapID that can be marked as 
+                 'primaryDevMap'. The rest of the instances can only
+                 be 'secondaryDevMap'."
+        DEFVAL     { secondaryDevMap }
+        ::= { cFcSdvVirtRealDevMapEntry 4 }
+
+cFcSdvVirtRealDevMapStorageType OBJECT-TYPE
+        SYNTAX     StorageType
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The storage type for this conceptual row. 
+                 Conceptual rows having a value of 'readOnly' need
+                 not allow write-access to any of the columnar
+                 objects of the same row."
+        DEFVAL     { nonVolatile }
+        ::= { cFcSdvVirtRealDevMapEntry 5 }
+
+cFcSdvVirtRealDevMapRowStatus OBJECT-TYPE
+        SYNTAX     RowStatus
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+                "The status of this conceptual row. The value of 
+                 this object can not be set to 'active' unless the
+                 value of the corresponding instance of 
+                 cFcSdvVirtRealDeviceIdType and cFcSdvVirtRealDeviceId
+                 is unique for a virtual device within a VSAN. Once 
+                 value of this object is set to 'active', the values
+                 of the corresponding instance of 
+                 cFcSdvVirtRealDeviceIdType and cFcSdvVirtRealDeviceId
+                 can not be modified."
+        ::= { cFcSdvVirtRealDevMapEntry 6 }
+        
+--
+-- Conformance
+--
+
+ciscoFcSdvMIBCompliances 
+               OBJECT IDENTIFIER ::= { ciscoFcSdvMIBConform 1 }
+               
+ciscoFcSdvMIBGroups 
+               OBJECT IDENTIFIER ::= { ciscoFcSdvMIBConform 2 }
+
+ciscoFcSdvMIBCompliance MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement CISCO-FC-SDV-MIB."
+        MODULE MANDATORY-GROUPS { ciscoFcSdvConfigGroup }
+
+        OBJECT     cFcSdvVdRowStatus
+        SYNTAX     INTEGER {
+                   active (1),
+                   createAndGo (4),
+                   destroy (6)
+        }
+        DESCRIPTION 
+                "Only 'createAndGo', 'destroy' and 'active' need to
+                 be supported."
+
+        OBJECT cFcSdvVirtRealDevMapRowStatus
+        SYNTAX     INTEGER {             
+                   active (1),
+                   createAndGo (4),
+                   destroy (6)
+        }
+        DESCRIPTION 
+                "Only 'createAndGo', 'destroy' and 'active' need to
+                 be supported."
+        ::= { ciscoFcSdvMIBCompliances 1 }
+--
+-- Units of Conformance
+--
+
+ciscoFcSdvConfigGroup OBJECT-GROUP
+        OBJECTS  {
+            cFcSdvVdName,
+            cFcSdvVdVirtDomain,
+            cFcSdvVdFcId,
+            cFcSdvVdPwwn,
+            cFcSdvVdNwwn,
+            cFcSdvVdAssignedFcId,   
+            cFcSdvVdStorageType,
+            cFcSdvVdRealDevMapList,
+            cFcSdvVdRowStatus,
+            
+            cFcSdvVirtRealDeviceIdType,
+            cFcSdvVirtRealDeviceId,
+            cFcSdvVirtRealDevMapType,
+            cFcSdvVirtRealDevMapStorageType,
+            cFcSdvVirtRealDevMapRowStatus
+        }
+        STATUS     current
+        DESCRIPTION
+                "A collection of objects for FC SDV configuration."
+        ::= { ciscoFcSdvMIBGroups 1 }
+END
+

@@ -1,0 +1,516 @@
+-- *****************************************************************
+-- CISCO CLUSTER MIB
+--
+-- December 1998, Lucern Ma
+--
+-- Copyright (c) 1999, 2005 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+
+CISCO-CLUSTER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE,
+    Integer32, Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE, OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TAddress, TDomain,
+    MacAddress, TimeStamp,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    ;
+
+ciscoClusterMIB MODULE-IDENTITY
+    LAST-UPDATED "200511180000Z"
+    ORGANIZATION "Cisco Systems Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+            Postal: 170 West Tasman Drive,
+                    San Jose CA 95134-1706.
+                    USA
+
+               Tel: +1 800 553-NETS
+
+            E-mail: cs-sibu@cisco.com"
+    DESCRIPTION
+            "The MIB module for the management of a group of
+            devices called a 'cluster'.  A cluster comprises:
+
+            1. A command switch, which is a device that can provide
+               a single point of management (including SNMP, Web
+               Console and CLI/Telnet Console) for the devices
+               in the cluster;
+
+            2. Zero or more expansion switches, or called the
+               cluster members throughout the context of this MIB,
+               which are devices that can be managed via a command
+               switch.  The command switch is also considered as a
+               cluster member.  Thus it has an entry in the MIB tables
+               defined below for cluster members.
+
+            Only the command switch IP address, passwords, and SNMP
+            community strings need to be configured in order to
+            provide management access to members of the cluster.
+
+            The Entity MIB is cross-referenced from this MIB for
+            some of its table entries, which contain useful
+            information about a cluster.  For example, in the
+            Entity MIB, there is the logical table which contains
+            the community string.  This information is used to
+            access detailed management information for some logical
+            entity (the cluster, in this case).
+
+            To determine if a particular device can be a command switch
+            or a member switch please refer to the device's
+            user's guide."
+    REVISION  "200511180000Z"
+    DESCRIPTION
+            "Updated the imports such that Unsigned32 is imported from 
+            SNMPv2-SMI instead of CISCO-TC. Re-ordered the imports such 
+            that the SNMPv2 imports are imported first. Added a new 
+            NOTIFICATION GROUP ciscoClusterNotificationGroup to include
+            the notification ccStatusMemberStatusChange. Also deprecated the 
+            old MODULE-COMPLIANCE ciscoClusterCompliance, and added a new
+            MODULE-COMPLIANCE ciscoClusterComplianceRev1 such that its 
+            MANDATORY-GROUPS include this new NOTIFICATION GROUP and all the 
+            MANDATORY-GROUPS of ciscoClusterCompliance."
+    REVISION  "9907280000Z"
+    DESCRIPTION
+            "Initial version of this mib."
+    ::= { ciscoMgmt 134 }
+
+ciscoClusterMIBObjects OBJECT IDENTIFIER ::= { ciscoClusterMIB 1 }
+
+-- MIB contains 3 groups
+
+ccStatus          OBJECT IDENTIFIER ::= { ciscoClusterMIBObjects 1 }
+ccMember          OBJECT IDENTIFIER ::= { ciscoClusterMIBObjects 2 }
+ccCandidate       OBJECT IDENTIFIER ::= { ciscoClusterMIBObjects 3 }
+
+-- The Cluster Status Group
+
+ccStatusClusterName OBJECT-TYPE
+    SYNTAX        SnmpAdminString (SIZE (0..31))
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+            "The name of the cluster.  Cluster command switch
+             functionality is only enabled if this object is
+             a non-NULL string.  Strings containing all blanks
+             or a NULL string will disable the cluster.
+             This object and ccStatusClusterMode in this MIB are
+             the only objects that will be instantiated if the
+             command switch functionality is not enabled."
+    DEFVAL        { "" }
+    ::= { ccStatus 1 }
+
+ccStatusClusterMode OBJECT-TYPE
+    SYNTAX       INTEGER {
+                           commandDevice(1),
+                           memberDevice(2),
+                           none(3)
+                          }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+            "The mode of the device.  A device can become a member
+             switch only when it is added to the cluster at the command
+             switch.  For devices that do not belong to any cluster,
+             the ccStatusClusterMode is set to 'none'."
+    ::= { ccStatus 2 }
+
+ccStatusCommanderTDomain OBJECT-TYPE
+    SYNTAX        TDomain
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+            "Indicates the kind of transport service used by the command
+             switch of the cluster.  Possible values for this object, such
+             as snmpUDPDomain, are defined in the Transport Mappings for
+             SNMPv2 document (RFC 1906)."
+    ::= { ccStatus 3 }
+
+ccStatusCommanderTAddress OBJECT-TYPE
+    SYNTAX        TAddress
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+            "The transport service address of the command switch
+             of the cluster.  The address is formatted according to the
+             corresponding value of ccStatusCommanderTDomain.
+
+             For snmpUDPDomain, a TAddress is 6 octets long, the
+             initial 4 octets containing the IP-address in network-byte
+             order and the last 2 containing the UDP port in network-byte
+             order. Consult 'Transport Mappings for Version 2 of the
+             Simple Network Management Protocol' (RFC 1906) for further
+             information on snmpUDPDomain."
+    ::= { ccStatus 4 }
+
+ccStatusCommanderMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The management MAC address of the command switch of the
+             cluster."
+    ::= { ccStatus 5 }
+
+ccStatusTimeOfLastChange OBJECT-TYPE
+    SYNTAX        TimeStamp
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+            "The value of sysUpTime on the command switch when
+             the last time the value of an instance of ccMemberOperStatus
+             changed.  The value 0 indicates that no member's status
+             has ever changed since commander system initialization."
+    DEFVAL   { 0 }
+    ::= { ccStatus 6 }
+
+ccStatusLastNMSAddMemberTDomain OBJECT-TYPE
+    SYNTAX      TDomain
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Indicates the kind of transport service used by the
+             the last NMS tried to add a member to the cluster."
+    ::= { ccStatus 7 }
+
+ccStatusLastNMSAddMemberTAddress OBJECT-TYPE
+    SYNTAX      TAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The transport service address of the last NMS which
+             tried to add a member to the cluster.  The address is
+             formatted according to the corresponding value of
+             ccStatusLastNMSAddMemberTDomain."
+    ::= { ccStatus 8 }
+
+ccStatusLastFailureAddMember OBJECT-TYPE
+    SYNTAX      INTEGER {
+                           none(1),
+                           password(2),
+                           overmax(3),
+                           noncandidate(4),
+                           memberNumberInUse(5),
+                           unreachable(6)
+                        }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+            "The reason why the last NMS was unable to add a switch
+             to be a member of the cluster.
+
+             password:  The member has an enable password configured.
+
+             overmax:   Adding the member exceeds the maximum number of
+                        cluster members supported by the command switch.
+                        See ccStatusMaxNumberOfMembers.
+
+             noncandidate:  The member is not a candidate switch, or it
+                            does not show up in the candidate table.
+
+             memberNumberInUse:  The member number is used by an existing
+                                 member in the cluster.
+
+             unreachable:   The member is a candidate but is unreachable or
+                            has no connectivity."
+    ::= { ccStatus 9 }
+
+ccStatusMaxNumberOfMembers OBJECT-TYPE
+    SYNTAX        Unsigned32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+            "The maximum number of cluster members allowed in the
+             cluster.  The command switch is considered as a cluster
+             member also."
+    ::= { ccStatus 10 }
+
+ccStatusMemberOrder OBJECT-TYPE
+    SYNTAX        SnmpAdminString
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+            "The suggested order in which the cluster members are
+             displayed in network management applications.  The
+             format of the string is n1,n2,n3,n4, ..., where
+              is any valid member number in the cluster.  The
+             member numbers are separated by commas with no spaces
+             in between.  An example of the object's value is
+             '3,8,14,0,2' for a cluster containing member numbers
+             0, 2, 3, 8, and 14."
+    DEFVAL       { "" }
+    ::= { ccStatus 11 }
+
+--           The Cluster Member Table
+
+ccMemberTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CcMemberEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+            "This table contains one row per cluster member,
+            including the command switch."
+    ::= { ccMember 1 }
+
+ccMemberEntry OBJECT-TYPE
+    SYNTAX      CcMemberEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+            "An entry containing cluster management information
+            applicable to a particular cluster member."
+    INDEX { ccMemberMacAddress }
+    ::= { ccMemberTable 1 }
+
+CcMemberEntry ::=
+      SEQUENCE {
+               ccMemberMacAddress                MacAddress,
+               ccMemberNumber                    Unsigned32,
+               ccMemberOperStatus                INTEGER,
+               ccMemberEntityLogicalIndex        Integer32,
+               ccMemberRowStatus                 RowStatus
+      }
+
+ccMemberMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+            "The management MAC address of the member device."
+    ::= { ccMemberEntry 1 }
+
+ccMemberNumber OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+            "An arbitrary value which uniquely identifies the
+             cluster member switch number. It ranges from 1 to
+             ccStatusMaxNumberOfMembers."
+    ::= { ccMemberEntry 2 }
+
+ccMemberOperStatus OBJECT-TYPE
+    SYNTAX      INTEGER {
+                           active(1),
+                           inactive(2)
+                        }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The status of cluster management connectivity between
+             the command switch and a cluster member. Cluster management
+             connectivity is determined by the exchange of cluster
+             management messages between the command switch and a
+             cluster member. A member that has failed to exchange
+             cluster management messages with the command switch is
+             deemed to be inactive. Otherwise, it is deemed to be active."
+    ::= { ccMemberEntry 3 }
+
+ccMemberEntityLogicalIndex OBJECT-TYPE
+    SYNTAX      Integer32 (1..2147483647)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The value of entLogicalIndex in the ENTITY-MIB
+             corresponding to this cluster member. Creating an
+             entry in this table creates a corresponding entry
+             in the entLogicalTable in the ENTITY-MIB."
+    ::= { ccMemberEntry 4 }
+
+ccMemberRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The status of this conceptual row. A device
+         is added to the cluster of a command switch by
+         creating an entry in this table for the device. The
+         devices currently eligible to be added into the
+         cluster are listed in the ccCandidateTable.
+         An attempt to add a new member may fail.  See
+         ccStatusLastFailureAddMember for possible reasons
+         for that failure."
+    ::= { ccMemberEntry 5 }
+
+--           The Cluster Candidate Table
+
+ccCandidateTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CcCandidateEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+            "This table contains one row per cluster candidate,
+             A cluster candidate is a device that is currently
+             eligible to be added to the cluster of a command
+             switch.  A device is eligible if it satisfies the
+             following conditions:
+             1. It supports the cluster management protocol.
+             2. It is directly connected to an existing cluster
+                member.
+
+             The entries in this table and the entries in
+             ccMemberTable are mutually exclusive at all
+             times.  That is, any device that is a cluster
+             member never shows up in the ccCandidateTable
+             or is never a candidate at the same time .  Also, any
+             candidate that shows up in ccCandidateTable should not
+             appear in ccMemberTable."
+    ::= { ccCandidate 1 }
+
+ccCandidateEntry       OBJECT-TYPE
+    SYNTAX      CcCandidateEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+            "An entry pertaining to a single candidate device."
+    INDEX { ccCandidateMacAddress }
+    ::= { ccCandidateTable 1 }
+
+CcCandidateEntry ::= SEQUENCE {
+      ccCandidateMacAddress    MacAddress
+}
+
+ccCandidateMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The MAC address of a device qualified to
+             to be a cluster member of the command switch
+             cluster."
+    ::= { ccCandidateEntry 1 }
+
+-- Notifications
+
+ciscoClusterMIBNotificationsPrefix OBJECT IDENTIFIER
+            ::= { ciscoClusterMIB 2 }
+ciscoClusterMIBNotifications OBJECT IDENTIFIER
+            ::= { ciscoClusterMIBNotificationsPrefix 0 }
+
+ccStatusMemberStatusChange NOTIFICATION-TYPE
+    OBJECTS     { ccMemberOperStatus }
+    STATUS      current
+    DESCRIPTION
+          " A cluster member status change notification
+            is generated whenever the value of any instance
+            of ccClusterMemberOperStatus changes after the
+            member is completely added to the cluster."
+    ::= { ciscoClusterMIBNotifications 1 }
+
+-- Conformance Information
+
+ciscoClusterMIBConformance OBJECT IDENTIFIER ::= { ciscoClusterMIB 3 }
+ciscoClusterMIBCompliances OBJECT IDENTIFIER
+            ::= { ciscoClusterMIBConformance 1 }
+ciscoClusterMIBGroups      OBJECT IDENTIFIER
+            ::= { ciscoClusterMIBConformance 2 }
+
+-- Compliance statements
+
+ciscoClusterCompliance MODULE-COMPLIANCE
+    STATUS  deprecated
+    DESCRIPTION
+            "The compliance statement for the CLUSTER MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { ciscoClusterStatusGroup,
+                       ciscoClusterMemberStatusGroup,
+                       ciscoClusterMemberGroup,
+                       ciscoClusterCandidateGroup }
+    ::= { ciscoClusterMIBCompliances 1 }
+
+ciscoClusterComplianceRev1 MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+            "The compliance statement for the CLUSTER MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { ciscoClusterStatusGroup,
+                       ciscoClusterMemberStatusGroup,
+                       ciscoClusterMemberGroup,
+                       ciscoClusterCandidateGroup,
+                       ciscoClusterNotificationGroup }
+    ::= { ciscoClusterMIBCompliances 2 }
+
+-- MIB groupings
+
+ciscoClusterStatusGroup  OBJECT-GROUP
+    OBJECTS {
+             ccStatusTimeOfLastChange,
+             ccStatusLastNMSAddMemberTAddress,
+             ccStatusLastNMSAddMemberTDomain,
+             ccStatusLastFailureAddMember,
+             ccStatusMaxNumberOfMembers,
+             ccStatusMemberOrder
+            }
+    STATUS  current
+    DESCRIPTION
+            "The collection of objects which are used to represent
+             the status of the cluster.  These objects are accessible
+             on the command switch."
+    ::= { ciscoClusterMIBGroups 1 }
+
+ciscoClusterMemberStatusGroup OBJECT-GROUP
+    OBJECTS {
+             ccStatusClusterName,
+             ccStatusClusterMode,
+             ccStatusCommanderTDomain,
+             ccStatusCommanderTAddress,
+             ccStatusCommanderMacAddress
+            }
+    STATUS  current
+    DESCRIPTION
+            "The collection of objects which are used to represent
+             the status of the cluster.  These objects are accessible
+             on the cluster members and the command switch."
+    ::= { ciscoClusterMIBGroups 2 }
+
+ciscoClusterMemberGroup    OBJECT-GROUP
+    OBJECTS {
+             ccMemberOperStatus,
+             ccMemberNumber,
+             ccMemberEntityLogicalIndex,
+             ccMemberRowStatus
+            }
+    STATUS  current
+    DESCRIPTION
+            "The collection of objects which are used to represent
+             the members of a cluster.  These objects are accessible
+             on the command switch only."
+    ::= { ciscoClusterMIBGroups 3 }
+
+ciscoClusterCandidateGroup    OBJECT-GROUP
+    OBJECTS {
+             ccCandidateMacAddress
+            }
+    STATUS  current
+    DESCRIPTION
+            "The collection of objects which are used to represent
+             cluster candidates.  These objects are accessible
+             on the command switch only."
+    ::= { ciscoClusterMIBGroups 4 }
+
+ciscoClusterNotificationGroup    NOTIFICATION-GROUP
+    NOTIFICATIONS {
+                   ccStatusMemberStatusChange
+                  }
+    STATUS  current
+    DESCRIPTION
+            "The collection of notifications defined for the cluster
+            candidates."
+    ::= { ciscoClusterMIBGroups 5 }
+
+END
+
+ 

@@ -1,0 +1,463 @@
+-- *********************************************************************
+-- CISCO-ETHERNET-FABRIC-EXTENDER-MIB.my: Fabric Extender mib
+--   
+-- February 2009, Pauline Shuen
+--   
+-- Copyright (c) 2009 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *********************************************************************
+
+CISCO-ETHERNET-FABRIC-EXTENDER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    RowStatus,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InterfaceIndex
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoEthernetFabricExtenderMIB MODULE-IDENTITY
+    LAST-UPDATED    "200902230000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+            Tel: +1 800 553 -NETS
+            E-mail: cs-nexus5000@cisco.com"
+    DESCRIPTION
+        "The MIB module for configuring one or more fabric
+        extenders to connect into a core switch.  Since fabric 
+        extenders might not be manageable entities, this MIB is
+        assumed to be instrumented on the core switch.  A fabric
+        extender may be hardwired or preconfigured with a list of 
+        uplink ports.  These uplink ports are used to connect to a 
+        core switch.  A fabric extender is assumed to be directly 
+        connected to its core switch. Each physical interface on 
+        the core switch is assumed to be connected to one and only
+        one fabric extender.  
+
+        When an extender powers up, it runs a link local discovery 
+        protocol to find core switches.  The extender puts all 
+        available self identification in its discovery report.  
+        The core switch, depending on configuration, uses the 
+        extenders identification to accept or deny an extender 
+        from connecting. A fabric extender may be connected to 
+        different core switches via different uplink ports. In 
+        that case, each core switch's instance of the MIB may 
+        refer to the same extender.
+
+        Ports on core switch used to connect to extenders
+        are known as Fabric ports.  A fabric port may be a physical
+        interface or a logical interface such as an EtherChannel.
+        An extender may connect into a core switch via more than 
+        one fabric port.  Non fabric ports on an extender are 
+        typically used to connect hosts/servers."
+    REVISION        "200902230000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 691 }
+
+
+ciscoEthernetFabricExtenderMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoEthernetFabricExtenderMIB 0 }
+
+ciscoEthernetFabricExtenderObjects  OBJECT IDENTIFIER
+    ::= { ciscoEthernetFabricExtenderMIB 1 }
+
+ciscoEthernetFabricExtenderMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoEthernetFabricExtenderMIB 2 }
+
+cefexConfig  OBJECT IDENTIFIER
+    ::= { ciscoEthernetFabricExtenderObjects 1 }
+
+
+-- Textual Conventions
+
+CiscoPortPinningMode ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This denotes the mode of re-pinning. Re-pinning defines
+        how traffic forwarding is altered between fabric extender
+        and its core switch in case of a fabric port state change. 
+
+        For fabric extenders that do not support local forwarding, 
+        they do not perform normal address learning and forwarding
+        as a traditional 802.1d compliant bridge. A method named
+        'pinning' is used instead to dictate forwarding behavior.
+        That means, traffic from a specific non fabric port is always 
+        forwarded to its pinned fabric port (no local forwarding).
+
+        Each non fabric port is 'pinned' to one of the fabric ports. 
+        Load balancing aspects affecting pinned fabric port 
+        selection is dictated by internal implementation.
+
+        If a particular fabric port fails, all the non fabric ports 
+        pinned to the failed fabric port may need to be moved to
+        the remaining fabric ports, if any.
+
+        Note that traffic distribution within a fabric EtherChannel
+        does not utilize the 'pinning' method.  The traditional hash 
+        of MAC address, IP address and TCP/UDP port is used to
+        select fabric port within a fabric EtherChannel.
+
+        It is planned that more enumeration will be introduced in 
+        subsequent updates.
+
+            static(1)  - If this mode is chosen, non fabric ports
+                         are not re-pinned to other fabric ports in 
+                         case of fabric port failure."
+    SYNTAX          INTEGER  {
+                        static(1)
+                    }
+-- Per Interface Core Switch Table
+
+cefexBindingTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CefexBindingEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table has the binding information of a
+        'Fabric Port' to 'Fabric Extender' on a 
+        'Extender Core Switch'.  Each entry in this table 
+        configures one fabric port.  
+
+        A core switch does not accept fabric extender 
+        connections into its fabric ports unless the
+        extender matches an entry in this table.  Once matched,
+        the extender is identified by the instances of the
+        cefexBindingExtenderIndex in the matching row.
+
+        The matching criteria and values to match for 
+        each fabric extender are specified in a row in the
+        cefexConfigTable.  Each row in the cefexConfigTable 
+        is indexed by cefexBindingExtenderIndex.  Each row
+        in this table has an unique cefexBindingExtenderIndex
+        value, therefore, providing the linkage between
+        the two tables. 
+
+        It is expected that user first creates a row in
+        the cefexConfigTable for a specific cefexBindingExtenderIndex,
+        followed by creation of the corresponding row in
+        this table for the same cefexBindingExtenderIndex..
+        If a row in this table is created and if there is
+        no corresponding row created in the cefexConfigTable, 
+        then the agent will automatically create a row in the 
+        cefexConfigTable with instance of every object in this
+        row initialized to the DEFVAL."
+    ::= { cefexConfig 1 }
+
+cefexBindingEntry OBJECT-TYPE
+    SYNTAX          CefexBindingEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "There is one entry in this table for each core switch
+        Interface that can be connected to an uplink interface 
+        of a fabric extender."
+    INDEX           { cefexBindingInterfaceOnCoreSwitch } 
+    ::= { cefexBindingTable 1 }
+
+CefexBindingEntry ::= SEQUENCE {
+        cefexBindingInterfaceOnCoreSwitch InterfaceIndex,
+        cefexBindingExtenderIndex         Unsigned32,
+        cefexBindingCreationTime          TimeStamp,
+        cefexBindingRowStatus             RowStatus
+}
+
+cefexBindingInterfaceOnCoreSwitch OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object is the index that uniquely identifies an entry in
+        the cefexBindingTable.  The value of this object is an IfIndex
+        to a fabric port.  By creating a row in this table for 
+        a particular core switch interface, the user enables that 
+        core switch interface to accept a fabric extender. By default, 
+        a core switch interface does not have an entry in this table 
+        and consequently does not accept/respond to discovery 
+        requests from fabric extenders." 
+    ::= { cefexBindingEntry 1 }
+
+cefexBindingExtenderIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (100..999)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value of cefexBindingExtenderIndex used as an
+        Index into the cefexConfigTable to select the Fabric
+        Extender configuration for this binding entry.  However,
+        a value in this table does not imply that an instance with
+        this value exists in the cefexConfigTable.
+
+        If an entry corresponding to the value of this object does
+        not exist in cefexConfigTable, the system default behavior
+        (using DEFVAL values for all the configuration objects as
+        defined in cefexConfigTable) of the Fabric Extender is 
+        used for this binding entry.
+
+        Since an extender may connect to a core switch via
+        multiple interfaces or fabric ports, it is important all 
+        the binding entries configuring the same fabric extender 
+        are configured with the same extender Index.  Every 
+        interface on different fabric extender connecting into
+        the same core switch is differentiated by its extender id. 
+        To refer to a port on the extender, an example 
+        representation may be extender/slot/port.  Extender id 
+        values 1-99 are reserved. For example, reserved values can
+        be used to identify the core switch and its line cards in 
+        the extender/slot/port naming scheme.
+
+        cefexBindingExtenderIndex identifies further attributes
+        of a fabric extender via the cefexConfigTable.  A user
+        may choose to identify a fabric extender by
+        specifying its value of cefexConfigExtendername and/or
+        other attributes." 
+    ::= { cefexBindingEntry 2 }
+
+cefexBindingCreationTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The timestamp of this entry's creation time." 
+    ::= { cefexBindingEntry 3 }
+
+cefexBindingRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row." 
+    ::= { cefexBindingEntry 4 }
+ 
+
+-- Per Fabric Extender Configuration Table
+
+cefexConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CefexConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table facilitates configuration applicable
+        to an entire fabric extender."
+    ::= { cefexConfig 2 }
+
+cefexConfigEntry OBJECT-TYPE
+    SYNTAX          CefexConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "There is one entry in this table for each fabric
+        extender configured on the core switch."
+    INDEX           { cefexBindingExtenderIndex } 
+    ::= { cefexConfigTable 1 }
+
+CefexConfigEntry ::= SEQUENCE {
+        cefexConfigExtenderName        SnmpAdminString,
+        cefexConfigSerialNumCheck      TruthValue,
+        cefexConfigSerialNum           SnmpAdminString,
+        cefexConfigPinningFailOverMode CiscoPortPinningMode,
+        cefexConfigPinningMaxLinks     Unsigned32,
+        cefexConfigCreationTime        TimeStamp,
+        cefexConfigRowStatus           RowStatus
+}
+
+cefexConfigExtenderName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a human readable string representing
+        the name of the 'Extender'. Note that default value of
+        this object will be the string 'FEXxxxx' where xxxx is 
+        value of cefexBindingExtenderIndex expressed as 4 digits. 
+        For example, if cefexBindingExtenderIndex is 123, the 
+        default value of this object is 'FEX0123'. This object 
+        allows the user to identify the extender with an 
+        appropriate name." 
+    ::= { cefexConfigEntry 1 }
+
+cefexConfigSerialNumCheck OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the serial number check is
+        enabled for this extender or not.  If the value of this
+        object is 'true', then the core switch rejects any 
+        extender except for the one with serial
+        number string specified by cefexConfigSerialNum.  
+        If the value of this object is 'false', then the core 
+        switch accept any extender."
+    DEFVAL          { false } 
+    ::= { cefexConfigEntry 2 }
+
+cefexConfigSerialNum OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object allows the user to identify a fabric
+        extender's Serial Number String.  This object is
+        relevant if cefexBindingSerialNumCheck is true.
+        Zero is not a valid length for this object
+        if cefexBindingSerialNumCheck is true."
+    DEFVAL          { "" } 
+    ::= { cefexConfigEntry 3 }
+
+cefexConfigPinningFailOverMode OBJECT-TYPE
+    SYNTAX          CiscoPortPinningMode
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object allows the user to identify the
+        fabric port failure handling method when pinning 
+        is used."
+    DEFVAL          { static } 
+    ::= { cefexConfigEntry 4 }
+
+cefexConfigPinningMaxLinks OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object allows the user to identify number of
+        fabric ports to be used in distribution of pinned
+        non fabric ports.  As described above, pinning is the
+        forwarding model used for fabric extenders
+        that do not support local forwarding.  Traffic
+        from a non fabric port is forwarded to one
+        fabric port.  Selection of non fabric port pinning
+        to fabric ports is distributed as evenly as 
+        possible across fabric ports.  This object 
+        allows administrator to configure number
+        of fabric ports that should be used 
+        for pinning non fabric ports."
+    DEFVAL          { 1 } 
+    ::= { cefexConfigEntry 5 }
+
+cefexConfigCreationTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The timestamp when the value of the corresponding
+        instance of 'cefexConfigRowStatus' is made active.
+        If an user modifies objects in this table,
+        the new values are immediately activated. 
+        Depending on the object changed, an accepted 
+        fabric extender may become not acceptable.
+        As a result, the fabric extender may be 
+        disconnected from the core switch." 
+    ::= { cefexConfigEntry 6 }
+
+cefexConfigRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row. A row in this
+        table becomes active immediately upon creation." 
+    ::= { cefexConfigEntry 7 }
+ 
+
+-- Conformance
+
+cEthernetFabricExtenderMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoEthernetFabricExtenderMIBConformance 1 }
+
+cEthernetFabricExtenderMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoEthernetFabricExtenderMIBConformance 2 }
+
+
+cEthernetFabricExtenderMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-ETHERNET-FABRIC-EXTENDER-MIB mib."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cefexBindingConformanceObjects }
+
+    OBJECT          cefexBindingExtenderIndex
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write access is not required."
+
+    OBJECT          cefexBindingRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write access is not required."
+
+    OBJECT          cefexConfigExtenderName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write access is not required."
+
+    OBJECT          cefexConfigSerialNum
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write access is not required."
+
+    OBJECT          cefexConfigPinningFailOverMode
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write access is not required."
+
+    OBJECT          cefexConfigPinningMaxLinks
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write access is not required."
+
+    OBJECT          cefexConfigRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write access is not required."
+
+    OBJECT          cefexConfigSerialNumCheck
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write access is not required."
+    ::= { cEthernetFabricExtenderMIBCompliances 1 }
+
+-- Units of Conformance
+
+cefexBindingConformanceObjects OBJECT-GROUP
+    OBJECTS         {
+                        cefexBindingExtenderIndex,
+                        cefexBindingCreationTime,
+                        cefexBindingRowStatus,
+                        cefexConfigExtenderName,
+                        cefexConfigSerialNumCheck,
+                        cefexConfigSerialNum,
+                        cefexConfigPinningFailOverMode,
+                        cefexConfigPinningMaxLinks,
+                        cefexConfigCreationTime,
+                        cefexConfigRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related to Fabric Extender binding
+        to core switch."
+    ::= { cEthernetFabricExtenderMIBGroups 1 }
+
+END
+

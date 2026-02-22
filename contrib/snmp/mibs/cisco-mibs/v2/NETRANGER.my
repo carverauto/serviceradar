@@ -1,0 +1,390 @@
+NETRANGER DEFINITIONS ::= BEGIN
+
+--
+--  NetRanger trap definitions
+--
+--  EDIT THIS FILE AT YOUR OWN RISK.
+--  No changes to this file are supported.
+-- 
+--  Copyright 1996-1998, WheelGroup Corporation
+--  All rights reserved
+--
+
+IMPORTS
+        enterprises, NetworkAddress, IpAddress, Counter, Gauge,
+                TimeTicks
+            FROM RFC1155-SMI
+        OBJECT-TYPE
+            FROM RFC-1212
+        DisplayString
+            FROM RFC1213-MIB;
+
+wheelgroup      OBJECT IDENTIFIER ::= { enterprises 2252 }
+
+securityMgmt    OBJECT IDENTIFIER ::= { wheelgroup 1 }
+networkMgmt     OBJECT IDENTIFIER ::= { wheelgroup 3 }
+
+system          OBJECT IDENTIFIER ::= { networkMgmt 1 }
+ip              OBJECT IDENTIFIER ::= { networkMgmt 3 }
+snmp            OBJECT IDENTIFIER ::= { networkMgmt 5 }
+
+netranger       OBJECT IDENTIFIER ::= { securityMgmt 1 }
+autospa         OBJECT IDENTIFIER ::= { securityMgmt 3 }
+
+nrTrapVars      OBJECT IDENTIFIER ::= { netranger 1 }
+services        OBJECT IDENTIFIER ::= { netranger 3 }
+general         OBJECT IDENTIFIER ::= { netranger 5 }
+
+postoffice      OBJECT IDENTIFIER ::= { services 0 }
+sensor          OBJECT IDENTIFIER ::= { services 1 }
+config          OBJECT IDENTIFIER ::= { services 2 }
+manage          OBJECT IDENTIFIER ::= { services 3 }
+event           OBJECT IDENTIFIER ::= { services 4 }
+logger          OBJECT IDENTIFIER ::= { services 5 }
+smi             OBJECT IDENTIFIER ::= { services 6 }
+sap             OBJECT IDENTIFIER ::= { services 7 }
+packet          OBJECT IDENTIFIER ::= { services 8 }
+commonServices  OBJECT IDENTIFIER ::= { services 9 }
+
+commonVars      OBJECT IDENTIFIER ::= { nrTrapVars 0 }
+command         OBJECT IDENTIFIER ::= { nrTrapVars 1 }
+error           OBJECT IDENTIFIER ::= { nrTrapVars 2 }
+commandLog      OBJECT IDENTIFIER ::= { nrTrapVars 3 }
+alarm           OBJECT IDENTIFIER ::= { nrTrapVars 4 }
+ipLog           OBJECT IDENTIFIER ::= { nrTrapVars 5 }
+redirect        OBJECT IDENTIFIER ::= { nrTrapVars 6 }
+
+addressing      OBJECT IDENTIFIER ::= { alarm 1 }
+tcpip           OBJECT IDENTIFIER ::= { addressing 1 }
+
+--
+-- NetRanger trap variables
+--
+-- These objects cannot be retrieved from the SNMP Agent, but
+-- instead document the objects sent with NetRanger SNMP traps
+--
+
+--
+-- Objects common to all NetRanger messages.
+--
+
+messageType OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Identifies the type of message (trap) being sent.
+
+                 Type types are: 
+                 1) command
+                 2) error
+                 3) command log
+                 4) alarm
+                 5) IP log
+                 6) redirect
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { commonVars 1 }
+
+recordId OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "An ID that is used along with a timestamp, org, host,
+                 and application ID to uniquiely identify a message
+                 (trap).
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { commonVars 2 }
+
+globalTime OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The time at which the message was generated, expressed
+                 in number of seconds since the epoch (Jan 1, 1970),
+                 with respect to GMT.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { commonVars 3 }
+
+localTime OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The time at which the message was generated, expressed
+                 in number of seconds since the epoch (Jan 1, 1970),
+                 with respect to the timezone local to the machine
+                 that generated the message.  The combination of the
+                 globalTime and the localTime can be used to calculate
+                 the timezone of the source machine.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { commonVars 4 }
+
+dateString OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The date at which the message was generated, with respect
+                 to the timezone of the source machine, expressed as an 
+                 ASCII string in the format yyyy/mm/dd. 
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { commonVars 5 }
+
+timeString OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The time at which the message was generated, with respect
+                 to the timezone of the source machine, expressed as an
+                 ASCII string in the format hh:mm:ss.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { commonVars 6 }
+
+appId OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The application ID of the NetRanger application that
+                 generated the message.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { commonVars 7 }
+
+hostId OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The host ID of the machine running the NetRanger
+                 application that generated the message.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { commonVars 8 }
+
+orgId OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "An ID that uniquely identifies the organization responsible
+                 for the machine running the NetRanger application that 
+                 generated the message.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { commonVars 9 }
+
+--
+-- Objects for Errors
+--
+
+errorMessage OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Describes the error that occurred.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { error 1 }
+
+--
+-- Objects for CommandLogs
+--
+
+sourceAppId OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The application ID of the NetRanger application that
+                 executed the command.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { commandLog 1 }
+
+sourceHostId OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The host ID of the machine running the NetRanger
+                 application that executed the command.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { commandLog 2 }
+
+sourceOrgId OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "An ID that uniquely identifies the organization responsible
+                 for the machine running the NetRanger application that
+                 generated the command.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { commandLog 3 }
+
+commandMessage OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Describes the command that was executed.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { commandLog 4 }
+
+--
+-- Objects for Alarms
+--
+
+srcDirection OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Describes whether the source of the alarm is inside or 
+                 outside the protected network.  IN means inside, and OUT
+                 means outside.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { alarm 3 }
+
+dstDirection OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Describes whether the destination of the alarm (the
+                 machine being attacked) is inside or outside the 
+                 protected network.  IN means inside, and OUT means
+                 outside.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { alarm 5 }
+
+eventLevel OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "An integer that reflects the severity level of the alarm.
+                 The number can range from 1 to 255, but the current 
+                 NetRanger system only uses 1 (least severe) to 5
+                 (most severe).
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { alarm 7 }
+
+sigId OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Describes which signature was detected.  The full list
+                 of signatures can be found on a NetRanger system at
+                 /usr/nr/etc/signatures.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { alarm 9 }
+
+subSigId OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Provides additional information about an alarm signature.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { alarm 11 }
+
+protocol OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Describes the protocol of the attack that was detected.
+                 Usually, this will be TCP/IP.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { alarm 13 }
+
+srcIpAddr OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The IP address of the machine from which the attack
+                 originated.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { tcpip 1 }
+
+dstIpAddr OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The IP address of the machine being attacked.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { tcpip 3 }
+
+srcIpPort OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The port from which the attack originated.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { tcpip 5 }
+
+dstIpPort OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The port that received the attack on the destination
+                 machine.  This value may not have significance for
+                 signatures that involve multiple ports (for example,
+                 a port sweep).
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { tcpip 7 }
+
+rtrIpAddr OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The IP address of the router through which the attack
+                 traveled.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { tcpip 9 }
+
+alarmMessage OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "ASCII string that provides additional information about
+                 an alarm.  For instance, this field gives the exact string
+                 that was matched during a string match alarm.
+
+                 This object cannot be retrieved from the SNMP agent."
+        ::= { alarm 15 }
+
+END

@@ -1,0 +1,1147 @@
+-- MIB file created 17-Apr-2003 19:28:36, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CSG-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CSG-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowStatus, TimeInterval
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress, InetPortNumber
+            FROM INET-ADDRESS-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoCsgMIB OBJECT IDENTIFIER ::= { ciscoMgmt 331 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200302200000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--            Cisco Systems
+--             Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       tel: +1 800 553-NETS
+--    
+--    E-Mail: cs-csg@cisco.com
+--  Descr
+--    This MIB supports the Cisco Content Services Gateway 
+--    (CSG) product. It includes five traps and four tables 
+--    that enable querying CSG resource statistics.
+--  RevDate
+--    200302200000Z
+--  RevDescr
+--    Initial version of this MIB module.
+--    
+--    Abbreviations:
+--    
+--       CSG        Content Services Gateway.
+--    
+--       BMA        Billing Mediation Agent. A BMA is the
+--                  server that receives accounting records 
+--                  from a CSG.
+--               
+--       QuotaMgr   Quota Manager. This is a server that
+--                  receives requests from a CSG and returns 
+--                  a billing quota for prepaid billing 
+--                  charges.
+--    
+--       User Table This table contains the
+--                  userid and other information about
+--                  active users on whose behalf accounting
+--                  records are being generated. 
+--             
+--       UDB        User Database. The user database is a 
+--                  service that translates a client IP 
+--                  address into a user identifier.
+
+ciscoCsgMIBNotifs OBJECT IDENTIFIER ::= { ciscoCsgMIB 0 }
+ciscoCsgMIBObjects OBJECT IDENTIFIER ::= { ciscoCsgMIB 1 }
+ciscoCsgMIBConform OBJECT IDENTIFIER ::= { ciscoCsgMIB 2 }
+csgScalars      OBJECT IDENTIFIER ::= { ciscoCsgMIBObjects 1 }
+csgUserStats    OBJECT IDENTIFIER ::= { ciscoCsgMIBObjects 2 }
+csgUserDataBaseStats OBJECT IDENTIFIER ::= { ciscoCsgMIBObjects 3 }
+csgAgentStats   OBJECT IDENTIFIER ::= { ciscoCsgMIBObjects 4 }
+csgQuotaMgrStats OBJECT IDENTIFIER ::= { ciscoCsgMIBObjects 5 }
+csgNotifsEnable OBJECT IDENTIFIER ::= { ciscoCsgMIBObjects 6 }
+ciscoCsgMIBCompliances OBJECT IDENTIFIER ::= { ciscoCsgMIBConform 1 }
+ciscoCsgMIBGroups OBJECT IDENTIFIER ::= { ciscoCsgMIBConform 2 }
+
+CsgSlotNumber ::= INTEGER(1..255)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The card (slot) number of the CSG line card
+--    within the host switch. CSG line cards cannot
+--    occupy slot 0.
+
+CsgEntityName ::= OCTET STRING(SIZE(1..15))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Name of a CSG entity. The CSG entities 
+--     are 'user-group' and 'accounting'. 
+--     
+--     The CsgEntityName is supported as octet string 
+--     containing administrative information in human-readable 
+--     form.
+--     
+--     The use of control codes should be avoided.
+--    
+--     The use of newline should be avoided.
+--    
+--     The use of leading or trailing white space should
+--     be avoided.
+
+CsgServerPriority ::= INTEGER(1..1000)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This convention applies to CSG billing mediation agents
+--    and quota managers. When multiple servers of the same
+--    type are defined, the priority defines the order of
+--    activation of the servers. The lowest priority value
+--    designates the highest priority.
+
+CsgUserTableUpperBound ::= Gauge(0..10000000)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Upper bound on the number of entries in the user table.
+
+csgAgentLostRecordTimer OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The time interval for monitoring the lost-record
+        event (ciscoCsgAgentLostRecordEvent) of a billing
+        mediation agent (BMA). A notification is issued when
+        the CSG detects a lost BMA record. An interval timer is 
+        started with this value. When the timer expires the
+        lost record count (csgAgentLostRecords) is checked. 
+        If the lost record count has increased since the
+        previous the detection, the timer is restarted to
+        monitor another period. If the lost record count
+        has not increased since the previous detection,
+        a final notification is sent to indicate that the
+        condition has cleared."
+    DEFVAL { 60 }
+    ::= { csgScalars 1 }
+
+csgQuotaMgrLostRecordTimer OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The time interval for monitoring the lost-record
+        event (ciscoCsgQuotaMgrLostRecordEvent) of a quota
+        manager. A notification is issued when the CSG
+        detects a lost quota manager record. An interval timer is 
+        started with this value. When the timer expires the
+        lost record count (csgQuotaMgrLostRecords) is checked. 
+        If the lost record count has increased since the
+        previous the detection, the timer is restarted to
+        monitor another period. If the lost record count
+        has not increased since the previous detection,
+        a final notification is sent to indicate that the
+        condition has cleared."
+    DEFVAL { 60 }
+    ::= { csgScalars 2 }
+
+csgUserTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsgUserTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of User statistics. Columnar objects can be modified
+        when the row is 'active'. Rows can be created and destroyed.
+        Entries are added to this table via csgUserRowStatus in 
+        accordance with the RowStatus convention."
+    ::= { csgUserStats 1 }
+
+csgUserTableEntry OBJECT-TYPE
+    SYNTAX CsgUserTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry that defines parameters for the User Table."
+    INDEX { csgUserCardId, csgUserGroupName }
+    ::= { csgUserTable 1 }
+
+CsgUserTableEntry ::= SEQUENCE {
+    csgUserCardId CsgSlotNumber,
+    csgUserGroupName CsgEntityName,
+    csgUserMaxEntries CsgUserTableUpperBound,
+    csgUserCurrEntries Gauge,
+    csgUserHighWater CsgUserTableUpperBound,
+    csgUserLRUSteals Counter,
+    csgUserRowStatus RowStatus
+    }
+
+csgUserCardId OBJECT-TYPE
+    SYNTAX CsgSlotNumber
+--    Rsyntax INTEGER(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The slot number in the host switch in which the CSG card
+        is inserted. This object is part of the index in all tables."
+    ::= { csgUserTableEntry 1 }
+
+csgUserGroupName OBJECT-TYPE
+    SYNTAX CsgEntityName
+--    Rsyntax OCTET STRING(SIZE(1..15))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Name of associated user-group. This object is part of the 
+        index of this table and the csgUserDbTable."
+    ::= { csgUserTableEntry 2 }
+
+csgUserMaxEntries OBJECT-TYPE
+    SYNTAX CsgUserTableUpperBound
+--    Rsyntax Gauge(0..10000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum User Table entries."
+    ::= { csgUserTableEntry 3 }
+
+csgUserCurrEntries OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current number of user table entries."
+    ::= { csgUserTableEntry 4 }
+
+csgUserHighWater OBJECT-TYPE
+    SYNTAX CsgUserTableUpperBound
+--    Rsyntax Gauge(0..10000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Highest number of entries inserted into User Table.
+        The only write operation allowed is to reset the value to 0."
+    DEFVAL { 0 }
+    ::= { csgUserTableEntry 5 }
+
+csgUserLRUSteals OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of User Table entries acquired from LRU list.
+        When the User Table becomes full and a new user is detected,
+        the least recently used User Table entry is allocated
+        to the new user."
+    ::= { csgUserTableEntry 6 }
+
+csgUserRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used by the manager to create
+         or delete the row entry in the csgUserTable
+         following the RowStatus textual convention.
+         
+         If this row is deleted, then accounting records
+         subsequently generated by the associated CSG line
+         card (identified by csgUserCardId) will not contain
+         user information."
+    ::= { csgUserTableEntry 7 }
+
+csgUserDbTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsgUserDbTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of user databases. Rows can be created and destroyed.
+        Entries are added to this table via csgUserDbRowStatus in
+        accordance with the RowStatus convention."
+    ::= { csgUserDataBaseStats 1 }
+
+csgUserDbTableEntry OBJECT-TYPE
+    SYNTAX CsgUserDbTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry that defines parameters for a User Database.
+        The User Database is a server that returns a userid
+        given an IP address received in request."
+    INDEX { csgUserCardId, csgUserGroupName, csgUserDbIpAddrType, csgUserDbIpAddr, csgUserDbPort }
+    ::= { csgUserDbTable 1 }
+
+CsgUserDbTableEntry ::= SEQUENCE {
+    csgUserDbIpAddrType InetAddressType,
+    csgUserDbIpAddr InetAddress,
+    csgUserDbPort InetPortNumber,
+    csgUserDbState INTEGER,
+    csgUserDbRequests Counter,
+    csgUserDbUidsReturned Counter,
+    csgUserDbReqResent Counter,
+    csgUserDbReqTimeouts Counter,
+    csgUserDbReqErrors Counter,
+    csgUserDbRowStatus RowStatus
+    }
+
+csgUserDbIpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Type of IP address of the user database."
+    ::= { csgUserDbTableEntry 1 }
+
+csgUserDbIpAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the user database."
+    ::= { csgUserDbTableEntry 2 }
+
+csgUserDbPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The listening UDP port of the user database."
+    ::= { csgUserDbTableEntry 3 }
+
+csgUserDbState OBJECT-TYPE
+    SYNTAX INTEGER {
+        reset(1),
+        active(2),
+        failed(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "State of the user database.
+          'reset'    - State before the database is determined
+                       to be active.
+          'active'   - The database is available and processing
+                       requests.
+          'failed'   - The database has failed and is not  
+                       processing requests."
+    ::= { csgUserDbTableEntry 4 }
+
+csgUserDbRequests OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of user database requests."
+    ::= { csgUserDbTableEntry 5 }
+
+csgUserDbUidsReturned OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of user identifiers returned."
+    ::= { csgUserDbTableEntry 6 }
+
+csgUserDbReqResent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of database requests resent."
+    ::= { csgUserDbTableEntry 7 }
+
+csgUserDbReqTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of user database requests that have timed out."
+    ::= { csgUserDbTableEntry 8 }
+
+csgUserDbReqErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of errors returned on user database requests."
+    ::= { csgUserDbTableEntry 9 }
+
+csgUserDbRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used by the manager to create
+         or delete the row entry in the csgUserDbTable
+         following the RowStatus textual convention.
+         
+         This row can be deleted regardless of the
+         value of csgUserDbState. Deletion of this row
+         means that the associated database (identified
+         by csgUserDbIpAddr and csgUserDbPort) is no
+         longer available to the associated CSG card.
+         If all csgUserDbTable rows have been deleted
+         for a given CSG card, then other mechanisms,
+         such as intercepting RADIUS flows, may be used to
+         associate a user name with an IP address. If
+         this is not possible, then the user name will
+         be absent from generated accounting records."
+    ::= { csgUserDbTableEntry 10 }
+
+csgAgentTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsgAgentTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of billing mediation agents (BMAs). 
+        Columnar objects can be modified when the row is 'active'.
+        Rows can be created and destroyed. Entries are added to 
+        this table via csgAgentRowStatus in accordance with the 
+        RowStatus convention.
+        
+        At least one BMA is required per CSG line card. Multiple 
+        BMAs can be configured for the purposes of load sharing
+        and redundancy in the event of failure."
+    ::= { csgAgentStats 1 }
+
+csgAgentTableEntry OBJECT-TYPE
+    SYNTAX CsgAgentTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry that defines parameters for a mediation agent."
+    INDEX { csgUserCardId, csgAgentIpAddrType, csgAgentIpAddr, csgAgentPort }
+    ::= { csgAgentTable 1 }
+
+CsgAgentTableEntry ::= SEQUENCE {
+    csgAgentIpAddrType InetAddressType,
+    csgAgentIpAddr InetAddress,
+    csgAgentPort InetPortNumber,
+    csgAgentAcctName CsgEntityName,
+    csgAgentPriority CsgServerPriority,
+    csgAgentState INTEGER,
+    csgAgentLostRecords Counter,
+    csgAgentTotalSent Counter,
+    csgAgentFailAck Counter,
+    csgAgentOutstanding Gauge,
+    csgAgentHighWater Gauge,
+    csgAgentBadRecord Counter,
+    csgAgentRetransmit Counter,
+    csgAgentRowStatus RowStatus
+    }
+
+csgAgentIpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Type of IP address of a BMA."
+    ::= { csgAgentTableEntry 1 }
+
+csgAgentIpAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of a BMA."
+    ::= { csgAgentTableEntry 2 }
+
+csgAgentPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The UDP port of a BMA."
+    ::= { csgAgentTableEntry 3 }
+
+csgAgentAcctName OBJECT-TYPE
+    SYNTAX CsgEntityName
+--    Rsyntax OCTET STRING(SIZE(1..15))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Name of associated accounting service."
+    ::= { csgAgentTableEntry 4 }
+
+csgAgentPriority OBJECT-TYPE
+    SYNTAX CsgServerPriority
+--    Rsyntax INTEGER(1..1000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The activation priority of a BMA. BMAs are activated
+        in highest priority order. If multiple BMAs are active for
+        load sharing, the highest priority BMAs available are 
+        activated. If an active BMA fails, the next highest 
+        priority BMA (in 'standby' state) is activated."
+    ::= { csgAgentTableEntry 5 }
+
+csgAgentState OBJECT-TYPE
+    SYNTAX INTEGER {
+        standby(1),
+        failed(2),
+        active(3),
+        echowait(4),
+        nawait(5),
+        suspended(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "States of a billing mediation agent.
+           'standby'   - The server is prepared to become active.
+           'failed'    - The server has failed to respond to requests.
+           'active'    - The server has been activated to receive
+                         requests.
+           'echowait'  - CSG has sent an echo request to this 
+                         billing mediation agent and is waiting 
+                         for a response.
+           'nawait'    - CSG has sent a node-alive request to this 
+                         billing mediation agent and is waiting
+                         for a response.
+           'suspended' - The server has receive a stop request
+                         from the operator."
+    ::= { csgAgentTableEntry 6 }
+
+csgAgentLostRecords OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of lost records since system initialization
+        or the last time the counter wrapped."
+    ::= { csgAgentTableEntry 7 }
+
+csgAgentTotalSent OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of records sent to the billing mediation
+        agent."
+    ::= { csgAgentTableEntry 8 }
+
+csgAgentFailAck OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of acknowledgments received from the
+        billing mediation agent for which there are no
+        outstanding requests."
+    ::= { csgAgentTableEntry 9 }
+
+csgAgentOutstanding OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current number of messages waiting to be ACKed."
+    ::= { csgAgentTableEntry 10 }
+
+csgAgentHighWater OBJECT-TYPE
+    SYNTAX Gauge(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Highest number of messages waiting for ACKs.
+        The only write operation allowed is to reset the value to 0."
+    DEFVAL { 0 }
+    ::= { csgAgentTableEntry 11 }
+
+csgAgentBadRecord OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bad records received. These are records 
+        in which the CSG detected an error in attempting to
+        decode the contents."
+    ::= { csgAgentTableEntry 12 }
+
+csgAgentRetransmit OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of messages retransmitted to the billing
+        mediation agent."
+    ::= { csgAgentTableEntry 13 }
+
+csgAgentRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used by the manager to create
+         or delete the row entry in the csgAgentTable
+         following the RowStatus textual convention.
+        
+         Deletion of a row makes a BMA (identified by
+         csgAgentIpAddr and csgAgentPort) unavailable to
+         the associated CSG card. At least one BMA must
+         be available to a CSG card. Therefore, deletion
+         of the last BMA is not allowed.
+        
+         This row can be deleted regardless of the value
+         of csgAgentState. Requests queued for the deleted
+         BMA are requeued to another BMA."
+    ::= { csgAgentTableEntry 14 }
+
+csgQuotaMgrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsgQuotaMgrTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of CSG quota managers. Columnar objects can
+        be modified when the row is 'active'. Rows can be created
+        and destroyed. Entries are added to this table via 
+        csgAgentRowStatus in accordance with the RowStatus
+        convention."
+    ::= { csgQuotaMgrStats 1 }
+
+csgQuotaMgrTableEntry OBJECT-TYPE
+    SYNTAX CsgQuotaMgrTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry that defines parameters for a quota manager."
+    INDEX { csgUserCardId, csgQuotaMgrIpAddrType, csgQuotaMgrIpAddr, csgQuotaMgrPort }
+    ::= { csgQuotaMgrTable 1 }
+
+CsgQuotaMgrTableEntry ::= SEQUENCE {
+    csgQuotaMgrIpAddrType InetAddressType,
+    csgQuotaMgrIpAddr InetAddress,
+    csgQuotaMgrPort InetPortNumber,
+    csgQuotaMgrUserGroupName CsgEntityName,
+    csgQuotaMgrPriority CsgServerPriority,
+    csgQuotaMgrState INTEGER,
+    csgQuotaMgrLostRecords Counter,
+    csgQuotaMgrTotalSent Counter,
+    csgQuotaMgrFailAck Counter,
+    csgQuotaMgrOutstanding Gauge,
+    csgQuotaMgrHighWater Gauge,
+    csgQuotaMgrBadRecord Counter,
+    csgQuotaMgrRetransmit Counter,
+    csgQuotaMgrRowStatus RowStatus
+    }
+
+csgQuotaMgrIpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Type IP address of a quota manager."
+    ::= { csgQuotaMgrTableEntry 1 }
+
+csgQuotaMgrIpAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of a quota manager."
+    ::= { csgQuotaMgrTableEntry 2 }
+
+csgQuotaMgrPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The UDP port of a quota manager."
+    ::= { csgQuotaMgrTableEntry 3 }
+
+csgQuotaMgrUserGroupName OBJECT-TYPE
+    SYNTAX CsgEntityName
+--    Rsyntax OCTET STRING(SIZE(1..15))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of associated user-group."
+    ::= { csgQuotaMgrTableEntry 4 }
+
+csgQuotaMgrPriority OBJECT-TYPE
+    SYNTAX CsgServerPriority
+--    Rsyntax INTEGER(1..1000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The priority of a quota manager."
+    ::= { csgQuotaMgrTableEntry 5 }
+
+csgQuotaMgrState OBJECT-TYPE
+    SYNTAX INTEGER {
+        standby(1),
+        failed(2),
+        active(3),
+        echowait(4),
+        nawait(5),
+        suspended(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "States of a quota manager:
+           'standby'   - The QuotaMgr is prepared to become active.
+           'failed'    - The QuotaMgr has failed to respond to
+                         requests.
+           'active'    - The QuotaMgr has been activated to receive
+                         requests.
+           'echowait'  - CSG has sent an echo request to this QuotaMgr
+                         and is waiting for a response.
+           'nawait'    - CSG has sent a node-alive request to this 
+                         QuotaMgr and is waiting for a response. 
+           'suspended' - The QuotaMgr has receive a stop request
+                         from the operator."
+    ::= { csgQuotaMgrTableEntry 6 }
+
+csgQuotaMgrLostRecords OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of lost records since system initialization
+        or the last time the counter wrapped."
+    ::= { csgQuotaMgrTableEntry 7 }
+
+csgQuotaMgrTotalSent OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of records sent to the quota manager."
+    ::= { csgQuotaMgrTableEntry 8 }
+
+csgQuotaMgrFailAck OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of acknowledgments received from the
+        quota manager for which there are no requests."
+    ::= { csgQuotaMgrTableEntry 9 }
+
+csgQuotaMgrOutstanding OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current number of messages waiting to be ACKed."
+    ::= { csgQuotaMgrTableEntry 10 }
+
+csgQuotaMgrHighWater OBJECT-TYPE
+    SYNTAX Gauge(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Highest number of messages waiting for ACKs.
+        The only write operation allowed is to reset the value to 0."
+    DEFVAL { 0 }
+    ::= { csgQuotaMgrTableEntry 11 }
+
+csgQuotaMgrBadRecord OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bad records received. These are records 
+        in which the CSG detected an error in attempting to
+        decode the contents."
+    ::= { csgQuotaMgrTableEntry 12 }
+
+csgQuotaMgrRetransmit OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of messages retransmitted to the billing
+        mediation agent."
+    ::= { csgQuotaMgrTableEntry 13 }
+
+csgQuotaMgrRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used by the manager to create
+         or delete the row entry in the csgQuotaMgrTable
+         following the RowStatus textual convention. 
+        
+         Deletion of a row makes a QuotaMgr (identified by
+         csgQuotaMgrIpAddr and csgQuotaMgrPort) unavailable to
+         the associated CSG card. For the prepaid billing
+         function, at least one QuotaMgr must be available
+         to a CSG card. Therefore, deletion of the last
+         QuotaMgr causes all accounting processing to switch
+         to post-paid billing.
+        
+         This row can be deleted regardless of the value
+         of csgQuotaMgrState. Requests queued for the deleted
+         QuotaMgr are requeued to another QuotaMgr if one is
+         available. If no QuotaMgr is available, processing
+         reverts to post-paid billing."
+    ::= { csgQuotaMgrTableEntry 14 }
+
+csgAgentNotifsEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The CSG Agent notification truth value.
+           'true'  Indicates that all defined notifications
+                   for CSG agents are enabled.
+           'false' Indicates that CSG Agent notification
+                   generation is disabled."
+    DEFVAL { false }
+    ::= { csgNotifsEnable 1 }
+
+csgQuotaNotifsEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The CSG notification truth value.
+           'true'  Indicates that all defined notifications
+                   for quota servers are enabled.
+           'false' Indicates that CSG quota server notifications
+                   generation are disabled."
+    DEFVAL { false }
+    ::= { csgNotifsEnable 2 }
+
+csgDatabaseNotifsEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The CSG notification truth value.
+           'true'  Indicates that all defined notifications
+                   for the CSG database are enabled.
+           'false' Indicates that CSG database notification
+                   generation is disabled."
+    DEFVAL { false }
+    ::= { csgNotifsEnable 3 }
+
+ciscoCsgAgentStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoCsgMIB
+    VARIABLES {
+        csgAgentState, csgAgentLostRecords, csgAgentTotalSent, 
+        csgAgentFailAck, csgAgentOutstanding, csgAgentHighWater, 
+        csgAgentBadRecord, csgAgentRetransmit }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is issued when csgAgentNotifsEnabled
+        is set to 'true', and the billing mediation agent changes
+        state. There is one exception: No notification is issued
+        for state changes involving 'echowait' because this would
+        cause an excessive number of notifications."
+    ::= 1
+
+ciscoCsgQuotaMgrStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoCsgMIB
+    VARIABLES {
+        csgQuotaMgrState, csgQuotaMgrLostRecords, 
+        csgQuotaMgrTotalSent, csgQuotaMgrFailAck, 
+        csgQuotaMgrOutstanding, csgQuotaMgrHighWater, 
+        csgQuotaMgrBadRecord, csgQuotaMgrRetransmit }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is issued when csgQuotaNotifsEnabled
+        is set to 'true', and the quota manager changes state. 
+        There is one exception: No notification is issued for 
+        state changes involving 'echowait' because this would 
+        cause an excessive number of notifications."
+    ::= 2
+
+ciscoCsgUserDbStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoCsgMIB
+    VARIABLES {
+        csgUserDbState, csgUserDbRequests, csgUserDbUidsReturned, 
+        csgUserDbReqResent, csgUserDbReqTimeouts, 
+        csgUserDbReqErrors }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is issued when csgDatabaseNotifsEnabled
+        is set to 'true', and the user database changes state."
+    ::= 3
+
+ciscoCsgAgentLostRecordEvent TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoCsgMIB
+    VARIABLES {
+        csgAgentState, csgAgentLostRecords, csgAgentTotalSent, 
+        csgAgentFailAck, csgAgentOutstanding, csgAgentHighWater, 
+        csgAgentBadRecord, csgAgentRetransmit }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is issued when csgAgentNotifsEnabled
+        is set to 'true', and the CSG must discard accounting 
+        records that should be sent to the billing mediation
+        agent.
+        
+        Initially, csgAgentLostRecords is set to 0.
+        When a record is discarded, csgAgentLostRecords 
+        is incremented, a period timer is started, and this 
+        notification is issued. The NMS and the agent save 
+        this value. The agent continues to increment 
+        csgAgentLostRecords each time a record is lost.  
+        When the period timer expires, the agent compares
+        the current value of csgAgentLostRecords with
+        the previous (saved) value. If the values are equal
+        this notification is issued again, signalling to the
+        NMS that the condition has been cleared. Otherwise,
+        the timer is restarted to monitor the next period.
+        
+        When a record is lost and no period timer is active, 
+        this notification is issued and the above procedure 
+        is repeated."
+    ::= 4
+
+ciscoCsgQuotaMgrLostRecordEvent TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoCsgMIB
+    VARIABLES {
+        csgQuotaMgrState, csgQuotaMgrLostRecords, 
+        csgQuotaMgrTotalSent, csgQuotaMgrFailAck, 
+        csgQuotaMgrOutstanding, csgQuotaMgrHighWater, 
+        csgQuotaMgrBadRecord, csgQuotaMgrRetransmit }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is issued when csgQuotaNotifsEnabled
+        is set to 'true', and the CSG must discard request
+        records to be sent to the quota manager. The processing 
+        is the same as described in the description for 
+        ciscoCsgAgentLostRecordEvent."
+    ::= 5
+
+ciscoUserGroup OBJECT IDENTIFIER ::= { ciscoCsgMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    CSG User Table Statistic objects.
+--  objects
+--    csgUserMaxEntries, csgUserCurrEntries, csgUserHighWater, 
+--    csgUserLRUSteals, csgUserRowStatus
+
+ciscoUserDbGroup OBJECT IDENTIFIER ::= { ciscoCsgMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    CSG Statistic objects.
+--  objects
+--    csgUserDbState, csgUserDbRequests, csgUserDbUidsReturned, 
+--    csgUserDbReqResent, csgUserDbReqTimeouts, csgUserDbReqErrors, 
+--    csgUserDbRowStatus
+
+ciscoAgentGroup OBJECT IDENTIFIER ::= { ciscoCsgMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    CSG Statistic objects.
+--  objects
+--    csgAgentAcctName, csgAgentPriority, csgAgentState, 
+--    csgAgentLostRecords, csgAgentTotalSent, csgAgentFailAck, 
+--    csgAgentOutstanding, csgAgentHighWater, csgAgentBadRecord, 
+--    csgAgentRetransmit, csgAgentLostRecordTimer, 
+--    csgAgentRowStatus
+
+ciscoQuotaMgrGroup OBJECT IDENTIFIER ::= { ciscoCsgMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    CSG Statistic objects.
+--  objects
+--    csgQuotaMgrUserGroupName, csgQuotaMgrPriority, 
+--    csgQuotaMgrState, csgQuotaMgrLostRecords, 
+--    csgQuotaMgrTotalSent, csgQuotaMgrFailAck, 
+--    csgQuotaMgrOutstanding, csgQuotaMgrHighWater, 
+--    csgQuotaMgrBadRecord, csgQuotaMgrRetransmit, 
+--    csgQuotaMgrLostRecordTimer, csgQuotaMgrRowStatus
+
+ciscoCsgNotifEnableGroup OBJECT IDENTIFIER ::= { ciscoCsgMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    CSG notifications enable/disable flags.
+--  objects
+--    csgAgentNotifsEnabled, csgQuotaNotifsEnabled, 
+--    csgDatabaseNotifsEnabled
+
+ciscoCsgNotifGroup OBJECT IDENTIFIER ::= { ciscoCsgMIBGroups 6 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing CSG notifications.
+--  notifications
+--    ciscoCsgAgentStateChange, ciscoCsgQuotaMgrStateChange, 
+--    ciscoCsgUserDbStateChange, ciscoCsgAgentLostRecordEvent, 
+--    ciscoCsgQuotaMgrLostRecordEvent
+
+ciscoCsgMIBCompliance OBJECT IDENTIFIER ::= { ciscoCsgMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco CSG line card MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoUserGroup
+--   MandGroup
+--    ciscoAgentGroup
+--   MandGroup
+--    ciscoQuotaMgrGroup
+--   MandGroup
+--    ciscoUserDbGroup
+--   MandGroup
+--    ciscoCsgNotifEnableGroup
+--   MandGroup
+--    ciscoCsgNotifGroup
+--   ObjVar
+--    csgAgentLostRecordTimer
+--   ObjVar
+--    csgQuotaMgrLostRecordTimer
+--   ObjVar
+--    csgAgentNotifsEnabled
+--   ObjVar
+--    csgQuotaNotifsEnabled
+--   ObjVar
+--    csgDatabaseNotifsEnabled
+--   ObjVar
+--    csgUserHighWater
+--   ObjVar
+--    csgAgentHighWater
+--   ObjVar
+--    csgQuotaMgrHighWater
+--   ObjVar
+--    csgUserMaxEntries
+--   ObjVar
+--    csgAgentAcctName
+--   ObjVar
+--    csgAgentPriority
+--   ObjVar
+--    csgQuotaMgrPriority
+--   ObjVar
+--    csgAgentRowStatus
+--   ObjVar
+--    csgQuotaMgrRowStatus
+
+
+END
+

@@ -1,0 +1,2110 @@
+-- $ID$
+-- *****************************************************************
+-- CISCO-GGSN-EXT-MIB.my
+--   
+-- Oct 2007, 2008 Annie Mishalini Devasahayam.
+--   
+-- Copyright (c) 2008-2011 by cisco Systems Inc.
+--   
+-- All rights reserved.
+-- ****************************************************************
+-- $Endlog$
+
+CISCO-GGSN-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Counter64,
+    Gauge32,
+    Integer32,
+    Unsigned32,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    DisplayString,
+    TruthValue,
+    TimeStamp,
+    RowStatus
+        FROM SNMPv2-TC
+    CounterBasedGauge64
+        FROM HCNUM-TC
+    InetAddress,
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    TimeIntervalMin
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoGgsnExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "201103180000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-gprs@cisco.com"
+    DESCRIPTION
+        "This MIB module extends the CISCO-GGSN-MIB.
+
+        This MIB module manages the Gateway GPRS Support
+        Node (GGSN) devices.
+
+        A GGSN device provides interworking with external
+        packet-data network of a particular GPRS service
+        provider. It provides a combination of IP routing
+        and GPRS specific functionality to support mobile
+        users.
+        A PDP context on the GGSN device contains the mobile users
+        session information, during an active session. This
+        information is used by the device to control the session. 
+        An active PDP context is created when a mobile station's
+        service request is authenticated and served by the GGSN device.
+
+        Acronyms and terms:
+        APN       Access Point Name
+        CDR       Call Detail Record
+        COA       Change of Authorization
+        CSG2      Content Services Gateway (2nd Generation)
+        DT        Direct Tunnel
+        DFP       Dynamic Feedback Protocol
+        GGSN      Gateway GPRS Support Node
+        GPRS      General Packet Radio Service
+        GTP       GPRS Tunneling Protocol
+        IE        Information Element
+        IMEI      International Mobile Equipment Identification
+        IMSI      International Mobile Subscriber Identification
+        MCC       Mobile Country Code
+        MNC       Mobile Network Code
+        MS        Mobile Station
+        MSISDN    Mobile Station ISDN number
+        PDP       Packet Data Protocol
+        PDN       Packet Data Network
+        PPP       Point-to-Point Protocol
+        RNC       Radio Network Controller
+        SGSN      Serving GPRS Support Node
+
+        REFERENCE
+
+        [1] GSM 03.60: Digital cellular telecommunications
+            system (Phase 2+); General Packet Radio Service
+            (GPRS); Service description; Stage 2. V7.1.0
+
+        [2] GSM 09.60: Digital cellular telecommunication
+            system (Phase 2+); General Packet Radio Service
+            (GPRS); GPRS Tunnelling Protocol (GTP) across
+            Gn and Gp Interface. V7.3.0
+
+        [3] 3GPP; Technical Specification Group Services
+            and System Aspects; QoS Concept and Architecture.
+            3G TS 23.107 v3.2.0.
+
+        [4] 3GPP; Technical Specification Group Core Network;
+            General Packet Radio Service(GPRS); GPRS
+            Tunnelling Protocol (GTP) across Gn and Gp
+            Interface (Release 7). 3G TS 29.060 v7.5.1.
+
+        [5] 3GPP: Technical Specification Group Core Network;
+            Policy control over Go interface (Release 5).
+            3GPP TS 29.207 V5.2.0
+
+        [6] 3GPP: Technical Specification Group Services and 
+           System Aspects; General Packet Radio Service (GPRS);
+           Service Description (Release 7) 3GPP TS 23.060 V7.4.0
+
+        [7] 3GPP: Technical Specification Group Services and 
+            System Aspects; One Tunnel Functional description;
+            (Release 7) 3GPP TR 23.809 V1.0.0"
+    REVISION        "201103180000Z"
+    DESCRIPTION
+        "The following changes have been made.
+
+        [1] Added a new OBJECT IDENTIFIER ciscoGgsnExtTraceStatistics
+            with the following objects.
+
+            cGgsnExtTraceActivatedSessions,
+            cGgsnExtTraceSignalActivations,
+            cGgsnExtTraceMgmtActivations,
+            cGgsnExtTraceNewSesActivations,
+            cGgsnExtTraceActSesActivations,
+            cGgsnExtTraceSignalActivFailures,
+            cGgsnExtTraceMgmtActivFailures,
+            cGgsnExtTraceDeactivatedSessions,
+            cGgsnExtTraceSignalDeactivations,
+            cGgsnExtTraceMgmtDeactivations,
+            cGgsnExtTraceSignalDeactivFailures,
+            cGgsnExtTraceMgmtDeactivFailures.
+
+        [2] Added a new OBJECT IDENTIFIER ciscoGgsnExtTraceXmlStatistics
+            with the following objects.
+
+            cGgsnExtTraceTotalXmlFiles,
+            cGgsnExtTraceTotalXmlFailNotifFiles,
+            cGgsnExtTraceXmlFileTransSucc,
+            cGgsnExtTraceXmlFileTransPri,
+            cGgsnExtTraceXmlFileTransSec,
+            cGgsnExtTraceXmlFileTotalTransFails,
+            cGgsnExtTraceXmlFileTransPriFails,
+            cGgsnExtTraceXmlFileTransRetries,
+            cGgsnExtTraceXmlFileTransSecFails.
+
+        [3] Two new statistics objects are added under
+            ciscoGgsnExtStatistics.
+
+            cGgsnExtConditionalIEMissingMsgs,
+            cGgsnExtInvalidReplyPeerMsgs.
+
+        [4] Two new configuration objects are added under 
+            ciscoGgsnExtConfigurations.
+
+            cGgsnExtTraceBufferLimit,
+            cGgsnExtTraceXmlTransferInterval.
+
+        [5] A new table cGgsnExtSubscriberTraceProfileTable with
+            following objects have been added to 
+            ciscoGgsnExtConfigurations.
+
+            cGgsnExtTraceProfile,
+            cGgsnExtTracePrimaryUrl,
+            cGgsnExtTraceSecondaryUrl,            
+            cGgsnExtTraceInfoTxFailRetry,
+            cGgsnExtTraceInfoTxFailRetryInterval,
+            cGgsnExtTraceRowStatus.
+
+        [6] A new table ciscoGgsnExtTraceStatusTable with
+            following objects have been added to 
+            ciscoGgsnExtStatus. 
+
+            cGgsnExtTraceStatusImsi,
+            cGgsnExtTraceStatusImei,
+            cGgsnExtTraceStatusSource,
+            cGgsnExtTraceStatusReference.
+
+        [7] The following Notification has been added
+            cGgsnExtSubsTraceFailNotif.
+
+        [8] The following Notification objects are added
+            under ciscoGgsnExtNotifInfo.
+
+            cGgsnExtSubscriberMcc,
+            cGgsnExtSubscriberMnc,
+            cGgsnExtSubscriberTraceId,
+            cGgsnExtSubscrTraceFailReason.
+
+        [9] The following NotifMgmt objects are added under
+            ciscoGgsnExtNotifMgmt
+
+             cGgsnExtTraceNotifEnable.
+
+        [10] The following groups were added
+            cGgsnExtNotificationsGroup,
+            cGgsnExtNotificationInfoGroup,
+            cGgsnExtStatusGroupSup2,
+            cGgsnExtConfigurationsGroupRev1Sup2,
+            cGgsnExtStatisticsGroupSup2,
+            cGgsnExtStatisticsGroupSup3.           
+
+        [11] Deprecated cGgsnExtMIBComplianceRev3
+            and added new compliance
+            cGgsnExtMIBComplianceRev4."
+    REVISION        "201006110000Z"
+    DESCRIPTION
+        "Added the following scalar objects
+        cGgsnExtActivatedv4v6Gtpv0Pdp,
+        cGgsnExtActivatedv4v6Gtpv1Pdp,
+        cGgsnExtActivatedv4v6MobileStations to
+        ciscoGgsnExtStatus
+
+        Added the following scalar objects 
+        cGgsnExtTotalCreatedv4v6Pdps and
+        cGgsnExtTotalDeletedv4v6Pdps to
+        ciscoGgsnExtStatistics
+
+        Added OBJECT-GROUP cGgsnExtStatisticsGroupSup1,
+        which is supplementary to cGgsnExtStatisticsGroupRev1.
+
+        Added OBJECT-GROUP cGgsnExtStatusGroupSup1,
+        which is supplementary to cGgsnExtStatusGroupRev1.
+
+        Added MODULE-COMPLIANCE cGgsnExtMIBComplianceRev3,
+        which deprecates cGgsnExtMIBComplianceRev2."
+    REVISION        "200909170000Z"
+    DESCRIPTION
+        "Added the following scalar objects
+        cGgsnExtRedundancyEnabled,
+        cGgsnExtChargSyncWindowSvcSeqnum,
+        cGgsnExtChargSyncWindowCdrSeqnum,
+        cGgsnExtChargSynWindowGtppSeqnum to
+        ciscoGgsnExtConfigurations.
+
+        Added OBJECT-GROUP cGgsnExtConfigurationsGroupRev1Sup1,
+        which supplementary to cGgsnExtConfigurationsGroupRev1.
+
+        Added MODULE-COMPLIANCE cGgsnExtMIBComplianceRev2,
+        which deprecates cGgsnExtMIBComplianceRev1."
+    REVISION        "200901300000Z"
+    DESCRIPTION
+        "Added the following scalar objects
+        cGgsnExtDfpCpuLoad,
+        cGgsnExtDfpMemLoad,
+        cGgsnExtThruputHistory,
+        cGgsnExtCallRateInterval,
+        cGgsnExtCallRateHistory,
+        cGgsnExtPrepaidStandAlone to
+        ciscoGgsnExtConfigurations.
+
+        Added the scalar object
+        cGgsnExtActivatedMs to
+        ciscoGgsnExtStatus.
+
+        Added the scalar object
+        cGgsnExtPdpNonExistentMsgs to
+        ciscoGgsnExtStatistics.
+
+        Added the following tables
+        cGgsnExtCallRateStatsTable,
+        cGgsnExtHistCallRateStatsTable,
+        cGgsnExtHistThruputStatsTable,
+        cGgsnExtSubscriberTable to
+        ciscoGgsnExtStatistics.
+
+        Added following OBJECT-GROUP
+        cGgsnExtStatisticsGroupRev1,
+        cGgsnExtStatusGroupRev1,
+        cGgsnExtConfigurationsGroupRev1
+
+        Added MODULE-COMPLIANCE
+        cGgsnExtMIBComplianceRev1."
+    REVISION        "200801290000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 647 }
+
+
+-- Object definitions
+
+ciscoGgsnExtMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoGgsnExtMIB 0 }
+
+
+cGgsnExtSubsTraceFailNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cGgsnExtSubscriberMcc,
+                        cGgsnExtSubscriberMnc,
+                        cGgsnExtSubscriberTraceId,
+                        cGgsnExtSubscrTraceFailReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is triggered on failure of a
+        subscriber trace activation."
+   ::= { ciscoGgsnExtMIBNotifs 1 }
+ciscoGgsnExtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoGgsnExtMIB 1 }
+
+ciscoGgsnExtMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoGgsnExtMIB 2 }
+
+ciscoGgsnExtStatistics  OBJECT IDENTIFIER
+    ::= { ciscoGgsnExtMIBObjects 1 }
+
+ciscoGgsnExtConfigurations  OBJECT IDENTIFIER
+    ::= { ciscoGgsnExtMIBObjects 2 }
+
+ciscoGgsnExtStatus  OBJECT IDENTIFIER
+    ::= { ciscoGgsnExtMIBObjects 3 }
+
+ciscoGgsnExtNotifMgmt  OBJECT IDENTIFIER
+    ::= { ciscoGgsnExtMIBObjects 4 }
+
+ciscoGgsnExtNotifInfo  OBJECT IDENTIFIER
+    ::= { ciscoGgsnExtMIBObjects 5 }
+
+
+-- MIBObjects
+--   
+-- Statistics
+
+cGgsnExtNoWaitSgsnLocalDelPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "PDP Context"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of PDPs deleted
+        in GGSN without waiting for a delete context response
+        from the SGSN." 
+    ::= { ciscoGgsnExtStatistics 1 }
+
+cGgsnExtNoReqSgsnLocalDelPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "PDP Context"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of PDPs deleted
+        in GGSN without sending a delete request to the SGSN." 
+    ::= { ciscoGgsnExtStatistics 2 }
+
+cGgsnExtSentPdpUpdateReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of GGSN
+        initiated update PDP context requests sent to SGSN." 
+    ::= { ciscoGgsnExtStatistics 3 }
+
+cGgsnExtRcvdSuccPdpUpdateResponses OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of update PDP
+        context responses received from the SGSN for the GGSN
+        initiated update requests." 
+    ::= { ciscoGgsnExtStatistics 4 }
+
+cGgsnExtRcvdCoaMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of Change of
+        Authorization (COA) messages received at GGSN."
+    REFERENCE
+        "RFC 3576 - Dynamic Authorization Extensions to Remote
+         Authentication Dial In User Service (RADIUS)" 
+    ::= { ciscoGgsnExtStatistics 5 }
+
+cGgsnExtDiscardedCoaMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of COA
+        messges dropped at GGSN." 
+    ::= { ciscoGgsnExtStatistics 6 }
+
+cGgsnExtSentCoaUpdateReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of COA
+        initiated update PDP requests for QOS change sent
+        from GGSN." 
+    ::= { ciscoGgsnExtStatistics 7 }
+
+cGgsnExtSentErrorIndications OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of error indication
+        messages sent from GGSN.
+
+        Trigger condition:  A error indication message will be
+        sent from GGSN when a data packet is received for a 
+        non-existent PDP context."
+    REFERENCE
+        "3GPP TS 23.060 V7.4.0 General Packet Radio Service (GPRS);
+         Service description; Stage 2 (Release 7)" 
+    ::= { ciscoGgsnExtStatistics 8 }
+
+cGgsnExtRcvdErrorIndications OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of error indication
+        messages received on GGSN."
+    REFERENCE
+        "3GPP TS 23.060 v7.4.0 General Packet Radio Service (GPRS);
+         Service description; Stage 2 (Release 7)" 
+    ::= { ciscoGgsnExtStatistics 9 }
+
+cGgsnExtTotalDtEnabled OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of times Direct
+        tunnel is enabled for the PDP contexts in GGSN." 
+    ::= { ciscoGgsnExtStatistics 10 }
+
+cGgsnExtRcvdDtPdpErrorIndications OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of error
+        indications received for Direct Tunnel PDP contexts
+        from the RNC."
+    REFERENCE
+        "3GPP TR 23.809 v1.0.0: 3rd Generation Partnership Project;
+         Technical Specification Group Services and System Aspects;
+         One Tunnel Functional description;(Release 7)" 
+    ::= { ciscoGgsnExtStatistics 11 }
+
+cGgsnExtTotalDtUpdFailDeletedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "PDP Context"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of Direct
+        tunnel PDP contexts deleted due to update response
+        failure.
+
+        Trigger condition:
+        If the GGSN initiated update request is triggered
+        by the error indication from RNC and the response
+        is received with cause value other than 'request
+        accepted' then the PDP is deleted locally in GGSN." 
+    ::= { ciscoGgsnExtStatistics 12 }
+
+cGgsnExtThruputStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGgsnExtThruputStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the global GTP throughput statistics
+        on this GGSN for a configurable duration set in
+        cGgsnThruputIntervalOne and cGgsnThruputIntervalTwo.
+
+        Once the cGgsnThruputIntervalOne is set to some valid
+        value, the data throughput collections gets started.
+        The data throughput collection is updated periodically
+        for each expiry of configured throughput interval to the
+        corresponding objects in the cGgsnThruputStatsTable.
+
+        cGgsnThruputIntervalTwo is just an option for a second
+        throughput collection for a different throughput
+        interval time."
+    ::= { ciscoGgsnExtStatistics 13 }
+
+cGgsnExtThruputStatsEntry OBJECT-TYPE
+    SYNTAX          CGgsnExtThruputStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Creation of row(s) will happen when there is a valid value
+        set to cGgsnThruputIntervalOne or cGgsnThruputIntervalTwo.
+
+        Deletion of row(s) will happen when the throughput intervals
+        (cGgsnThruputIntervalOne, cGgsnThruputIntervalTwo) are
+        unset."
+    INDEX           { cGgsnExtThruputInterval } 
+    ::= { cGgsnExtThruputStatsTable 1 }
+
+CGgsnExtThruputStatsEntry ::= SEQUENCE {
+        cGgsnExtThruputInterval      Integer32,
+        cGgsnExtThruputLastCollected Integer32,
+        cGgsnExtUpstreamByteCount    CounterBasedGauge64,
+        cGgsnExtDownstreamByteCount  CounterBasedGauge64,
+        cGgsnExtUpstreamPktCount     Gauge32,
+        cGgsnExtDownstreamPktCount   Gauge32
+}
+
+cGgsnExtThruputInterval OBJECT-TYPE
+    SYNTAX          Integer32 (1..65535)
+    UNITS           "minutes"
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time interval at which the
+        statistics are sampled. The objects cGgsnThruputIntervalOne
+        and cGgsnThruputIntervalTwo in the CISCO-GGSN-MIB represent
+        the configuration values of the intervals." 
+    ::= { cGgsnExtThruputStatsEntry 1 }
+
+cGgsnExtThruputLastCollected OBJECT-TYPE
+    SYNTAX          Integer32 (0..65535)
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the delta value between the time
+        when this data is collected and the time it is been
+        retrieved. It means the time elapsed after the previous
+        collection/updation of the data." 
+    ::= { cGgsnExtThruputStatsEntry 2 }
+
+cGgsnExtUpstreamByteCount OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of upstream
+        traffic bytes sent in the last sampling period
+        specified by cGgsnExtThruputInterval." 
+    ::= { cGgsnExtThruputStatsEntry 3 }
+
+cGgsnExtDownstreamByteCount OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of downstream
+        traffic bytes sent in the last sampling period
+        specified by cGgsnExtThruputInterval." 
+    ::= { cGgsnExtThruputStatsEntry 4 }
+
+cGgsnExtUpstreamPktCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of upstream packets
+        sent in the last sampling period specified by
+        cGgsnExtThruputInterval." 
+    ::= { cGgsnExtThruputStatsEntry 5 }
+
+cGgsnExtDownstreamPktCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of downstream packets
+        sent in the last sampling period specified by
+        cGgsnExtThruputInterval." 
+    ::= { cGgsnExtThruputStatsEntry 6 }
+ 
+
+
+cGgsnExtPdpNonExistentMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of PDP
+        non-existent messages sent from the GGSN." 
+    ::= { ciscoGgsnExtStatistics 14 }
+
+cGgsnExtCallRateStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGgsnExtCallRateStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the global call rate statistics
+        on this GGSN for a cindicatesonfigurable duration set in
+        cGgsnExtCallRateInterval.
+
+        When the cGgsnExtCallRateInterval is set to some valid
+        value, the call rate data collections gets started. The
+        call rate data is updated periodically for each expiry
+        of the configured call rate interval to the corresponding
+        objects in the cGgsnExtCallRateStatsTable."
+    ::= { ciscoGgsnExtStatistics 15 }
+
+cGgsnExtCallRateStatsEntry OBJECT-TYPE
+    SYNTAX          CGgsnExtCallRateStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry(conceptual row) in the 'cGgsnExtCallRateStatsTable'.
+        There will always be a single entry in this table. The entry
+        represents set of global call rate statistics at a given 
+        instance of time.
+
+        The agent creates an entry in this table when there is a
+        valid value set to cGgsnExtCallRateInterval. The agent
+        destroys an entry in this table when the call rate interval
+        cGgsnExtCallRateInterval is unset."
+    INDEX           { cGgsnExtCallRateStatsInterval } 
+    ::= { cGgsnExtCallRateStatsTable 1 }
+
+CGgsnExtCallRateStatsEntry ::= SEQUENCE {
+        cGgsnExtCallRateStatsInterval Unsigned32,
+        cGgsnExtCallRateLastCollected Unsigned32,
+        cGgsnExtCreatedPDPs           Gauge32,
+        cGgsnExtDeletedPDPs           Gauge32
+}
+
+cGgsnExtCallRateStatsInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    UNITS           "minutes"
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time interval at which the
+        statistics are sampled. The object cGgsnExtCallRateInterval
+        represents the configuration value of the interval." 
+    ::= { cGgsnExtCallRateStatsEntry 1 }
+
+cGgsnExtCallRateLastCollected OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time elapsed (in minutes) from
+        the time when this data is collected and the time it is been
+        retrieved." 
+    ::= { cGgsnExtCallRateStatsEntry 2 }
+
+cGgsnExtCreatedPDPs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "PDP Context"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PDP contexts created
+        in the last sampling period specified by
+        cGgsnExtCallRateInterval." 
+    ::= { cGgsnExtCallRateStatsEntry 3 }
+
+cGgsnExtDeletedPDPs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "PDP Context"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PDP contexts deleted
+        in the last sampling period specified by 
+        cGgsnExtCallRateInterval." 
+    ::= { cGgsnExtCallRateStatsEntry 4 }
+ 
+
+
+cGgsnExtHistCallRateStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGgsnExtHistCallRateStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the historical call rate statistics
+        on this GGSN for a configurable duration set in
+        cGgsnExtCallRateInterval."
+    ::= { ciscoGgsnExtStatistics 16 }
+
+cGgsnExtHistCallRateStatsEntry OBJECT-TYPE
+    SYNTAX          CGgsnExtHistCallRateStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the
+        'cGgsnExtHistCallRateStatsTable'. Each entry represents a
+        set of historical call rate statistics sampled at different
+        instance of time.
+
+        The agent creates an entry in to this table at the end of
+        each interval set in cGgsnExtCallRateInterval and the
+        existing entry in the cGgsnExtCallRateStatsTable will be
+        inserted into the history table and the
+        cGgsnExtCallRateStatsTable will be updated with new values.
+
+        The agent deletes an entry from the table when the call
+        rate history limit indicated by the object
+        cGgsnExtCallRateHistory is reached. The oldest entries
+        will be removed when the limit is reached."
+    INDEX           { cGgsnExtHistCallRateIndex } 
+    ::= { cGgsnExtHistCallRateStatsTable 1 }
+
+CGgsnExtHistCallRateStatsEntry ::= SEQUENCE {
+        cGgsnExtHistCallRateIndex         Unsigned32,
+        cGgsnExtHistCallRateInterval      TimeIntervalMin,
+        cGgsnExtHistCallRateLastCollected TimeStamp,
+        cGgsnExtHistCreatedPDPs           Counter32,
+        cGgsnExtHistDeletedPDPs           Counter32
+}
+
+cGgsnExtHistCallRateIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary index number which
+        uniquely identifies a history call rate entry in this table." 
+    ::= { cGgsnExtHistCallRateStatsEntry 1 }
+
+cGgsnExtHistCallRateInterval OBJECT-TYPE
+    SYNTAX          TimeIntervalMin (1..65535)
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time interval for which the
+        statistics are sampled." 
+    ::= { cGgsnExtHistCallRateStatsEntry 2 }
+
+cGgsnExtHistCallRateLastCollected OBJECT-TYPE
+    SYNTAX          TimeStamp
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the time at which this data was
+        collected." 
+    ::= { cGgsnExtHistCallRateStatsEntry 3 }
+
+cGgsnExtHistCreatedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "PDP Context"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of PDP contexts
+        created in a specific sampling period specified by
+        cGgsnExtCallRateInterval." 
+    ::= { cGgsnExtHistCallRateStatsEntry 4 }
+
+cGgsnExtHistDeletedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "PDP Context"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of PDP contexts
+        deleted in a specific sampling period specified by
+        cGgsnExtCallRateInterval." 
+    ::= { cGgsnExtHistCallRateStatsEntry 5 }
+ 
+
+
+cGgsnExtHistThruputStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGgsnExtHistThruputStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the historical GTP throughput
+        statistics on this GGSN for a configurable duration set in
+        cGgsnThruputIntervalOne and cGgsnThruputIntervalTwo."
+    ::= { ciscoGgsnExtStatistics 17 }
+
+cGgsnExtHistThruputStatsEntry OBJECT-TYPE
+    SYNTAX          CGgsnExtHistThruputStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the
+        'cGgsnExtHistThruputStatsTable'. Each entry represents a
+        a set of historical throughput statistics sampled at
+        different instance of time.
+
+        The agent creates an entry into this table at the end of
+        each interval set in cGgsnThruputIntervalOne and
+        cGgsnThruputIntervalTwo. The existing entry in the
+        cGgsnExtThruputStatsTable will be inserted into the history
+        table and then the cGgsnExtThruputStatsTable will be
+        will be updated with new values.
+
+        The agent deletes an entry of this table when the
+        throughput history limit indicated by the object
+        cGgsnExtThruputHistory is reached. The oldest entries will
+        be removed when the limit is reached."
+    INDEX           {
+                        cGgsnExtHistThruputIndex,
+                        cGgsnExtHistThruputInterval
+                    } 
+    ::= { cGgsnExtHistThruputStatsTable 1 }
+
+CGgsnExtHistThruputStatsEntry ::= SEQUENCE {
+        cGgsnExtHistThruputIndex         Unsigned32,
+        cGgsnExtHistThruputInterval      TimeIntervalMin,
+        cGgsnExtHistThruputLastCollected TimeStamp,
+        cGgsnExtHistUpstreamByteCount    Counter64,
+        cGgsnExtHistDownstreamByteCount  Counter64,
+        cGgsnExtHistUpstreamPktCount     Counter32,
+        cGgsnExtHistDownstreamPktCount   Counter32
+}
+
+cGgsnExtHistThruputIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitray index number which
+        uniquely identify a entry in this table." 
+    ::= { cGgsnExtHistThruputStatsEntry 1 }
+
+cGgsnExtHistThruputInterval OBJECT-TYPE
+    SYNTAX          TimeIntervalMin (1..65535)
+    UNITS           "minutes"
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time interval at which the
+        statistics are sampled. The objects cGgsnThruputIntervalOne
+        and cGgsnThruputIntervalTwo in the CISCO-GGSN-MIB represent
+        the configuration values of the intervals." 
+    ::= { cGgsnExtHistThruputStatsEntry 2 }
+
+cGgsnExtHistThruputLastCollected OBJECT-TYPE
+    SYNTAX          TimeStamp
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time at which this data was
+        collected." 
+    ::= { cGgsnExtHistThruputStatsEntry 3 }
+
+cGgsnExtHistUpstreamByteCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of upstream
+        traffic bytes sent from GGSN to PDN in a specific sampling
+        period specified by cGgsnExtThruputInterval." 
+    ::= { cGgsnExtHistThruputStatsEntry 4 }
+
+cGgsnExtHistDownstreamByteCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of downstream
+        traffic bytes sent from PDN to GGSN in a specific sampling
+        period specified by cGgsnExtThruputInterval." 
+    ::= { cGgsnExtHistThruputStatsEntry 5 }
+
+cGgsnExtHistUpstreamPktCount OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of upstream
+        packets sent in a specific sampling period specified by
+        cGgsnExtThruputInterval." 
+    ::= { cGgsnExtHistThruputStatsEntry 6 }
+
+cGgsnExtHistDownstreamPktCount OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the historical number of downstream
+        packets sent in a specific sampling period specified by
+        cGgsnExtThruputInterval." 
+    ::= { cGgsnExtHistThruputStatsEntry 7 }
+ 
+
+
+cGgsnExtSubscriberTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGgsnExtSubscriberEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the details of the subscribers
+        connected to the GGSN."
+    ::= { ciscoGgsnExtStatistics 18 }
+
+cGgsnExtSubscriberEntry OBJECT-TYPE
+    SYNTAX          CGgsnExtSubscriberEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cGgsnExtSubscriberTable.
+
+        The agent creates an entry into this table when a new PDP
+        is created in GGSN in response to the create request from
+        SGSN.
+
+        The agent destroys an entry of this table when a PDP is
+        deleted in GGSN."
+    INDEX           { cGgsnExtSubscriberMsisdn } 
+    ::= { cGgsnExtSubscriberTable 1 }
+
+CGgsnExtSubscriberEntry ::= SEQUENCE {
+        cGgsnExtSubscriberMsisdn       SnmpAdminString,
+        cGgsnExtSubscriberTid          SnmpAdminString,
+        cGgsnExtSubscriberMSAddrType   InetAddressType,
+        cGgsnExtSubscriberMSAddr       InetAddress,
+        cGgsnExtSubscriberSource       INTEGER,
+        cGgsnExtSubscriberSGSNAddrType InetAddressType,
+        cGgsnExtSubscriberSGSNAddr     InetAddress,
+        cGgsnExtSubscriberAPN          SnmpAdminString
+}
+
+cGgsnExtSubscriberMsisdn OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..20))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a human readable string representing
+        the Mobile Subscriber ISDN (MSISDN) value of the subscriber." 
+    ::= { cGgsnExtSubscriberEntry 1 }
+
+cGgsnExtSubscriberTid OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..18))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a human readable string representing
+        the Tunnel identifier of the Subscriber/PDP context in GGSN." 
+    ::= { cGgsnExtSubscriberEntry 2 }
+
+cGgsnExtSubscriberMSAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the address type of the object
+        cGgsnExtSubscriberMSAddr." 
+    ::= { cGgsnExtSubscriberEntry 3 }
+
+cGgsnExtSubscriberMSAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the inet address of the Subscriber." 
+    ::= { cGgsnExtSubscriberEntry 4 }
+
+cGgsnExtSubscriberSource OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        pdpAddrSrcNone(1),
+                        pdpAddrSrcStatic(2),
+                        pdpAddrSrcLocalPool(3),
+                        pdpAddrSrcRadius(4),
+                        pdpAddrSrcDhcp(5),
+                        pdpAddrSrcIpcp(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the source from which the IP addr for
+        the subscriber is assigned.
+        pdpAddrSrcNone      - None
+        pdpAddrSrcStatic    - static address specified by the MS
+        pdpAddrSrcLocalPool - from the local pool
+        pdpAddrSrcRadius    - from Radius server
+        pdpAddrSrcDhcp      - from DHCP server
+        pdpAddrSrcIpcp      - from Ipcp" 
+    ::= { cGgsnExtSubscriberEntry 5 }
+
+cGgsnExtSubscriberSGSNAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the address type of the object
+        cGgsnExtSubscriberSGSNAddr." 
+    ::= { cGgsnExtSubscriberEntry 6 }
+
+cGgsnExtSubscriberSGSNAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Inet address of the subscriber's
+        SGSN." 
+    ::= { cGgsnExtSubscriberEntry 7 }
+
+cGgsnExtSubscriberAPN OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..100))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a human readable string representing
+        the access point name in GGSN to which the subscriber is
+        connected." 
+    ::= { cGgsnExtSubscriberEntry 8 }
+ 
+
+
+cGgsnExtTotalCreatedv4v6Pdps OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of successfully
+        created IPv4v6 PDP contexts.
+        The counter is incremented whenever a IPv4v6 PDP contexts is
+        created. This includes static, dynamic, IP, PPP PDPs." 
+    ::= { ciscoGgsnExtStatistics 19 }
+
+cGgsnExtTotalDeletedv4v6Pdps OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of IPv4v6 PDP contexts
+        deleted.
+        The counter is incremented whenever a IPv4v6 PDP contexts is
+        deleted.  This includes static, dynamic, IP, PPP PDPs." 
+    ::= { ciscoGgsnExtStatistics 20 }
+ciscoGgsnExtTraceStatistics  OBJECT IDENTIFIER
+    ::= { ciscoGgsnExtStatistics 21 }
+
+
+cGgsnExtTraceActivatedSessions OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of sessions for which
+        trace has been activated." 
+    ::= { ciscoGgsnExtTraceStatistics 1 }
+
+cGgsnExtTraceSignalActivations OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of sessions initiated
+        trace with signaling activations." 
+    ::= { ciscoGgsnExtTraceStatistics 2 }
+
+cGgsnExtTraceMgmtActivations OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of sessions initiated
+        trace with management interface activations." 
+    ::= { ciscoGgsnExtTraceStatistics 3 }
+
+cGgsnExtTraceNewSesActivations OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of traces initiated
+        for new sessions." 
+    ::= { ciscoGgsnExtTraceStatistics 4 }
+
+cGgsnExtTraceActSesActivations OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of traces initiated
+        for existing sessions." 
+    ::= { ciscoGgsnExtTraceStatistics 5 }
+
+cGgsnExtTraceSignalActivFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of sessions that
+        failed to initiate trace by signaling activations." 
+    ::= { ciscoGgsnExtTraceStatistics 6 }
+
+cGgsnExtTraceMgmtActivFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of sessions that
+        failed to initiate trace by management interface 
+        activations." 
+    ::= { ciscoGgsnExtTraceStatistics 7 }
+
+cGgsnExtTraceDeactivatedSessions OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of sessions that
+        deactivated traces." 
+    ::= { ciscoGgsnExtTraceStatistics 8 }
+
+cGgsnExtTraceSignalDeactivations OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of signaling
+        initiated deactivation of traces." 
+    ::= { ciscoGgsnExtTraceStatistics 9 }
+
+cGgsnExtTraceMgmtDeactivations OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of management
+        initiated deactivation of traces." 
+    ::= { ciscoGgsnExtTraceStatistics 10 }
+
+cGgsnExtTraceSignalDeactivFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of sessions that
+        failed to deactivate trace by signaling initiated 
+        deactivations." 
+    ::= { ciscoGgsnExtTraceStatistics 11 }
+
+cGgsnExtTraceMgmtDeactivFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of sessions that
+        failed to deactivate trace by management initiated 
+        deactivations." 
+    ::= { ciscoGgsnExtTraceStatistics 12 }
+ciscoGgsnExtTraceXmlStatistics  OBJECT IDENTIFIER
+    ::= { ciscoGgsnExtStatistics 22 }
+
+
+cGgsnExtTraceTotalXmlFiles OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of XML traced
+        files." 
+    ::= { ciscoGgsnExtTraceXmlStatistics 1 }
+
+cGgsnExtTraceTotalXmlFailNotifFiles OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of XML trace
+        notification failed files." 
+    ::= { ciscoGgsnExtTraceXmlStatistics 2 }
+
+cGgsnExtTraceXmlFileTransSucc OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of successful
+        XML file transfers." 
+    ::= { ciscoGgsnExtTraceXmlStatistics 3 }
+
+cGgsnExtTraceXmlFileTransPri OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of XML file
+        transferred to the primary trace collection entity." 
+    ::= { ciscoGgsnExtTraceXmlStatistics 4 }
+
+cGgsnExtTraceXmlFileTransSec OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of XML file
+        transferred to the secondary trace collection entity." 
+    ::= { ciscoGgsnExtTraceXmlStatistics 5 }
+
+cGgsnExtTraceXmlFileTotalTransFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of failed
+        XML file transfers." 
+    ::= { ciscoGgsnExtTraceXmlStatistics 6 }
+
+cGgsnExtTraceXmlFileTransPriFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of failed
+        XML file transfers to the primary trace collection
+        entity." 
+    ::= { ciscoGgsnExtTraceXmlStatistics 7 }
+
+cGgsnExtTraceXmlFileTransRetries OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of XML file
+        transfer retries made to the trace collection entity." 
+    ::= { ciscoGgsnExtTraceXmlStatistics 8 }
+
+cGgsnExtTraceXmlFileTransSecFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of failed
+        XML file transfers to the secondary trace collection
+        entity." 
+    ::= { ciscoGgsnExtTraceXmlStatistics 9 }
+
+cGgsnExtConditionalIEMissingMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of response
+        messages sent with the cause code of conditional
+        IE missing." 
+    ::= { ciscoGgsnExtStatistics 23 }
+
+cGgsnExtInvalidReplyPeerMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of response
+        messages sent with cause code of invalid reply from 
+        peers." 
+    ::= { ciscoGgsnExtStatistics 24 }
+
+cGgsnExtTraceNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents whether cGgsnExtSubsTraceFailNotif
+        is enabled or not.
+
+        true - indicates that the notification is enabled.
+
+        false - indicates that the notification is disabled."
+    DEFVAL          { false } 
+    ::= { ciscoGgsnExtNotifMgmt 1 }
+
+cGgsnExtSubscriberMcc OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "MCC value of the subscriber, for which trace activation
+        failure has occured." 
+    ::= { ciscoGgsnExtNotifInfo 1 }
+
+cGgsnExtSubscriberMnc OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "MNC value of the subscriber, for which trace activation
+        failure has occured." 
+    ::= { ciscoGgsnExtNotifInfo 2 }
+
+cGgsnExtSubscriberTraceId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Trace Identifier of the subscriber, for which trace activation
+        failure has occured." 
+    ::= { ciscoGgsnExtNotifInfo 3 }
+
+cGgsnExtSubscrTraceFailReason OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Reason for the trace activation failure." 
+    ::= { ciscoGgsnExtNotifInfo 4 }
+
+-- Configurations
+
+cGgsnExtAaaAccountInterPeriod OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 15..71582)
+    UNITS           "minutes"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the global periodic accounting
+        timer interval value. When this object is set to a 
+        value, 'interim' type accounting records will be sent
+        at the specified interval for the PDP contexts."
+    DEFVAL          { 0 } 
+    ::= { ciscoGgsnExtConfigurations 1 }
+
+cGgsnExtDfpCpuLoad OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 10..75)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the value of the CPU load to be
+        included in the DFP weight calculation."
+    DEFVAL          { 0 } 
+    ::= { ciscoGgsnExtConfigurations 2 }
+
+cGgsnExtDfpMemLoad OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 10..75)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the value of the Memory Load to be
+        included in the DFP weight calculation."
+    DEFVAL          { 0 } 
+    ::= { ciscoGgsnExtConfigurations 3 }
+
+cGgsnExtThruputHistory OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 1..100)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of throughput history
+        entries to be maintained in the 
+        cGgsnExtHistThruputStatsTable."
+    DEFVAL          { 0 } 
+    ::= { ciscoGgsnExtConfigurations 4 }
+
+cGgsnExtCallRateInterval OBJECT-TYPE
+    SYNTAX          TimeIntervalMin (0..65535)
+    UNITS           "minutes"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval at which the call rate
+        statistics needs to be collected in GGSN.
+
+        When this object is set to a valid value, the call rate
+        statistics are collected for the interval and updated in
+        cGgsnExtCallRateStatsTable every time the interval expires.
+        When the object is set to 0, the call rate statistics will
+        not be collected."
+    DEFVAL          { 0 } 
+    ::= { ciscoGgsnExtConfigurations 5 }
+
+cGgsnExtCallRateHistory OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of callrate history
+        be maintained in the cGgsnExtHistCallRateStatsTable."
+    DEFVAL          { 0 } 
+    ::= { ciscoGgsnExtConfigurations 6 }
+
+cGgsnExtPrepaidStandAlone OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether GGSN can function as a
+        standalone entity for prepaid quota management and
+        enforcement. If the value of this object is 'true' then
+        GGSN can function as a stand alone entity for prepaid quota
+        management and enforcement. If the value of this object
+        is set to 'false' then GGSN will depend on CSG2 for prepaid
+        quota management and enforcement."
+    DEFVAL          { false } 
+    ::= { ciscoGgsnExtConfigurations 7 }
+
+cGgsnExtRedundancyEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to enable redundancy for GGSN."
+    DEFVAL          { false } 
+    ::= { ciscoGgsnExtConfigurations 8 }
+
+cGgsnExtChargSyncWindowSvcSeqnum OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..200)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies sync window size of the local
+        sequence number. This object can assign value only 
+        when redundancy(cGgsnExtRedundancyEnabled) is enabled."
+    DEFVAL          { 50 } 
+    ::= { ciscoGgsnExtConfigurations 9 }
+
+cGgsnExtChargSyncWindowCdrSeqnum OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..20)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies sync window size of the CDR record
+        sequence number. This object can assign value only when 
+        redundancy(cGgsnExtRedundancyEnabled)is enabled."
+    DEFVAL          { 10 } 
+    ::= { ciscoGgsnExtConfigurations 10 }
+
+cGgsnExtChargSynWindowGtppSeqnum OBJECT-TYPE
+    SYNTAX          Unsigned32 (5..65535)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies sync window size of the GTP packet
+        sequence number. This object can assign value only when
+        redundancy(cGgsnExtRedundancyEnabled)is enabled."
+    DEFVAL          { 10000 } 
+    ::= { ciscoGgsnExtConfigurations 11 }
+
+cGgsnExtTraceBufferLimit OBJECT-TYPE
+    SYNTAX          Unsigned32 (2000..10000)
+    UNITS           "Bytes"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines buffer limit when tracing is active
+        for a subscriber."
+    DEFVAL          { 3000 } 
+    ::= { ciscoGgsnExtConfigurations 12 }
+
+cGgsnExtTraceXmlTransferInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (60..86400)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the trace XML file transfer interval
+        when tracing is active for a subscriber."
+    DEFVAL          { 60 } 
+    ::= { ciscoGgsnExtConfigurations 13 }
+
+cGgsnExtSubscriberTraceProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGgsnExtSubscriberTraceProfileEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of subscriber trace profiles
+        configured on this gateway.
+
+        The SNMP entity adds a conceptual row(s) to this table when
+        the user configures a trace profile.
+
+        The SNMP entity deletes a conceptual row(s) from this table 
+        when the user removes the trace profile. 
+
+        The SNMP entity modifies the conceptual row when the user
+        changes any trace parameters of the profile."
+    ::= { ciscoGgsnExtConfigurations 14 }
+
+cGgsnExtSubscriberTraceProfileEntry OBJECT-TYPE
+    SYNTAX          CGgsnExtSubscriberTraceProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table contains a set of trace parameter
+        needed for tracing a subscriber."
+    INDEX           { cGgsnExtTraceProfile } 
+    ::= { cGgsnExtSubscriberTraceProfileTable 1 }
+
+CGgsnExtSubscriberTraceProfileEntry ::= SEQUENCE {
+        cGgsnExtTraceProfile                 SnmpAdminString,
+        cGgsnExtTracePrimaryUrl              DisplayString,
+        cGgsnExtTraceSecondaryUrl            DisplayString,
+        cGgsnExtTraceInfoTxFailRetry         Unsigned32,
+        cGgsnExtTraceInfoTxFailRetryInterval Unsigned32,
+        cGgsnExtTraceRowStatus               RowStatus
+}
+
+cGgsnExtTraceProfile OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..40))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the subscriber trace policy name
+        and it uniquely identifies a subscriber trace policy." 
+    ::= { cGgsnExtSubscriberTraceProfileEntry 1 }
+
+cGgsnExtTracePrimaryUrl OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the primary URL to which the
+        subscriber trace information needs to be transferred
+        when the trace activated user anchors to the gateway." 
+    ::= { cGgsnExtSubscriberTraceProfileEntry 2 }
+
+cGgsnExtTraceSecondaryUrl OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the secondary URL to which the
+        subscriber trace information needs to be transferred
+        when the primary URL is unreachable and the trace
+        activated user anchors to the gateway." 
+    ::= { cGgsnExtSubscriberTraceProfileEntry 3 }
+
+cGgsnExtTraceInfoTxFailRetry OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..10)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of times the gateway
+        will retry to transfer the trace information in case of
+        failure."
+    DEFVAL          { 3 } 
+    ::= { cGgsnExtSubscriberTraceProfileEntry 4 }
+
+cGgsnExtTraceInfoTxFailRetryInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (10..180)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the time interval between ever
+        retry to transfer the trace information in case of
+        failure."
+    DEFVAL          { 10 } 
+    ::= { cGgsnExtSubscriberTraceProfileEntry 5 }
+
+cGgsnExtTraceRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create a new row or delete an
+        existing row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+
+        To delete a row, set this object to 'destroy'." 
+    ::= { cGgsnExtSubscriberTraceProfileEntry 6 }
+ 
+
+
+-- Status
+
+cGgsnExtGtpPppRegenCreatedIntfs OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of device specific
+        interface constructs created for association with
+        PPP-Regen PDP contexts." 
+    ::= { ciscoGgsnExtStatus 1 }
+
+cGgsnExtGtpDtActivePDPs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "PDP Context"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of active PDP
+        contexts with Direct tunnel enabled." 
+    ::= { ciscoGgsnExtStatus 2 }
+
+cGgsnExtActivatedMs OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current number of Mobile Stations
+        with active PDP contexts." 
+    ::= { ciscoGgsnExtStatus 3 }
+
+cGgsnExtActivatedv4v6Gtpv0Pdp OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "PDP Context"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the current number of active GTPv0
+        IPv4v6 PDP contexts." 
+    ::= { ciscoGgsnExtStatus 4 }
+
+cGgsnExtActivatedv4v6Gtpv1Pdp OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "PDP Context"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the current number of active GTPv1
+        IPv4v6 PDP contexts." 
+    ::= { ciscoGgsnExtStatus 5 }
+
+cGgsnExtActivatedv4v6MobileStations OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the current number of mobile
+        stations with active IPv4v6 PDP contexts." 
+    ::= { ciscoGgsnExtStatus 6 }
+
+ciscoGgsnExtTraceStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoGgsnExtTraceStatusEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of subscribers and their tracing
+        status on this gateway.
+
+        The SNMP entity adds a conceptual row(s) to this table when
+        a trace is begun for a subscriber.
+
+        The SNMP entity deletes a conceptual row(s) from this table 
+        when a trace is stopped for a subscriber."
+    ::= { ciscoGgsnExtStatus 7 }
+
+ciscoGgsnExtTraceStatusEntry OBJECT-TYPE
+    SYNTAX          CiscoGgsnExtTraceStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table contains a set of trace parameters
+        currently used by the subscriber along with his IMEI."
+    INDEX           { cGgsnExtTraceStatusImsi } 
+    ::= { ciscoGgsnExtTraceStatusTable 1 }
+
+CiscoGgsnExtTraceStatusEntry ::= SEQUENCE {
+        cGgsnExtTraceStatusImsi      SnmpAdminString,
+        cGgsnExtTraceStatusImei      SnmpAdminString,
+        cGgsnExtTraceStatusSource    INTEGER,
+        cGgsnExtTraceStatusReference SnmpAdminString
+}
+
+cGgsnExtTraceStatusImsi OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..8))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the IMSI of the subscriber
+        who is being traced currently on this gateway." 
+    ::= { ciscoGgsnExtTraceStatusEntry 1 }
+
+cGgsnExtTraceStatusImei OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..8))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the IMEI of the subscriber
+        who is being traced currently on this gateway." 
+    ::= { ciscoGgsnExtTraceStatusEntry 2 }
+
+cGgsnExtTraceStatusSource OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        signaling(1),
+                        management(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the source through which an equipment
+        trace has activated on the gateway for a subscriber.
+
+        'signaling' - tracing has been activated by gtp signaling
+                      messages.
+
+        'management' - tracing has been activated by the user directly
+                       on the gateway using a gateway management tool."
+    DEFVAL          { management } 
+    ::= { ciscoGgsnExtTraceStatusEntry 3 }
+
+cGgsnExtTraceStatusReference OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the trace reference of the
+        subscriber who is being traced currently on this gateway." 
+    ::= { ciscoGgsnExtTraceStatusEntry 4 }
+ 
+
+-- *********************************************************************
+-- Conformance Information
+-- *********************************************************************
+
+cGgsnExtMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoGgsnExtMIBConform 1 }
+
+cGgsnExtMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoGgsnExtMIBConform 2 }
+
+
+-- Compliance statements
+
+cGgsnExtMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GGSN-EXT-MIB. This is
+        deprecated by cGgsnExtMIBComplianceRev1."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGgsnExtStatisticsGroup,
+                        cGgsnExtStatusGroup,
+                        cGgsnExtConfigurationsGroup,
+                        cGgsnExtThruputGroup
+                    }
+    ::= { cGgsnExtMIBCompliances 1 }
+
+cGgsnExtMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GGSN-EXT-MIB. This is
+        deprecated by cGgsnExtMIBComplianceRev2."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGgsnExtStatisticsGroup,
+                        cGgsnExtStatisticsGroupRev1,
+                        cGgsnExtStatusGroupRev1,
+                        cGgsnExtConfigurationsGroupRev1,
+                        cGgsnExtThruputGroup
+                    }
+    ::= { cGgsnExtMIBCompliances 2 }
+
+cGgsnExtMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GGSN-EXT-MIB.This is
+        deprecated by cGgsnExtMIBComplianceRev3."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGgsnExtStatisticsGroup,
+                        cGgsnExtStatisticsGroupRev1,
+                        cGgsnExtStatusGroupRev1,
+                        cGgsnExtConfigurationsGroupRev1,
+                        cGgsnExtThruputGroup,
+                        cGgsnExtConfigurationsGroupRev1Sup1
+                    }
+    ::= { cGgsnExtMIBCompliances 3 }
+
+cGgsnExtMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GGSN-EXT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGgsnExtStatisticsGroup,
+                        cGgsnExtThruputGroup,
+                        cGgsnExtConfigurationsGroupRev1,
+                        cGgsnExtStatisticsGroupRev1,
+                        cGgsnExtConfigurationsGroupRev1Sup1,
+                        cGgsnExtStatisticsGroupSup1,
+                        cGgsnExtStatusGroupSup1,
+                        cGgsnExtStatusGroupRev1
+                    }
+    ::= { cGgsnExtMIBCompliances 4 }
+
+cGgsnExtMIBComplianceRev4 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GGSN-EXT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGgsnExtStatisticsGroup,
+                        cGgsnExtThruputGroup,
+                        cGgsnExtConfigurationsGroupRev1,
+                        cGgsnExtStatisticsGroupRev1,
+                        cGgsnExtConfigurationsGroupRev1Sup1,
+                        cGgsnExtStatisticsGroupSup1,
+                        cGgsnExtStatusGroupSup1,
+                        cGgsnExtStatusGroupRev1,
+                        cGgsnExtStatusGroupSup2,
+                        cGgsnExtConfigurationsGroupRev1Sup2,
+                        cGgsnExtStatisticsGroupSup2,
+                        cGgsnExtNotificationsGroup,
+                        cGgsnExtNotificationInfoGroup,
+                        cGgsnExtStatisticsGroupSup3
+                    }
+    ::= { cGgsnExtMIBCompliances 5 }
+
+-- units of conformance
+
+cGgsnExtStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtNoWaitSgsnLocalDelPDPs,
+                        cGgsnExtNoReqSgsnLocalDelPDPs,
+                        cGgsnExtSentPdpUpdateReqs,
+                        cGgsnExtRcvdSuccPdpUpdateResponses,
+                        cGgsnExtRcvdCoaMsgs,
+                        cGgsnExtDiscardedCoaMsgs,
+                        cGgsnExtSentCoaUpdateReqs,
+                        cGgsnExtSentErrorIndications,
+                        cGgsnExtRcvdErrorIndications,
+                        cGgsnExtTotalDtEnabled,
+                        cGgsnExtRcvdDtPdpErrorIndications,
+                        cGgsnExtTotalDtUpdFailDeletedPDPs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of statistics objects in GGSN."
+    ::= { cGgsnExtMIBGroups 1 }
+
+cGgsnExtStatusGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtGtpPppRegenCreatedIntfs,
+                        cGgsnExtGtpDtActivePDPs
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of statistics objects in GGSN. This is
+        deprecated by cGgsnExtStatusGroupRev1."
+    ::= { cGgsnExtMIBGroups 2 }
+
+cGgsnExtConfigurationsGroup OBJECT-GROUP
+    OBJECTS         { cGgsnExtAaaAccountInterPeriod }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of configuration objects in GGSN. This is
+        deprecated by cGgsnExtConfigurationsGroupRev1."
+    ::= { cGgsnExtMIBGroups 3 }
+
+cGgsnExtThruputGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtThruputLastCollected,
+                        cGgsnExtUpstreamByteCount,
+                        cGgsnExtDownstreamByteCount,
+                        cGgsnExtUpstreamPktCount,
+                        cGgsnExtDownstreamPktCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of throughput statistics objects in GGSN."
+    ::= { cGgsnExtMIBGroups 4 }
+
+cGgsnExtStatusGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtGtpPppRegenCreatedIntfs,
+                        cGgsnExtGtpDtActivePDPs,
+                        cGgsnExtActivatedMs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of statistics objects in GGSN."
+    ::= { cGgsnExtMIBGroups 5 }
+
+cGgsnExtConfigurationsGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtAaaAccountInterPeriod,
+                        cGgsnExtDfpCpuLoad,
+                        cGgsnExtDfpMemLoad,
+                        cGgsnExtThruputHistory,
+                        cGgsnExtCallRateInterval,
+                        cGgsnExtCallRateHistory,
+                        cGgsnExtPrepaidStandAlone
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of configuration objects in GGSN."
+    ::= { cGgsnExtMIBGroups 6 }
+
+cGgsnExtStatisticsGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtPdpNonExistentMsgs,
+                        cGgsnExtCallRateLastCollected,
+                        cGgsnExtCreatedPDPs,
+                        cGgsnExtDeletedPDPs,
+                        cGgsnExtHistCallRateInterval,
+                        cGgsnExtHistCallRateLastCollected,
+                        cGgsnExtHistCreatedPDPs,
+                        cGgsnExtHistDeletedPDPs,
+                        cGgsnExtHistThruputLastCollected,
+                        cGgsnExtHistUpstreamByteCount,
+                        cGgsnExtHistDownstreamByteCount,
+                        cGgsnExtHistUpstreamPktCount,
+                        cGgsnExtHistDownstreamPktCount,
+                        cGgsnExtSubscriberTid,
+                        cGgsnExtSubscriberMSAddrType,
+                        cGgsnExtSubscriberMSAddr,
+                        cGgsnExtSubscriberSource,
+                        cGgsnExtSubscriberSGSNAddrType,
+                        cGgsnExtSubscriberSGSNAddr,
+                        cGgsnExtSubscriberAPN
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of statistics objects in GGSN."
+    ::= { cGgsnExtMIBGroups 7 }
+
+cGgsnExtConfigurationsGroupRev1Sup1 OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtRedundancyEnabled,
+                        cGgsnExtChargSyncWindowSvcSeqnum,
+                        cGgsnExtChargSyncWindowCdrSeqnum,
+                        cGgsnExtChargSynWindowGtppSeqnum
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of configuration objects in GGSN. This is
+        supplementary to cGgsnExtConfigurationsGroupRev1."
+    ::= { cGgsnExtMIBGroups 8 }
+
+cGgsnExtStatisticsGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtTotalCreatedv4v6Pdps,
+                        cGgsnExtTotalDeletedv4v6Pdps
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for GgsnExtStatistics for
+        dual stack support.This group is supplementary to
+        cGgsnExtStatisticsGroupRev1."
+    ::= { cGgsnExtMIBGroups 9 }
+
+cGgsnExtStatusGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtActivatedv4v6Gtpv0Pdp,
+                        cGgsnExtActivatedv4v6Gtpv1Pdp,
+                        cGgsnExtActivatedv4v6MobileStations
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related to IPv4v6 objects for GTP v0/v1
+        PDP Contexts and Mobile stations.This group is supplementary to
+        cGgsnExtStatusGroupRev1."
+    ::= { cGgsnExtMIBGroups 10 }
+
+cGgsnExtStatisticsGroupSup2 OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtTraceActivatedSessions,
+                        cGgsnExtTraceSignalActivations,
+                        cGgsnExtTraceMgmtActivations,
+                        cGgsnExtTraceNewSesActivations,
+                        cGgsnExtTraceActSesActivations,
+                        cGgsnExtTraceSignalActivFailures,
+                        cGgsnExtTraceMgmtActivFailures,
+                        cGgsnExtTraceDeactivatedSessions,
+                        cGgsnExtTraceSignalDeactivations,
+                        cGgsnExtTraceMgmtDeactivations,
+                        cGgsnExtTraceSignalDeactivFailures,
+                        cGgsnExtTraceMgmtDeactivFailures,
+                        cGgsnExtTraceTotalXmlFiles,
+                        cGgsnExtTraceTotalXmlFailNotifFiles,
+                        cGgsnExtTraceXmlFileTransSucc,
+                        cGgsnExtTraceXmlFileTransPri,
+                        cGgsnExtTraceXmlFileTransSec,
+                        cGgsnExtTraceXmlFileTotalTransFails,
+                        cGgsnExtTraceXmlFileTransPriFails,
+                        cGgsnExtTraceXmlFileTransRetries,
+                        cGgsnExtTraceXmlFileTransSecFails
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for GgsnExtStatistics for
+        subscriber trace support.This group is supplementary to
+        cGgsnExtStatisticsGroupRev1."
+    ::= { cGgsnExtMIBGroups 11 }
+
+cGgsnExtConfigurationsGroupRev1Sup2 OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtTraceBufferLimit,
+                        cGgsnExtTraceXmlTransferInterval,
+                        cGgsnExtTraceNotifEnable,
+                        cGgsnExtTracePrimaryUrl,
+                        cGgsnExtTraceSecondaryUrl,
+                        cGgsnExtTraceInfoTxFailRetry,
+                        cGgsnExtTraceInfoTxFailRetryInterval,
+                        cGgsnExtTraceRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of configuration objects in this Gateway. This is
+        supplementary to cGgsnExtConfigurationsGroupRev1."
+    ::= { cGgsnExtMIBGroups 12 }
+
+cGgsnExtStatusGroupSup2 OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtTraceStatusImei,
+                        cGgsnExtTraceStatusSource,
+                        cGgsnExtTraceStatusReference
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects related to subscriber tracing.
+        This group is supplementary to cGgsnExtStatusGroupRev1."
+    ::= { cGgsnExtMIBGroups 13 }
+
+cGgsnExtNotificationsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cGgsnExtSubsTraceFailNotif }
+    STATUS          current
+    DESCRIPTION
+        "A notification group to support the subscriber
+        equipment trace activation failure notification."
+    ::= { cGgsnExtMIBGroups 14 }
+
+cGgsnExtNotificationInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtSubscriberMcc,
+                        cGgsnExtSubscriberMnc,
+                        cGgsnExtSubscriberTraceId,
+                        cGgsnExtSubscrTraceFailReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to be used by the subscriber
+        equipment trace activation failure notification."
+    ::= { cGgsnExtMIBGroups 15 }
+
+cGgsnExtStatisticsGroupSup3 OBJECT-GROUP
+    OBJECTS         {
+                        cGgsnExtConditionalIEMissingMsgs,
+                        cGgsnExtInvalidReplyPeerMsgs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for GgsnExtStatistics for
+        failure cause code counters.This group is supplementary
+        to cGgsnExtStatisticsGroupRev1."
+    ::= { cGgsnExtMIBGroups 16 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

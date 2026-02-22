@@ -1,0 +1,182 @@
+-- MIB file created 03-Jan-2007 13:57:58, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VLAN-BRIDGING-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VLAN-BRIDGING-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+    vtpVlanIndex
+            FROM CISCO-VTP-MIB
+    CiscoPortList
+            FROM CISCO-TC
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoVlanBridgingMIB OBJECT IDENTIFIER ::= { ciscoMgmt 56 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200308220000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-vlans@cisco.com
+--            cs-lan-switch-snmp
+--  Descr
+--    A set of managed objects for optimizing access to
+--     bridging related data from RFC 1493.  This MIB is
+--     modeled after portions of RFC 1493, adding VLAN ID
+--     based indexing and bitmapped encoding of frequently
+--     accessed data.
+--  RevDate
+--    200308220000Z
+--  RevDescr
+--    Deprecate cvbStpForwardingMap and define
+--     cvbStpForwardingMap2k to support up to 2k
+--     bridge ports.
+--  RevDate
+--    9609120000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoVlanBridgingMIBObjects OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIB 1 }
+cvbStp          OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIBObjects 1 }
+ciscoVlanBridgingMIBConformance OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIB 3 }
+ciscoVlanBridgingMIBCompliances OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIBConformance 1 }
+ciscoVlanBridgingMIBGroups OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIBConformance 2 }
+
+cvbStpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoVlanStpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains device STP status information
+         for each VLAN."
+    ::= { cvbStp 1 }
+
+cvbStpEntry OBJECT-TYPE
+    SYNTAX CiscoVlanStpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Device STP status for specified VLAN."
+    INDEX { vtpVlanIndex }
+    ::= { cvbStpTable 1 }
+
+CiscoVlanStpEntry ::= SEQUENCE {
+    cvbStpForwardingMap OCTET STRING,
+    cvbStpForwardingMap2k CiscoPortList
+    }
+
+cvbStpForwardingMap OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..128))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "An indication of which ports are forwarding by spanning 
+         tree for the specified VLAN. The octet string contains
+         one bit per port on the bridge for the specified VLAN.
+        
+         Each octet within the value of this object specifies a
+         set of eight ports, with the first octet specifying
+         ports 1 through 8, the second octet specifying ports 9
+         through 16, etc.   Within each octet, the most
+         significant bit represents the lowest numbered
+         port, and the least significant bit represents the
+         highest numbered port. 
+        
+         The bit value interpretation is related to RFC 1493
+         dot1dStpPortState values is as follows:
+            1 = forwarding
+            0 = disabled, blocking, listening, learning, broken, or
+                nonexistent"
+    ::= { cvbStpEntry 2 }
+
+cvbStpForwardingMap2k OBJECT-TYPE
+    SYNTAX CiscoPortList
+--    Rsyntax OCTET STRING(SIZE(0..256))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An indication of which ports are forwarding by spanning 
+         tree for the specified VLAN. The octet string contains
+         one bit per port on the bridge for the specified VLAN.
+         This object has STP status information of up to 2k ports
+         with the port number from 1 to 2048.
+        
+         Each octet within the value of this object specifies a
+         set of eight ports, with the first octet specifying
+         ports 1 through 8, the second octet specifying ports 9
+         through 16, etc.   Within each octet, the most
+         significant bit represents the lowest numbered
+         port, and the least significant bit represents the
+         highest numbered port. 
+        
+         The bit value interpretation is related to RFC 1493
+         dot1dStpPortState values is as follows:
+            1 = forwarding
+            0 = disabled, blocking, listening, learning, broken, or
+                nonexistent."
+    ::= { cvbStpEntry 3 }
+
+ciscoVlanBridgingMIBGroup OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing the STP status 
+--    information of up to 1k ports with the port number 
+--    from 1 to 1024.
+--  objects
+--    cvbStpForwardingMap
+
+ciscoVlanBridgingMIBGroup2 OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the STP status 
+--    information of up to 2k ports with the port number 
+--    from 1 to 2048.
+--  objects
+--    cvbStpForwardingMap2k
+
+ciscoVlanBridgingMIBCompliance OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco VLAN Bridging MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoVlanBridgingMIBGroup
+
+ciscoVlanBridgingMIBCompliance2 OBJECT IDENTIFIER ::= { ciscoVlanBridgingMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco VLAN Bridging MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoVlanBridgingMIBGroup2
+
+
+END
+

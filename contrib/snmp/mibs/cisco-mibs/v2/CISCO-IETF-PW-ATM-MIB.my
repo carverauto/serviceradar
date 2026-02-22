@@ -1,0 +1,447 @@
+-- *****************************************************************
+-- CISCO-IETF-PW-ATM-MIB.my: Pseudo Wire ATM MIB file
+--   
+-- April 2005, Rajeev KG
+--   
+-- Copyright (c) 2003-2005, 2010 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+--   
+-- This mib is based on draft-ietf-pwe3-pw-atm-mib-00.txt.
+-- In the future, this mib may be removed entirely, or re-implemented
+-- on short notice.  in favor of more standard or generic MIBs.
+-- Application developers should not depend on long-term access
+-- to this MIB.
+-- The intent is to eventually update the PW-ATM-MIB,
+-- once the final approved version of
+-- draft-ietf-pwe3-pw-atm-mib-XX.txt is available,
+-- and remove this CISCO-IETF-PW-ATM-MIB in its entirety.
+
+CISCO-IETF-PW-ATM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Counter32,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    InterfaceIndex
+        FROM IF-MIB
+    AtmVpIdentifier,
+    AtmVcIdentifier
+        FROM ATM-TC-MIB
+    cpwVcIndex
+        FROM CISCO-IETF-PW-MIB
+    ciscoExperiment
+        FROM CISCO-SMI;
+
+
+cpwVcAtmMIB MODULE-IDENTITY
+    LAST-UPDATED    "200504191200Z"
+    ORGANIZATION    "Cisco Systems, Inc"
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+            USA
+
+            Tel:    +1 800 553-NETS
+            Email:  cs-atm@cisco.com"
+    DESCRIPTION
+        "This MIB contains managed object definitions for Pseudo Wire
+        emulation of ATM over Packet Switched Networks(PSN).
+
+        This MIB reports to the PW-MIB. The PW-MIB contains
+        structures and MIB associations generic to Pseudo-Wire
+        Virtual Circuit (VC) emulation. VC-specific MIBs (such as
+        this) contain config and stats for specific VC types."
+    REVISION        "200504191200Z"
+    DESCRIPTION
+        "Updated Mib police review comments"
+    REVISION        "200302161200Z"
+    DESCRIPTION
+        "Initial Version"
+    ::= { ciscoExperiment 9000 }
+
+
+-- Top-level components of this MIB
+
+cpwVcAtmNotifications  OBJECT IDENTIFIER
+    ::= { cpwVcAtmMIB 0 }
+
+cpwVcAtmObjects  OBJECT IDENTIFIER
+    ::= { cpwVcAtmMIB 1 }
+
+cpwVcAtmConformance  OBJECT IDENTIFIER
+    ::= { cpwVcAtmMIB 2 }
+
+-- PW ATM table
+
+cpwVcAtmTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpwVcAtmEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies the information for an ATM interface, VC,
+        VP to be carried over PSN."
+    ::= { cpwVcAtmObjects 1 }
+
+cpwVcAtmEntry OBJECT-TYPE
+    SYNTAX          CpwVcAtmEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A row in this table represents an ATM interface, VC, VP
+        that needs to be adapted and carried over PSN. This table
+        is indexed by CpwVcIndex in CISCO-IETF-PW-MIB."
+    INDEX           { cpwVcIndex } 
+    ::= { cpwVcAtmTable 1 }
+
+CpwVcAtmEntry ::= SEQUENCE {
+        cpwAtmIf               InterfaceIndex,
+        cpwAtmVpi              AtmVpIdentifier,
+        cpwAtmVci              AtmVcIdentifier,
+        cpwAtmClpQosMapping    TruthValue,
+        cpwAtmRowStatus        RowStatus,
+        cpwAtmOamCellSupported TruthValue,
+        cpwAtmQosScalingFactor Integer32,
+        cpwAtmCellPacking      TruthValue,
+        cpwAtmMncp             Integer32,
+        cpwAtmPeerMncp         Integer32,
+        cpwAtmEncap            INTEGER,
+        cpwAtmMcptTimeout      Integer32
+}
+
+cpwAtmIf OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The ATM Interface that receives cells from the ATM network." 
+    ::= { cpwVcAtmEntry 1 }
+
+cpwAtmVpi OBJECT-TYPE
+    SYNTAX          AtmVpIdentifier
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "VPI value of this ATM VC." 
+    ::= { cpwVcAtmEntry 2 }
+
+cpwAtmVci OBJECT-TYPE
+    SYNTAX          AtmVcIdentifier
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "VCI value of this ATM VC." 
+    ::= { cpwVcAtmEntry 3 }
+
+cpwAtmClpQosMapping OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This Object indicates whether the CLP bits are considered when
+        determining the value placed in the Quality of Service fields
+        (e.g. EXP fields of the MPLS Label Stack) of the encapsulating
+        protocol." 
+    ::= { cpwVcAtmEntry 4 }
+
+cpwAtmRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This Object is used to create, modify or delete a row in this
+        table." 
+    ::= { cpwVcAtmEntry 5 }
+
+cpwAtmOamCellSupported OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This Object indicates whether OAM Cells are transported on this
+        VC." 
+    ::= { cpwVcAtmEntry 6 }
+
+cpwAtmQosScalingFactor OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This Object represents the scaling factor (% value) to be
+        applied to ATM QoS rates when calculating QoS rates for the
+        PSN domain . For example, in the cell transport mode the
+        bandwidth needed in the PSN domain will be higher (since PSN
+        Transport header, PW header, and optional control word have
+        to transmitted with every cell), whereas in the AAL5 mode
+        the bandwidth needed in PSN domain will be less since cell
+        headers will be removed after reassembly."
+    DEFVAL          { 100 } 
+    ::= { cpwVcAtmEntry 7 }
+
+cpwAtmCellPacking OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to identify if the VC is configured to do
+        Cell Packing." 
+    ::= { cpwVcAtmEntry 8 }
+
+cpwAtmMncp OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum number of cells that get
+        packed in one packet." 
+    ::= { cpwVcAtmEntry 9 }
+
+cpwAtmPeerMncp OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Object represents the maximum number of cell
+        that can be packed in one packet for peer interface." 
+    ::= { cpwVcAtmEntry 10 }
+
+cpwAtmEncap OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        mpls(1),
+                        l2tpv3(2),
+                        unknown(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates if the packet going on the pseudowire
+        is mpls or l2tpv3 encapsulated." 
+    ::= { cpwVcAtmEntry 11 }
+
+cpwAtmMcptTimeout OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This Object represents which MCPT timeout value." 
+    ::= { cpwVcAtmEntry 12 }
+ 
+
+-- End of PW ATM Table
+--   
+-- PW ATM Peformance Table
+
+cpwVcAtmPerfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpwVcAtmPerfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies performance-related attributes
+        for an ATM vc, vp and the interface."
+    ::= { cpwVcAtmObjects 2 }
+
+cpwVcAtmPerfEntry OBJECT-TYPE
+    SYNTAX          CpwVcAtmPerfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A row in this table represents an ATM interface, VC, VP
+        that needs to be adapted and carried over PSN. This table 
+        is indexed by CpwVcIndex in CISCO-IETF-PW-MIB."
+    AUGMENTS           { cpwVcAtmEntry  } 
+    ::= { cpwVcAtmPerfTable 1 }
+
+CpwVcAtmPerfEntry ::= SEQUENCE {
+        cpwAtmCellsReceived   Counter32,
+        cpwAtmCellsSent       Counter32,
+        cpwAtmCellsRejected   Counter32,
+        cpwAtmCellsTagged     Counter32,
+        cpwAtmHCCellsReceived Counter64,
+        cpwAtmHCCellsRejected Counter64,
+        cpwAtmHCCellsTagged   Counter64,
+        cpwAtmAvgCellsPacked  Counter32,
+        cpwAtmPktsReceived    Counter32,
+        cpwAtmPktsSent        Counter32,
+        cpwAtmPktsRejected    Counter32
+}
+
+cpwAtmCellsReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object can be used to obtain the information on the
+        number of cells that were received and sent to the PSN." 
+    ::= { cpwVcAtmPerfEntry 1 }
+
+cpwAtmCellsSent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object can be used to obtain the information on the
+        number of cells that were received from the PSN and sent
+        over the ATM network." 
+    ::= { cpwVcAtmPerfEntry 2 }
+
+cpwAtmCellsRejected OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Object indicates the number of cells that were rejected by
+        this VC because of policing." 
+    ::= { cpwVcAtmPerfEntry 3 }
+
+cpwAtmCellsTagged OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Object indicates the number of cells that were Tagged." 
+    ::= { cpwVcAtmPerfEntry 4 }
+
+cpwAtmHCCellsReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "High Capacity counter for the number of cells that were
+        received by this VC." 
+    ::= { cpwVcAtmPerfEntry 5 }
+
+cpwAtmHCCellsRejected OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "High Capacity counter for the number of cells that were
+        rejected by this VC because of policing." 
+    ::= { cpwVcAtmPerfEntry 6 }
+
+cpwAtmHCCellsTagged OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "High Capacity counter for the number of cells that were tagged" 
+    ::= { cpwVcAtmPerfEntry 7 }
+
+cpwAtmAvgCellsPacked OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "It indicates the Average number of cells that
+        were received in one packet." 
+    ::= { cpwVcAtmPerfEntry 8 }
+
+cpwAtmPktsReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object can be used to obtain the information on the
+        number of packets that were received and sent to the PSN." 
+    ::= { cpwVcAtmPerfEntry 9 }
+
+cpwAtmPktsSent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets that were sent
+        to the atm network." 
+    ::= { cpwVcAtmPerfEntry 10 }
+
+cpwAtmPktsRejected OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets that were rejected
+        because of Policing." 
+    ::= { cpwVcAtmPerfEntry 11 }
+ 
+
+-- End of PW ATM Peformance Table
+--   
+-- Confirmance Information
+
+cpwVcAtmGroups  OBJECT IDENTIFIER
+    ::= { cpwVcAtmConformance 1 }
+
+cpwVcAtmCompliances  OBJECT IDENTIFIER
+    ::= { cpwVcAtmConformance 2 }
+
+
+cpwVcAtmModuleCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for agent that support PW
+        ATM."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cpwVcAtmGroup,
+                        cpwAtmPerfGroup
+                    }
+    ::= { cpwVcAtmCompliances 1 }
+
+-- Units of conformance.
+
+cpwVcAtmGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpwAtmIf,
+                        cpwAtmVpi,
+                        cpwAtmVci,
+                        cpwAtmRowStatus,
+                        cpwAtmClpQosMapping,
+                        cpwAtmOamCellSupported,
+                        cpwAtmQosScalingFactor,
+                        cpwAtmCellPacking,
+                        cpwAtmMncp,
+                        cpwAtmPeerMncp,
+                        cpwAtmEncap,
+                        cpwAtmMcptTimeout
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Collection of objects for basic ATM PW outbound config."
+    ::= { cpwVcAtmGroups 1 }
+
+cpwAtmPerfGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpwAtmCellsReceived,
+                        cpwAtmCellsSent,
+                        cpwAtmCellsRejected,
+                        cpwAtmCellsTagged,
+                        cpwAtmHCCellsReceived,
+                        cpwAtmHCCellsRejected,
+                        cpwAtmHCCellsTagged,
+                        cpwAtmPktsReceived,
+                        cpwAtmPktsSent,
+                        cpwAtmPktsRejected,
+                        cpwAtmAvgCellsPacked
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Collection of objects counting various outbound ATM PW
+        statistics."
+    ::= { cpwVcAtmGroups 2 }
+
+END
+
+

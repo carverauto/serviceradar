@@ -1,0 +1,1298 @@
+-- MIB file created 04-Nov-2016 01:26:48, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VDC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VDC-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    MacAddress, RowStatus, StorageType, DateAndTime, TruthValue
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InterfaceIndex
+            FROM IF-MIB
+    Cisco2KVlanList
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoVdcMIB OBJECT IDENTIFIER ::= { ciscoMgmt 774 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201611030000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553-NETS
+--    E-mail: cs-nexus7000@cisco.com
+--  Descr
+--    This MIB module defines the objects that describes virtual
+--    devices. VDCs are a feature of Nexus series switches from Cisco
+--    Systems that allow users to create virtual switches and
+--    partition the physical hardware across said virtual switches.
+--    This is commonly used to provide management separation without
+--    the extra overhead of additional physical hardware.
+--    
+--    Glossary of the terms used in this MIB:
+--    
+--    VDC - Virtual Device Context
+--    
+--    HA - High Availability
+--  RevDate
+--    201611030000Z
+--  RevDescr
+--    Add the following new enumerations for object
+--    ciscoVdcFeatureSetList
+--    - virtualization(5)
+--    - fabric(6)
+--    - fcoeNpv(7)
+--  RevDate
+--    201601190000Z
+--  RevDescr
+--    Added 'm3' enumerator for ciscoVdcModuleCapList.
+--  RevDate
+--    201309240000Z
+--  RevDescr
+--    Added 'f3' enumerator for ciscoVdcModuleCapList.
+--  RevDate
+--    201307020000Z
+--  RevDescr
+--    Added MIN-ACCESS statement for the
+--    following objects:
+--    - ciscoVdcCombinedHostnameEnabled
+--    - ciscoVdcName
+--    - ciscoVdcRowStatus
+--    - ciscoVdcAdminStatus
+--    - ciscoVdcIfMembershipStorageType
+--    - ciscoVdcIfMembershipStatus
+--    - ciscoVdcFCoEVlansSecond2K
+--    - ciscoVdcFCoEVlansFirst2K
+--    - ciscoVdcFCoEVlansFromVdc
+--    - ciscoVdcSharedInterfaceStorageType
+--    - ciscoVdcSharedInterfaceRowStatus.
+--  RevDate
+--    201306080000Z
+--  RevDescr
+--    Added following OBJECT-GROUP:
+--    - ciscoVdcExtGroup
+--    - ciscoVdcGlobalResUsageGroup
+--    - ciscoVdcResUsageGroup
+--    - ciscoVdcResTemplateGroup
+--    - ciscoVdcGlobalGroup
+--    - ciscoVdcIfMembershipGroup
+--    - ciscoVdcFCoEVlansGroup
+--    - ciscoVdcSharedInterfaceGroup
+--    Added new compliance
+--    - ciscoVdcMIBCompliance1.
+--  RevDate
+--    201105190000Z
+--  RevDescr
+--    Initial version
+
+ciscoVdcMIBNotifs OBJECT IDENTIFIER ::= { ciscoVdcMIB 0 }
+ciscoVdcMIBObjects OBJECT IDENTIFIER ::= { ciscoVdcMIB 1 }
+ciscoVdcMIBConform OBJECT IDENTIFIER ::= { ciscoVdcMIB 2 }
+ciscoVdcGlobal  OBJECT IDENTIFIER ::= { ciscoVdcMIBObjects 2 }
+ciscoVdcExt     OBJECT IDENTIFIER ::= { ciscoVdcMIBObjects 3 }
+ciscoVdcResource OBJECT IDENTIFIER ::= { ciscoVdcMIBObjects 4 }
+ciscoVdcInterface OBJECT IDENTIFIER ::= { ciscoVdcMIBObjects 5 }
+ciscoVdcMIBCompliances OBJECT IDENTIFIER ::= { ciscoVdcMIBConform 1 }
+ciscoVdcMIBGroups OBJECT IDENTIFIER ::= { ciscoVdcMIBConform 2 }
+
+CiscoVdcHaPolicy ::= INTEGER {
+        --?? enum value of zero may cause problems
+--        reload(0),
+        restart(1),
+        bringDown(2),
+        switchOver(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The High Availability policy for VDC.
+--    reload     - reload the supervisor module
+--    restart    - take down the VDC and recreate it 
+--                 using the startup configuration
+--    bringDown  - put the VDC in failed state.  To recover 
+--                 from failed state, the physical device 
+--                 must be reloaded
+--    switchOver - initiate a supervisor module switchover
+
+CiscoVdcPercentOrMinusOne ::= INTEGER(-1|0..100)
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    d
+--  Status
+--    mandatory
+--  Descr
+--    An integer that is in the range of a percent value.
+--    A value of -1 means that the percentage is not available.
+
+ciscoVdcMaxNumberVdcAllowed OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum number of VDC instances
+        that can be created in the device."
+    ::= { ciscoVdcGlobal 1 }
+
+ciscoVdcCombinedHostnameEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the combined hostname
+        functionality is enabled or not.
+        
+        When the combined hostname functionality is enabled, 
+        the hostname of non-default VDCs will be 
+        <default VDC name>-<nondefault VDC name>."
+    ::= { ciscoVdcGlobal 2 }
+
+ciscoVdcTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoVdcEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains entries representing a VDC instance. There
+        will be an entry for each VDC instance created in the system."
+    ::= { ciscoVdcMIBObjects 1 }
+
+ciscoVdcEntry OBJECT-TYPE
+    SYNTAX CiscoVdcEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry representing the information pertaining to a virtual
+        device instance.
+        
+        A peer SNMP entity may create a virtual device instance by
+        setting an instance of ciscoVdcRowStatus to 'createAndWait' or
+        'createAndGo'.  Observe that an implementation that does not
+        support these options must specify these limitations in an agent
+        capabilities statement. 
+        
+        Other management entities (e.g., the local console) may perform
+        actions resulting in the creation of a virtual device instance.
+        In these cases, the system must automatically create a row in
+        the ciscoVdcTable. 
+        
+        A peer SNMP entity may destroy a virtual device instance by
+        setting the corresponding instance of ciscoVdcRowStatus to
+        'destroy'.  Observe that an implementation that does not support
+        this option must specify this limitation in an agent
+        capabilities statement. 
+        
+        Other management entities may perform actions resulting in the
+        destruction of a virtual device instance.  In these cases, the
+        system must automatically destroy the corresponding row in the
+        ciscoVdcTable."
+    INDEX { ciscoVdcId }
+    ::= { ciscoVdcTable 1 }
+
+CiscoVdcEntry ::= SEQUENCE {
+    ciscoVdcId Gauge,
+    ciscoVdcName SnmpAdminString,
+    ciscoVdcState INTEGER,
+    ciscoVdcFcoeCapable INTEGER,
+    ciscoVdcMac MacAddress,
+    ciscoVdcSwitchId MacAddress,
+    ciscoVdcRowStatus RowStatus,
+    ciscoVdcStorageType StorageType
+    }
+
+ciscoVdcId OBJECT-TYPE
+    SYNTAX Gauge(1..4096)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that uniquely
+        identifies a virtual device instance."
+    ::= { ciscoVdcEntry 1 }
+
+ciscoVdcName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The human-readable name of the VDC instance. This name uniquely
+        identifies the VDC instance in the system."
+    ::= { ciscoVdcEntry 2 }
+
+ciscoVdcState OBJECT-TYPE
+    SYNTAX INTEGER {
+        active(1),
+        suspended(2),
+        nonconfigured(3),
+        configured(4),
+        creating(5),
+        deleting(6),
+        failed(7),
+        pending(8),
+        updating(9),
+        restarting(10),
+        suspending(11),
+        resuming(12),
+        failing(13)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current operational state of the
+        virtual device."
+    ::= { ciscoVdcEntry 3 }
+
+ciscoVdcFcoeCapable OBJECT-TYPE
+    SYNTAX INTEGER {
+        disallowed(1),
+        allowed(2),
+        installed(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the FCoE capabilities of the virtual
+        device."
+    ::= { ciscoVdcEntry 4 }
+
+ciscoVdcMac OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the router MAC address of the virtual
+        device."
+    ::= { ciscoVdcEntry 5 }
+
+ciscoVdcSwitchId OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the MAC address of the device where the
+        virtual device instance is created."
+    ::= { ciscoVdcEntry 6 }
+
+ciscoVdcRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create, modify, and/or delete a row in
+        this table. 
+        
+        In particular, a newly created row cannot be made active until
+        the ciscoVdcName value is set. ciscoVdcName may not be modified
+        while the value of this object is active(1). An attempt to set
+        ciscoVdcName while the value of RowStatus is active(1) will
+        result in an inconsistentValue error. Agent may delete any
+        virtual device which has ciscoVdcState of active(1) and
+        ciscoVdcRowStatus of Active."
+    ::= { ciscoVdcEntry 7 }
+
+ciscoVdcStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual row.
+        The following columnar objects are allowed to be writable when
+        the storageType of this conceptual row is permanent(4):
+        none"
+    ::= { ciscoVdcEntry 8 }
+
+ciscoVdcExtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoVdcExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains additional information of
+        a VDC instance. There will be an entry for each 
+        VDC instance created in the system."
+    ::= { ciscoVdcExt 1 }
+
+ciscoVdcExtEntry OBJECT-TYPE
+    SYNTAX CiscoVdcExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each row contains additional information of a VDC instance."
+    INDEX { ciscoVdcId }
+    ::= { ciscoVdcExtTable 1 }
+
+CiscoVdcExtEntry ::= SEQUENCE {
+    ciscoVdcSingleSupHaPolicy CiscoVdcHaPolicy,
+    ciscoVdcDualSupHaPolicy CiscoVdcHaPolicy,
+    ciscoVdcBootOrder Gauge,
+    ciscoVdcTimeCreated DateAndTime,
+    ciscoVdcReloadCount Gauge,
+    ciscoVdcRestartCount Gauge,
+    ciscoVdcRestartTime DateAndTime,
+    ciscoVdcRestartReason SnmpAdminString,
+    ciscoVdcType INTEGER,
+    ciscoVdcAdminStatus INTEGER,
+    ciscoVdcFromUnallocatedIntf INTEGER,
+    ciscoVdcFeatureSetList OCTET STRING,
+    ciscoVdcResourceTemplate SnmpAdminString,
+    ciscoVdcModuleCapList OCTET STRING,
+    ciscoVdcCpuPriority INTEGER,
+    ciscoVdcCpuSharePercent CiscoVdcPercentOrMinusOne
+    }
+
+ciscoVdcSingleSupHaPolicy OBJECT-TYPE
+    SYNTAX CiscoVdcHaPolicy
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        reload(0),
+--        restart(1),
+--        bringDown(2),
+--        switchOver(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the High Availability policy
+        of a particular VDC when there is only one supervisor
+        on the device."
+    DEFVAL { restart }
+    ::= { ciscoVdcExtEntry 1 }
+
+ciscoVdcDualSupHaPolicy OBJECT-TYPE
+    SYNTAX CiscoVdcHaPolicy
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        reload(0),
+--        restart(1),
+--        bringDown(2),
+--        switchOver(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the High Availability policy
+        of a particular VDC when both the active supervisor and
+        standby supervisor are present on the device."
+    DEFVAL { switchOver }
+    ::= { ciscoVdcExtEntry 2 }
+
+ciscoVdcBootOrder OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the boot order value for this
+        particular VDC.  The VDCs with the lowest boot order
+        will boot first."
+    ::= { ciscoVdcExtEntry 3 }
+
+ciscoVdcTimeCreated OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the time at which a particular
+        VDC was created."
+    ::= { ciscoVdcExtEntry 4 }
+
+ciscoVdcReloadCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of times a particular
+        VDC has been reloaded."
+    ::= { ciscoVdcExtEntry 5 }
+
+ciscoVdcRestartCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of times a VDC identified
+        by ciscoVdcId has been restarted."
+    ::= { ciscoVdcExtEntry 6 }
+
+ciscoVdcRestartTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the most recent restart time of
+        the VDC instance. 
+        
+        This object contains value 0x0000010100000000 when the 
+        corresponding instance value of ciscoVdcRestartCount is '0'."
+    ::= { ciscoVdcExtEntry 7 }
+
+ciscoVdcRestartReason OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the reason of the most recent restart of
+        the VDC."
+    ::= { ciscoVdcExtEntry 8 }
+
+ciscoVdcType OBJECT-TYPE
+    SYNTAX INTEGER {
+        admin(1),
+        ethernet(2),
+        storage(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of the VDC."
+    ::= { ciscoVdcExtEntry 9 }
+
+ciscoVdcAdminStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        active(1),
+        suspended(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the administrative status of the VDC.
+        
+        active    -- the VDC will be put into active state.
+        
+        suspended -- the VDC will be put into paused state.
+                     When the suspended VDC is bening resumed, 
+                     it will come up with its startup configuration."
+    ::= { ciscoVdcExtEntry 10 }
+
+ciscoVdcFromUnallocatedIntf OBJECT-TYPE
+    SYNTAX INTEGER {
+        noOp(1),
+        allocate(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the way that interfaces are
+        allocated from the unallocated interface pool.
+        When the value of this object is set to 'allocate',
+        interfaces in the unallocated interface pool will be 
+        allocated to a particular VDC on a best-efforts basis.
+        This object always has the value 'noOp' when read."
+    ::= { ciscoVdcExtEntry 11 }
+
+ciscoVdcFeatureSetList OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   fcoe(0)
+        --   fabricPath(1)
+        --   fex(2)
+        --   mpls(3)
+        --   ethernet(4)
+        --   virtualization(5)
+        --   fabric(6)
+        --   fcoeNpv(7)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether a specified feature set is
+        enabled for a VDC.  If a bit corresponding to a feature
+        set is set to 1, then the specified feature set is enabled.
+        
+        fcoe -- fiber channel over ethernet feature set.
+        
+        fabricPath -- fabric path feature set.
+        
+        fex  -- fabric extender feature set.
+        
+        mpls -- multiprotocol label switching feature set.
+        
+        ethernet -- ethernet feature set.
+        
+        virtualization -- virtual machine feature set.
+        
+        fabric  -- fabric feature set.
+        
+        fcoeNpv -- fcoe Edge N-Port virtualizer feature set."
+    ::= { ciscoVdcExtEntry 12 }
+
+ciscoVdcResourceTemplate OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the name of the resource template
+        of the VDC."
+    ::= { ciscoVdcExtEntry 13 }
+
+ciscoVdcModuleCapList OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   m1(0)
+        --   f1(1)
+        --   m1xl(2)
+        --   f2(3)
+        --   m2xl(4)
+        --   fc(5)
+        --   f2e(6)
+        --   f3(7)
+        --   m3(8)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies type of modules which are allowed
+        in this VDC.  If a bit corresponding to a module type is
+        set to 1, then the specified module type is allowed
+        in the VDC.
+        
+        m1 -- M1 series modules.
+        
+        f1 -- F1 series modules.
+        
+        m1xl -- M1XL series modules.
+        
+        f2 -- F2 series modules.
+        
+        m2xl -- M2XL series modules
+        
+        fc -- Fiber Channel modules
+        
+        f2e -- F2E series modules
+        
+        f3  -- F3 series modules.
+        
+        m3  -- M3 series modules."
+    ::= { ciscoVdcExtEntry 14 }
+
+ciscoVdcCpuPriority OBJECT-TYPE
+    SYNTAX INTEGER(-1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the CPU priority/share for a
+        particular VDC.  A value of -1 means this information
+        is not available."
+    ::= { ciscoVdcExtEntry 15 }
+
+ciscoVdcCpuSharePercent OBJECT-TYPE
+    SYNTAX CiscoVdcPercentOrMinusOne
+--    Rsyntax INTEGER(-1|0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the CPU share percentage for
+        a particular VDC."
+    ::= { ciscoVdcExtEntry 16 }
+
+ciscoVdcGlobalResUsageTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoVdcGlobalResUsageEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information regarding global resource
+        usage and utilization on the device."
+    ::= { ciscoVdcResource 1 }
+
+ciscoVdcGlobalResUsageEntry OBJECT-TYPE
+    SYNTAX CiscoVdcGlobalResUsageEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each row contains information regarding global usage and
+        utilization for a particular resource."
+    INDEX { ciscoVdcGlobalResID }
+    ::= { ciscoVdcGlobalResUsageTable 1 }
+
+CiscoVdcGlobalResUsageEntry ::= SEQUENCE {
+    ciscoVdcGlobalResID Gauge,
+    ciscoVdcGlobalResName SnmpAdminString,
+    ciscoVdcGlobalResUsed Gauge,
+    ciscoVdcGlobalResUnused Gauge,
+    ciscoVdcGlobalResFree Gauge,
+    ciscoVdcGlobalResAvail Gauge,
+    ciscoVdcGlobalResTotal Gauge
+    }
+
+ciscoVdcGlobalResID OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique value, greater than zero, that uniquely identifies
+        a type of resource."
+    ::= { ciscoVdcGlobalResUsageEntry 1 }
+
+ciscoVdcGlobalResName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the name of the resource on the device."
+    ::= { ciscoVdcGlobalResUsageEntry 2 }
+
+ciscoVdcGlobalResUsed OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of instances of a particular
+        resource that are currently in use."
+    ::= { ciscoVdcGlobalResUsageEntry 3 }
+
+ciscoVdcGlobalResUnused OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of instances of a particular
+        resource that are reserved, and currently not in use."
+    ::= { ciscoVdcGlobalResUsageEntry 4 }
+
+ciscoVdcGlobalResFree OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of instances of a particular
+        resource that still remain to be used."
+    ::= { ciscoVdcGlobalResUsageEntry 5 }
+
+ciscoVdcGlobalResAvail OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of instances of a particular
+        resource that are available to be allocated."
+    ::= { ciscoVdcGlobalResUsageEntry 6 }
+
+ciscoVdcGlobalResTotal OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of a
+        particular resource."
+    ::= { ciscoVdcGlobalResUsageEntry 7 }
+
+ciscoVdcResUsageTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoVdcResUsageEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information regarding resource usage
+        and utilization for a particular VDC."
+    ::= { ciscoVdcResource 2 }
+
+ciscoVdcResUsageEntry OBJECT-TYPE
+    SYNTAX CiscoVdcResUsageEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each row contains information regarding the usage and
+        utilization of a particular resource for a particular VDC."
+    INDEX { ciscoVdcId, ciscoVdcResID }
+    ::= { ciscoVdcResUsageTable 1 }
+
+CiscoVdcResUsageEntry ::= SEQUENCE {
+    ciscoVdcResID Gauge,
+    ciscoVdcResMin Gauge,
+    ciscoVdcResMax Gauge,
+    ciscoVdcResUsed Gauge,
+    ciscoVdcResUnused Gauge,
+    ciscoVdcResAvail Gauge
+    }
+
+ciscoVdcResID OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique value, greater than zero, that uniquely identifies
+        a type of resource."
+    ::= { ciscoVdcResUsageEntry 1 }
+
+ciscoVdcResMin OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the minimum number of instances of a
+        particular resource that needs to be allocated to a particular
+        VDC."
+    ::= { ciscoVdcResUsageEntry 2 }
+
+ciscoVdcResMax OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the maximum number of instances of a
+        particular resource that allow to be allocated to a particular
+        VDC."
+    ::= { ciscoVdcResUsageEntry 3 }
+
+ciscoVdcResUsed OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of instances of a
+        particular resource that are currently in use for a 
+        particular VDC."
+    ::= { ciscoVdcResUsageEntry 4 }
+
+ciscoVdcResUnused OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of instances of a particular
+        resource that are reserved, and currently not in use for a 
+        particular VDC."
+    ::= { ciscoVdcResUsageEntry 5 }
+
+ciscoVdcResAvail OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of instances
+        of a particular resource that are available to 
+        be allocated for a particular VDC."
+    ::= { ciscoVdcResUsageEntry 6 }
+
+ciscoVdcResTemplateTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoVdcResTemplateEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information regarding the resource
+        allocation for VDC resource template."
+    ::= { ciscoVdcResource 3 }
+
+ciscoVdcResTemplateEntry OBJECT-TYPE
+    SYNTAX CiscoVdcResTemplateEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each row contains information regarding the allocation of a
+        particluar resource for a particular VDC resource template."
+    INDEX { ciscoVdcResTemplateName, ciscoVdcResTemplateResID }
+    ::= { ciscoVdcResTemplateTable 1 }
+
+CiscoVdcResTemplateEntry ::= SEQUENCE {
+    ciscoVdcResTemplateName SnmpAdminString,
+    ciscoVdcResTemplateResID Gauge,
+    ciscoVdcResTemplateMin Gauge,
+    ciscoVdcResTemplateMax Gauge,
+    ciscoVdcResTemplateStorageType StorageType,
+    ciscoVdcResTemplateStatus RowStatus
+    }
+
+ciscoVdcResTemplateName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the name of the resource template."
+    ::= { ciscoVdcResTemplateEntry 1 }
+
+ciscoVdcResTemplateResID OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique value, greater than zero, that can identify
+        a type of resource."
+    ::= { ciscoVdcResTemplateEntry 2 }
+
+ciscoVdcResTemplateMin OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specified the minimum number of instances of a
+        particular resource that are allocated to this VDC template."
+    ::= { ciscoVdcResTemplateEntry 3 }
+
+ciscoVdcResTemplateMax OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the maximum number of instances of a
+        particular resource that are allocated to this VDC template."
+    ::= { ciscoVdcResTemplateEntry 4 }
+
+ciscoVdcResTemplateStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type of a conceptual row
+        in this table."
+    DEFVAL { volatile }
+    ::= { ciscoVdcResTemplateEntry 5 }
+
+ciscoVdcResTemplateStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the status of a conceptual row in
+        this table.All writable objects in this row may be modified 
+        at any time."
+    ::= { ciscoVdcResTemplateEntry 6 }
+
+ciscoVdcIfMembershipTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoVdcIfMembershipEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about VDC interface
+        membership."
+    ::= { ciscoVdcInterface 1 }
+
+ciscoVdcIfMembershipEntry OBJECT-TYPE
+    SYNTAX CiscoVdcIfMembershipEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row containing information about
+        VDC interface membership."
+    INDEX { ciscoVdcId, ciscoVdcIfMembershipifIndex }
+    ::= { ciscoVdcIfMembershipTable 1 }
+
+CiscoVdcIfMembershipEntry ::= SEQUENCE {
+    ciscoVdcIfMembershipifIndex InterfaceIndex,
+    ciscoVdcIfMembershipStorageType StorageType,
+    ciscoVdcIfMembershipStatus RowStatus
+    }
+
+ciscoVdcIfMembershipifIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "ifIndex of the interface membership of this VDC."
+    ::= { ciscoVdcIfMembershipEntry 1 }
+
+ciscoVdcIfMembershipStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type of a conceptual
+        row in this table."
+    DEFVAL { volatile }
+    ::= { ciscoVdcIfMembershipEntry 2 }
+
+ciscoVdcIfMembershipStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the row status of a conceptual
+        row in this table."
+    ::= { ciscoVdcIfMembershipEntry 3 }
+
+ciscoVdcFCoEVlansTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoVdcFCoEVlansEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information regarding allocation of
+        VLANs that can be used for FCoE."
+    ::= { ciscoVdcInterface 2 }
+
+ciscoVdcFCoEVlansEntry OBJECT-TYPE
+    SYNTAX CiscoVdcFCoEVlansEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row containing information regarding allocation of
+        VLANs that can be used for FCoE."
+    INDEX { ciscoVdcId }
+    ::= { ciscoVdcFCoEVlansTable 1 }
+
+CiscoVdcFCoEVlansEntry ::= SEQUENCE {
+    ciscoVdcFCoEVlansFirst2K Cisco2KVlanList,
+    ciscoVdcFCoEVlansSecond2K Cisco2KVlanList,
+    ciscoVdcFCoEVlansFromVdc Gauge
+    }
+
+ciscoVdcFCoEVlansFirst2K OBJECT-TYPE
+    SYNTAX Cisco2KVlanList
+--    Rsyntax OCTET STRING(SIZE(0..256))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for VLANs 0 to
+        2047 that are reserved for FCoE.
+        
+        If the bit corresponding to a VLAN is set to '1', then the VLAN 
+        is reserved for FCoE. If the bit is set to '0', then the VLAN 
+        is not reserved for FCoE"
+    ::= { ciscoVdcFCoEVlansEntry 1 }
+
+ciscoVdcFCoEVlansSecond2K OBJECT-TYPE
+    SYNTAX Cisco2KVlanList
+--    Rsyntax OCTET STRING(SIZE(0..256))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for VLANs 2048
+        to 4095 that are reserved for FCoE.
+        
+        If the bit corresponding to a VLAN is set to '1', then the VLAN 
+        is reserved for FCoE. If the bit is set to '0', then the VLAN 
+        is not reserved for FCoE"
+    ::= { ciscoVdcFCoEVlansEntry 2 }
+
+ciscoVdcFCoEVlansFromVdc OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies which VDCs are going to share ports
+        with the storage VDC."
+    ::= { ciscoVdcFCoEVlansEntry 3 }
+
+ciscoVdcSharedInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoVdcSharedInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about VDC shared interface
+        membership."
+    ::= { ciscoVdcInterface 3 }
+
+ciscoVdcSharedInterfaceEntry OBJECT-TYPE
+    SYNTAX CiscoVdcSharedInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row containing information about VDC
+        shared interface membership."
+    INDEX { ciscoVdcId, ciscoVdcSharedInterfaceifIndex }
+    ::= { ciscoVdcSharedInterfaceTable 1 }
+
+CiscoVdcSharedInterfaceEntry ::= SEQUENCE {
+    ciscoVdcSharedInterfaceifIndex InterfaceIndex,
+    ciscoVdcSharedInterfaceStorageType StorageType,
+    ciscoVdcSharedInterfaceRowStatus RowStatus
+    }
+
+ciscoVdcSharedInterfaceifIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique value, greater than zero, for each interface."
+    ::= { ciscoVdcSharedInterfaceEntry 1 }
+
+ciscoVdcSharedInterfaceStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type of a conceptual
+        row in this table"
+    DEFVAL { volatile }
+    ::= { ciscoVdcSharedInterfaceEntry 2 }
+
+ciscoVdcSharedInterfaceRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the row status of a conceptual
+        row in this table."
+    ::= { ciscoVdcSharedInterfaceEntry 3 }
+
+ciscoVdcGroup OBJECT IDENTIFIER ::= { ciscoVdcMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains the objects describing virtual device
+--    instances.
+--  objects
+--    ciscoVdcName, ciscoVdcState, ciscoVdcFcoeCapable, ciscoVdcMac, 
+--    ciscoVdcSwitchId, ciscoVdcRowStatus, ciscoVdcStorageType
+
+ciscoVdcExtGroup OBJECT IDENTIFIER ::= { ciscoVdcMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains the additional objects describing virtual
+--    device instances.
+--  objects
+--    ciscoVdcSingleSupHaPolicy, ciscoVdcDualSupHaPolicy, 
+--    ciscoVdcBootOrder, ciscoVdcTimeCreated, ciscoVdcReloadCount, 
+--    ciscoVdcRestartCount, ciscoVdcRestartTime, 
+--    ciscoVdcRestartReason, ciscoVdcType, ciscoVdcAdminStatus, 
+--    ciscoVdcFromUnallocatedIntf, ciscoVdcFeatureSetList, 
+--    ciscoVdcResourceTemplate, ciscoVdcModuleCapList, 
+--    ciscoVdcCpuPriority, ciscoVdcCpuSharePercent
+
+ciscoVdcGlobalResUsageGroup OBJECT IDENTIFIER ::= { ciscoVdcMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains the objects regarding global resource
+--    usage and utilization on the device.
+--  objects
+--    ciscoVdcGlobalResName, ciscoVdcGlobalResUsed, 
+--    ciscoVdcGlobalResUnused, ciscoVdcGlobalResFree, 
+--    ciscoVdcGlobalResAvail, ciscoVdcGlobalResTotal
+
+ciscoVdcResUsageGroup OBJECT IDENTIFIER ::= { ciscoVdcMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains the objects regarding resource usage
+--    and utilization for a particular VDC.
+--  objects
+--    ciscoVdcResMin, ciscoVdcResMax, ciscoVdcResUsed, 
+--    ciscoVdcResUnused, ciscoVdcResAvail
+
+ciscoVdcResTemplateGroup OBJECT IDENTIFIER ::= { ciscoVdcMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains the objects regarding the
+--    resource allocation information for VDC resource 
+--    template.
+--  objects
+--    ciscoVdcResTemplateMin, ciscoVdcResTemplateMax, 
+--    ciscoVdcResTemplateStatus, ciscoVdcResTemplateStorageType
+
+ciscoVdcGlobalGroup OBJECT IDENTIFIER ::= { ciscoVdcMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains the objets regarding global
+--    information for VDC.
+--  objects
+--    ciscoVdcMaxNumberVdcAllowed, ciscoVdcCombinedHostnameEnabled
+
+ciscoVdcIfMembershipGroup OBJECT IDENTIFIER ::= { ciscoVdcMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains the object about VDC interface membership.
+--  objects
+--    ciscoVdcIfMembershipStatus, ciscoVdcIfMembershipStorageType
+
+ciscoVdcFCoEVlansGroup OBJECT IDENTIFIER ::= { ciscoVdcMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains the objects regarding allocation of
+--    VLANs that can be used for FCoE.
+--  objects
+--    ciscoVdcFCoEVlansFirst2K, ciscoVdcFCoEVlansSecond2K, 
+--    ciscoVdcFCoEVlansFromVdc
+
+ciscoVdcSharedInterfaceGroup OBJECT IDENTIFIER ::= { ciscoVdcMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains object about VDC interface
+--    shared membership.
+--  objects
+--    ciscoVdcSharedInterfaceRowStatus, 
+--    ciscoVdcSharedInterfaceStorageType
+
+ciscoVdcMIBCompliance OBJECT IDENTIFIER ::= { ciscoVdcMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    This compliance statement specifies the minimal requirements an
+--    implementation must meet in order to claim full compliance with
+--    the definition of the CISCO-VDC-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoVdcGroup
+
+ciscoVdcMIBCompliance1 OBJECT IDENTIFIER ::= { ciscoVdcMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    This compliance statement specifies the minimal requirements an
+--    implementation must meet in order to claim full compliance with
+--    the definition of the CISCO-VDC-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoVdcGroup
+--   OptGroup
+--    ciscoVdcExtGroup
+--   OptGroup
+--    ciscoVdcGlobalResUsageGroup
+--   OptGroup
+--    ciscoVdcResUsageGroup
+--   OptGroup
+--    ciscoVdcResTemplateGroup
+--   OptGroup
+--    ciscoVdcGlobalGroup
+--   OptGroup
+--    ciscoVdcIfMembershipGroup
+--   OptGroup
+--    ciscoVdcFCoEVlansGroup
+--   OptGroup
+--    ciscoVdcSharedInterfaceGroup
+--   ObjVar
+--    ciscoVdcCombinedHostnameEnabled
+--   ObjVar
+--    ciscoVdcName
+--   ObjVar
+--    ciscoVdcRowStatus
+--   ObjVar
+--    ciscoVdcSingleSupHaPolicy
+--   ObjVar
+--    ciscoVdcDualSupHaPolicy
+--   ObjVar
+--    ciscoVdcBootOrder
+--   ObjVar
+--    ciscoVdcType
+--   ObjVar
+--    ciscoVdcAdminStatus
+--   ObjVar
+--    ciscoVdcFromUnallocatedIntf
+--   ObjVar
+--    ciscoVdcFeatureSetList
+--   ObjVar
+--    ciscoVdcResourceTemplate
+--   ObjVar
+--    ciscoVdcModuleCapList
+--   ObjVar
+--    ciscoVdcCpuPriority
+--   ObjVar
+--    ciscoVdcResMin
+--   ObjVar
+--    ciscoVdcResMax
+--   ObjVar
+--    ciscoVdcResTemplateMin
+--   ObjVar
+--    ciscoVdcResTemplateMax
+--   ObjVar
+--    ciscoVdcResTemplateStorageType
+--   ObjVar
+--    ciscoVdcResTemplateStatus
+--   ObjVar
+--    ciscoVdcIfMembershipStorageType
+--   ObjVar
+--    ciscoVdcIfMembershipStatus
+--   ObjVar
+--    ciscoVdcFCoEVlansFirst2K
+--   ObjVar
+--    ciscoVdcFCoEVlansSecond2K
+--   ObjVar
+--    ciscoVdcFCoEVlansFromVdc
+--   ObjVar
+--    ciscoVdcSharedInterfaceStorageType
+--   ObjVar
+--    ciscoVdcSharedInterfaceRowStatus
+
+
+END
+

@@ -1,0 +1,337 @@
+-- MIB file created 03-Dec-2002 13:08:51, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-PPP-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-PPP-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowStatus
+            FROM SNMPv2-TC-v1
+    alStatsPpp, alPppGroup
+            FROM ALTIGA-MIB
+    alPppMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaPppStatsMibModule OBJECT IDENTIFIER ::= { alPppMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga PPP Statistics MIB models counters and objects that are 
+--     of management interest for PPP. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       MIB:        Management Information Base 
+--    
+--       MPPC:       Microsoft Point-to-Point Compression 
+--    
+--       MPPE:       Microsoft Point-to-Point Encryption  
+--    
+--       PPP:        Point-to-Point Protocol 
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance and range.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsPppGlobal OBJECT IDENTIFIER ::= { alStatsPpp 1 }
+alStatsPppMppcGlobal OBJECT IDENTIFIER ::= { alStatsPpp 3 }
+altigaPppStatsMibConformance OBJECT IDENTIFIER ::= { altigaPppStatsMibModule 1 }
+altigaPppStatsMibCompliances OBJECT IDENTIFIER ::= { altigaPppStatsMibConformance 1 }
+
+alPppStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlPppStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "List of active PPP links."
+    ::= { alStatsPpp 2 }
+
+alPppStatsEntry OBJECT-TYPE
+    SYNTAX AlPppStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alPppStatsTable."
+    INDEX { alPppStatsIfIndex }
+    ::= { alPppStatsTable 1 }
+
+AlPppStatsEntry ::= SEQUENCE {
+    alPppStatsRowStatus RowStatus,
+    alPppStatsIfIndex INTEGER,
+    alPppStatsOctetsSent Counter,
+    alPppStatsOctetsRcvd Counter,
+    alPppStatsPacketsSent Counter,
+    alPppStatsPacketsRcvd Counter,
+    alPppStatsMppcStatus TruthValue,
+    alPppStatsMppeStatus TruthValue,
+    alPppStatsMppcMppeReset Counter,
+    alPppStatsMppcOctSentAfterComp Counter,
+    alPppStatsMppcOctSentBeforeComp Counter,
+    alPppStatsMppcOctSentUnComp Counter,
+    alPppStatsMppcOctRcvdBeforeDeComp Counter,
+    alPppStatsMppcOctRcvdAfterDeComp Counter,
+    alPppStatsMppcOctRcvdUnComp Counter
+    }
+
+alPppStatsRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this row. Used to terminate the session."
+    ::= { alPppStatsEntry 1 }
+
+alPppStatsIfIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The index of this row."
+    ::= { alPppStatsEntry 2 }
+
+alPppStatsOctetsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets sent during this session."
+    ::= { alPppStatsEntry 3 }
+
+alPppStatsOctetsRcvd OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets received during this session."
+    ::= { alPppStatsEntry 4 }
+
+alPppStatsPacketsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets sent during this session."
+    ::= { alPppStatsEntry 5 }
+
+alPppStatsPacketsRcvd OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets received during this session."
+    ::= { alPppStatsEntry 6 }
+
+alPppStatsMppcStatus OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The status of the MPPC setting during this session."
+    ::= { alPppStatsEntry 7 }
+
+alPppStatsMppeStatus OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The status of the MPPE setting during this session."
+    ::= { alPppStatsEntry 8 }
+
+alPppStatsMppcMppeReset OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The reset MPPC and MPPE counts for this session."
+    ::= { alPppStatsEntry 9 }
+
+alPppStatsMppcOctSentAfterComp OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets sent after compression during this session."
+    ::= { alPppStatsEntry 10 }
+
+alPppStatsMppcOctSentBeforeComp OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets sent before compression during this session."
+    ::= { alPppStatsEntry 11 }
+
+alPppStatsMppcOctSentUnComp OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets sent uncompressed during this session."
+    ::= { alPppStatsEntry 12 }
+
+alPppStatsMppcOctRcvdBeforeDeComp OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets received before decompression during this session."
+    ::= { alPppStatsEntry 13 }
+
+alPppStatsMppcOctRcvdAfterDeComp OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets received after decompression during this session."
+    ::= { alPppStatsEntry 14 }
+
+alPppStatsMppcOctRcvdUnComp OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets received uncompressed during this session."
+    ::= { alPppStatsEntry 15 }
+
+alPppStatsGlobMppcMppeResetsRcvd OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reset the number of octets received."
+    ::= { alStatsPppMppcGlobal 1 }
+
+alPppStatsGlobMppcMppeResetsSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reset the number of octets sent."
+    ::= { alStatsPppMppcGlobal 2 }
+
+alPppStatsGlobMppcOctSentAfterComp OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of octets sent after compression."
+    ::= { alStatsPppMppcGlobal 3 }
+
+alPppStatsGlobMppcOctSentBeforeComp OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of octets sent before compression."
+    ::= { alStatsPppMppcGlobal 4 }
+
+alPppStatsGlobMppcOctSentUnComp OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of octets sent uncompressed."
+    ::= { alStatsPppMppcGlobal 5 }
+
+alPppStatsGlobMppcOctRcvdBeforeDeComp OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of octets received before decompression."
+    ::= { alStatsPppMppcGlobal 6 }
+
+alPppStatsGlobMppcOctRcvdAfterDeComp OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of octets received after decompression."
+    ::= { alStatsPppMppcGlobal 7 }
+
+alPppStatsGlobMppcOctRcvdUnComp OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of octets received uncompressed."
+    ::= { alStatsPppMppcGlobal 8 }
+
+altigaPppStatsGroup OBJECT IDENTIFIER ::= { alPppGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for PPP statistics.
+--  objects
+--    alPppStatsRowStatus, alPppStatsIfIndex, alPppStatsOctetsSent, 
+--    alPppStatsOctetsRcvd, alPppStatsPacketsSent, 
+--    alPppStatsPacketsRcvd, alPppStatsMppcStatus, 
+--    alPppStatsMppeStatus, alPppStatsMppcMppeReset, 
+--    alPppStatsMppcOctSentAfterComp, 
+--    alPppStatsMppcOctSentBeforeComp, alPppStatsMppcOctSentUnComp, 
+--    alPppStatsMppcOctRcvdBeforeDeComp, 
+--    alPppStatsMppcOctRcvdAfterDeComp, alPppStatsMppcOctRcvdUnComp, 
+--    alPppStatsGlobMppcMppeResetsRcvd, 
+--    alPppStatsGlobMppcMppeResetsSent, 
+--    alPppStatsGlobMppcOctSentAfterComp, 
+--    alPppStatsGlobMppcOctSentBeforeComp, 
+--    alPppStatsGlobMppcOctSentUnComp, 
+--    alPppStatsGlobMppcOctRcvdBeforeDeComp, 
+--    alPppStatsGlobMppcOctRcvdAfterDeComp, 
+--    alPppStatsGlobMppcOctRcvdUnComp
+
+altigaPppStatsMibCompliance OBJECT IDENTIFIER ::= { altigaPppStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga PPP Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaPppStatsGroup
+
+
+END
+

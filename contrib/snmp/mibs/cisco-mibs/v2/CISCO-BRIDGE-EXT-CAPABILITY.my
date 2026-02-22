@@ -1,0 +1,234 @@
+-- *****************************************************************
+-- CISCO-BRIDGE-EXT-CAPABILITY.my
+-- CISCO-BRIDGE-EXT-MIB agent capabilities
+--   
+-- October 2005, Guichuan Tang
+--   
+-- Copyright (c) 2005, 2007, 2009-2010, 2013 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-BRIDGE-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    Unsigned32
+        FROM SNMPv2-SMI
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoBridgeExtCapability MODULE-IDENTITY
+    LAST-UPDATED    "201307260000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-BRIDGE-EXT-MIB."
+    REVISION        "201307260000Z"
+    DESCRIPTION
+        "Added capability statement cbeCapNxOSV06R0202PN7k."
+    REVISION        "201011180000Z"
+    DESCRIPTION
+        "Added capability statement cbeCapV12R0250SYPCat6K."
+    REVISION        "200907240000Z"
+    DESCRIPTION
+        "Added VARIATION for cbeDot1dTpGlobalAgingTime
+        and cbeDot1dTpVlanAgingTime in 
+        cbeCapV12R0233SXHPCat6K statement."
+    REVISION        "200707030000Z"
+    DESCRIPTION
+        "Added cbeCapV12R0233SXHPCat6K for Cisco IOS
+        12.2(33)SXH."
+    REVISION        "200510200000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 459 }
+
+
+
+cbeCapV12R0218SXEPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(18)SXE on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-BRIDGE-EXT-MIB agent capabilities."
+
+    SUPPORTS        CISCO-BRIDGE-EXT-MIB
+    INCLUDES        {
+                        cbeDot1dTpGroup,
+                        cbeDot1dTpVlanGroup
+                    }
+    VARIATION       cbeDot1dTpVlanRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    ::= { ciscoBridgeExtCapability 1 }
+
+cbeCapV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-BRIDGE-EXT-MIB agent capabilities."
+
+    SUPPORTS        CISCO-BRIDGE-EXT-MIB
+    INCLUDES        {
+                        cbeDot1dTpGroup,
+                        cbeDot1dTpVlanGroup,
+                        cbeDot1dStaticGroup
+                    }
+    VARIATION       cbeDot1dTpVlanRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    VARIATION       cbeDot1dStaticStatus
+    SYNTAX          INTEGER  {
+                        invalid(2),
+                        deleteOnReset(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    VARIATION       cbeDot1dTpGlobalAgingTime
+    DESCRIPTION
+        "Out of range values 5 to 9 are
+        supported as read-only."
+
+    VARIATION       cbeDot1dTpVlanAgingTime
+    DESCRIPTION
+        "Out of range values 5 to 9 are
+        supported as read-only."
+
+    ::= { ciscoBridgeExtCapability 2 }
+
+cbeCapV12R0250SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-BRIDGE-EXT-MIB agent capabilities."
+
+    SUPPORTS        CISCO-BRIDGE-EXT-MIB
+    INCLUDES        {
+                        cbeDot1dTpGroup,
+                        cbeDot1dTpVlanGroup,
+                        cbeDot1dStaticGroup,
+                        cbeDot1dOperVlanGroup
+                    }
+    VARIATION       cbeDot1dTpVlanRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    VARIATION       cbeDot1dStaticStatus
+    SYNTAX          INTEGER  {
+                        invalid(2),
+                        deleteOnReset(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    VARIATION       cbeDot1dTpGlobalAgingTime
+    DESCRIPTION
+        "Out of range values 5 to 9 are
+        supported as read-only."
+
+    VARIATION       cbeDot1dTpVlanAgingTime
+    DESCRIPTION
+        "Out of range values 5 to 9 are supported as
+        read-only.  Can not set cbeDot1dTpVlanAgingTime
+        instance value to be the same as
+        cbeDot1dTpGlobalAgingTime during row creation."
+
+    ::= { ciscoBridgeExtCapability 3 }
+
+cbeCapNxOSV06R0202PN7k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(2) on Nexus 7000 
+                        series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-BRIDGE-EXT-MIB agent capabilities."
+
+    SUPPORTS        CISCO-BRIDGE-EXT-MIB
+    INCLUDES        {
+                        cbeDot1dTpGroup,
+                        cbeDot1dTpVlanGroup,
+                        cbeDot1dStaticGroup,
+                        cbeDot1dOperVlanGroup
+                    }
+    VARIATION       cbeDot1dTpGlobalAgingTime
+    SYNTAX          Unsigned32 (0 | 120..918000)
+    DESCRIPTION
+        "Only limited set of values are supported.
+        Only values which are multiple of 5 are supported.
+
+        Default value is 1800 seconds."
+
+    VARIATION       cbeDot1dTpVlanAgingTime
+    SYNTAX          Unsigned32 (0 | 120..918000)
+    ACCESS          read-write
+    DEFVAL          { 1800 }
+    DESCRIPTION
+        "Only limited set of values are supported.
+        Only values which are multiple of 5 are supported.
+
+        Default value is 1800 seconds."
+
+    VARIATION       cbeDot1dTpVlanRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    VARIATION       cbeDot1dStaticStatus
+    SYNTAX          INTEGER  {
+                        invalid(2),
+                        deleteOnReset(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values are
+        supported."
+
+    ::= { ciscoBridgeExtCapability 4 }
+
+END
+
+
+
+
+

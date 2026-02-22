@@ -1,0 +1,216 @@
+-- *****************************************************************
+-- agent_template.my
+--   
+-- Copyright (c) 2006, 2009 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+ISIS-CAPABILTY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+isisCapabiltyMIB MODULE-IDENTITY
+    LAST-UPDATED    "200903260000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-<list>@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for the ISIS MIB"
+    REVISION        "200903260000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoAgentCapability 9999 }
+
+
+
+ciscoIsisCapabiltyV3R8Capability AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOX XR 3.8"
+    STATUS          current
+    DESCRIPTION
+        "ISIS-MIB capabilities for IOS-XR release 3.8."
+
+    SUPPORTS        ISIS-MIB
+    INCLUDES        {
+                        isisSystemGroup,
+                        isisNotificationObjectGroup,
+                        isisNotificationGroup,
+                        isisISPDUCounterGroup
+                    }
+    VARIATION       isisSysLevelType
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysID
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysMaxPathSplits
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysMaxLSPGenInt
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysPollESHelloRate
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysWaitTime
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysAdminState
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysL2toL1Leaking
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysMaxAge
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysLevelOrigLSPBuffSize
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysLevelMinLSPGenInt
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysLevelSetOverload
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysLevelSetOverloadUntil
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysLevelMetricStyle
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysLevelSPFConsiders
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysLevelTEEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSysReceiveLSPBufferSize
+    ACCESS          read-only
+    DESCRIPTION
+        "Sets are not supported."
+
+    VARIATION       isisSummAddrExistState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       isisSummAddrMetric
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       isisManAreaAddrExistState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       isisAreaAddr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       isisSummAddrFullMetric
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       isisRedistributeAddrExistState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       isisRouterID
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported, returns 0.0.0.0."
+
+    VARIATION       isisSysStatCorrLSPs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported, returns 0."
+
+    VARIATION       isisSysStatManAddrDropFromAreas
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported, returns 0."
+
+    VARIATION       isisSysStatAttmptToExMaxSeqNums
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported, returns 0."
+
+    VARIATION       isisSysStatPartChanges
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported, returns 0."
+
+    VARIATION       isisManualAddressDrops
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported, returns 0."
+
+    VARIATION       isisPacketCountISHello
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported, returns 0."
+
+    VARIATION       isisPacketCountESHello
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported, returns 0."
+
+    ::= { isisCapabiltyMIB 1 }
+
+END
+
+
+

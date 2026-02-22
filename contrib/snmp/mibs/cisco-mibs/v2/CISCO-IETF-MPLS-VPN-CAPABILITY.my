@@ -1,0 +1,65 @@
+-- *****************************************************************
+-- CISCO-IETF-MPLS-VPN-CAPABILITY.my:  Capability statement for MPLS
+--	Cisco's implementation of the Virtual Private Network MIB
+--
+-- June 25, 2003 - Adrien Grise
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+
+CISCO-IETF-MPLS-VPN-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+   MODULE-IDENTITY
+      FROM SNMPv2-SMI
+
+   AGENT-CAPABILITIES 
+      FROM SNMPv2-CONF
+
+   ciscoAgentCapability
+      FROM CISCO-SMI;
+
+   
+ciscoMplsVpnCapability MODULE-IDENTITY
+        LAST-UPDATED        "200306251200Z" -- 25 June 2003 12:00:00
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: mpls-mib@cisco.com"
+        DESCRIPTION
+                "Agent capabilities for MPLS-VPN-MIB"
+        REVISION        "200306251200Z" -- 25 June 2003 12:00:00
+        DESCRIPTION
+                "Initial version."
+        ::= {  ciscoAgentCapability 308 }
+
+ciscoMplsVpnCapabilityV12 AGENT-CAPABILITIES
+
+	PRODUCT-RELEASE "Cisco IOS 12.0(21)ST, Cisco IOS 12.2(21)T"
+	STATUS      current
+	DESCRIPTION "MPLS Virtual Private Network MIB capabilities"
+
+	SUPPORTS    MPLS-VPN-MIB
+	INCLUDES    { mplsVpnScalarGroup,
+        	      mplsVpnVrfGroup,
+	              mplsVpnInterfaceGroup,
+        	      mplsVpnPerfGroup,
+	              mplsVpnVrfBgpNbrGroup,
+	              mplsVpnVrfRouteGroup,
+	              mplsVpnVrfRouteTargetGroup
+	            }
+
+        ::= { ciscoMplsVpnCapability 1 }
+
+END
+

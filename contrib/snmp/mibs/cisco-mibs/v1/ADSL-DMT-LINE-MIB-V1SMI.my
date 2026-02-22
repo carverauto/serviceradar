@@ -1,0 +1,527 @@
+-- MIB created 4/14/100 12:26:21, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+ADSL-DMT-LINE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ADSL-DMT-LINE-MIB.my"
+
+IMPORTS
+    OBJECT-TYPE
+            FROM RFC-1212
+    ifIndex
+            FROM IF-MIB
+    adslLCSMib, adslLineConfProfileName
+            FROM ADSL-LINE-MIB;
+
+adslLineDmtMIB OBJECT IDENTIFIER ::= { adslLCSMib 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9809251000Z
+--  OrgName
+--    ADSL Forum
+--  ContactInfo
+--    Kevin Godfrey
+--     Motorola Inc.
+--     Colvilles Road, East Kilbride,
+--     Glasgow, United Kingdom.
+--     Tel: +44 1355 565597
+--     Fax: +44 1355 261790
+--     E-mail: ttz864@email.sps.mot.com
+--  Descr
+--    Naming Conventions:
+--    Atuc == (ATUC) modem at near (Central) end of line
+--    Atur == (ATUR) modem at Remote end of line
+--    ES  == Errored Second.
+--    LCS == Line Code Specific
+--    Lof == Loss of Frame
+--    Lol == Loss of Link
+--    Los == Loss of Signal
+--    Lpr == Loss of Power
+
+adslLineDmtMIBObjects OBJECT IDENTIFIER ::= { adslLineDmtMIB 1 }
+adslAtucDmtChanTable OBJECT IDENTIFIER ::= { adslLineDmtMIBObjects 4 }
+adslAturDmtChanTable OBJECT IDENTIFIER ::= { adslLineDmtMIBObjects 5 }
+adslAtucDmtPerfDataTable OBJECT IDENTIFIER ::= { adslLineDmtMIBObjects 6 }
+adslAturDmtPerfDataTable OBJECT IDENTIFIER ::= { adslLineDmtMIBObjects 7 }
+adslAtucDmtIntervalTable OBJECT IDENTIFIER ::= { adslLineDmtMIBObjects 8 }
+adslAturDmtIntervalTable OBJECT IDENTIFIER ::= { adslLineDmtMIBObjects 9 }
+adslAtucDmtChanPerfDataTable OBJECT IDENTIFIER ::= { adslLineDmtMIBObjects 10 }
+adslAturDmtChanPerfDataTable OBJECT IDENTIFIER ::= { adslLineDmtMIBObjects 11 }
+adslAtucDmtChanIntervalTable OBJECT IDENTIFIER ::= { adslLineDmtMIBObjects 12 }
+adslAturDmtChanIntervalTable OBJECT IDENTIFIER ::= { adslLineDmtMIBObjects 13 }
+adslLineDmtConfProfileIndexNext OBJECT IDENTIFIER ::= { adslLineDmtMIBObjects 14 }
+adslLineDmtAlarmConfProfileIndexNext OBJECT IDENTIFIER ::= { adslLineDmtMIBObjects 16 }
+adslLineDmtAlarmConfProfileTable OBJECT IDENTIFIER ::= { adslLineDmtMIBObjects 17 }
+adslDmtLineMIBNotificationsPrefix OBJECT IDENTIFIER ::= { adslLineDmtMIB 2 }
+adslDmtLineMIBNotifications OBJECT IDENTIFIER ::= { adslDmtLineMIBNotificationsPrefix 0 }
+adslLineDmtMIBConformance OBJECT IDENTIFIER ::= { adslLineDmtMIB 3 }
+adslLineDmtMIBCompliances OBJECT IDENTIFIER ::= { adslLineDmtMIBConformance 1 }
+adslLineDmtMIBGroups OBJECT IDENTIFIER ::= { adslLineDmtMIBConformance 2 }
+
+adslLineDmtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslLineDmtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table extends the adslLineTable and contains common attributes
+        describing both ends of ADSL lines supported by the system."
+    ::= { adslLineDmtMIBObjects 1 }
+
+adslLineDmtEntry OBJECT-TYPE
+    SYNTAX AdslLineDmtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of common attributes describing both ends of an ADSL line
+        supported by the system.  There exist an entry for each ifEntry with
+        an ifType of adsl(94)."
+    INDEX { ifIndex }
+    ::= { adslLineDmtTable 1 }
+
+AdslLineDmtEntry ::= SEQUENCE {
+    adslLineDmtTrellis INTEGER,
+    adslLineDmtEOC INTEGER
+    }
+
+adslLineDmtTrellis OBJECT-TYPE
+    SYNTAX INTEGER {
+        trellisOn(1),
+        trellisOff(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reports whether the Trellis coding is used on the DMT
+        line. Use of trellis coding is determined at line
+        initialization with C-MSGS1 and R-MSGS1 exchanges
+        and will not change until the line is re-initialized."
+    ::= { adslLineDmtEntry 1 }
+
+adslLineDmtEOC OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        transaction(2),
+        streaming(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reports whether the eoc can support autonomous data streaming
+        mode or only transaction mode. After initialization, unknown
+        is reported until sufficient autonomous eoc messages have been
+        transmitted to determine the true capability of both ATUs."
+    ::= { adslLineDmtEntry 2 }
+
+adslAtucDmtPhysTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAtucDmtPhysEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table extends the adslAtucPhysTable and contains specific
+        physical layer parameters for the ATU-C class devices supported
+        by the system."
+    ::= { adslLineDmtMIBObjects 2 }
+
+adslAtucDmtPhysEntry OBJECT-TYPE
+    SYNTAX AdslAtucDmtPhysEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of physical-layer parameters for an ATU-C class device
+        supported by the system.  There exists an entry for each ifEntry
+        with an ifType of adsl(94)."
+    INDEX { ifIndex }
+    ::= { adslAtucDmtPhysTable 1 }
+
+AdslAtucDmtPhysEntry ::= SEQUENCE {
+    adslAtucDmtIssue INTEGER,
+    adslAtucDmtState INTEGER,
+    adslAtucDmtInterleavePath INTEGER,
+    adslAtucDmtFastPath INTEGER
+    }
+
+adslAtucDmtIssue OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        t1413Issue1(2),
+        t1413Issue2(3),
+        t1413Issue3(4),
+        gdmtIssue1(5),
+        etsiIssue1(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reports the issue number of the relevant standard that the
+        DMT ADSL transceiver at the ATU-C is currently operating to.
+        The issue number will be fixed by the hardware and is
+        transmitted by the ATU-C in C-MSGS1 during initialization."
+    ::= { adslAtucDmtPhysEntry 1 }
+
+adslAtucDmtState OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        powerUp(2),
+        configure(3),
+        idle(4),
+        quiet(5),
+        tone(6),
+        activating(7),
+        training(8),
+        analyzing(9),
+        exchange(10),
+        steadyState(11),
+        notResponding(12)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reports current state of the ATU-C DMT transceiver.  The
+        current state can change dynamically.  The SNMP agent
+        reports the state after querying the ATU-C state machine."
+    ::= { adslAtucDmtPhysEntry 2 }
+
+adslAtucDmtInterleavePath OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        as0(2),
+        as1(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reports bearer channel of downstream interleaved path."
+    ::= { adslAtucDmtPhysEntry 3 }
+
+adslAtucDmtFastPath OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        as0(2),
+        as1(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reports bearer channel of downstream fast path."
+    ::= { adslAtucDmtPhysEntry 4 }
+
+adslAturDmtPhysTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslAturDmtPhysEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table extends the adslAturPhysTable and contains physical
+        layer parameters for the ATU-R class devices supported by the
+        system."
+    ::= { adslLineDmtMIBObjects 3 }
+
+adslAturDmtPhysEntry OBJECT-TYPE
+    SYNTAX AdslAturDmtPhysEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of physical-layer parameters for an ATU-R class device
+        supported by the system.  There exists an entry for each ifEntry
+        with an ifType of adsl(94)."
+    INDEX { ifIndex }
+    ::= { adslAturDmtPhysTable 1 }
+
+AdslAturDmtPhysEntry ::= SEQUENCE {
+    adslAturDmtIssue INTEGER,
+    adslAturDmtState INTEGER,
+    adslAturDmtInterleavePath INTEGER,
+    adslAturDmtFastPath INTEGER
+    }
+
+adslAturDmtIssue OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        t1413Issue1(2),
+        t1413Issue2(3),
+        t1413Issue3(4),
+        gdmtIssue1(5),
+        etsiIssue1(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reports the issue number of the relevant standard that
+         the DMT ADSL transceiver at the ATU-R is currently
+         operating to. The issue number will be fixed by the
+         hardware and is transmitted by the ATU-R
+         in R-MSGS1 during initialization."
+    ::= { adslAturDmtPhysEntry 1 }
+
+adslAturDmtState OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        activating(2),
+        training(3),
+        analyzing(4),
+        exchange(5),
+        steadyState(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reports current state of the ATU-R DMT transceiver.
+        The current state can change dynamically. ATU-R state
+        is reported by the SNMP agent at the ATU-C which infers
+        the state depending on the ATU-C state. When the inference
+        cannot be made, unknown state is returned."
+    ::= { adslAturDmtPhysEntry 2 }
+
+adslAturDmtInterleavePath OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        ls0(2),
+        ls1(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reports bearer channel of upstream interleaved path."
+    ::= { adslAturDmtPhysEntry 3 }
+
+adslAturDmtFastPath OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        ls0(2),
+        ls1(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Reports bearer channel of upstream fast path."
+    ::= { adslAturDmtPhysEntry 4 }
+
+adslLineDmtConfProfileTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AdslLineDmtConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table extends the adslLineConfProfileTable and contains
+        ADSL DMT line configuration information."
+    ::= { adslLineDmtMIBObjects 15 }
+
+adslLineDmtConfProfileEntry OBJECT-TYPE
+    SYNTAX AdslLineDmtConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A configuration profile containing ADSL DMT line configuration
+        information."
+    INDEX { IMPLIED adslLineConfProfileName }
+    ::= { adslLineDmtConfProfileTable 1 }
+
+AdslLineDmtConfProfileEntry ::= SEQUENCE {
+    adslAtucDmtConfFreqBins OCTET STRING,
+    adslAturDmtConfFreqBins OCTET STRING,
+    adslLineDmtConfMode INTEGER,
+    adslLineDmtConfTrellis INTEGER,
+    adslLineDmtConfEOC INTEGER,
+    adslAtucDmtConfInterleavePath INTEGER,
+    adslAtucDmtConfFastPath INTEGER,
+    adslAturDmtConfInterleavePath INTEGER,
+    adslAturDmtConfFastPath INTEGER
+    }
+
+adslAtucDmtConfFreqBins OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(4))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string of 32 bits to enable/disable the incoming DMT
+        frequency bins that the ATU-C receiver monitors. Each bit
+        controls one bin with the first bit of the first octet
+        controlling sub-carrier zero (lowest frequency  bin).
+        A bit set to 1 disables reception of the specified sub-
+        carrier frequency bin end a 0 enables reception."
+    DEFVAL { '00000000'h }
+    ::= { adslLineDmtConfProfileEntry 1 }
+
+adslAturDmtConfFreqBins OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string of 256 bits to enable/disable the incoming DMT frequency
+        bins that the ATU-R receiver should monitor after the next activation.
+        The mechanism to pass adslAturDMTConfFreqBins to the ATU-R is vendor
+        specific.  Each bit controls one bin with the first bit of the first
+        octet controlling sub-carrier zero (lowest frequency bin). A bit set
+        to 1 disables reception of the specified sub-carrier frequency bin end
+        a 0 enables reception."
+    DEFVAL { '0000000000000000000000000000000000000000000000000000000000000000'h }
+    ::= { adslLineDmtConfProfileEntry 2 }
+
+adslLineDmtConfMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        echoCancel(1),
+        freqDivMux(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Defines the operational mode of the DMT ADSL transceiver.
+        Configured in the C-MSG1 and C-MSG-RA exchanges."
+    ::= { adslLineDmtConfProfileEntry 3 }
+
+adslLineDmtConfTrellis OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Enables the Trellis coder of the DMT transceiver.  Configured
+        in the C-MSG1 and C-MSG-RA exchanges."
+    DEFVAL { disable }
+    ::= { adslLineDmtConfProfileEntry 4 }
+
+adslLineDmtConfEOC OBJECT-TYPE
+    SYNTAX INTEGER {
+        byte(1),
+        streaming(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Defines the embedded operations channel mode for the DMT
+         ADSL line."
+    DEFVAL { byte }
+    ::= { adslLineDmtConfProfileEntry 5 }
+
+adslAtucDmtConfInterleavePath OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        as0(2),
+        as1(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Target channel for downstream interleave data path."
+    ::= { adslLineDmtConfProfileEntry 6 }
+
+adslAtucDmtConfFastPath OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        as0(2),
+        as1(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Target channel for downstream fast data path."
+    ::= { adslLineDmtConfProfileEntry 7 }
+
+adslAturDmtConfInterleavePath OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        ls0(2),
+        ls1(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Target channel for upstream interleave data path."
+    ::= { adslLineDmtConfProfileEntry 8 }
+
+adslAturDmtConfFastPath OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        ls0(2),
+        ls1(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Target channel for upstream fast data path."
+    ::= { adslLineDmtConfProfileEntry 9 }
+
+adslLineDmtGroup OBJECT IDENTIFIER ::= { adslLineDmtMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of managed objects defining the attributes of an ADSL
+--    line supportings modems using the DMT line code.
+--  objects
+--    adslLineDmtTrellis, adslLineDmtEOC
+
+adslAtucDmtPhysGroup OBJECT IDENTIFIER ::= { adslLineDmtMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of managed objects defining the physical-layer 
+--    parameters of an ATU-C using the DMT line code.
+--  objects
+--    adslAtucDmtIssue, adslAtucDmtState, adslAtucDmtInterleavePath, 
+--    adslAtucDmtFastPath
+
+adslAturDmtPhysGroup OBJECT IDENTIFIER ::= { adslLineDmtMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of managed objects defining the physical-layer
+--    parameters of an ATU-R using the DMT line code.
+--  objects
+--    adslAturDmtIssue, adslAturDmtState, adslAturDmtInterleavePath, 
+--    adslAturDmtFastPath
+
+adslLineDmtConfProfileGroup OBJECT IDENTIFIER ::= { adslLineDmtMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of managed objects defining the line configuration
+--    information associated with one or more ADSL ATU class devices
+--    implementing the DMT line code.
+--  objects
+--    adslAtucDmtConfFreqBins, adslAturDmtConfFreqBins, 
+--    adslLineDmtConfMode, adslLineDmtConfTrellis, 
+--    adslLineDmtConfEOC, adslAtucDmtConfInterleavePath, 
+--    adslAtucDmtConfFastPath, adslAturDmtConfInterleavePath, 
+--    adslAturDmtConfFastPath
+
+adslDMTLineMibCompliance OBJECT IDENTIFIER ::= { adslLineDmtMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP entities which have ADSL DMT
+--    interfaces.
+--  Module
+--    >>current<<
+--   MandGroup
+--    adslLineDmtGroup
+--   MandGroup
+--    adslAtucDmtPhysGroup
+--   MandGroup
+--    adslAturDmtPhysGroup
+--   MandGroup
+--    adslLineDmtConfProfileGroup
+
+adslLineDmtMIBAturCompliance OBJECT IDENTIFIER ::= { adslLineDmtMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP entities which manage ADSL DMT
+--    ATU-R interfaces.
+--  Module
+--    >>current<<
+--   MandGroup
+--    adslLineDmtGroup
+--   MandGroup
+--    adslAturDmtPhysGroup
+--   MandGroup
+--    adslLineDmtConfProfileGroup
+
+
+END
+

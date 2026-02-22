@@ -1,0 +1,122 @@
+-- *****************************************************************
+-- LLDP-EXT-MED-CAPABILITY.my
+--   
+-- Copyright (c) 2009 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-LLDP-EXT-MED-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoLldpExtMedCapability MODULE-IDENTITY
+    LAST-UPDATED    "200912020000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+
+            Postal: 170 W Tasman Drive
+
+            San Jose, CA  95134
+
+            USA
+
+
+            Tel: +1 800 553-NETS
+
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This is the Agent Capabilities definition for
+        LLDP-EXT-MED-MIB'"
+    REVISION        "200912020000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoAgentCapability 584 }
+
+
+
+lldpExtMedCapability1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2SE"
+    STATUS          current
+    DESCRIPTION
+        "LLDP MED MIB Capabilities"
+
+    SUPPORTS        LLDP-EXT-MED-MIB
+    INCLUDES        {
+                        lldpXMedConfigGroup,
+                        lldpXMedOptMediaPolicyGroup,
+                        lldpXMedOptInventoryGroup,
+                        lldpXMedOptLocationGroup,
+                        lldpXMedOptPoEPSEGroup,
+                        lldpXMedOptPoEPDGroup,
+                        lldpXMedRemSysGroup,
+                        lldpXMedNotificationsGroup
+                    }
+    VARIATION       lldpXMedLocDeviceClass
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       lldpXMedPortConfigTLVsTxEnable
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       lldpXMedPortConfigNotifEnable
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       lldpXMedFastStartRepeatCount
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       lldpXMedLocSerialNum
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       lldpXMedLocAssetID
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       lldpXMedRemDeviceClass
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       lldpXMedTopologyChangeDetected
+    DESCRIPTION
+        "Not Supported"
+
+    ::= { ciscoLldpExtMedCapability 1 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

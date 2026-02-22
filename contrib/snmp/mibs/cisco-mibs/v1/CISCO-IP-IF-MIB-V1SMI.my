@@ -1,0 +1,705 @@
+-- MIB file created 18-Nov-2010 15:48:11, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IP-IF-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IP-IF-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    RowStatus, StorageType
+            FROM SNMPv2-TC-v1
+    InetAddressPrefixLength, InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    InterfaceIndex, ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoIPIfMIB OBJECT IDENTIFIER ::= { ciscoMgmt 309 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200808080000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    The MIB module for configuring IP characteristics
+--    of the interfaces of a device.
+--  RevDate
+--    200808080000Z
+--  RevDescr
+--    Modified the definition for ciiHelperAdressVrf to conform to the
+--    de facto standard.
+--  RevDate
+--    200807280000Z
+--  RevDescr
+--    Added ciiHelperAddressTable.
+--  RevDate
+--    200210120000Z
+--  RevDescr
+--    Added ciiIPIfAddressTable.
+--    Added ciiIPIfAddressChangeNotify notification.
+--    Deprecated ciscoIPIfMIBCompliance and added
+--    ciscoIPIfMIBCompliance1.
+--    Added ciscoIPIfAddressConfigurationGroup3, 
+--    ciscoIPIfAddressConfigurationGroup4, 
+--    ciscoIPIfNotificationGroup. 
+--    Added IpAddressCatagory  TC.
+--  RevDate
+--    200210100000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoIPIfMIBNotifs OBJECT IDENTIFIER ::= { ciscoIPIfMIB 0 }
+ciscoIPIfMIBObjects OBJECT IDENTIFIER ::= { ciscoIPIfMIB 1 }
+ciscoIPIfMIBConform OBJECT IDENTIFIER ::= { ciscoIPIfMIB 2 }
+ciiIPAddressConfiguration OBJECT IDENTIFIER ::= { ciscoIPIfMIBObjects 1 }
+ciiHelperAddressConfiguration OBJECT IDENTIFIER ::= { ciscoIPIfMIBObjects 2 }
+ciiIPIfNotifications OBJECT IDENTIFIER ::= { ciscoIPIfMIBNotifs 0 }
+ciscoIPIfMIBCompliances OBJECT IDENTIFIER ::= { ciscoIPIfMIBConform 1 }
+ciscoIPIfMIBGroups OBJECT IDENTIFIER ::= { ciscoIPIfMIBConform 2 }
+
+IpAddressCatagory ::= INTEGER {
+        single(1),
+        primary(2),
+        secondary(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents the IP address category.
+--    single(1) - Indicates that the IP addressing 
+--                information for this interface,
+--                has no primary/secondary category.
+--    
+--    primary(2) - Indicates that this interface
+--                 provides primary IP addressing
+--                 information.
+--    
+--    secondary(3) - Indicates that this interface
+--                   provides a secondary IP 
+--                   addressing information. There 
+--                   may be more than one seconday
+--                   IP addressing information for
+--                   an interface.
+
+ciiIPAddressCategoryCap OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   single(0)
+        --   primary(1)
+        --   secondary(2)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates what types of IP address category can
+        be configured on this device.
+        
+        single(0) means that each interface on the device can be
+        assigned only one IP address.
+        
+        primary(1) means that each interface on the device can be
+        assigned an IP address as the primary one.
+        
+        secondary(2) means that each interface on the device can be
+        assigned an IP address as the secondary one.
+        
+        Devices which has the single(0) bit set to 1, should have 
+        the primary(1) and secondary(2) bits set to 0.
+        Likewise devices which have the primary(1) and/or 
+        secondary(2) bits set to 1, should have the single(0)
+        set to 0."
+    ::= { ciiIPAddressConfiguration 1 }
+
+ciiIPAddressTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiiIPAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table of addressing information relevant to
+        this entity's IP addresses. This is the enhancement of
+        the ipAddrTable in IP-MIB."
+    REFERENCE
+        "RFC 2011"
+    ::= { ciiIPAddressConfiguration 2 }
+
+ciiIPAddressEntry OBJECT-TYPE
+    SYNTAX CiiIPAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The addressing information for one of this
+        entity's IP addresses.
+        
+        The only way an entry can be created is by setting the
+        ciiIPAddressStatus object to 'create and go' and the 
+        only way an entry can be destroyed is by setting the
+        ciiIPAddressStatus object to 'destroy'.
+        
+        Any column in the  entry may be modified anytime,
+        when the value of ciiIPAddressStatus is 'active'."
+    INDEX { ciiIPAddressType, ciiIPAddress }
+    ::= { ciiIPAddressTable 1 }
+
+CiiIPAddressEntry ::= SEQUENCE {
+    ciiIPAddressType InetAddressType,
+    ciiIPAddress InetAddress,
+    ciiIPAddressIfIndex InterfaceIndex,
+    ciiIPAddressPrefixLength InetAddressPrefixLength,
+    ciiIPAddressBroadcast InetAddress,
+    ciiIPAddressCategory IpAddressCatagory,
+    ciiIPAddressStatus RowStatus
+    }
+
+ciiIPAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address for all the objects with SYNTAX
+        InetAddress and InetAddressPrefixLength in this entry."
+    ::= { ciiIPAddressEntry 1 }
+
+ciiIPAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(1..36))
+--    Rsyntax OCTET STRING(SIZE(1..36))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address to which this entry's addressing
+        information pertains."
+    ::= { ciiIPAddressEntry 2 }
+
+ciiIPAddressIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The index value which uniquely identifies the
+        interface to which this entry is applicable. 
+        ciiIPAddressIfIndex is the same as the ifIndex of the
+        interface associated with this ciiIPAddressEntry."
+    ::= { ciiIPAddressEntry 3 }
+
+ciiIPAddressPrefixLength OBJECT-TYPE
+    SYNTAX InetAddressPrefixLength
+--    Rsyntax Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The length of the prefix associated with the IP address
+        of this entry. 
+        A value of zero causes all addresses to match.
+        The type of address is specified by ciiIPAddressType of 
+        this entry."
+    ::= { ciiIPAddressEntry 4 }
+
+ciiIPAddressBroadcast OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The broadcast address associated with the
+        IP address of  this entry.
+        The type of address is specified by ciiIPAddressType of 
+        this entry."
+    ::= { ciiIPAddressEntry 5 }
+
+ciiIPAddressCategory OBJECT-TYPE
+    SYNTAX IpAddressCatagory
+--    Rsyntax INTEGER {
+--        single(1),
+--        primary(2),
+--        secondary(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the IP address category of this entry.
+        Setting of this object has to comply with the value of
+        ciiIPAddressCategoryCap."
+    ::= { ciiIPAddressEntry 6 }
+
+ciiIPAddressStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to manage creation and deletion of rows
+        in this table.
+        
+        ciiIPAddressStatus must be set to 'creatAndGo' to create 
+        an entry and set to 'destroy' to delete an entry.
+        
+        The value in any column may be modified any time even the
+        value of this entry rowStatus object is 'active'.
+        
+        Caution has to be taken before destroying any entry. 
+        Example: Need to change the IP address of an interface,
+        which provides sole network connectivity.
+        This has to be done by destroying the entry and creating
+        a new one. The device would loose network connectivity
+        after the entry is destroyed. In this case, the destroy 
+        of the old entry and the creation on the new entry
+        should be packed in the same PDU."
+    ::= { ciiIPAddressEntry 7 }
+
+ciiIPIfAddressTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiiIPIfAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table of addressing information relevant to
+        this entity's IP addresses. This is the enhancement of
+        the ipAddrTable in IP-MIB.
+        This table is same as ciiIPAddressTable accept
+        that ciiIPIfAddressIfIndex is part of the INDEX 
+        clause.
+        This table is used to configure an IP address on a 
+        interface identified by ifIndex. Each interface can be
+        configured with multiple IP addresses.
+        When requested to create/delete an entry in this
+        table, the agent also creates/deletes a
+        correspondng entry in the ipAddrTable of rfc2011.
+        Entries in this table are created/deleted only by 
+        network managers. Agents will typically only allow
+        entries to be created on a subset of ifIndex values."
+    REFERENCE
+        "RFC 2011"
+    ::= { ciiIPAddressConfiguration 3 }
+
+ciiIPIfAddressEntry OBJECT-TYPE
+    SYNTAX CiiIPIfAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The addressing information for one of this
+        entity's IP addresses.
+        
+        The only way an entry can be created is by setting the
+        ciiIPIfAddressStatus object to 'create and go' and the 
+        only way an entry can be destroyed is by setting the
+        ciiIPIfAddressStatus object to 'destroy'.
+        
+        Any column in the  entry may be modified anytime,
+        when the value of ciiIPIfAddressStatus is 'active'."
+    INDEX { ciiIPAddressIfIndex, ciiIPAddressType, ciiIPAddress }
+    ::= { ciiIPIfAddressTable 1 }
+
+CiiIPIfAddressEntry ::= SEQUENCE {
+    ciiIPIfAddressPrefixLength InetAddressPrefixLength,
+    ciiIPIfAddressBroadcast InetAddress,
+    ciiIPIfAddressCategory IpAddressCatagory,
+    ciiIPIfAddressStatus RowStatus
+    }
+
+ciiIPIfAddressPrefixLength OBJECT-TYPE
+    SYNTAX InetAddressPrefixLength
+--    Rsyntax Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The length of the prefix associated with the IP address
+        of this entry. 
+        A value of zero causes all addresses to match.
+        The type of address is specified by ciiIPAddressType of 
+        this entry.
+        This object is same as the ciiIPAddressPrefixLength
+        object, and changes to one will affect the other."
+    ::= { ciiIPIfAddressEntry 1 }
+
+ciiIPIfAddressBroadcast OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The broadcast address associated with the
+        IP address of  this entry.
+        The type of address is specified by ciiIPAddressType of 
+        this entry.
+        This object is same as the ciiIPAddressBroadcast 
+        object, and changes to one will affect the other."
+    ::= { ciiIPIfAddressEntry 2 }
+
+ciiIPIfAddressCategory OBJECT-TYPE
+    SYNTAX IpAddressCatagory
+--    Rsyntax INTEGER {
+--        single(1),
+--        primary(2),
+--        secondary(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the IP address category of this entry.
+        Setting of this object has to comply with the value of
+        ciiIPAddressCategoryCap.
+        
+        This object is same as the ciiIPAddressCategory 
+        object, and changes to one will affect the other."
+    ::= { ciiIPIfAddressEntry 3 }
+
+ciiIPIfAddressStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to manage creation and deletion of rows
+        in this table.
+        
+        ciiIPAddressStatus must be set to 'creatAndGo' to create 
+        an entry and set to 'destroy' to delete an entry.
+        
+        The value in any column may be modified any time even the
+        value of this entry rowStatus object is 'active'.
+        
+        Caution has to be taken before destroying any entry. 
+        Example: Need to change the IP address of an interface,
+        which provides sole network connectivity.
+        This has to be done by destroying the entry and creating
+        a new one. The device would loose network connectivity
+        after the entry is destroyed. In this case, the destroy 
+        of the old entry and the creation on the new entry
+        should be packed in the same PDU."
+    ::= { ciiIPIfAddressEntry 4 }
+
+ciiHelperAddressTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiiHelperAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the IP helper addresses associated with each
+        interface."
+    ::= { ciiHelperAddressConfiguration 1 }
+
+ciiHelperAddressEntry OBJECT-TYPE
+    SYNTAX CiiHelperAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry describes a single IP helper address associated with
+        the corresponding interface, identified by the ifIndex-value
+        assigned to the interface.
+        
+        A peer SNMP entity may associate a helper address with an
+        interface by setting an instance of ciiHelperAddressStatus to
+        'createAndWait' or 'createAndGo'.  Observe that an
+        implementation that does not support these options must specify
+        these limitations in an agent capabilities statement.
+        
+        Other management entities (e.g., the local console) may
+        associate a helper address with an interface.  In these cases,
+        the system must automatically create a row in the
+        ciiHelperAddressTable.
+        
+        A peer SNMP entity may disassociate a helper address from an
+        interface by setting the corresponding instance of
+        ciiHelperAddressStatus to 'destroy'.  Observe an implementation
+        that does not support this option must specify this limitation
+        in an agent capabilities statement.
+        
+        Other management entities may disassociate a helper address
+        from an interface.  In these cases, the system must
+        automatically destroy the corresponding row in the
+        ciiHelperAddressTable.
+        
+        The system automatically destroys a row when the system destroys
+        the corresponding interface in the ifTable."
+    INDEX { ifIndex, ciiHelperAddressVrf, ciiHelperAddressType, ciiHelperAddress }
+    ::= { ciiHelperAddressTable 1 }
+
+CiiHelperAddressEntry ::= SEQUENCE {
+    ciiHelperAddressVrf SnmpAdminString,
+    ciiHelperAddressType InetAddressType,
+    ciiHelperAddress InetAddress,
+    ciiHelperAddressStatus RowStatus,
+    ciiHelperAddressStorage StorageType
+    }
+
+ciiHelperAddressVrf OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the name assigned to the Virtual Routing
+        and Forwarding (VRF) instance in which the IP helper address
+        resides."
+    ::= { ciiHelperAddressEntry 1 }
+
+ciiHelperAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the type of IP address indicated by the
+        corresponding instance of ciiHelperAddress."
+    ::= { ciiHelperAddressEntry 2 }
+
+ciiHelperAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the IP helper address."
+    ::= { ciiHelperAddressEntry 3 }
+
+ciiHelperAddressStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the status of the row.  The following
+        columns must be valid before activing the row:
+        
+            - ciiHelperAddressStorage
+        
+        An implementation must not allow an EMS/NMS to modify any
+        column once the row has been activated."
+    ::= { ciiHelperAddressEntry 4 }
+
+ciiHelperAddressStorage OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the memory realization of the row."
+    DEFVAL { volatile }
+    ::= { ciiHelperAddressEntry 5 }
+
+ciscoIPIfAddressConfigurationGroup1 OBJECT IDENTIFIER ::= { ciscoIPIfMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for the address configuration
+--    of interfaces.
+--  objects
+--    ciiIPAddressCategoryCap, ciiIPAddressIfIndex, 
+--    ciiIPAddressPrefixLength, ciiIPAddressCategory, 
+--    ciiIPAddressStatus
+
+ciscoIPIfAddressConfigurationGroup2 OBJECT IDENTIFIER ::= { ciscoIPIfMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for the broadcast address
+--    configuration of interfaces.
+--  objects
+--    ciiIPAddressBroadcast
+
+ciscoIPIfAddressConfigurationGroup3 OBJECT IDENTIFIER ::= { ciscoIPIfMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for the address configuration
+--    of interfaces.
+--  objects
+--    ciiIPAddressCategoryCap, ciiIPIfAddressPrefixLength, 
+--    ciiIPIfAddressCategory, ciiIPIfAddressStatus
+
+ciscoIPIfAddressConfigurationGroup4 OBJECT IDENTIFIER ::= { ciscoIPIfMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for the broadcast address
+--    configuration of interfaces.
+--  objects
+--    ciiIPIfAddressBroadcast
+
+ciiHelperAddressGroup OBJECT IDENTIFIER ::= { ciscoIPIfMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects describing IP helper addresses
+--    associated with interfaces.
+--  objects
+--    ciiHelperAddressStatus, ciiHelperAddressStorage
+
+ciscoIPIfMIBCompliance OBJECT IDENTIFIER ::= { ciscoIPIfMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the CISCO-IP-IF-MIB.
+--    
+--    OBJECT ciiIPAddressType
+--    SYNTAX  INTEGER { ipv4(1) }
+--    DESCRIPTION
+--        An implementation is only required to support IPv4
+--        addresses.
+--    
+--    OBJECT ciiIPAddress
+--    SYNTAX InetAddress (SIZE(4))
+--    DESCRIPTION
+--        An implementation is only required to support IPv4
+--        addresses.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoIPIfAddressConfigurationGroup1
+--   OptGroup
+--    ciscoIPIfAddressConfigurationGroup2
+--   ObjVar
+--    ciiIPAddressBroadcast
+--   ObjVar
+--    ciiIPAddressStatus
+
+ciscoIPIfMIBCompliance1 OBJECT IDENTIFIER ::= { ciscoIPIfMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the CISCO-IP-IF-MIB.
+--    
+--    OBJECT ciiIPAddressType
+--    SYNTAX  INTEGER { ipv4(1) }
+--    DESCRIPTION
+--        An implementation is only required to support IPv4
+--        addresses.
+--    
+--    OBJECT ciiIPAddress
+--    SYNTAX InetAddress (SIZE(4))
+--    DESCRIPTION
+--        An implementation is only required to support IPv4
+--        addresses.
+--  Module
+--    >>current<<
+--   OptGroup
+--    ciscoIPIfAddressConfigurationGroup1
+--   OptGroup
+--    ciscoIPIfAddressConfigurationGroup2
+--   OptGroup
+--    ciscoIPIfAddressConfigurationGroup3
+--   OptGroup
+--    ciscoIPIfAddressConfigurationGroup4
+--   ObjVar
+--    ciiIPAddressBroadcast
+--   ObjVar
+--    ciiIPAddressStatus
+--   ObjVar
+--    ciiIPIfAddressBroadcast
+--   ObjVar
+--    ciiIPIfAddressStatus
+--   ObjVar
+--    ciiIPIfAddressCategory
+
+ciscoIPIfMIBCompliance2 OBJECT IDENTIFIER ::= { ciscoIPIfMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the CISCO-IP-IF-MIB.
+--    
+--    OBJECT ciiIPAddressType
+--    SYNTAX  INTEGER { ipv4(1) }
+--    DESCRIPTION
+--        An implementation is only required to support IPv4
+--        addresses.
+--    
+--    OBJECT ciiIPAddress
+--    SYNTAX InetAddress (SIZE(4))
+--    DESCRIPTION
+--        An implementation is only required to support IPv4
+--        addresses.
+--  Module
+--    >>current<<
+--   OptGroup
+--    ciscoIPIfAddressConfigurationGroup1
+--   OptGroup
+--    ciscoIPIfAddressConfigurationGroup2
+--   OptGroup
+--    ciscoIPIfAddressConfigurationGroup3
+--   OptGroup
+--    ciscoIPIfAddressConfigurationGroup4
+--   OptGroup
+--    ciiHelperAddressGroup
+--   ObjVar
+--    ciiIPAddressBroadcast
+--   ObjVar
+--    ciiIPAddressStatus
+--   ObjVar
+--    ciiIPIfAddressBroadcast
+--   ObjVar
+--    ciiIPIfAddressStatus
+--   ObjVar
+--    ciiIPIfAddressCategory
+--   ObjVar
+--    ciiHelperAddressStatus
+--   ObjVar
+--    ciiHelperAddressStorage
+
+
+END
+

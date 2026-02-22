@@ -1,0 +1,1309 @@
+-- *****************************************************************
+-- CISCO-MPLS-TE-STD-EXT-MIB.my
+--   
+-- April 2010, Salvatore Valenza
+-- August 2016, Amin Qassoud, Dragos Liciu
+--   
+-- Copyright (c) 2009-2016 by cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-MPLS-TE-STD-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    Unsigned32,
+    NOTIFICATION-TYPE,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    mplsTunnelIndex,
+    mplsTunnelInstance,
+    mplsTunnelIngressLSRId,
+    mplsTunnelEgressLSRId,
+    mplsTunnelAdminStatus,
+    mplsTunnelOperStatus,
+    mplsTunnelName,
+    mplsTunnelARHopListIndex
+        FROM MPLS-TE-STD-MIB
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+cmplsTeStdExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "201608050000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service             
+            Postal: 170 W Tasman Drive             
+            San Jose, CA  95134             
+            USA             
+            Tel: +1 800 553-NETS             
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module contains Cisco specific managed object
+        definitions for MPLS Traffic Engineering (TE), not contained in
+        MPLS-TE-STD-MIB.
+        The auto bandwidth feature enables MPLS TE Tunnels to adapt
+        automatically their bandwidth to their actual load."
+    REVISION        "201608050000Z"
+    DESCRIPTION
+        "Added a new table cmplsTunnelLoadshareTable.
+        
+         Added a new scalar object cmplsTeLoadshareBalance.
+        
+         Added new values to cmplsTunnelReoptReason.
+        
+         Added a new object cmplsTeFailReasonRev which deprecates
+		 cmplsTeFailReason.
+		 
+         Updated  cmplsTeFailReason description and MIN-ACCESS 
+         in complaince.
+        
+         Added new value frrSoftPreemption to cmplsTunnelPreemptionType.
+         
+         Deprecated the complaince cmplsTeStdExtMIBComplianceRev3 and 
+         group cmplsTeStdExtMIBFailTeTrapObjectsGroup.
+         
+         Added new complaince cmplsTeStdExtMIBComplianceRev4 and
+         groups cmplsTeStdExtMIBFailTeTrapObjectsGroupRev1 and
+         cmplsTeStdExtMIBLoadShareObjectsGroup."
+    REVISION        "201202220000Z"
+    DESCRIPTION
+        "Add preferredTreeExists to cmplsTunnelReooptReason"
+    REVISION        "201110040000Z"
+    DESCRIPTION
+        "Added cmplsTeBringupFail trap"
+    REVISION        "201101070000Z"
+    DESCRIPTION
+        "Added softPreemption to the enum cmplsTunnelReoptReason."
+    REVISION        "201010200000Z"
+    DESCRIPTION
+        "added cmplsTunnelReRoutePendingClearReason to be sent along the
+        notification cmplsTunnelReRoutePendingClear"
+    REVISION        "201009230000Z"
+    DESCRIPTION
+        "New traps and related objects definitions."
+    REVISION        "201005270000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 738 }
+
+
+
+CmplsTeTunnelDiag ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "A common TE diagnostic code
+
+        - unknown: failure reason unknown
+        - bfdSessionBringupTimeout: BFD session failed to come up before
+        timeout"
+    SYNTAX          INTEGER  {
+                        unknonw(1),
+                        bfdSessionBringupTimeout(2)
+                    }
+
+CmplsTunnelBWPercent ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "A fraction of the bandwidth expressed in percentage."
+    SYNTAX          Unsigned32 (0..100)
+-- Textual Conventions definition will be defined before this line
+
+cmplsTeStdExtMIBNotifs  OBJECT IDENTIFIER
+    ::= { cmplsTeStdExtMIB 0 }
+
+cmplsTeStdExtMIBObjects  OBJECT IDENTIFIER
+    ::= { cmplsTeStdExtMIB 1 }
+
+cmplsTeStdExtMIBConform  OBJECT IDENTIFIER
+    ::= { cmplsTeStdExtMIB 2 }
+
+
+cmplsTunnelAutoBWTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmplsTunnelAutoBWEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used in order to manage auto bandwidth data.
+        This table is sparse dependent on the mplsTunnelTable.  An entry
+        in this table exists for each mplsTunnelEntry with a
+        mplsTunnelRole of 'head' or 'headTail'. Each row contains
+        auto-bandwidth data for the tunnel identified by the indexes
+        defined later.
+        An entry is created as soon as a 'head' or 'headTail' MPLS TE
+        tunnel is configured in the system."
+    ::= { cmplsTeStdExtMIBObjects 1 }
+
+cmplsTunnelAutoBWEntry OBJECT-TYPE
+    SYNTAX          CmplsTunnelAutoBWEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in cmplsTunnelAutoBWTable. There is an entry
+        in this table for each MPLS-TE tunnel with mplsTunnelRole 
+        equals to 'head' or 'headTail'."
+    INDEX           {
+                        mplsTunnelIndex,
+                        mplsTunnelInstance,
+                        mplsTunnelIngressLSRId,
+                        mplsTunnelEgressLSRId
+                    } 
+    ::= { cmplsTunnelAutoBWTable 1 }
+
+CmplsTunnelAutoBWEntry ::= SEQUENCE {
+        cmplsTunnelAutoBWStatus                 INTEGER,
+        cmplsTunnelAutoBWMin                    Unsigned32,
+        cmplsTunnelAutoBWMax                    Unsigned32,
+        cmplsTunnelAutoBWAdjThreshPercs         CmplsTunnelBWPercent,
+        cmplsTunnelAutoBWAdjThreshBW            Unsigned32,
+        cmplsTunnelAutoBWOverflowThreshPercs    CmplsTunnelBWPercent,
+        cmplsTunnelAutoBWOverflowThreshBW       Unsigned32,
+        cmplsTunnelAutoBWOverflowLimit          Unsigned32,
+        cmplsTunnelAutoBWUnderflowThreshPercs   CmplsTunnelBWPercent,
+        cmplsTunnelAutoBWUnderflowThreshBW      Unsigned32,
+        cmplsTunnelAutoBWUnderflowLimit         Unsigned32,
+        cmplsTunnelAutoBWApplicationFrequency   Unsigned32,
+        cmplsTunnelAutoBWCollectionFrequency    Unsigned32,
+        cmplsTunnelAutoBWLastAppliedBW          Unsigned32,
+        cmplsTunnelAutoBWApplications           Counter32,
+        cmplsTunnelAutoBWLastApplicationTrigger INTEGER,
+        cmplsTunnelAutoBWOverflowApplications   Counter32,
+        cmplsTunnelAutoBWOverflowOccurrences    Counter32,
+        cmplsTunnelAutoBWUnderflowApplications  Counter32,
+        cmplsTunnelAutoBWUnderflowOccurrences   Counter32,
+        cmplsTunnelAutoBWUnderflowHighestBW     Gauge32,
+        cmplsTunnelAutoBWRequested              Unsigned32,
+        cmplsTunnelAutoBWSignaled               Unsigned32,
+        cmplsTunnelAutoBWCollectOnlyRequested   Unsigned32,
+        cmplsTunnelAutoBWHighest                Unsigned32,
+        cmplsTunnelAutoBWCollectedSamples       Counter32,
+        cmplsTunnelAutoBWJitter                 Unsigned32,
+        cmplsTunnelAutoBWAppRejectReason        INTEGER
+}
+
+cmplsTunnelAutoBWStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        autoBWDisabled(1),
+                        autoBWEnabled(2),
+                        autoBWCollectOnlyMode(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the operational status [or mode] of the
+        auto bandwidth algorithm:
+
+        - autoBWDisabled: The auto-bandwidth algorithm is not running;
+        - autoBWEnabled: The auto-bandwidth algorithm is running;
+        - autoBWCollectOnlyMode: The auto-bandwidth algorithm is
+        running,
+                                 but the bandwidth applications are 
+                                 disabled;"
+    DEFVAL          { autoBWDisabled } 
+    ::= { cmplsTunnelAutoBWEntry 1 }
+
+cmplsTunnelAutoBWMin OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "kbps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum bandwidth that the
+        auto-bandwidth algorithm can apply to a tunnel when the
+        adjustment threshold is overcome.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'."
+    DEFVAL          { 0 } 
+    ::= { cmplsTunnelAutoBWEntry 2 }
+
+cmplsTunnelAutoBWMax OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "kbps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum bandwidth that the
+        auto-bandwidth algorithm can apply to a tunnel when the
+        adjustment threshold is overcome.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'."
+    DEFVAL          { 100 } 
+    ::= { cmplsTunnelAutoBWEntry 3 }
+
+cmplsTunnelAutoBWAdjThreshPercs OBJECT-TYPE
+    SYNTAX          CmplsTunnelBWPercent
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the adjustment threshold percentage that
+        needs to be overcome in order to trigger a new bandwidth
+        application.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'."
+    DEFVAL          { 10 } 
+    ::= { cmplsTunnelAutoBWEntry 4 }
+
+cmplsTunnelAutoBWAdjThreshBW OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "kbps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the adjustment threshold bandwidth that
+        needs to be overcome in order to trigger a new bandwidth
+        application.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'."
+    DEFVAL          { 10 } 
+    ::= { cmplsTunnelAutoBWEntry 5 }
+
+cmplsTunnelAutoBWOverflowThreshPercs OBJECT-TYPE
+    SYNTAX          CmplsTunnelBWPercent
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the adjustment threshold percentage that
+        needs to be overcome in order to trigger an overflow occurrence.
+        If the application period has not completed when a
+        cmplsTunnelAutoBWOverflowLimit overflow has occurred, a new
+        bandwidth will be applied.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'."
+    DEFVAL          { 10 } 
+    ::= { cmplsTunnelAutoBWEntry 6 }
+
+cmplsTunnelAutoBWOverflowThreshBW OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "kbps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the adjustment threshold bandwidth that
+        needs to be overcome in order to trigger an overflow occurrence.
+        If the application period has not completed when a
+        cmplsTunnelAutoBWOverflowLimit overflow has occurred, a new
+        bandwidth will be applied.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'."
+    DEFVAL          { 10 } 
+    ::= { cmplsTunnelAutoBWEntry 7 }
+
+cmplsTunnelAutoBWOverflowLimit OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of consecutive collections
+        exceeding overflow threshold.
+        If the application period has not completed when a
+        cmplsTunnelAutoBWOverflowLimit overflow has occurred, a new
+        bandwidth will be applied.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'."
+    DEFVAL          { 1 } 
+    ::= { cmplsTunnelAutoBWEntry 8 }
+
+cmplsTunnelAutoBWUnderflowThreshPercs OBJECT-TYPE
+    SYNTAX          CmplsTunnelBWPercent
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the adjustment threshold percentage that
+        needs to be overcome in order to trigger an underflow
+        occurrence.
+        If the application period has not completed when a
+        cmplsTunnelAutoBWUnderflowLimit underflow has occurred, a new
+        bandwidth will be applied.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'."
+    DEFVAL          { 10 } 
+    ::= { cmplsTunnelAutoBWEntry 9 }
+
+cmplsTunnelAutoBWUnderflowThreshBW OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "kbps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the adjustment threshold bandwidth that
+        needs to be overcome in order to trigger an underflow
+        occurrence.
+        If the application period has not completed when a
+        cmplsTunnelAutoBWUnderflowLimit underflow has occurred, a new
+        bandwidth will be applied.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'."
+    DEFVAL          { 1 } 
+    ::= { cmplsTunnelAutoBWEntry 10 }
+
+cmplsTunnelAutoBWUnderflowLimit OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of consecutive collections
+        under the underflow threshold.
+        If the application period has not completed when a
+        cmplsTunnelAutoBWUnderflowLimit underflow has occurred, a new
+        bandwidth will be applied.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'."
+    DEFVAL          { 1 } 
+    ::= { cmplsTunnelAutoBWEntry 11 }
+
+cmplsTunnelAutoBWApplicationFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the bandwidth application period.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'."
+    DEFVAL          { 300 } 
+    ::= { cmplsTunnelAutoBWEntry 12 }
+
+cmplsTunnelAutoBWCollectionFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the sampling period for data rates.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'."
+    DEFVAL          { 300 } 
+    ::= { cmplsTunnelAutoBWEntry 13 }
+
+cmplsTunnelAutoBWLastAppliedBW OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "kbps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the last bandwidth applied by the
+        auto-bandwidth algorithm.
+        It will be set to zero if no bandwidth has been applied yet.
+        If mplsTunnelInstance is zero this object will be set to zero.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 14 }
+
+cmplsTunnelAutoBWApplications OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of auto bandwidths applied.
+        If mplsTunnelInstance is zero this object will be set to zero.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 15 }
+
+cmplsTunnelAutoBWLastApplicationTrigger OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        applicationNone(1),
+                        applicationPeriodic(2),
+                        applicationManual(3),
+                        applicationOverflow(4),
+                        applicationUnderflow(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the trigger reason for the last bandwidth
+        application.
+        If mplsTunnelInstance is zero this object will be set to
+        'applicationNone'.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 16 }
+
+cmplsTunnelAutoBWOverflowApplications OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of bandwidth applications
+        due to overflow occurrences.
+        If mplsTunnelInstance is zero this object will be set to zero.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 17 }
+
+cmplsTunnelAutoBWOverflowOccurrences OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of overflow occurrences
+        since last application period.
+        If mplsTunnelInstance is zero this object will be set to zero.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 18 }
+
+cmplsTunnelAutoBWUnderflowApplications OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of bandwidth applications due
+        to underflow occurrences.
+        If mplsTunnelInstance is zero this object will be set to zero.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 19 }
+
+cmplsTunnelAutoBWUnderflowOccurrences OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of underflow occurrences
+        since last application period.
+        If mplsTunnelInstance is zero this object will be set to zero.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 20 }
+
+cmplsTunnelAutoBWUnderflowHighestBW OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kbps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the highest sample collected during
+        an underflow sequence.
+        If mplsTunnelInstance is zero this object will be set to zero.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 21 }
+
+cmplsTunnelAutoBWRequested OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "kpbs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth requested by the
+        auto-bandwidth algorithm.
+        If mplsTunnelInstance is zero this object will be set to zero.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 22 }
+
+cmplsTunnelAutoBWSignaled OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "kpbs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth signaled by the
+        auto-bandwidth algorithm.
+        If mplsTunnelInstance is zero this object will be set to zero.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 23 }
+
+cmplsTunnelAutoBWCollectOnlyRequested OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "kpbs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth that would have been
+        requested by the auto-bandwidth algorithm if the auto-bandwidth
+        functionality was enabled. If the collect only mode is enabled,
+        the bandwidth change request will not be executed.
+        If mplsTunnelInstance is zero this object will be set to zero.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 24 }
+
+cmplsTunnelAutoBWHighest OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "kpbs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the highest bandwidth sampled by
+        the auto-bandwidth algorithm.
+        If mplsTunnelInstance is zero this object will be set to zero.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 25 }
+
+cmplsTunnelAutoBWCollectedSamples OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the samples collected since the last
+        auto-bandwidth application.
+        If mplsTunnelInstance is zero this object will be set to zero.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 26 }
+
+cmplsTunnelAutoBWJitter OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the auto-bandwidth application jitter.
+        Jitter is the extra time to be added to the application interval
+        the first time the auto bandwidth is applied.
+        If mplsTunnelInstance is zero this object will be set to zero.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'."
+    DEFVAL          { 0 } 
+    ::= { cmplsTunnelAutoBWEntry 27 }
+
+cmplsTunnelAutoBWAppRejectReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        applicationAllowed(1),
+                        autoBWDisabled(2),
+                        tunnelIsDown(3),
+                        tunnelIsFRR(4),
+                        tunnelIsBackup(5),
+                        tunnelIsLockDown(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason for the bandwidth application
+        rejection.
+        This object value is not aplicable if cmplsTunnelAutoBWStatus is
+        'autoBWDisabled'." 
+    ::= { cmplsTunnelAutoBWEntry 28 }
+ 
+
+
+cmplsTeTunnelReasonTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmplsTeTunnelReasonEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used in order to indicate the causes for the
+        notifications."
+    ::= { cmplsTeStdExtMIBObjects 2 }
+
+cmplsTeTunnelReasonEntry OBJECT-TYPE
+    SYNTAX          CmplsTeTunnelReasonEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in cmplsTunnelReasonTable."
+    INDEX           {
+                        mplsTunnelIndex,
+                        mplsTunnelInstance,
+                        mplsTunnelIngressLSRId,
+                        mplsTunnelEgressLSRId
+                    } 
+    ::= { cmplsTeTunnelReasonTable 1 }
+
+CmplsTeTunnelReasonEntry ::= SEQUENCE {
+        cmplsTunnelReoptReason               INTEGER,
+        cmplsTunnelInsuffBWFailedOperation   INTEGER,
+        cmplsTunnelPreemptionType            INTEGER,
+        cmplsTunnelPreemptionLinkAddrType    InetAddressType,
+        cmplsTunnelPreemptionLinkAddr        InetAddress,
+        cmplsTunnelReRoutePendingClearReason INTEGER
+}
+
+cmplsTunnelReoptReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        periodicTimerExpiry(2),
+                        bandwidthCLIChange(3),
+                        bandwidthOverflow(4),
+                        bandwidthUnderflow(5),
+                        bandwidthAdjustment(6),
+                        fastReRoute(7),
+                        cliRequest(8),
+                        metricTypeChange(9),
+                        preferredPathExists(10),
+                        poSwitchoverTrigger(11),
+                        bandwidthChange(12),
+                        autoBandwidth(13),
+                        remergeError(14),
+                        dueToMaximumMetric(15),
+                        pathProtectionSwitchover(16),
+                        iEPEnableReoptimization(17),
+                        affinityPathVerificationFail(18),
+                        softPreemption(19),
+                        preferredTreeExists(20),
+                        costLimitPathVerificationFail(21),
+                        linkupReopt(22),
+                        iEPChange(23),
+                        poChange(24),
+                        destChange(25),
+                        bfdSessionTypeChange(26)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason of the tunnel reoptimization:
+        - unknown: the reason is not known
+        - periodicTimerExpiry:  Periodic Reoptimization
+        - bandwidthCLIChange: the tunnel bandwidth has been
+          changed from CLI
+        - bandwidthOverflow: an auto-bandwidth overflow
+          occurred
+        - bandwidthUnderflow: an auto-bandwidth underflow
+          occured
+        - bandwidthAdjustment: an auto-bandwidth application
+          occured
+        - fastReRoute: a fast re-route occured
+        - cliRequest: User-triggerred
+        - metricTypeChange: tunnel metric type has been
+          changed
+          from CLI
+        - preferredPathExists: preferred-path-exists message
+          received from a downstream node
+        - poSwitchoverTrigger: User-requested path-option
+          switchover
+        - bandwidthChange: bandwidth change
+        - autoBandwidth: Auto Bandwidth
+        - remergeError: Remerge Error
+        - dueToMaximumMetric: Reoptimization due to
+          receiving an LSA with MAX metric
+        - pathProtectionSwitchover: Path Protection Switchover
+        - iEPEnableReoptimization: IEP Enable Reoptimization
+        - affinityPathVerificationFail: Affinity path 
+          verification failure
+        - softPreemption: soft preemption (see RFC 5712)
+        - preferredTreeExists: preferred-tree-exists message
+          received from a downstream node
+        - costLimitPathVerificationFail: Cost Limit path 
+          verification failure
+        - linkupReopt: link state up
+        - iEPChangeReoptimization: inuse explicit-path change
+        - poChangeReoptimization: inuse path-option change
+        - bfdSessionTypeChange: a bfd session type change occured
+        This object is intended to be included in the trap
+        mplsTunnelReoptimized defined in MPLS-TE-STD-MIB."
+    DEFVAL          { unknown } 
+    ::= { cmplsTeTunnelReasonEntry 1 }
+
+cmplsTunnelInsuffBWFailedOperation OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        failedToSetup(2),
+                        failedToReoptimize(3)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the tunnel could not be setup or
+        reoptimized because of insufficient bandwidth:
+                 - unknown: the reason is not known
+                 - failedToSetup: insufficient bandwidth during 
+                   initial setup
+                 - failedToReoptimize: insufficient bandwidth during
+                   reoptimization"
+    DEFVAL          { unknown } 
+    ::= { cmplsTeTunnelReasonEntry 2 }
+
+cmplsTunnelPreemptionType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        hardPreemption(2),
+                        softPreemption(3),
+                        frrSoftPreemption(4)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates LSP Preemption type of this LSP:
+        - unknown: the type is not known
+        - hardPreemption: the preempted LSP resources are
+          freed immediately; the LSP is broken immediately 
+          and the traffic is disrupted.
+        - softPreemption: the resources release pending on the
+          reoptimization of this LSP. The head of the LSP 
+          reroutes the traffic before the LSP is broken.
+        - frrSoftPreemption: similar to softPreemption. In this 
+          case the traffic of the soft preempted LSP is switched to 
+          the backup.
+        See: Farrel, A., Interim Report on MPLS Pre-emption,
+        draft-farrel-mpls-preemption-interim-00.txt, work in progress" 
+    ::= { cmplsTeTunnelReasonEntry 3 }
+
+cmplsTunnelPreemptionLinkAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the address type of the link where the
+        preemption occurs - another, higher priority LSP is being 
+        admitted on this link and there is not enough bandwidth for it
+        causing this LSP to be preempted (removed) from this link:
+        - unknown: the object cmplsTunnelPreemptionLinkAddr does not
+          contain any address
+        - ipv4: the object cmplsTunnelPreemptionLinkAddr contains 
+          the IPv4 address
+        - ipv6: the object cmplsTunnelPreemptionLinkAddr contains 
+          the IPv6 address" 
+    ::= { cmplsTeTunnelReasonEntry 4 }
+
+cmplsTunnelPreemptionLinkAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the address of the link where the
+        preemption occurs - another, higher priority LSP is being 
+        admitted on this link and there is not enough bandwidth for it
+        causing this LSP to be preempted (removed) from this link." 
+    ::= { cmplsTeTunnelReasonEntry 5 }
+
+cmplsTunnelReRoutePendingClearReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        reoptimized(2),
+                        reinstated(3)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason why the tunnel
+        is not longer in the reroute pending state:
+        - unknown: the reason is unknown
+        - reoptimized: the tunnel has been reoptimized
+        - reinstated:  the tunnel has been reinstated" 
+    ::= { cmplsTeTunnelReasonEntry 6 }
+ 
+
+
+cmplsTeTunnelFailReasonTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmplsTeTunnelFailReasonEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used in order to indicate the causes for the
+        MPLS TE tunnel failure notifications."
+    ::= { cmplsTeStdExtMIBObjects 3 }
+
+cmplsTeTunnelFailReasonEntry OBJECT-TYPE
+    SYNTAX          CmplsTeTunnelFailReasonEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in the cmplsTeTunnelFailReasonTable."
+    INDEX           {
+                        mplsTunnelIndex,
+                        mplsTunnelInstance,
+                        mplsTunnelIngressLSRId,
+                        mplsTunnelEgressLSRId,
+                        mplsTunnelARHopListIndex
+                    } 
+    ::= { cmplsTeTunnelFailReasonTable 1 }
+
+CmplsTeTunnelFailReasonEntry ::= SEQUENCE {
+        cmplsTeFailReasonType     INTEGER,
+        cmplsTeFailReason         Integer32,
+        cmplsTeFailReasonRev     INTEGER
+}
+
+cmplsTeFailReasonType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        bfd(2),
+                        generalTe(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type (category) of fail reason." 
+    ::= { cmplsTeTunnelFailReasonEntry 1 }
+
+cmplsTeFailReason OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates specific fail reason value based on the
+        fail reason type indicated by cmplsTeFailReasonType.
+
+        Fail Reason Type               Fail Reason Value Type
+        ----------------               -----------------------
+        bfd(2)                         CiscoBfdDiag
+        generalTe(3)                   CmplsTeTunnelDiag
+
+        This object is replaced by cmplsTeFailReasonRev" 
+    ::= { cmplsTeTunnelFailReasonEntry 2 }
+
+cmplsTeFailReasonRev OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        noDiagnostic(0),
+                        controlDetectionTimeExpired(1),
+                        echoFunctionFailed(2),
+                        neighborSignaledSessionDown(3),
+                        forwardingPlaneReset(4),
+                        pathDown(5),
+                        concatenatedPathDown(6),
+                        administrativelyDown(7),
+                        reverseConcatenatedPathDown(8),
+                        unknown(9),
+                        bfdSessionBringupTimeout(21)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object provieds more deails on fail reason.
+
+        cmplsTeFailReason values for reasonType bfd(2) mirror the
+        CiscoBfdDiag values:
+        - noDiagnostic
+            No bfd diagnostic info
+        - controlDetectionTimeExpired  
+            Control Detection Timer Expired
+        - echoFunctionFailed       
+            Echo Function Failed
+        - neighborSignaledSessionDown
+            Neighbor Signaled Session Down
+        - forwardingPlaneReset  
+            Forwarding Plane Reset
+        - pathDown     
+            Path Down
+        - concatenatedPathDown     
+            Concatenated Path Down
+        - administrativelyDown
+            Administratively Down
+        - reverseConcatenatedPathDown
+            Reverse Concatenated Path Down
+        - unknown
+            Unknown error code
+
+        cmplsTeFailReason values for reasonType generalTe(3) mirror 
+        the CmplsTeTunnelDiag values:
+        - unknown
+            Unknown error code
+        - bfdSessionBringupTimeout
+            bfd session failed to come up before timeout" 
+    ::= { cmplsTeTunnelFailReasonEntry 3 }
+
+cmplsTunnelLoadshareTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmplsTunnelLoadshareEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used in order to manage load data."
+    ::= { cmplsTeStdExtMIBObjects 4 }
+
+cmplsTunnelLoadshareEntry OBJECT-TYPE
+    SYNTAX          CmplsTunnelLoadshareEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in cmplsTunnelLoadshareTable. There is an
+        entry in this table for each MPLS-TE tunnel."
+    INDEX           {
+                        mplsTunnelIndex,
+                        mplsTunnelInstance,
+                        mplsTunnelIngressLSRId,
+                        mplsTunnelEgressLSRId
+                    } 
+    ::= { cmplsTunnelLoadshareTable 1 }
+
+CmplsTunnelLoadshareEntry ::= SEQUENCE {
+        cmplsTunnelLoadShare Unsigned32
+}
+
+cmplsTunnelLoadShare OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Load-share as defined by the
+        bandwidth attribute (default) or explicitly configured
+        using the load-share command under tunnel configuration."
+    DEFVAL          { 0 } 
+    ::= { cmplsTunnelLoadshareEntry 1 }
+ 
+
+-- Objects reflecting TE Global variables --
+
+cmplsTeStdExtMIBObjectsGlobal  OBJECT IDENTIFIER
+    ::= { cmplsTeStdExtMIBObjects 5 }
+
+
+cmplsTeLoadshareBalance OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        equal(0),
+                        unequal(1)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates if the load-share balance
+        is equal or unequal."
+    DEFVAL          { equal } 
+    ::= { cmplsTeStdExtMIBObjectsGlobal 1 }
+
+cmplsTunnelPreempt NOTIFICATION-TYPE
+    OBJECTS         {
+                        mplsTunnelAdminStatus,
+                        mplsTunnelOperStatus,
+                        mplsTunnelName,
+                        cmplsTunnelPreemptionType,
+                        cmplsTunnelPreemptionLinkAddrType,
+                        cmplsTunnelPreemptionLinkAddr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when a MPLS TE tunnel is
+        preempted."
+   ::= { cmplsTeStdExtMIBNotifs 1 }
+
+cmplsTunnelInsuffBW NOTIFICATION-TYPE
+    OBJECTS         {
+                        mplsTunnelAdminStatus,
+                        mplsTunnelOperStatus,
+                        mplsTunnelName,
+                        cmplsTunnelInsuffBWFailedOperation
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when a MPLS TE tunnel could not
+        be setup or reoptimized."
+   ::= { cmplsTeStdExtMIBNotifs 2 }
+
+cmplsTunnelReRoutePending NOTIFICATION-TYPE
+    OBJECTS         {
+                        mplsTunnelAdminStatus,
+                        mplsTunnelOperStatus,
+                        mplsTunnelName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when re-route is required
+        for the tunnel."
+   ::= { cmplsTeStdExtMIBNotifs 3 }
+
+cmplsTunnelReRoutePendingClear NOTIFICATION-TYPE
+    OBJECTS         {
+                        mplsTunnelAdminStatus,
+                        mplsTunnelOperStatus,
+                        mplsTunnelName,
+                        cmplsTunnelReRoutePendingClearReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when tunnel no longer needs to
+        be re-routed."
+   ::= { cmplsTeStdExtMIBNotifs 4 }
+
+cmplsTunnelBringupFail NOTIFICATION-TYPE
+    OBJECTS         {
+                        mplsTunnelName,
+                        cmplsTeFailReasonType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when MPLS TE tunnel failed to
+        come up"
+   ::= { cmplsTeStdExtMIBNotifs 5 }
+
+cmplsTeStdExtMIBCompliances  OBJECT IDENTIFIER
+    ::= { cmplsTeStdExtMIBConform 1 }
+
+cmplsTeStdExtMIBGroups  OBJECT IDENTIFIER
+    ::= { cmplsTeStdExtMIBConform 2 }
+
+
+cmplsTeStdExtMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "This is the main compliance statement for the MIB."
+    MODULE          -- this module
+    GROUP           cmplsTeStdExtMIBAutoBWOptionalGroup
+    DESCRIPTION
+        "Optional group for routers implementing auto-bandwidth
+        feature."
+
+    GROUP           cmplsTeStdExtMIBAutoBWObjectGroup
+    DESCRIPTION
+        "main objects group for routers implementing auto-bandwidth
+        feature."
+    ::= { cmplsTeStdExtMIBCompliances 1 }
+
+cmplsTeStdExtMIBCompliancesRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "This is the main compliance statement for the MIB.
+        Adding the extended traps."
+    MODULE          -- this module
+    GROUP           cmplsTeStdExtMIBAutoBWOptionalGroup
+    DESCRIPTION
+        "Optional group for routers implementing auto-bandwidth
+        feature."
+
+    GROUP           cmplsTeStdExtMIBAutoBWObjectGroup
+    DESCRIPTION
+        "main objects group for routers implementing auto-bandwidth
+        feature."
+
+    GROUP           cmplsTeStdExtMIBTrapGroup
+    DESCRIPTION
+        "Extended MPLS TE Tunnel Traps"
+
+    GROUP           cmplsTeStdExtMIBTrapObjectsGroup
+    DESCRIPTION
+        "Extended MPLS TE Tunnel Traps Objects"
+    ::= { cmplsTeStdExtMIBCompliances 2 }
+
+cmplsTeStdExtMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "This is the main compliance statement for the MIB"
+    MODULE          -- this module
+    GROUP           cmplsTeStdExtMIBAutoBWOptionalGroup
+    DESCRIPTION
+        "Optional group for routers implementing auto-bandwidth
+        feature."
+
+    GROUP           cmplsTeStdExtMIBAutoBWObjectGroup
+    DESCRIPTION
+        "main objects group for routers implementing auto-bandwidth
+        feature."
+
+    GROUP           cmplsTeStdExtMIBTrapGroup
+    DESCRIPTION
+        "Extended MPLS TE Tunnel Traps"
+
+    GROUP           cmplsTeStdExtMIBTrapObjectsGroupRev1
+    DESCRIPTION
+        "Extended MPLS TE Tunnel Traps Objects"
+    ::= { cmplsTeStdExtMIBCompliances 3 }
+
+cmplsTeStdExtMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "This is the main compliance statement for the MIB"
+    MODULE          -- this module
+    GROUP           cmplsTeStdExtMIBAutoBWOptionalGroup
+    DESCRIPTION
+        "Optional group for routers implementing auto-bandwidth
+        feature."
+
+    GROUP           cmplsTeStdExtMIBAutoBWObjectGroup
+    DESCRIPTION
+        "main objects group for routers implementing auto-bandwidth
+        feature."
+
+    GROUP           cmplsTeStdExtMIBTrapGroup
+    DESCRIPTION
+        "Extended MPLS TE Tunnel Traps"
+
+    GROUP           cmplsTeStdExtMIBTrapObjectsGroupRev1
+    DESCRIPTION
+        "Extended MPLS TE Tunnel Traps Objects"
+
+    GROUP           cmplsTeStdExtMIBFailTeTrapGroup
+    DESCRIPTION
+        "BFD over TE LSP traps"
+
+    GROUP           cmplsTeStdExtMIBFailTeTrapObjectsGroup
+    DESCRIPTION
+        "Objects for BFD over TE LSP traps"
+    ::= { cmplsTeStdExtMIBCompliances 4 }
+
+cmplsTeStdExtMIBComplianceRev4 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is the main compliance statement for the MIB"
+    MODULE          -- this module
+    GROUP           cmplsTeStdExtMIBAutoBWOptionalGroup
+    DESCRIPTION
+        "Optional group for routers implementing auto-bandwidth
+        feature."
+
+    GROUP           cmplsTeStdExtMIBAutoBWObjectGroup
+    DESCRIPTION
+        "main objects group for routers implementing auto-bandwidth
+        feature."
+
+    GROUP           cmplsTeStdExtMIBTrapGroup
+    DESCRIPTION
+        "Extended MPLS TE Tunnel Traps"
+
+    GROUP           cmplsTeStdExtMIBTrapObjectsGroupRev1
+    DESCRIPTION
+        "Extended MPLS TE Tunnel Traps Objects"
+
+    GROUP           cmplsTeStdExtMIBFailTeTrapGroup
+    DESCRIPTION
+        "BFD over TE LSP traps"
+
+    GROUP           cmplsTeStdExtMIBFailTeTrapObjectsGroupRev1
+    DESCRIPTION
+        "Objects for BFD over TE LSP traps"
+    
+    OBJECT          cmplsTeFailReasonType
+    MIN-ACCESS      accessible-for-notify
+    DESCRIPTION
+        "Read access is not required."
+
+    GROUP           cmplsTeStdExtMIBLoadShareObjectsGroup
+    DESCRIPTION
+        "Loadshare TE Objects"
+    ::= { cmplsTeStdExtMIBCompliances 5 }
+
+-- Units of Conformance
+
+cmplsTeStdExtMIBAutoBWObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmplsTunnelAutoBWStatus,
+                        cmplsTunnelAutoBWMin,
+                        cmplsTunnelAutoBWMax,
+                        cmplsTunnelAutoBWAdjThreshPercs,
+                        cmplsTunnelAutoBWAdjThreshBW,
+                        cmplsTunnelAutoBWApplicationFrequency,
+                        cmplsTunnelAutoBWCollectionFrequency,
+                        cmplsTunnelAutoBWLastAppliedBW,
+                        cmplsTunnelAutoBWApplications,
+                        cmplsTunnelAutoBWLastApplicationTrigger,
+                        cmplsTunnelAutoBWOverflowApplications,
+                        cmplsTunnelAutoBWOverflowOccurrences,
+                        cmplsTunnelAutoBWUnderflowApplications,
+                        cmplsTunnelAutoBWUnderflowOccurrences,
+                        cmplsTunnelAutoBWUnderflowHighestBW,
+                        cmplsTunnelAutoBWRequested,
+                        cmplsTunnelAutoBWSignaled,
+                        cmplsTunnelAutoBWCollectOnlyRequested,
+                        cmplsTunnelAutoBWHighest,
+                        cmplsTunnelAutoBWCollectedSamples,
+                        cmplsTunnelAutoBWAppRejectReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This contains the main MPLS TE extensions groups."
+    ::= { cmplsTeStdExtMIBGroups 1 }
+
+cmplsTeStdExtMIBAutoBWOptionalGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmplsTunnelAutoBWOverflowThreshPercs,
+                        cmplsTunnelAutoBWOverflowThreshBW,
+                        cmplsTunnelAutoBWOverflowLimit,
+                        cmplsTunnelAutoBWUnderflowThreshPercs,
+                        cmplsTunnelAutoBWUnderflowThreshBW,
+                        cmplsTunnelAutoBWUnderflowLimit,
+                        cmplsTunnelAutoBWJitter
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This contains the optional MPLS TE extensions groups."
+    ::= { cmplsTeStdExtMIBGroups 2 }
+
+cmplsTeStdExtMIBTrapObjectsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmplsTunnelReoptReason,
+                        cmplsTunnelInsuffBWFailedOperation,
+                        cmplsTunnelPreemptionType,
+                        cmplsTunnelPreemptionLinkAddrType,
+                        cmplsTunnelPreemptionLinkAddr
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This contains the MPLS TE extended traps objects.
+        This object is replaced by 
+                        cmplsTeStdExtMIBTrapObjectsGroupRev1"
+    ::= { cmplsTeStdExtMIBGroups 3 }
+
+cmplsTeStdExtMIBTrapObjectsGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cmplsTunnelReoptReason,
+                        cmplsTunnelInsuffBWFailedOperation,
+                        cmplsTunnelPreemptionType,
+                        cmplsTunnelPreemptionLinkAddrType,
+                        cmplsTunnelPreemptionLinkAddr,
+                        cmplsTunnelReRoutePendingClearReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This contains the optional MPLS TE extensions groups."
+    ::= { cmplsTeStdExtMIBGroups 4 }
+
+cmplsTeStdExtMIBTrapGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cmplsTunnelPreempt,
+                        cmplsTunnelInsuffBW,
+                        cmplsTunnelReRoutePending,
+                        cmplsTunnelReRoutePendingClear
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This contains the MPLS TE extended traps."
+    ::= { cmplsTeStdExtMIBGroups 5 }
+
+cmplsTeStdExtMIBFailTeTrapGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cmplsTunnelBringupFail }
+    STATUS          current
+    DESCRIPTION
+        "This contains the MPLS TE extended traps related to BFD over
+        TE LSP."
+    ::= { cmplsTeStdExtMIBGroups 6 }
+
+cmplsTeStdExtMIBFailTeTrapObjectsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmplsTeFailReasonType,
+                        cmplsTeFailReason
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This contains the MPLS TE extended traps objects related to BFD
+        over TE LSP.
+
+        This object is replaced by 
+            cmplsTeStdExtMIBFailTeTrapObjectsGroupRev1"
+    ::= { cmplsTeStdExtMIBGroups 7 }
+
+cmplsTeStdExtMIBLoadShareObjectsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmplsTunnelLoadShare,
+                        cmplsTeLoadshareBalance
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This contains the MPLS TE extended objects related to
+        TE loadshare."
+    ::= { cmplsTeStdExtMIBGroups 8 }
+
+cmplsTeStdExtMIBFailTeTrapObjectsGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cmplsTeFailReasonType,
+                        cmplsTeFailReasonRev
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This contains the MPLS TE extended traps objects related to BFD
+        over TE LSP."
+    ::= { cmplsTeStdExtMIBGroups 9 }
+
+END
+
+
+
+
+
+
+

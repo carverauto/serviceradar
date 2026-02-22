@@ -1,0 +1,246 @@
+
+-- *****************************************************************
+-- CISCO-SDWAN-OMP-MIB.my:
+-- OID assignments for Cisco sdwan policy
+
+-- Feb 2021, Richard Fu
+
+-- Copyright (c) 2020-2021 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SDWAN-OMP-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, 
+    OBJECT-TYPE, 
+    NOTIFICATION-TYPE,
+    Unsigned32 
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION 
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoSdwanOmpMIB MODULE-IDENTITY
+    LAST-UPDATED "202103030000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            Email: cs-snmp@cisco.com"
+    DESCRIPTION "This module defines the data model for OMP"
+    REVISION "202103030000Z"
+    DESCRIPTION "Cisco SDWAN OMP Revision 0"
+    ::= { ciscoMgmt 1003 }
+
+-- Notification type definitions
+NotificationSeverity ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "Netconf notification severity level"
+    SYNTAX      INTEGER {critical(1),
+                         major(2),
+                         minor(3)}
+
+OperState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "Operational state"
+    SYNTAX      INTEGER {up(0),
+                         down(1)}
+
+PeerState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "OMP peer state"
+    SYNTAX      INTEGER {invalid(0),
+                         init(1),
+			 handshake(2),
+			 up(3),
+			 down(4),
+			 init-in-gr(5),
+			 down-in-gr(6),
+			 handshake-in-gr(7)}
+
+OmpPolicyState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "OMP policy state"
+    SYNTAX      INTEGER {add(0),
+                         delete(1)}
+
+InetAddressIP ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "confd:inetAddressIP"
+    SYNTAX      OCTET STRING (SIZE (4|16))
+
+
+-- MIB Objects, Notification Objects, Notification and Conform
+ciscoSdwanOmpMIBNotifs OBJECT IDENTIFIER
+    ::= { ciscoSdwanOmpMIB 0 }
+
+ciscoSdwanOmpMIBObjects OBJECT IDENTIFIER
+    ::= { ciscoSdwanOmpMIB 1 }
+
+ciscoSdwanOmpMIBNotifObjects OBJECT IDENTIFIER
+    ::= { ciscoSdwanOmpMIB 2 }
+
+ciscoSdwanOmpMIBConform OBJECT IDENTIFIER
+    ::= { ciscoSdwanOmpMIB 3 }
+
+-- ********************************************************************
+-- *  Notification Objects
+-- ********************************************************************
+
+netconfNotificationSeverity OBJECT-TYPE
+    SYNTAX      NotificationSeverity
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Netconf notification severity level"
+    ::= { ciscoSdwanOmpMIBNotifObjects 2 }
+
+ciscoSdwanOmpNumberOfVsmarts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of vsmarts"
+    ::= { ciscoSdwanOmpMIBNotifObjects 3 }
+
+ciscoSdwanOmpNewState OBJECT-TYPE
+    SYNTAX      OperState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "OMP new state"
+    ::= { ciscoSdwanOmpMIBNotifObjects 4 }
+
+ciscoSdwanOmpPeer OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "OMP peer"
+    ::= { ciscoSdwanOmpMIBNotifObjects 5 }
+
+ciscoSdwanOmpPeerNewState OBJECT-TYPE
+    SYNTAX      PeerState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Peer state"
+    ::= { ciscoSdwanOmpMIBNotifObjects 6 }
+
+ciscoSdwanOmpPolicy OBJECT-TYPE
+    SYNTAX      OmpPolicyState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "OMP policy state"
+    ::= { ciscoSdwanOmpMIBNotifObjects 7 }
+
+ciscoSdwanOmpVsmartPeer OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Peer vsmart"
+    ::= { ciscoSdwanOmpMIBNotifObjects 8 }
+
+-- ********************************************************************
+-- *  Notifications
+-- ********************************************************************
+ciscoSdwanOmpOmpNumberOfVsmartsChange NOTIFICATION-TYPE
+        OBJECTS {
+                netconfNotificationSeverity,
+                ciscoSdwanOmpNumberOfVsmarts
+        }
+        STATUS current
+        DESCRIPTION "Cisco SDWAN trap from omp"
+        ::= { ciscoSdwanOmpMIBNotifs 1 }
+
+ciscoSdwanOmpOmpStateChange NOTIFICATION-TYPE
+        OBJECTS {
+                netconfNotificationSeverity,
+                ciscoSdwanOmpNewState
+        }
+        STATUS current
+        DESCRIPTION "Cisco SDWAN trap from omp"
+        ::= { ciscoSdwanOmpMIBNotifs 2 }
+
+ciscoSdwanOmpOmpPeerStateChange NOTIFICATION-TYPE
+        OBJECTS {
+                netconfNotificationSeverity,
+                ciscoSdwanOmpPeer,
+                ciscoSdwanOmpPeerNewState
+        }
+        STATUS current
+        DESCRIPTION "Cisco SDWAN trap from omp"
+        ::= { ciscoSdwanOmpMIBNotifs 3 }
+
+ciscoSdwanOmpOmpPolicy NOTIFICATION-TYPE
+        OBJECTS {
+                netconfNotificationSeverity,
+                ciscoSdwanOmpPolicy,
+                ciscoSdwanOmpVsmartPeer
+        }
+        STATUS current
+        DESCRIPTION "Cisco SDWAN trap from omp"
+        ::= { ciscoSdwanOmpMIBNotifs 4 }
+
+-- ********************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+ciscoSdwanOmpMIBCompliances OBJECT IDENTIFIER
+    ::= { ciscoSdwanOmpMIBConform 1 }
+
+ciscoSdwanOmpMIBGroups OBJECT IDENTIFIER
+    ::= { ciscoSdwanOmpMIBConform 2 }
+
+ciscoSdwanOmpMIBCompliance MODULE-COMPLIANCE
+    STATUS            current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities
+         that implement the ciscoSdwanOmpMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+          cSdwanOmpNotifObjsGroup,
+          cSdwanOmpNotifsGroup
+    }
+    ::= { ciscoSdwanOmpMIBCompliances 1 }
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+cSdwanOmpNotifObjsGroup OBJECT-GROUP
+    OBJECTS {
+               netconfNotificationSeverity,
+	       ciscoSdwanOmpNumberOfVsmarts,
+	       ciscoSdwanOmpNewState,
+	       ciscoSdwanOmpPeer,
+	       ciscoSdwanOmpPeerNewState,
+	       ciscoSdwanOmpPolicy,
+	       ciscoSdwanOmpVsmartPeer
+            }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of
+                                 OMP notification objects."
+    ::= { ciscoSdwanOmpMIBGroups 1 }
+
+cSdwanOmpNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS {
+                    ciscoSdwanOmpOmpNumberOfVsmartsChange,
+		    ciscoSdwanOmpOmpStateChange,
+		    ciscoSdwanOmpOmpPeerStateChange,
+		    ciscoSdwanOmpOmpPolicy
+                 }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of OMP notifications."
+    ::= { ciscoSdwanOmpMIBGroups 2 }
+
+
+END

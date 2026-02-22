@@ -1,0 +1,1377 @@
+-- *****************************************************************
+-- CISCO-SWITCH-STATS-MIB.my: Switch Statistics Configuration and
+-- Information MIB.
+--   
+-- January 2009, Guichuan Tang, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2009, 2012-2013 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-SWITCH-STATS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter32,
+    Counter64,
+    Gauge32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    DateAndTime
+        FROM SNMPv2-TC
+    VlanIndex
+        FROM Q-BRIDGE-MIB
+    ifIndex
+        FROM IF-MIB
+    entPhysicalIndex
+        FROM ENTITY-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSwitchStatsMIB MODULE-IDENTITY
+    LAST-UPDATED    "201301300000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The MIB module provides management information for
+        configuration and monitoring of traffic statistics
+        on Cisco's switching devices."
+    REVISION        "201301300000Z"
+    DESCRIPTION
+        "Added following OBJECT-GROUP
+        - ciscoSwitchStatsLayer3Group
+        - ciscoSwitchStatsLayer3ExtGroup
+        - ciscoSwitchStatsTotalGroup
+        - ciscoSwitchStatsInternalStatsGroup
+        - ciscoSwitchStatsInternalErrorGroup
+        - ciscoSwitchStatsInternalInstanceGroup
+        - ciscoSwitchStatsRewriteEngineStatsGroup
+        Added new compliance
+        - csstSwitchStatsMIBCompliance2
+        Deprecated ciscoSwitchStatsL3Group and 
+        csstSwitchStatsMIBCompliance"
+    REVISION        "200910300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 652 }
+
+
+ciscoSwitchStatsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoSwitchStatsMIB 0 }
+
+ciscoSwitchStatsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSwitchStatsMIB 1 }
+
+ciscoSwitchStatsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSwitchStatsMIB 2 }
+
+csstConfigurableStats  OBJECT IDENTIFIER
+    ::= { ciscoSwitchStatsMIBObjects 1 }
+
+csstVlanStats  OBJECT IDENTIFIER
+    ::= { ciscoSwitchStatsMIBObjects 2 }
+
+csstSwitchTrafficStats  OBJECT IDENTIFIER
+    ::= { ciscoSwitchStatsMIBObjects 3 }
+
+csstHwInternalStats  OBJECT IDENTIFIER
+    ::= { ciscoSwitchStatsMIBObjects 4 }
+
+csstRewriteEngineStats  OBJECT IDENTIFIER
+    ::= { ciscoSwitchStatsMIBObjects 5 }
+
+-- The configurable statistics group
+
+csstConfigStatsOptionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsstConfigStatsOptionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of network traffic statistics
+        options capable to be configured in csstConfigStatsMap
+        for the statistics collection by the device."
+    ::= { csstConfigurableStats 1 }
+
+csstConfigStatsOptionEntry OBJECT-TYPE
+    SYNTAX          CsstConfigStatsOptionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains statistics information for a
+        specific traffic statistics option."
+    INDEX           { csstConfigStatsOptionIndex } 
+    ::= { csstConfigStatsOptionTable 1 }
+
+CsstConfigStatsOptionEntry ::= SEQUENCE {
+        csstConfigStatsOptionIndex Unsigned32,
+        csstConfigStatsOptionDesc  SnmpAdminString
+}
+
+csstConfigStatsOptionIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique value to indicate a specific traffic statistics
+        option." 
+    ::= { csstConfigStatsOptionEntry 1 }
+
+csstConfigStatsOptionDesc OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the description corresponding to a specific
+        traffic statistics option." 
+    ::= { csstConfigStatsOptionEntry 2 }
+ 
+
+
+csstConfigStatsMapSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the length of the csstConfigStatsMap object.
+        This object value indicates the total number of traffic
+        statistics options that can be configured in
+        csstConfigStatsMap." 
+    ::= { csstConfigurableStats 2 }
+
+csstConfigStatsMap OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..256))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the sequence of the traffic statistics options
+        that are configured to be collected by the device.
+
+        The length of this object is specified by the
+        csstConfigStatsMapSize object value, and the value of
+        each octet in the instance value of this object shall be
+        unique and can only be selected from the set of
+        csstConfigStatsOptionIndex values currently populated
+        in csstConfigStatsOptionTable.
+
+        If a traffic statistics option is configured in this object,
+        the corresponding network traffic statistics will be collected
+        on all the applicable interfaces in this device.
+
+        Setting this object to a different value will trigger the
+        csstConfigStatsIfTable to be repopulated." 
+    ::= { csstConfigurableStats 3 }
+
+csstConfigStatsIfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsstConfigStatsIfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains information about interface traffic
+        statistics, which is configured through csstConfigStatsMap,
+        for interfaces that are capable of providing such
+        information.
+
+        The total number of traffic statistics and the traffic
+        statistics options populated in this table will be based on
+        csstConfigStatsMapSize and csstConfigStatsMap.
+
+        When the csstConfigStatsMap object value is changed to a
+        different value, it will trigger this table to be
+        repopulated."
+    ::= { csstConfigurableStats 4 }
+
+csstConfigStatsIfEntry OBJECT-TYPE
+    SYNTAX          CsstConfigStatsIfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry provides traffic statistics information for
+        a specific interface."
+    INDEX           { ifIndex } 
+    ::= { csstConfigStatsIfTable 1 }
+
+CsstConfigStatsIfEntry ::= SEQUENCE {
+        csstConfigStatsIfPackets1 Counter64,
+        csstConfigStatsIfOctets1  Counter64,
+        csstConfigStatsIfPackets2 Counter64,
+        csstConfigStatsIfOctets2  Counter64,
+        csstConfigStatsIfPackets3 Counter64,
+        csstConfigStatsIfOctets3  Counter64,
+        csstConfigStatsIfPackets4 Counter64,
+        csstConfigStatsIfOctets4  Counter64,
+        csstConfigStatsIfPackets5 Counter64,
+        csstConfigStatsIfOctets5  Counter64,
+        csstConfigStatsIfPackets6 Counter64,
+        csstConfigStatsIfOctets6  Counter64,
+        csstConfigStatsIfPackets7 Counter64,
+        csstConfigStatsIfOctets7  Counter64,
+        csstConfigStatsIfPackets8 Counter64,
+        csstConfigStatsIfOctets8  Counter64
+}
+
+csstConfigStatsIfPackets1 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets counted on this interface
+        for the traffic statistics option that is specified by the first
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 1 }
+
+csstConfigStatsIfOctets1 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of octets counted on this interface
+        for the traffic statistics option that is specified by the first
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 2 }
+
+csstConfigStatsIfPackets2 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets counted on this interface
+        for the traffic statistics option that is specified by the second
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 3 }
+
+csstConfigStatsIfOctets2 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of octets counted on this interface
+        for the traffic statistics option that is specified by the second
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 4 }
+
+csstConfigStatsIfPackets3 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets counted on this interface
+        for the traffic statistics option that is specified by the third
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 5 }
+
+csstConfigStatsIfOctets3 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of octets counted on this interface
+        for the traffic statistics option that is specified by the third
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 6 }
+
+csstConfigStatsIfPackets4 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets counted on this interface
+        for the traffic statistics option that is specified by the fourth
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 7 }
+
+csstConfigStatsIfOctets4 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of octets counted on this interface
+        for the traffic statistics option that is specified by the fourth
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 8 }
+
+csstConfigStatsIfPackets5 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets counted on this interface
+        for the traffic statistics option that is specified by the fifth
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 9 }
+
+csstConfigStatsIfOctets5 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of octets counted on this interface
+        for the traffic statistics option that is specified by the fifth
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 10 }
+
+csstConfigStatsIfPackets6 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets counted on this interface
+        for the traffic statistics option that is specified by the sixth
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 11 }
+
+csstConfigStatsIfOctets6 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of octets counted on this interface
+        for the traffic statistics option that is specified by the sixth
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 12 }
+
+csstConfigStatsIfPackets7 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets counted on this interface
+        for the traffic statistics option that is specified by the seventh
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 13 }
+
+csstConfigStatsIfOctets7 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of octets counted on this interface
+        for the traffic statistics option that is specified by the seventh
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 14 }
+
+csstConfigStatsIfPackets8 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets counted on this interface
+        for the traffic statistics option that is specified by the eighth
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 15 }
+
+csstConfigStatsIfOctets8 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of octets counted on this interface
+        for the traffic statistics option that is specified by the eighth
+        octet value of the csstConfigStatsMap object." 
+    ::= { csstConfigStatsIfEntry 16 }
+ 
+
+-- The VLAN statistics group
+
+csstVlanStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsstVlanStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides specific traffic statistics
+        information for VLANs that are capable of providing
+        such statistics information."
+    ::= { csstVlanStats 1 }
+
+csstVlanStatsEntry OBJECT-TYPE
+    SYNTAX          CsstVlanStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry providing traffic statistics information collected
+        for a specific VLAN"
+    INDEX           { csstVlanIndex } 
+    ::= { csstVlanStatsTable 1 }
+
+CsstVlanStatsEntry ::= SEQUENCE {
+        csstVlanIndex                    VlanIndex,
+        csstVlanKnownBridgedUcastPkts    Counter64,
+        csstVlanKnownBridgedUcastOctets  Counter64,
+        csstVlanKnownBridgedNUcastPkts   Counter64,
+        csstVlanKnownBridgedNUcastOctets Counter64
+}
+
+csstVlanIndex OBJECT-TYPE
+    SYNTAX          VlanIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Indicates the VLAN number." 
+    ::= { csstVlanStatsEntry 1 }
+
+csstVlanKnownBridgedUcastPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of bridged unicast packets,
+        counted on this VLAN, with known MAC (Media
+        Access Control) DA (destination address)." 
+    ::= { csstVlanStatsEntry 2 }
+
+csstVlanKnownBridgedUcastOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of octets for the bridged unicast
+        packets, counted on this VLAN, with known MAC DA." 
+    ::= { csstVlanStatsEntry 3 }
+
+csstVlanKnownBridgedNUcastPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of bridged non-unicast packets,
+        counted on this VLAN,  with known MAC DA." 
+    ::= { csstVlanStatsEntry 4 }
+
+csstVlanKnownBridgedNUcastOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of octets for the bridged
+        non-unicast packets, counted on this VLAN,
+        with known MAC DA." 
+    ::= { csstVlanStatsEntry 5 }
+ 
+
+-- The Switch statistics table
+
+csstSwitchStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsstSwitchStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides specific L2/L3 traffic statistics
+        information of switching engines."
+    ::= { csstSwitchTrafficStats 1 }
+
+csstSwitchStatsEntry OBJECT-TYPE
+    SYNTAX          CsstSwitchStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry providing L2/L3 traffic statistics information
+        maintained by a particular switching engine entity
+        (identified by entPhysicalIndex).
+
+        An entry of this table is created if a switch engine with
+        these L2/L3 traffic statistics is detected by the
+        managed system.
+
+        An entry of this table is deleted if the
+        removal of the switching engine itself."
+    INDEX           { entPhysicalIndex } 
+    ::= { csstSwitchStatsTable 1 }
+
+CsstSwitchStatsEntry ::= SEQUENCE {
+        csstL2TotalBridgedPkts          Counter32,
+        csstL3FibSwitchedIpv4UcastPkts  Counter32,
+        csstL3FibSwitchedIpv6UcastPkts  Counter32,
+        csstL3FibSwitchedEoMplsPkts     Counter32,
+        csstL3FibSwitchedMplsPkts       Counter32,
+        csstL3TotalMulticastPkts        Counter32,
+        csstL3IgmpMldPkts               Counter32,
+        csstL3Ipv4MulticastPkts         Counter32,
+        csstL3Ipv6MulticastPkts         Counter32,
+        csstL3MulticastLeakPkts         Counter32,
+        csstL3InputAclRoutedPkts        Counter32,
+        csstL3OutputAclRoutedPkts       Counter32,
+        csstL3InputNetflowSwitchedPkts  Counter32,
+        csstL3OutputNetflowSwitchedPkts Counter32,
+        csstL3InExceptionRedirectPkts   Counter32,
+        csstL3OutExceptionRedirectPkts  Counter32,
+        csstL3TotalNetflowSwitchedPkts  Counter32,
+        csstL3TotalAclRoutedPkts        Counter32,
+        csstTotalAclDenyPkts            Counter32
+}
+
+csstL2TotalBridgedPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of bridged packets on this
+        switching engine." 
+    ::= { csstSwitchStatsEntry 1 }
+
+csstL3FibSwitchedIpv4UcastPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv4 Unicast packets,
+        switched by the FIB (Forwarding Information Base)
+        on this switching engine." 
+    ::= { csstSwitchStatsEntry 2 }
+
+csstL3FibSwitchedIpv6UcastPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv6 Unicast packets,
+        switched by the FIB (Forwarding Information Base)
+        on this switching engine." 
+    ::= { csstSwitchStatsEntry 3 }
+
+csstL3FibSwitchedEoMplsPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of EoMPLS (Ethernet over MPLS)
+        packets switched by the FIB Forwarding
+        Information Base) on this switching engine." 
+    ::= { csstSwitchStatsEntry 4 }
+
+csstL3FibSwitchedMplsPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of MPLS (Multiprotocol Label
+        Switching) packets switched by the FIB Forwarding
+        Information Base) on this switching engine." 
+    ::= { csstSwitchStatsEntry 5 }
+
+csstL3TotalMulticastPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of Multicast packets switched
+        at Layer3 by this switching engine." 
+    ::= { csstSwitchStatsEntry 6 }
+
+csstL3IgmpMldPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IGMP MLD (Multicast Listener
+        Discovery) packets switched by this switching engine." 
+    ::= { csstSwitchStatsEntry 7 }
+
+csstL3Ipv4MulticastPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv4 Multicast packets
+        switched at Layer3 by this switching engine." 
+    ::= { csstSwitchStatsEntry 8 }
+
+csstL3Ipv6MulticastPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IPv6 Multicast packets
+        switched at Layer3 by this switching engine." 
+    ::= { csstSwitchStatsEntry 9 }
+
+csstL3MulticastLeakPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of Multicast Reverse Path Forwarding
+        (RPF) check failed packets which are leaked to the
+        CPU for processing." 
+    ::= { csstSwitchStatsEntry 10 }
+
+csstL3InputAclRoutedPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of Input ACL(Access Control List)
+        Routed packets." 
+    ::= { csstSwitchStatsEntry 11 }
+
+csstL3OutputAclRoutedPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of Output ACL Routed packets." 
+    ::= { csstSwitchStatsEntry 12 }
+
+csstL3InputNetflowSwitchedPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of Input Netflow Switched packets." 
+    ::= { csstSwitchStatsEntry 13 }
+
+csstL3OutputNetflowSwitchedPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of Output Netflow Switched packets." 
+    ::= { csstSwitchStatsEntry 14 }
+
+csstL3InExceptionRedirectPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of Input packets which are redirected
+        to the CPU due to an exception." 
+    ::= { csstSwitchStatsEntry 15 }
+
+csstL3OutExceptionRedirectPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of Output packets which are redirected
+        to the CPU due to an exception." 
+    ::= { csstSwitchStatsEntry 16 }
+
+csstL3TotalNetflowSwitchedPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of Netflow
+        switched packets." 
+    ::= { csstSwitchStatsEntry 17 }
+
+csstL3TotalAclRoutedPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of ACL
+        routed packets." 
+    ::= { csstSwitchStatsEntry 18 }
+
+csstTotalAclDenyPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of ACL
+        deny packets." 
+    ::= { csstSwitchStatsEntry 19 }
+ 
+
+-- The internal statistics group
+
+csstHwInternalStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsstHwInternalStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of traffic statistics
+        collection for internal devices of a specific physical
+        entity that is capable of providing this information.
+        Such physical entity is identified by the entPhysicalIndex
+        in ENTITY-MIB."
+    ::= { csstHwInternalStats 1 }
+
+csstHwInternalStatsEntry OBJECT-TYPE
+    SYNTAX          CsstHwInternalStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains statistics information for an
+        internal device of a specific physical entity."
+    INDEX           {
+                        entPhysicalIndex,
+                        csstHwInternalStatsDeviceId,
+                        csstHwInternalStatsInstanceNum,
+                        csstHwInternalStatsDirection,
+                        csstHwInternalStatsType,
+                        csstHwInternalStatsIndex
+                    } 
+    ::= { csstHwInternalStatsTable 1 }
+
+CsstHwInternalStatsEntry ::= SEQUENCE {
+        csstHwInternalStatsDeviceId    Unsigned32,
+        csstHwInternalStatsInstanceNum Unsigned32,
+        csstHwInternalStatsDirection   INTEGER,
+        csstHwInternalStatsType        INTEGER,
+        csstHwInternalStatsIndex       Unsigned32,
+        csstHwInternalStatsDescr       SnmpAdminString,
+        csstHwInternalStatsRate        Gauge32
+}
+
+csstHwInternalStatsDeviceId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary number which uniquely
+        identifies a specific internal device." 
+    ::= { csstHwInternalStatsEntry 1 }
+
+csstHwInternalStatsInstanceNum OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary number which uniquely
+        identifies the instance number of a specific internal device." 
+    ::= { csstHwInternalStatsEntry 2 }
+
+csstHwInternalStatsDirection OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ingressIn(1),
+                        ingressOut(2),
+                        egressIn(3),
+                        egressOut(4)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the flow direction of a specific
+        traffic statistics." 
+    ::= { csstHwInternalStatsEntry 3 }
+
+csstHwInternalStatsType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        packetsPerSec(1),
+                        bytesPerSec(2)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the flow type of a specific traffic
+        statistics." 
+    ::= { csstHwInternalStatsEntry 4 }
+
+csstHwInternalStatsIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer which uniquely
+        identifies a specific traffic statistics." 
+    ::= { csstHwInternalStatsEntry 5 }
+
+csstHwInternalStatsDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the internal device name and port list
+        of a specific traffic statistics." 
+    ::= { csstHwInternalStatsEntry 6 }
+
+csstHwInternalStatsRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the rate of a specific traffic
+        statistics." 
+    ::= { csstHwInternalStatsEntry 7 }
+ 
+
+
+csstHwInternalErrorTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsstHwInternalErrorEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of internal error statistics
+        for internal devices of a specific physical entity that
+        is capable of providing this information. Such physical
+        entity is identified by the entPhysicalIndex in ENTITY-MIB."
+    ::= { csstHwInternalStats 2 }
+
+csstHwInternalErrorEntry OBJECT-TYPE
+    SYNTAX          CsstHwInternalErrorEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains statistics information for an
+        internal device of a specific physical entity."
+    INDEX           {
+                        entPhysicalIndex,
+                        csstHwInternalErrorDeviceId,
+                        csstHwInternalErrorCategory
+                    } 
+    ::= { csstHwInternalErrorTable 1 }
+
+CsstHwInternalErrorEntry ::= SEQUENCE {
+        csstHwInternalErrorDeviceId    Unsigned32,
+        csstHwInternalErrorCategory    INTEGER,
+        csstHwInternalErrorDeviceInfo  SnmpAdminString,
+        csstHwInternalErrorLastCleared DateAndTime
+}
+
+csstHwInternalErrorDeviceId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary number which
+        uniquely identifies a specific internal device." 
+    ::= { csstHwInternalErrorEntry 1 }
+
+csstHwInternalErrorCategory OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        error(1),
+                        congestion(2),
+                        qos(3)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the statistics category." 
+    ::= { csstHwInternalErrorEntry 2 }
+
+csstHwInternalErrorDeviceInfo OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name and role of a specific
+        internal device." 
+    ::= { csstHwInternalErrorEntry 3 }
+
+csstHwInternalErrorLastCleared OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the most recent time the error
+        statistics was cleared." 
+    ::= { csstHwInternalErrorEntry 4 }
+ 
+
+
+csstHwInternalErrorInstTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsstHwInternalErrorInstEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of internal error
+        instance management information for internal devices."
+    ::= { csstHwInternalStats 3 }
+
+csstHwInternalErrorInstEntry OBJECT-TYPE
+    SYNTAX          CsstHwInternalErrorInstEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains a particular error statistics
+        information for a specific device."
+    INDEX           {
+                        entPhysicalIndex,
+                        csstHwInternalErrorDeviceId,
+                        csstHwInternalErrorCategory,
+                        csstHwInternalErrorInstNum,
+                        csstHwInternalErrorInstErrorId
+                    } 
+    ::= { csstHwInternalErrorInstTable 1 }
+
+CsstHwInternalErrorInstEntry ::= SEQUENCE {
+        csstHwInternalErrorInstNum     Unsigned32,
+        csstHwInternalErrorInstErrorId Unsigned32,
+        csstHwInternalErrorInstDescr   SnmpAdminString,
+        csstHwInternalErrorInstCount   Counter64,
+        csstHwInternalErrorInstPorts   SnmpAdminString
+}
+
+csstHwInternalErrorInstNum OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary number which uniquely
+        identifies the instance number of a specific internal device." 
+    ::= { csstHwInternalErrorInstEntry 1 }
+
+csstHwInternalErrorInstErrorId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary number which
+        uniquely identifies the internal error." 
+    ::= { csstHwInternalErrorInstEntry 2 }
+
+csstHwInternalErrorInstDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the internal error description.
+        A zero-length string indicates that the internal error
+        description is not available." 
+    ::= { csstHwInternalErrorInstEntry 3 }
+
+csstHwInternalErrorInstCount OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the count of internal error." 
+    ::= { csstHwInternalErrorInstEntry 4 }
+
+csstHwInternalErrorInstPorts OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the internal ports that generated
+        the error.
+        A zero-length string indicates that the internal ports
+        information is not available." 
+    ::= { csstHwInternalErrorInstEntry 5 }
+ 
+
+-- The rewrite engine packet drop statistics
+
+csstRewriteEnginePktDropStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsstRewriteEnginePktDropStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains packet drop information for each
+        channel of a rewrite engine on each physical entity,
+        sush as  a module capable of providing this information."
+    ::= { csstRewriteEngineStats 1 }
+
+csstRewriteEnginePktDropStatsEntry OBJECT-TYPE
+    SYNTAX          CsstRewriteEnginePktDropStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains packet drop statistic for a channel
+        interface of a rewrite engine on a particular module 
+        identified by its entPhysicalIndex."
+    INDEX           {
+                        entPhysicalIndex,
+                        csstRewriteEngineChannelIndex
+                    } 
+    ::= { csstRewriteEnginePktDropStatsTable 1 }
+
+CsstRewriteEnginePktDropStatsEntry ::= SEQUENCE {
+        csstRewriteEngineChannelIndex  Unsigned32,
+        csstRewriteEngineDropPkts      Counter64,
+        csstRewriteEngineTotalOverruns Counter32
+}
+
+csstRewriteEngineChannelIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The channel number of a rewrtie engine on a given module." 
+    ::= { csstRewriteEnginePktDropStatsEntry 1 }
+
+csstRewriteEngineDropPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of rewrite engine
+        dropped packets." 
+    ::= { csstRewriteEnginePktDropStatsEntry 2 }
+
+csstRewriteEngineTotalOverruns OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of counter overruns." 
+    ::= { csstRewriteEnginePktDropStatsEntry 3 }
+ 
+
+-- Conformance information
+
+csstSwitchStatsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSwitchStatsMIBConform 1 }
+
+csstSwitchStatsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSwitchStatsMIBConform 2 }
+
+
+-- Compliance statements
+
+csstSwitchStatsMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for CISCO-SWITCH-STATS-MIB."
+    MODULE          -- this module
+    GROUP           ciscoSwitchStatsConfOptionGroup
+    DESCRIPTION
+        "This group is mandatory for devices that provide
+        traffic statistics options for configuration."
+
+    GROUP           ciscoSwitchStatsConfMapGroup
+    DESCRIPTION
+        "This group is mandatory for devices that provide
+        configuration of traffic statistics."
+
+    GROUP           ciscoSwitchStatsConfIfGroup
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        configurable interface traffic statistics collection."
+
+    GROUP           ciscoSwitchStatsVlanGroup
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        VLAN traffic statistics."
+
+    GROUP           ciscoSwitchStatsL2Group
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        L2 Total Bridged Packets statistics."
+
+    GROUP           ciscoSwitchStatsL3Group
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        L3 traffic statistics."
+
+    OBJECT          csstConfigStatsMap
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { csstSwitchStatsMIBCompliances 1 }
+
+csstSwitchStatsMIBCompliance2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for CISCO-SWITCH-STATS-MIB."
+    MODULE          -- this module
+    GROUP           ciscoSwitchStatsConfOptionGroup
+    DESCRIPTION
+        "This group is mandatory for devices that provide
+        traffic statistics options for configuration."
+
+    GROUP           ciscoSwitchStatsConfMapGroup
+    DESCRIPTION
+        "This group is mandatory for devices that provide
+        configuration of traffic statistics."
+
+    GROUP           ciscoSwitchStatsConfIfGroup
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        configurable interface traffic statistics collection."
+
+    GROUP           ciscoSwitchStatsVlanGroup
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        VLAN traffic statistics."
+
+    GROUP           ciscoSwitchStatsL2Group
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        L2 Total Bridged Packets statistics."
+
+    GROUP           ciscoSwitchStatsLayer3Group
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        L3 traffic statistics."
+
+    GROUP           ciscoSwitchStatsLayer3ExtGroup
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        extended L3 traffic statistics."
+
+    GROUP           ciscoSwitchStatsTotalGroup
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        total traffic packet statistics."
+
+    GROUP           ciscoSwitchStatsInternalStatsGroup
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        internal traffic statistics"
+
+    GROUP           ciscoSwitchStatsInternalErrorGroup
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        internal error statistics."
+
+    GROUP           ciscoSwitchStatsInternalInstanceGroup
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        internal error statistics."
+
+    GROUP           ciscoSwitchStatsRewriteEngineStatsGroup
+    DESCRIPTION
+        "This group is mandatory for devices that support
+        rewrite engine statistics."
+
+    OBJECT          csstConfigStatsMap
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { csstSwitchStatsMIBCompliances 2 }
+
+-- Units of Conformance
+
+ciscoSwitchStatsConfOptionGroup OBJECT-GROUP
+    OBJECTS         { csstConfigStatsOptionDesc }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information
+        for optional traffic statistics for configuration."
+    ::= { csstSwitchStatsMIBGroups 1 }
+
+ciscoSwitchStatsConfMapGroup OBJECT-GROUP
+    OBJECTS         {
+                        csstConfigStatsMapSize,
+                        csstConfigStatsMap
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information
+        for configuration of traffic statistics on
+        this device."
+    ::= { csstSwitchStatsMIBGroups 2 }
+
+ciscoSwitchStatsConfIfGroup OBJECT-GROUP
+    OBJECTS         {
+                        csstConfigStatsIfPackets1,
+                        csstConfigStatsIfOctets1,
+                        csstConfigStatsIfPackets2,
+                        csstConfigStatsIfOctets2,
+                        csstConfigStatsIfPackets3,
+                        csstConfigStatsIfOctets3,
+                        csstConfigStatsIfPackets4,
+                        csstConfigStatsIfOctets4,
+                        csstConfigStatsIfPackets5,
+                        csstConfigStatsIfOctets5,
+                        csstConfigStatsIfPackets6,
+                        csstConfigStatsIfOctets6,
+                        csstConfigStatsIfPackets7,
+                        csstConfigStatsIfOctets7,
+                        csstConfigStatsIfPackets8,
+                        csstConfigStatsIfOctets8
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information
+        for configured statistics for interfaces that are
+        capable of providing such information."
+    ::= { csstSwitchStatsMIBGroups 3 }
+
+ciscoSwitchStatsVlanGroup OBJECT-GROUP
+    OBJECTS         {
+                        csstVlanKnownBridgedUcastPkts,
+                        csstVlanKnownBridgedUcastOctets,
+                        csstVlanKnownBridgedNUcastPkts,
+                        csstVlanKnownBridgedNUcastOctets
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information
+        for traffic statistics for VLANs that are
+        capable of providing such information."
+    ::= { csstSwitchStatsMIBGroups 4 }
+
+ciscoSwitchStatsL2Group OBJECT-GROUP
+    OBJECTS         { csstL2TotalBridgedPkts }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information
+        for L2 Total Bridged Packets for switching engines."
+    ::= { csstSwitchStatsMIBGroups 5 }
+
+ciscoSwitchStatsL3Group OBJECT-GROUP
+    OBJECTS         {
+                        csstL3FibSwitchedIpv4UcastPkts,
+                        csstL3FibSwitchedIpv6UcastPkts,
+                        csstL3FibSwitchedEoMplsPkts,
+                        csstL3FibSwitchedMplsPkts,
+                        csstL3TotalMulticastPkts,
+                        csstL3IgmpMldPkts,
+                        csstL3Ipv4MulticastPkts,
+                        csstL3Ipv6MulticastPkts,
+                        csstL3MulticastLeakPkts,
+                        csstL3InputAclRoutedPkts,
+                        csstL3OutputAclRoutedPkts,
+                        csstL3InputNetflowSwitchedPkts,
+                        csstL3OutputNetflowSwitchedPkts,
+                        csstL3InExceptionRedirectPkts,
+                        csstL3OutExceptionRedirectPkts
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing information
+        for L3 traffic statistics for switching engines."
+    ::= { csstSwitchStatsMIBGroups 6 }
+
+ciscoSwitchStatsLayer3Group OBJECT-GROUP
+    OBJECTS         {
+                        csstL3FibSwitchedIpv4UcastPkts,
+                        csstL3FibSwitchedIpv6UcastPkts,
+                        csstL3FibSwitchedEoMplsPkts,
+                        csstL3FibSwitchedMplsPkts,
+                        csstL3IgmpMldPkts,
+                        csstL3Ipv4MulticastPkts,
+                        csstL3Ipv6MulticastPkts,
+                        csstL3MulticastLeakPkts,
+                        csstL3InputAclRoutedPkts,
+                        csstL3OutputAclRoutedPkts,
+                        csstL3InputNetflowSwitchedPkts,
+                        csstL3OutputNetflowSwitchedPkts,
+                        csstL3InExceptionRedirectPkts,
+                        csstL3OutExceptionRedirectPkts
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information
+        for L3 traffic statistics for switching engines."
+    ::= { csstSwitchStatsMIBGroups 7 }
+
+ciscoSwitchStatsLayer3ExtGroup OBJECT-GROUP
+    OBJECTS         { csstL3TotalMulticastPkts }
+    STATUS          current
+    DESCRIPTION
+        "An extended collection of objects providing information
+        for L3 traffic statistics for switching engines."
+    ::= { csstSwitchStatsMIBGroups 8 }
+
+ciscoSwitchStatsTotalGroup OBJECT-GROUP
+    OBJECTS         {
+                        csstL3TotalNetflowSwitchedPkts,
+                        csstL3TotalAclRoutedPkts,
+                        csstTotalAclDenyPkts
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information
+        for Total Traffic Packets for switching engines."
+    ::= { csstSwitchStatsMIBGroups 9 }
+
+ciscoSwitchStatsInternalStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csstHwInternalStatsDescr,
+                        csstHwInternalStatsRate
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information
+        for internal traffic statistics."
+    ::= { csstSwitchStatsMIBGroups 10 }
+
+ciscoSwitchStatsInternalErrorGroup OBJECT-GROUP
+    OBJECTS         {
+                        csstHwInternalErrorDeviceInfo,
+                        csstHwInternalErrorLastCleared
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information
+        for internal error statistics."
+    ::= { csstSwitchStatsMIBGroups 11 }
+
+ciscoSwitchStatsInternalInstanceGroup OBJECT-GROUP
+    OBJECTS         {
+                        csstHwInternalErrorInstDescr,
+                        csstHwInternalErrorInstCount,
+                        csstHwInternalErrorInstPorts
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing device instance
+        information for internal error statistics."
+    ::= { csstSwitchStatsMIBGroups 12 }
+
+ciscoSwitchStatsRewriteEngineStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csstRewriteEngineDropPkts,
+                        csstRewriteEngineTotalOverruns
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information
+        for rewrite engine statistics."
+    ::= { csstSwitchStatsMIBGroups 13 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+

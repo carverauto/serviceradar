@@ -1,0 +1,669 @@
+-- *****************************************************************
+-- CISCO-SELECTIVE-VRF-DOWNLOAD-MIB.my:  Cisco Selective VRF
+-- Download MIB file
+--
+-- June 2011, Deepak Narula
+--
+-- Copyright (c) 2011 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-SELECTIVE-VRF-DOWNLOAD-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Counter32,
+    Gauge32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    TimeStamp
+        FROM SNMPv2-TC
+    entPhysicalIndex
+        FROM ENTITY-MIB
+    AddressFamilyNumbers
+        FROM IANA-ADDRESS-FAMILY-NUMBERS-MIB
+    MplsL3VpnName
+        FROM MPLS-L3VPN-STD-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSelectiveVrfDownloadMIB MODULE-IDENTITY
+    LAST-UPDATED    "201106220000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects describing selective
+        VRF download.  The selective VRF download feature makes
+        a best effort to download only those prefixes and labels
+        to a physical entity required to forward traffic through
+        the physical entity.  The feature accomplishes this by
+        characterizing roles for physical entities baed on their
+        configuration.
+
+        Following terminology is introduced with selective VRF
+        download feature:
+
+        Core Facing      A physical entity which has only core
+                         facing interfaces (interfaces that
+                         connect to other Provider/Provider Edge
+                         devices).
+
+        Customer Facing  A line physical entity which has one or
+                         more customer facing interfaces
+                         (interfaces that connect to Customer
+                         Edge devices in different VRFs).
+
+        Local prefix     A prefix that is received from a
+                         Customer edge device connected to the
+                         router in a configured VRF context.
+
+        Remote prefix    A prefix received from another Provider
+                         Edge device and is imported to a
+                         configured VRF.
+
+        See the following references for futher information:
+
+        RFC 3813 - Multiprotocol Label Switching (MPLS)
+        Label Switching Router (LSR) Management Information
+        base (MIB), C. Srinivasan, A. Vishwanathan, and
+        T. Nadeau, June 2004
+
+        RFC 4382 - MPLS/BGP Layer 3 Virtual Private Network
+        (VPN) Management Information Base, T. Nadeau &
+        van Der Linde, February 2006
+
+        Acronyms:
+        VRF Virtual Routing and Forwarding
+        VPN Virtual Private Network
+        P   Provider Core Device
+        PE  Provider Edge Device
+        CE  Customer Edge Device
+        AFI Address Family Identifier
+        CEF Cisco Express Forwarding"
+    REVISION        "201106220000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 775 }
+
+
+ciscoSelectiveVrfDownloadMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoSelectiveVrfDownloadMIB 0 }
+
+ciscoSelectiveVrfDownloadMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSelectiveVrfDownloadMIB 1 }
+
+ciscoSelectiveVrfDownloadMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSelectiveVrfDownloadMIB 2 }
+
+
+-- Textual Conventions
+
+SVDEntityRole ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention denotes the role of a physical
+        entity with respect to selective VRF download feature.
+
+        'invalid': The role of the physical entity is unknown,
+        unconfigured, or the selective VRF download feature
+        has yet to calculate it.
+
+        'standard': The role of the physical entity has
+        interfaces configured in the default table and other
+        VRF tables.  The selective VRF download feature
+        downloads all VRFs and prefixes to the physical entity.
+
+        'core': The role of the physical entity only has
+        interfaces configured in the default table.  The
+        selective VRF download feature downloads all VRFs and
+        local customer prefixes to the physical entity.
+
+        'customer': The role of the physical entity only has
+        interfaces configured in VRF tables other than the
+        default.  The selective VRF download feature downloads
+        all prefixes for locally provisioned VRFs.
+
+        'noInterest': The role of the physical entity does not
+        have interfaces configured in any VRF tables.  The
+        selective VRF download feature does not download any
+        prefixes to the physical entity.
+
+        'vpnOnlyCustomer': The role of the physical entity is
+        for VPN-only customers (i.e., customers that do not need
+        access to global routes).  The selective VRF download
+        feature downloads provisioned VRFs to the physical
+        entity, and it filters all BGP routes from the default
+        table."
+    SYNTAX          INTEGER  {
+                        invalid(1),
+                        standard(2),
+                        core(3),
+                        customer(4),
+                        noInterest(5),
+                        vpnOnlyCustomer(6)
+                    }
+
+csvdAdminEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the desired state of selective
+        VRF download feature.  When a managed system initializes,
+        it starts with csvdAdminEnable in the true(1) state.  As a
+        result of either explicit management action or per
+        configuration information retained by the managed system,
+        csvdAdminEnable is then changed to false(2) state (or
+        remains in the true(1) state."
+    DEFVAL          { true }
+    ::= { ciscoSelectiveVrfDownloadMIBObjects 1 }
+
+csvdOperEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current operational state of
+        selective VRF download feature.  If csvdAdminEnable is
+        changed then csvdOperEnable should change to the same
+        value after the external action is triggered.  As an
+        external action implementations may require router reload
+        or switchover of the route-processor for the change to
+        take effect."
+    ::= { ciscoSelectiveVrfDownloadMIBObjects 2 }
+
+csvdEntityRoleChangeNotificationEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system generates the
+        csvdEntityRoleChangeNotification."
+    DEFVAL          { true }
+    ::= { ciscoSelectiveVrfDownloadMIBObjects 3 }
+
+csvdCounterDiscontinuityTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime on the most
+        recent occasion at which selective VRF download counters
+        suffered a discontinuity.  The relevant counters are the
+        instances of any Counter32 objects contained in
+        csvdStateTable.  If no such discontinuities have occurred
+        since the last re-initialization of the local management
+        subsystem, then this object contains a zero value."
+    ::= { ciscoSelectiveVrfDownloadMIBObjects 4 }
+
+csvdStateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsvdStateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the state relating to the selective VRF
+        download feature for each physical entity capable of
+        forwarding packets.  This table has an expansion dependent
+        relationship on the entPhysicalTable, containing zero or
+        more rows each row in the entPhysicalEntity.  If the
+        physical entity is capable of forwarding packets, it
+        contains a row for each address family it supports."
+    ::= { ciscoSelectiveVrfDownloadMIBObjects 5 }
+
+csvdStateEntry OBJECT-TYPE
+    SYNTAX          CsvdStateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes state relating to the selective VRF
+        download feature.  The system creates an entry each for
+        each supported AFI when a new physical entity capable of
+        forwarding packets becomes operational.  The system
+        destroys all the entries associated with the physical
+        entity when it goes away."
+    INDEX           {
+                        entPhysicalIndex,
+                        csvdStateAFI
+                    }
+    ::= { csvdStateTable 1 }
+
+CsvdStateEntry ::= SEQUENCE {
+        csvdStateAFI                   AddressFamilyNumbers,
+        csvdStateEntityRole            SVDEntityRole,
+        csvdStateEntityRoleLastChange  TimeStamp,
+        csvdStateEntityRoleTransitions Counter32
+}
+
+csvdStateAFI OBJECT-TYPE
+    SYNTAX          AddressFamilyNumbers
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the AFI for which the row
+        pertains."
+    ::= { csvdStateEntry 1 }
+
+csvdStateEntityRole OBJECT-TYPE
+    SYNTAX          SVDEntityRole
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the selective VRF download role of
+        the physical entity.  It can be updated based on interface
+        to VRF association change or ip-address assignment to an
+        interface belonging to the physical entity.
+        For example:-
+        - if no interfaces on a physical entity have IPv4 address
+        configured, then it would be in Customer Facing
+        Role for IPv4 address family.
+        - if no interfaces on a physical entity have IPv6 address
+        configured, then it would be in Not Interested
+        Role for IPv6 address family.
+        - now if the user adds an IPv4 address to an interface
+        in default VRF, then the physical entity would turn
+        Core-Facing for IPv4 AFI.
+        - if the user would have added this interface in a
+        named VRF, then the physical entity would have remained in
+        Customer-Facing for IPv4 AFI.
+        - if there are interfaces configured in both default
+        VRF and named VRFs then the physical entity would turn in
+        to Standard Role."
+    ::= { csvdStateEntry 2 }
+
+csvdStateEntityRoleLastChange OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last
+        time the corresponding instance of csvdStateEntityRole
+        changed."
+    ::= { csvdStateEntry 3 }
+
+csvdStateEntityRoleTransitions OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of times the
+        corresponding instance of csvdStateEntityRole has
+        changed.  Discontinuities in the value of this counter
+        can occur at re-initialization of the management system,
+        and at other times as indicated by the value of the
+        corresponding instance of csvdCounterDiscontinuityTime."
+    ::= { csvdStateEntry 4 }
+
+
+csvdRoleHistory  OBJECT IDENTIFIER
+    ::= { ciscoSelectiveVrfDownloadMIBObjects 6 }
+
+
+csvdRoleHistorySize OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum number of rows the
+        csvdRoleHistoryTable can contain at any given time.  If
+        the role changes and the csvdRoleHistoryTable already
+        contains a number of rows equal to the value of this
+        object, then it destroys the oldest row before creating
+        a new one."
+    DEFVAL          { 10 }
+    ::= { csvdRoleHistory 1 }
+
+csvdRoleHistoryLastIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of csvdRoleHistoryIndex
+        corresponding to the last row created in the
+        csvdRoleHistoryTable."
+    ::= { csvdRoleHistory 2 }
+
+csvdRoleHistoryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsvdRoleHistoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the role change history per
+        address family (ipv4 and ipv6) for each physical entity
+        capable of forwarding packets.  This table has an
+        expansion dependant relationship on csvdStateTable,
+        containing zero or more rows for each row in
+        csvdStateTable."
+    ::= { csvdRoleHistory 3 }
+
+csvdRoleHistoryEntry OBJECT-TYPE
+    SYNTAX          CsvdRoleHistoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes a change in the role of a physical
+        entity."
+    INDEX           {
+                        entPhysicalIndex,
+                        csvdStateAFI,
+                        csvdRoleHistoryIndex
+                    }
+    ::= { csvdRoleHistoryTable 1 }
+
+CsvdRoleHistoryEntry ::= SEQUENCE {
+        csvdRoleHistoryIndex          Unsigned32,
+        csvdRoleHistoryRole           SVDEntityRole,
+        csvdRoleHistoryRoleChangeTime TimeStamp
+}
+
+csvdRoleHistoryIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value
+        uniquely identifying the entry."
+    ::= { csvdRoleHistoryEntry 1 }
+
+csvdRoleHistoryRole OBJECT-TYPE
+    SYNTAX          SVDEntityRole
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the selective VRF download role for
+        a given history index."
+    ::= { csvdRoleHistoryEntry 2 }
+
+csvdRoleHistoryRoleChangeTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime when entry
+        was created."
+    ::= { csvdRoleHistoryEntry 3 }
+
+
+
+csvdVrfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsvdVrfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists VRF tables selectively downloaded to
+        each physical entity capable of forwarding packets.  This
+        table has an expansion dependent relationship on the
+        csvdStateTable, containing zero or more rows for each
+        address family supported by each physical entity capable
+        of forwarding packets."
+    ::= { ciscoSelectiveVrfDownloadMIBObjects 7 }
+
+csvdVrfEntry OBJECT-TYPE
+    SYNTAX          CsvdVrfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes a VRF selectively downloaded to a
+        physical entity capable of forwarding packets.  The
+        system creates an entry when the selective VRF
+        download feature determines that a physical entity
+        requires a VRF.  The system destroys an entry when the
+        selective VRF download feature determines that a
+        physical entity does not require a VRF."
+    INDEX           {
+                        entPhysicalIndex,
+                        csvdStateAFI,
+                        csvdVrfName
+                    }
+    ::= { csvdVrfTable 1 }
+
+CsvdVrfEntry ::= SEQUENCE {
+        csvdVrfName            MplsL3VpnName,
+        csvdPrefixCount        Gauge32,
+        csvdLocalPrefixCount   Gauge32,
+        csvdRemotePrefixCount  Gauge32,
+        csvdTableConvergedFlag TruthValue
+}
+
+csvdVrfName OBJECT-TYPE
+    SYNTAX          MplsL3VpnName
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the VRF."
+    REFERENCE
+        "T. Nadeau and H. van der Linde, 'MPLS/BGP Layer 3
+        Virtual Private Network (VPN) Management Information
+        Base', RFC-4382, February 2006."
+    ::= { csvdVrfEntry 1 }
+
+csvdPrefixCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of prefixes
+        downloaded from the VRF table.  The value of this object
+        may not equal to the sum of the values of the
+        corresponding instance of csvdLocalPrefixCount and
+        csvdRemotePrefixCount, as the VRF table may have special
+        internal prefixes to support the CEF implementation."
+    ::= { csvdVrfEntry 2 }
+
+csvdLocalPrefixCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of local prefixes
+        downloaded from the VRF table."
+    ::= { csvdVrfEntry 3 }
+
+csvdRemotePrefixCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of remote prefixes
+        downloaded from the VRF table."
+    ::= { csvdVrfEntry 4 }
+
+csvdTableConvergedFlag OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the VRF table has
+        converged.  Once all the prefixes for the VRF table have
+        been updated and downloaded, convergence is complete.
+        The flag is set to false when the VRF is created
+        initially or selectively downloaded to the physical
+        entity.  Once the initial download of all the prefixes
+        for the VRF to the physical entity completes, the flag
+        is set to true."
+    DEFVAL          { false }
+    ::= { csvdVrfEntry 5 }
+
+
+
+-- notification information
+
+csvdEntityRoleChangeNotification NOTIFICATION-TYPE
+    OBJECTS         { csvdStateEntityRole }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when the role of the physical
+        entity for a given address family changes.
+        csvdStateEntityRole indicates the role the entity is
+        transitioning to."
+   ::= { ciscoSelectiveVrfDownloadMIBNotifs 1 }
+-- conformance information
+
+csvdMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSelectiveVrfDownloadMIBConform 1 }
+
+csvdMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSelectiveVrfDownloadMIBConform 2 }
+
+
+-- compliance statements
+
+csvdMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        csvdMIBGroup,
+                        csvdMIBNotificationEnableGroup,
+                        csvdMIBNotificationGroup
+                    }
+
+    OBJECT          csvdRoleHistorySize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not supported."
+    ::= { csvdMIBCompliances 1 }
+
+-- units of conformance
+
+csvdMIBGroup OBJECT-GROUP
+    OBJECTS         {
+                        csvdAdminEnable,
+                        csvdOperEnable,
+                        csvdCounterDiscontinuityTime,
+                        csvdStateEntityRole,
+                        csvdStateEntityRoleLastChange,
+                        csvdStateEntityRoleTransitions,
+                        csvdRoleHistorySize,
+                        csvdRoleHistoryLastIndex,
+                        csvdRoleHistoryRole,
+                        csvdRoleHistoryRoleChangeTime,
+                        csvdPrefixCount,
+                        csvdLocalPrefixCount,
+                        csvdRemotePrefixCount,
+                        csvdTableConvergedFlag
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing selective VRF download
+        feature state information to a NMS agent."
+    ::= { csvdMIBGroups 1 }
+
+csvdMIBNotificationEnableGroup OBJECT-GROUP
+    OBJECTS         { csvdEntityRoleChangeNotificationEnable }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for controlling
+        (enabling/disabling) selective VRF download feature
+        notifications to a NMS agent."
+    ::= { csvdMIBGroups 2 }
+
+csvdMIBNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { csvdEntityRoleChangeNotification }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications used for monitoring
+        selective VRF download feature state."
+    ::= { csvdMIBGroups 3 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

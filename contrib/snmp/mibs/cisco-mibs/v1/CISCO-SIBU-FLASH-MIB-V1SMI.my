@@ -1,0 +1,187 @@
+-- MIB created 6/25/99 12:57:35, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-SIBU-FLASH-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SIBU-FLASH-MIB.my"
+
+IMPORTS
+    Integer32, IpAddress
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    DisplayString
+            FROM SNMPv2-TC-v1
+    ciscoExperiment
+            FROM CISCO-SMI;
+
+ciscoSibuFlashMIB OBJECT IDENTIFIER ::= { ciscoExperiment 45 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9810230000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--    
+--     Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--     Tel: +1 800 553-NETS
+--     E-mail: cs-sibu@cisco.com
+--  Descr
+--    The MIB module that provides a simple mechanism
+--     to support firmware upgrade on Cisco low end
+--     devices.
+--  RevDate
+--    9810230000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoSibuFlashMIBObjects OBJECT IDENTIFIER ::= { ciscoSibuFlashMIB 1 }
+csfUpgrade      OBJECT IDENTIFIER ::= { ciscoSibuFlashMIBObjects 1 }
+ciscoSibuFlashMIBNotificationsPrefix OBJECT IDENTIFIER ::= { ciscoSibuFlashMIB 2 }
+ciscoSibuFlashMIBNotifications OBJECT IDENTIFIER ::= { ciscoSibuFlashMIBNotificationsPrefix 0 }
+ciscoSibuFlashMIBComformance OBJECT IDENTIFIER ::= { ciscoSibuFlashMIB 3 }
+ciscoSibuFlashMIBCompliances OBJECT IDENTIFIER ::= { ciscoSibuFlashMIBComformance 1 }
+ciscoSibuFlashMIBGroups OBJECT IDENTIFIER ::= { ciscoSibuFlashMIBComformance 2 }
+
+csfUpgradeFirmwareVersion OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..8))
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Returns the version number of the device system
+         firmware residing in flash. The string has a
+         'V1.2.3' format."
+    ::= { csfUpgrade 1 }
+
+csfUpgradeFlashSize OBJECT-TYPE
+    SYNTAX Integer32(0..2147483647)
+--  Units
+--    kbytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The size of available FLASH memory in the system,
+        in kilobytes.  For example: 128 equals 131072 bytes
+        (128 bytes times 1024)."
+    ::= { csfUpgrade 2 }
+
+csfUpgradeTFTPServerAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of a TFTP server from which a firmware
+         image can be downloaded.  The download may be initiated
+         by setting the upgradeTFTPInitiate to upgrade(1), or via
+         an out-of-band management action."
+--    DEFVAL { 0.0.0.0 }
+    ::= { csfUpgrade 3 }
+
+csfUpgradeTFTPLoadFilename OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..80))
+--    Rsyntax OCTET STRING(SIZE(0..80))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the file containing a firmware upgrade
+         image on the host whose address is given by
+         upgradeTFTPServerAddress.  The default value is
+         an empty string, or no filename."
+    DEFVAL { "" }
+    ::= { csfUpgrade 4 }
+
+csfUpgradeTFTPInitiate OBJECT-TYPE
+    SYNTAX INTEGER {
+        upgrade(1),
+        noUpgrade(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Setting this object to noUpgrade(2) results in no
+         action. When set to upgrade(1), the switch will attempt
+         to download a firmware upgrade image from the server
+         whose address is given by upgradeTFTPServerAddress.
+         The image is found in the file whose name is given by
+         sibuFlashTFTPLoadFilename.  Both
+         sibuFlashTFTPServerAddress and
+         sibuFlashTFTPLoadFilename must be non-empty for the
+         upgrade to proceed.
+        
+         This object always returns noUpgrade(2) when read."
+    DEFVAL { noUpgrade }
+    ::= { csfUpgrade 5 }
+
+csfUpgradeFlashMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        permanent(1),
+        temporary(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether a newly upgraded firmware version
+         should write to flash.  When this object is temporary(2),
+         following a successful upgrade the system will switch to
+         run the new firmware but will not upgrade the new
+         firmware to flash.  That means after a power cycle,
+         system will run the firmware residing the flash.
+        
+         When this object is permanent(1), following a successful
+         firmware upgrade, the flash will be upgraded and the
+         system will automatically switch to run the new firmware."
+    DEFVAL { permanent }
+    ::= { csfUpgrade 6 }
+
+csfUpgradeFirmwareStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        inProgress(2),
+        succeeded(3),
+        failed(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Status of last upgrade attempt via TFTP:
+         none - no upgrade has ever been attempted since
+                initialization.
+         inProgress - an upgrade is in progress.
+         succeeded - the previous attempt succeeded.
+         failed - the previous attempt failed. "
+    DEFVAL { none }
+    ::= { csfUpgrade 7 }
+
+ciscoSibuFlashMIBGroup OBJECT IDENTIFIER ::= { ciscoSibuFlashMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of image upgrade objects for use with
+--     the devices that supports simple upgrade mechanism.
+--  objects
+--    csfUpgradeFirmwareVersion, csfUpgradeFlashSize, 
+--    csfUpgradeTFTPServerAddress, csfUpgradeTFTPLoadFilename, 
+--    csfUpgradeTFTPInitiate, csfUpgradeFlashMode, 
+--    csfUpgradeFirmwareStatus
+
+ciscoSibuFlashCompliance OBJECT IDENTIFIER ::= { ciscoSibuFlashMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the Cisco SIBU Flash MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSibuFlashMIBGroup
+
+
+END
+

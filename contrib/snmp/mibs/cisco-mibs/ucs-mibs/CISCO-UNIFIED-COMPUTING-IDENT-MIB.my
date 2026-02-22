@@ -1,0 +1,1489 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-IDENT-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- IDENT management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-IDENT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsConditionRemoteInvRslt,
+    CucsFsmCompletion,
+    CucsFsmFlags,
+    CucsFsmFsmStageStatus,
+    CucsIdentConsType,
+    CucsIdentIdDefinedInIdm,
+    CucsIdentIdentReqIntent,
+    CucsIdentIdentRequestFsmCurrentFsm,
+    CucsIdentIdentRequestFsmStageName,
+    CucsIdentIdentRequestFsmTaskItem,
+    CucsIdentIdentType,
+    CucsIdentMetaSystemFsmCurrentFsm,
+    CucsIdentMetaSystemFsmStageName,
+    CucsIdentMetaSystemFsmTaskItem,
+    CucsIdentRetStatus
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsIdentObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        IDENT management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 64 }
+
+cucsIdentIdentCtxTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIdentIdentCtxEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx managed object table"
+    ::= { cucsIdentObjects 1 }
+
+cucsIdentIdentCtxEntry OBJECT-TYPE
+    SYNTAX           CucsIdentIdentCtxEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIdentIdentCtxTable table."
+    INDEX { cucsIdentIdentCtxInstanceId }
+    ::= { cucsIdentIdentCtxTable 1 }
+
+CucsIdentIdentCtxEntry ::= SEQUENCE {
+    cucsIdentIdentCtxInstanceId                                      CucsManagedObjectId,
+    cucsIdentIdentCtxDn                                              CucsManagedObjectDn,
+    cucsIdentIdentCtxRn                                              SnmpAdminString,
+    cucsIdentIdentCtxAssigned                                        SnmpAdminString,
+    cucsIdentIdentCtxConsDn                                          SnmpAdminString,
+    cucsIdentIdentCtxConsType                                        CucsIdentConsType,
+    cucsIdentIdentCtxDefinedInIdm                                    CucsIdentIdDefinedInIdm,
+    cucsIdentIdentCtxIdentPoolName                                   SnmpAdminString,
+    cucsIdentIdentCtxIdentType                                       CucsIdentIdentType,
+    cucsIdentIdentCtxIntent                                          CucsIdentIdentReqIntent,
+    cucsIdentIdentCtxPoolDn                                          SnmpAdminString,
+    cucsIdentIdentCtxPoolOrgDn                                       SnmpAdminString,
+    cucsIdentIdentCtxPooledId                                        Gauge32,
+    cucsIdentIdentCtxRetStatus                                       CucsIdentRetStatus,
+    cucsIdentIdentCtxSeqNum                                          Gauge32,
+    cucsIdentIdentCtxSupplId1                                        SnmpAdminString,
+    cucsIdentIdentCtxSupplId2                                        SnmpAdminString,
+    cucsIdentIdentCtxSupplId3                                        SnmpAdminString,
+    cucsIdentIdentCtxSupplId4                                        SnmpAdminString,
+    cucsIdentIdentCtxGlobalAssignedCnt                               SnmpAdminString,
+    cucsIdentIdentCtxGlobalDefinedCnt                                SnmpAdminString,
+    cucsIdentIdentCtxIsAssignedLocally                               TruthValue
+}
+
+cucsIdentIdentCtxInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIdentIdentCtxEntry 1 }
+
+cucsIdentIdentCtxDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:dn managed object property"
+    ::= { cucsIdentIdentCtxEntry 2 }
+
+cucsIdentIdentCtxRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:rn managed object property"
+    ::= { cucsIdentIdentCtxEntry 3 }
+
+cucsIdentIdentCtxAssigned OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:assigned managed object property"
+    ::= { cucsIdentIdentCtxEntry 4 }
+
+cucsIdentIdentCtxConsDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:consDn managed object property"
+    ::= { cucsIdentIdentCtxEntry 5 }
+
+cucsIdentIdentCtxConsType OBJECT-TYPE
+    SYNTAX       CucsIdentConsType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:consType managed object property"
+    ::= { cucsIdentIdentCtxEntry 6 }
+
+cucsIdentIdentCtxDefinedInIdm OBJECT-TYPE
+    SYNTAX       CucsIdentIdDefinedInIdm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:definedInIdm managed object property"
+    ::= { cucsIdentIdentCtxEntry 7 }
+
+cucsIdentIdentCtxIdentPoolName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:identPoolName managed object property"
+    ::= { cucsIdentIdentCtxEntry 8 }
+
+cucsIdentIdentCtxIdentType OBJECT-TYPE
+    SYNTAX       CucsIdentIdentType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:identType managed object property"
+    ::= { cucsIdentIdentCtxEntry 9 }
+
+cucsIdentIdentCtxIntent OBJECT-TYPE
+    SYNTAX       CucsIdentIdentReqIntent
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:intent managed object property"
+    ::= { cucsIdentIdentCtxEntry 10 }
+
+cucsIdentIdentCtxPoolDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:poolDn managed object property"
+    ::= { cucsIdentIdentCtxEntry 11 }
+
+cucsIdentIdentCtxPoolOrgDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:poolOrgDn managed object property"
+    ::= { cucsIdentIdentCtxEntry 12 }
+
+cucsIdentIdentCtxPooledId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:pooledId managed object property"
+    ::= { cucsIdentIdentCtxEntry 13 }
+
+cucsIdentIdentCtxRetStatus OBJECT-TYPE
+    SYNTAX       CucsIdentRetStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:retStatus managed object property"
+    ::= { cucsIdentIdentCtxEntry 14 }
+
+cucsIdentIdentCtxSeqNum OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:seqNum managed object property"
+    ::= { cucsIdentIdentCtxEntry 15 }
+
+cucsIdentIdentCtxSupplId1 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:supplId1 managed object property"
+    ::= { cucsIdentIdentCtxEntry 16 }
+
+cucsIdentIdentCtxSupplId2 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:supplId2 managed object property"
+    ::= { cucsIdentIdentCtxEntry 17 }
+
+cucsIdentIdentCtxSupplId3 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:supplId3 managed object property"
+    ::= { cucsIdentIdentCtxEntry 18 }
+
+cucsIdentIdentCtxSupplId4 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:supplId4 managed object property"
+    ::= { cucsIdentIdentCtxEntry 19 }
+
+cucsIdentIdentCtxGlobalAssignedCnt OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:globalAssignedCnt managed
+        object property"
+    ::= { cucsIdentIdentCtxEntry 20 }
+
+cucsIdentIdentCtxGlobalDefinedCnt OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:globalDefinedCnt managed
+        object property"
+    ::= { cucsIdentIdentCtxEntry 21 }
+
+cucsIdentIdentCtxIsAssignedLocally OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentCtx:isAssignedLocally managed
+        object property"
+    ::= { cucsIdentIdentCtxEntry 22 }
+
+cucsIdentIdentRequestTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIdentIdentRequestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest managed object table"
+    ::= { cucsIdentObjects 2 }
+
+cucsIdentIdentRequestEntry OBJECT-TYPE
+    SYNTAX           CucsIdentIdentRequestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIdentIdentRequestTable table."
+    INDEX { cucsIdentIdentRequestInstanceId }
+    ::= { cucsIdentIdentRequestTable 1 }
+
+CucsIdentIdentRequestEntry ::= SEQUENCE {
+    cucsIdentIdentRequestInstanceId                                  CucsManagedObjectId,
+    cucsIdentIdentRequestDn                                          CucsManagedObjectDn,
+    cucsIdentIdentRequestRn                                          SnmpAdminString,
+    cucsIdentIdentRequestEpDn                                        SnmpAdminString,
+    cucsIdentIdentRequestFsmDescr                                    SnmpAdminString,
+    cucsIdentIdentRequestFsmPrev                                     SnmpAdminString,
+    cucsIdentIdentRequestFsmProgr                                    Gauge32,
+    cucsIdentIdentRequestFsmRmtInvErrCode                            Gauge32,
+    cucsIdentIdentRequestFsmRmtInvErrDescr                           SnmpAdminString,
+    cucsIdentIdentRequestFsmRmtInvRslt                               CucsConditionRemoteInvRslt,
+    cucsIdentIdentRequestFsmStageDescr                               SnmpAdminString,
+    cucsIdentIdentRequestFsmStamp                                    DateAndTime,
+    cucsIdentIdentRequestFsmStatus                                   SnmpAdminString,
+    cucsIdentIdentRequestFsmTry                                      Gauge32,
+    cucsIdentIdentRequestId                                          Gauge32,
+    cucsIdentIdentRequestRequestSize                                 Gauge32,
+    cucsIdentIdentRequestSeqNum                                      Gauge32
+}
+
+cucsIdentIdentRequestInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIdentIdentRequestEntry 1 }
+
+cucsIdentIdentRequestDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:dn managed object property"
+    ::= { cucsIdentIdentRequestEntry 2 }
+
+cucsIdentIdentRequestRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:rn managed object property"
+    ::= { cucsIdentIdentRequestEntry 3 }
+
+cucsIdentIdentRequestEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:epDn managed object property"
+    ::= { cucsIdentIdentRequestEntry 4 }
+
+cucsIdentIdentRequestFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:fsmDescr managed object property"
+    ::= { cucsIdentIdentRequestEntry 5 }
+
+cucsIdentIdentRequestFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:fsmPrev managed object property"
+    ::= { cucsIdentIdentRequestEntry 6 }
+
+cucsIdentIdentRequestFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:fsmProgr managed object property"
+    ::= { cucsIdentIdentRequestEntry 7 }
+
+cucsIdentIdentRequestFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:fsmRmtInvErrCode
+        managed object property"
+    ::= { cucsIdentIdentRequestEntry 8 }
+
+cucsIdentIdentRequestFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cucsIdentIdentRequestEntry 9 }
+
+cucsIdentIdentRequestFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:fsmRmtInvRslt managed
+        object property"
+    ::= { cucsIdentIdentRequestEntry 10 }
+
+cucsIdentIdentRequestFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:fsmStageDescr managed
+        object property"
+    ::= { cucsIdentIdentRequestEntry 11 }
+
+cucsIdentIdentRequestFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:fsmStamp managed object property"
+    ::= { cucsIdentIdentRequestEntry 12 }
+
+cucsIdentIdentRequestFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:fsmStatus managed object property"
+    ::= { cucsIdentIdentRequestEntry 13 }
+
+cucsIdentIdentRequestFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:fsmTry managed object property"
+    ::= { cucsIdentIdentRequestEntry 14 }
+
+cucsIdentIdentRequestId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:id managed object property"
+    ::= { cucsIdentIdentRequestEntry 15 }
+
+cucsIdentIdentRequestRequestSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:requestSize managed object property"
+    ::= { cucsIdentIdentRequestEntry 16 }
+
+cucsIdentIdentRequestSeqNum OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequest:seqNum managed object property"
+    ::= { cucsIdentIdentRequestEntry 17 }
+
+cucsIdentIdentRequestFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIdentIdentRequestFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsm managed object table"
+    ::= { cucsIdentObjects 3 }
+
+cucsIdentIdentRequestFsmEntry OBJECT-TYPE
+    SYNTAX           CucsIdentIdentRequestFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIdentIdentRequestFsmTable table."
+    INDEX { cucsIdentIdentRequestFsmInstanceId }
+    ::= { cucsIdentIdentRequestFsmTable 1 }
+
+CucsIdentIdentRequestFsmEntry ::= SEQUENCE {
+    cucsIdentIdentRequestFsmInstanceId                               CucsManagedObjectId,
+    cucsIdentIdentRequestFsmDn                                       CucsManagedObjectDn,
+    cucsIdentIdentRequestFsmRn                                       SnmpAdminString,
+    cucsIdentIdentRequestFsmCompletionTime                           DateAndTime,
+    cucsIdentIdentRequestFsmCurrentFsm                               CucsIdentIdentRequestFsmCurrentFsm,
+    cucsIdentIdentRequestFsmDescrData                                SnmpAdminString,
+    cucsIdentIdentRequestFsmFsmStatus                                CucsFsmFsmStageStatus,
+    cucsIdentIdentRequestFsmProgress                                 Gauge32,
+    cucsIdentIdentRequestFsmRmtErrCode                               Gauge32,
+    cucsIdentIdentRequestFsmRmtErrDescr                              SnmpAdminString,
+    cucsIdentIdentRequestFsmRmtRslt                                  CucsConditionRemoteInvRslt
+}
+
+cucsIdentIdentRequestFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIdentIdentRequestFsmEntry 1 }
+
+cucsIdentIdentRequestFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsm:dn managed object property"
+    ::= { cucsIdentIdentRequestFsmEntry 2 }
+
+cucsIdentIdentRequestFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsm:rn managed object property"
+    ::= { cucsIdentIdentRequestFsmEntry 3 }
+
+cucsIdentIdentRequestFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsm:completionTime
+        managed object property"
+    ::= { cucsIdentIdentRequestFsmEntry 4 }
+
+cucsIdentIdentRequestFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsIdentIdentRequestFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsm:currentFsm managed
+        object property"
+    ::= { cucsIdentIdentRequestFsmEntry 5 }
+
+cucsIdentIdentRequestFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsm:descr managed object property"
+    ::= { cucsIdentIdentRequestFsmEntry 6 }
+
+cucsIdentIdentRequestFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsm:fsmStatus managed
+        object property"
+    ::= { cucsIdentIdentRequestFsmEntry 7 }
+
+cucsIdentIdentRequestFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsm:progress managed object property"
+    ::= { cucsIdentIdentRequestFsmEntry 8 }
+
+cucsIdentIdentRequestFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsm:rmtErrCode managed
+        object property"
+    ::= { cucsIdentIdentRequestFsmEntry 9 }
+
+cucsIdentIdentRequestFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsm:rmtErrDescr managed
+        object property"
+    ::= { cucsIdentIdentRequestFsmEntry 10 }
+
+cucsIdentIdentRequestFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsm:rmtRslt managed object property"
+    ::= { cucsIdentIdentRequestFsmEntry 11 }
+
+cucsIdentIdentRequestFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIdentIdentRequestFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmStage managed object table"
+    ::= { cucsIdentObjects 4 }
+
+cucsIdentIdentRequestFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsIdentIdentRequestFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIdentIdentRequestFsmStageTable table."
+    INDEX { cucsIdentIdentRequestFsmStageInstanceId }
+    ::= { cucsIdentIdentRequestFsmStageTable 1 }
+
+CucsIdentIdentRequestFsmStageEntry ::= SEQUENCE {
+    cucsIdentIdentRequestFsmStageInstanceId                          CucsManagedObjectId,
+    cucsIdentIdentRequestFsmStageDn                                  CucsManagedObjectDn,
+    cucsIdentIdentRequestFsmStageRn                                  SnmpAdminString,
+    cucsIdentIdentRequestFsmStageDescrData                           SnmpAdminString,
+    cucsIdentIdentRequestFsmStageLastUpdateTime                      DateAndTime,
+    cucsIdentIdentRequestFsmStageName                                CucsIdentIdentRequestFsmStageName,
+    cucsIdentIdentRequestFsmStageOrder                               Gauge32,
+    cucsIdentIdentRequestFsmStageRetry                               Gauge32,
+    cucsIdentIdentRequestFsmStageStageStatus                         CucsFsmFsmStageStatus
+}
+
+cucsIdentIdentRequestFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIdentIdentRequestFsmStageEntry 1 }
+
+cucsIdentIdentRequestFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmStage:dn managed object property"
+    ::= { cucsIdentIdentRequestFsmStageEntry 2 }
+
+cucsIdentIdentRequestFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmStage:rn managed object property"
+    ::= { cucsIdentIdentRequestFsmStageEntry 3 }
+
+cucsIdentIdentRequestFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmStage:descr managed
+        object property"
+    ::= { cucsIdentIdentRequestFsmStageEntry 4 }
+
+cucsIdentIdentRequestFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsIdentIdentRequestFsmStageEntry 5 }
+
+cucsIdentIdentRequestFsmStageName OBJECT-TYPE
+    SYNTAX       CucsIdentIdentRequestFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmStage:name managed
+        object property"
+    ::= { cucsIdentIdentRequestFsmStageEntry 6 }
+
+cucsIdentIdentRequestFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmStage:order managed
+        object property"
+    ::= { cucsIdentIdentRequestFsmStageEntry 7 }
+
+cucsIdentIdentRequestFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmStage:retry managed
+        object property"
+    ::= { cucsIdentIdentRequestFsmStageEntry 8 }
+
+cucsIdentIdentRequestFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmStage:stageStatus
+        managed object property"
+    ::= { cucsIdentIdentRequestFsmStageEntry 9 }
+
+cucsIdentIdentRequestFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIdentIdentRequestFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmTask managed object table"
+    ::= { cucsIdentObjects 5 }
+
+cucsIdentIdentRequestFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsIdentIdentRequestFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIdentIdentRequestFsmTaskTable table."
+    INDEX { cucsIdentIdentRequestFsmTaskInstanceId }
+    ::= { cucsIdentIdentRequestFsmTaskTable 1 }
+
+CucsIdentIdentRequestFsmTaskEntry ::= SEQUENCE {
+    cucsIdentIdentRequestFsmTaskInstanceId                           CucsManagedObjectId,
+    cucsIdentIdentRequestFsmTaskDn                                   CucsManagedObjectDn,
+    cucsIdentIdentRequestFsmTaskRn                                   SnmpAdminString,
+    cucsIdentIdentRequestFsmTaskCompletion                           CucsFsmCompletion,
+    cucsIdentIdentRequestFsmTaskFlags                                CucsIdentIdentRequestFsmTaskFlags,
+    cucsIdentIdentRequestFsmTaskItem                                 CucsIdentIdentRequestFsmTaskItem,
+    cucsIdentIdentRequestFsmTaskSeqId                                Gauge32
+}
+
+cucsIdentIdentRequestFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIdentIdentRequestFsmTaskEntry 1 }
+
+cucsIdentIdentRequestFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmTask:dn managed object property"
+    ::= { cucsIdentIdentRequestFsmTaskEntry 2 }
+
+cucsIdentIdentRequestFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmTask:rn managed object property"
+    ::= { cucsIdentIdentRequestFsmTaskEntry 3 }
+
+cucsIdentIdentRequestFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmTask:completion
+        managed object property"
+    ::= { cucsIdentIdentRequestFsmTaskEntry 4 }
+
+cucsIdentIdentRequestFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsIdentIdentRequestFsmTaskFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmTask:flags managed
+        object property"
+    ::= { cucsIdentIdentRequestFsmTaskEntry 5 }
+
+cucsIdentIdentRequestFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsIdentIdentRequestFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmTask:item managed object property"
+    ::= { cucsIdentIdentRequestFsmTaskEntry 6 }
+
+cucsIdentIdentRequestFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:IdentRequestFsmTask:seqId managed
+        object property"
+    ::= { cucsIdentIdentRequestFsmTaskEntry 7 }
+
+cucsIdentMetaSystemTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIdentMetaSystemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem managed object table"
+    ::= { cucsIdentObjects 6 }
+
+cucsIdentMetaSystemEntry OBJECT-TYPE
+    SYNTAX           CucsIdentMetaSystemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIdentMetaSystemTable table."
+    INDEX { cucsIdentMetaSystemInstanceId }
+    ::= { cucsIdentMetaSystemTable 1 }
+
+CucsIdentMetaSystemEntry ::= SEQUENCE {
+    cucsIdentMetaSystemInstanceId                                    CucsManagedObjectId,
+    cucsIdentMetaSystemDn                                            CucsManagedObjectDn,
+    cucsIdentMetaSystemRn                                            SnmpAdminString,
+    cucsIdentMetaSystemFsmDescr                                      SnmpAdminString,
+    cucsIdentMetaSystemFsmPrev                                       SnmpAdminString,
+    cucsIdentMetaSystemFsmProgr                                      Gauge32,
+    cucsIdentMetaSystemFsmRmtInvErrCode                              Gauge32,
+    cucsIdentMetaSystemFsmRmtInvErrDescr                             SnmpAdminString,
+    cucsIdentMetaSystemFsmRmtInvRslt                                 CucsConditionRemoteInvRslt,
+    cucsIdentMetaSystemFsmStageDescr                                 SnmpAdminString,
+    cucsIdentMetaSystemFsmStamp                                      DateAndTime,
+    cucsIdentMetaSystemFsmStatus                                     SnmpAdminString,
+    cucsIdentMetaSystemFsmTry                                        Gauge32,
+    cucsIdentMetaSystemGeneration                                    Gauge32,
+    cucsIdentMetaSystemNextReqId                                     Gauge32,
+    cucsIdentMetaSystemSysid                                         Gauge32,
+    cucsIdentMetaSystemUcscGeneration                                Gauge32
+}
+
+cucsIdentMetaSystemInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIdentMetaSystemEntry 1 }
+
+cucsIdentMetaSystemDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:dn managed object property"
+    ::= { cucsIdentMetaSystemEntry 2 }
+
+cucsIdentMetaSystemRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:rn managed object property"
+    ::= { cucsIdentMetaSystemEntry 3 }
+
+cucsIdentMetaSystemFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:fsmDescr managed object property"
+    ::= { cucsIdentMetaSystemEntry 4 }
+
+cucsIdentMetaSystemFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:fsmPrev managed object property"
+    ::= { cucsIdentMetaSystemEntry 5 }
+
+cucsIdentMetaSystemFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:fsmProgr managed object property"
+    ::= { cucsIdentMetaSystemEntry 6 }
+
+cucsIdentMetaSystemFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:fsmRmtInvErrCode managed
+        object property"
+    ::= { cucsIdentMetaSystemEntry 7 }
+
+cucsIdentMetaSystemFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:fsmRmtInvErrDescr managed
+        object property"
+    ::= { cucsIdentMetaSystemEntry 8 }
+
+cucsIdentMetaSystemFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:fsmRmtInvRslt managed object property"
+    ::= { cucsIdentMetaSystemEntry 9 }
+
+cucsIdentMetaSystemFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:fsmStageDescr managed object property"
+    ::= { cucsIdentMetaSystemEntry 10 }
+
+cucsIdentMetaSystemFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:fsmStamp managed object property"
+    ::= { cucsIdentMetaSystemEntry 11 }
+
+cucsIdentMetaSystemFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:fsmStatus managed object property"
+    ::= { cucsIdentMetaSystemEntry 12 }
+
+cucsIdentMetaSystemFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:fsmTry managed object property"
+    ::= { cucsIdentMetaSystemEntry 13 }
+
+cucsIdentMetaSystemGeneration OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:generation managed object property"
+    ::= { cucsIdentMetaSystemEntry 14 }
+
+cucsIdentMetaSystemNextReqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:nextReqId managed object property"
+    ::= { cucsIdentMetaSystemEntry 15 }
+
+cucsIdentMetaSystemSysid OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:sysid managed object property"
+    ::= { cucsIdentMetaSystemEntry 16 }
+
+cucsIdentMetaSystemUcscGeneration OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystem:ucscGeneration managed
+        object property"
+    ::= { cucsIdentMetaSystemEntry 17 }
+
+cucsIdentMetaSystemFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIdentMetaSystemFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsm managed object table"
+    ::= { cucsIdentObjects 7 }
+
+cucsIdentMetaSystemFsmEntry OBJECT-TYPE
+    SYNTAX           CucsIdentMetaSystemFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIdentMetaSystemFsmTable table."
+    INDEX { cucsIdentMetaSystemFsmInstanceId }
+    ::= { cucsIdentMetaSystemFsmTable 1 }
+
+CucsIdentMetaSystemFsmEntry ::= SEQUENCE {
+    cucsIdentMetaSystemFsmInstanceId                                 CucsManagedObjectId,
+    cucsIdentMetaSystemFsmDn                                         CucsManagedObjectDn,
+    cucsIdentMetaSystemFsmRn                                         SnmpAdminString,
+    cucsIdentMetaSystemFsmCompletionTime                             DateAndTime,
+    cucsIdentMetaSystemFsmCurrentFsm                                 CucsIdentMetaSystemFsmCurrentFsm,
+    cucsIdentMetaSystemFsmDescrData                                  SnmpAdminString,
+    cucsIdentMetaSystemFsmFsmStatus                                  CucsFsmFsmStageStatus,
+    cucsIdentMetaSystemFsmProgress                                   Gauge32,
+    cucsIdentMetaSystemFsmRmtErrCode                                 Gauge32,
+    cucsIdentMetaSystemFsmRmtErrDescr                                SnmpAdminString,
+    cucsIdentMetaSystemFsmRmtRslt                                    CucsConditionRemoteInvRslt
+}
+
+cucsIdentMetaSystemFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIdentMetaSystemFsmEntry 1 }
+
+cucsIdentMetaSystemFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsm:dn managed object property"
+    ::= { cucsIdentMetaSystemFsmEntry 2 }
+
+cucsIdentMetaSystemFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsm:rn managed object property"
+    ::= { cucsIdentMetaSystemFsmEntry 3 }
+
+cucsIdentMetaSystemFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsm:completionTime managed
+        object property"
+    ::= { cucsIdentMetaSystemFsmEntry 4 }
+
+cucsIdentMetaSystemFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsIdentMetaSystemFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsm:currentFsm managed object property"
+    ::= { cucsIdentMetaSystemFsmEntry 5 }
+
+cucsIdentMetaSystemFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsm:descr managed object property"
+    ::= { cucsIdentMetaSystemFsmEntry 6 }
+
+cucsIdentMetaSystemFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsm:fsmStatus managed object property"
+    ::= { cucsIdentMetaSystemFsmEntry 7 }
+
+cucsIdentMetaSystemFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsm:progress managed object property"
+    ::= { cucsIdentMetaSystemFsmEntry 8 }
+
+cucsIdentMetaSystemFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsm:rmtErrCode managed object property"
+    ::= { cucsIdentMetaSystemFsmEntry 9 }
+
+cucsIdentMetaSystemFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsm:rmtErrDescr managed
+        object property"
+    ::= { cucsIdentMetaSystemFsmEntry 10 }
+
+cucsIdentMetaSystemFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsm:rmtRslt managed object property"
+    ::= { cucsIdentMetaSystemFsmEntry 11 }
+
+cucsIdentMetaSystemFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIdentMetaSystemFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmStage managed object table"
+    ::= { cucsIdentObjects 8 }
+
+cucsIdentMetaSystemFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsIdentMetaSystemFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIdentMetaSystemFsmStageTable table."
+    INDEX { cucsIdentMetaSystemFsmStageInstanceId }
+    ::= { cucsIdentMetaSystemFsmStageTable 1 }
+
+CucsIdentMetaSystemFsmStageEntry ::= SEQUENCE {
+    cucsIdentMetaSystemFsmStageInstanceId                            CucsManagedObjectId,
+    cucsIdentMetaSystemFsmStageDn                                    CucsManagedObjectDn,
+    cucsIdentMetaSystemFsmStageRn                                    SnmpAdminString,
+    cucsIdentMetaSystemFsmStageDescrData                             SnmpAdminString,
+    cucsIdentMetaSystemFsmStageLastUpdateTime                        DateAndTime,
+    cucsIdentMetaSystemFsmStageName                                  CucsIdentMetaSystemFsmStageName,
+    cucsIdentMetaSystemFsmStageOrder                                 Gauge32,
+    cucsIdentMetaSystemFsmStageRetry                                 Gauge32,
+    cucsIdentMetaSystemFsmStageStageStatus                           CucsFsmFsmStageStatus
+}
+
+cucsIdentMetaSystemFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIdentMetaSystemFsmStageEntry 1 }
+
+cucsIdentMetaSystemFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmStage:dn managed object property"
+    ::= { cucsIdentMetaSystemFsmStageEntry 2 }
+
+cucsIdentMetaSystemFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmStage:rn managed object property"
+    ::= { cucsIdentMetaSystemFsmStageEntry 3 }
+
+cucsIdentMetaSystemFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmStage:descr managed object property"
+    ::= { cucsIdentMetaSystemFsmStageEntry 4 }
+
+cucsIdentMetaSystemFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsIdentMetaSystemFsmStageEntry 5 }
+
+cucsIdentMetaSystemFsmStageName OBJECT-TYPE
+    SYNTAX       CucsIdentMetaSystemFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmStage:name managed object property"
+    ::= { cucsIdentMetaSystemFsmStageEntry 6 }
+
+cucsIdentMetaSystemFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmStage:order managed object property"
+    ::= { cucsIdentMetaSystemFsmStageEntry 7 }
+
+cucsIdentMetaSystemFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmStage:retry managed object property"
+    ::= { cucsIdentMetaSystemFsmStageEntry 8 }
+
+cucsIdentMetaSystemFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmStage:stageStatus
+        managed object property"
+    ::= { cucsIdentMetaSystemFsmStageEntry 9 }
+
+cucsIdentMetaSystemFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIdentMetaSystemFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmTask managed object table"
+    ::= { cucsIdentObjects 9 }
+
+cucsIdentMetaSystemFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsIdentMetaSystemFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIdentMetaSystemFsmTaskTable table."
+    INDEX { cucsIdentMetaSystemFsmTaskInstanceId }
+    ::= { cucsIdentMetaSystemFsmTaskTable 1 }
+
+CucsIdentMetaSystemFsmTaskEntry ::= SEQUENCE {
+    cucsIdentMetaSystemFsmTaskInstanceId                             CucsManagedObjectId,
+    cucsIdentMetaSystemFsmTaskDn                                     CucsManagedObjectDn,
+    cucsIdentMetaSystemFsmTaskRn                                     SnmpAdminString,
+    cucsIdentMetaSystemFsmTaskCompletion                             CucsFsmCompletion,
+    cucsIdentMetaSystemFsmTaskFlags                                  CucsFsmFlags,
+    cucsIdentMetaSystemFsmTaskItem                                   CucsIdentMetaSystemFsmTaskItem,
+    cucsIdentMetaSystemFsmTaskSeqId                                  Gauge32
+}
+
+cucsIdentMetaSystemFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIdentMetaSystemFsmTaskEntry 1 }
+
+cucsIdentMetaSystemFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmTask:dn managed object property"
+    ::= { cucsIdentMetaSystemFsmTaskEntry 2 }
+
+cucsIdentMetaSystemFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmTask:rn managed object property"
+    ::= { cucsIdentMetaSystemFsmTaskEntry 3 }
+
+cucsIdentMetaSystemFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmTask:completion managed
+        object property"
+    ::= { cucsIdentMetaSystemFsmTaskEntry 4 }
+
+cucsIdentMetaSystemFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmTask:flags managed object property"
+    ::= { cucsIdentMetaSystemFsmTaskEntry 5 }
+
+cucsIdentMetaSystemFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsIdentMetaSystemFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmTask:item managed object property"
+    ::= { cucsIdentMetaSystemFsmTaskEntry 6 }
+
+cucsIdentMetaSystemFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaSystemFsmTask:seqId managed object property"
+    ::= { cucsIdentMetaSystemFsmTaskEntry 7 }
+
+cucsIdentMetaVerseTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIdentMetaVerseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ident:MetaVerse managed object table"
+    ::= { cucsIdentObjects 10 }
+
+cucsIdentMetaVerseEntry OBJECT-TYPE
+    SYNTAX           CucsIdentMetaVerseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIdentMetaVerseTable table."
+    INDEX { cucsIdentMetaVerseInstanceId }
+    ::= { cucsIdentMetaVerseTable 1 }
+
+CucsIdentMetaVerseEntry ::= SEQUENCE {
+    cucsIdentMetaVerseInstanceId                                     CucsManagedObjectId,
+    cucsIdentMetaVerseDn                                             CucsManagedObjectDn,
+    cucsIdentMetaVerseRn                                             SnmpAdminString
+}
+
+cucsIdentMetaVerseInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIdentMetaVerseEntry 1 }
+
+cucsIdentMetaVerseDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaVerse:dn managed object property"
+    ::= { cucsIdentMetaVerseEntry 2 }
+
+cucsIdentMetaVerseRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:MetaVerse:rn managed object property"
+    ::= { cucsIdentMetaVerseEntry 3 }
+
+cucsIdentRequestEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIdentRequestEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ident:RequestEp managed object table"
+    ::= { cucsIdentObjects 11 }
+
+cucsIdentRequestEpEntry OBJECT-TYPE
+    SYNTAX           CucsIdentRequestEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIdentRequestEpTable table."
+    INDEX { cucsIdentRequestEpInstanceId }
+    ::= { cucsIdentRequestEpTable 1 }
+
+CucsIdentRequestEpEntry ::= SEQUENCE {
+    cucsIdentRequestEpInstanceId                                     CucsManagedObjectId,
+    cucsIdentRequestEpDn                                             CucsManagedObjectDn,
+    cucsIdentRequestEpRn                                             SnmpAdminString,
+    cucsIdentRequestEpReqDn                                          SnmpAdminString,
+    cucsIdentRequestEpReqId                                          Gauge32
+}
+
+cucsIdentRequestEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIdentRequestEpEntry 1 }
+
+cucsIdentRequestEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:RequestEp:dn managed object property"
+    ::= { cucsIdentRequestEpEntry 2 }
+
+cucsIdentRequestEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:RequestEp:rn managed object property"
+    ::= { cucsIdentRequestEpEntry 3 }
+
+cucsIdentRequestEpReqDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:RequestEp:reqDn managed object property"
+    ::= { cucsIdentRequestEpEntry 4 }
+
+cucsIdentRequestEpReqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:RequestEp:reqId managed object property"
+    ::= { cucsIdentRequestEpEntry 5 }
+
+cucsIdentSysInfoTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIdentSysInfoEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ident:SysInfo managed object table"
+    ::= { cucsIdentObjects 12 }
+
+cucsIdentSysInfoEntry OBJECT-TYPE
+    SYNTAX           CucsIdentSysInfoEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIdentSysInfoTable table."
+    INDEX { cucsIdentSysInfoInstanceId }
+    ::= { cucsIdentSysInfoTable 1 }
+
+CucsIdentSysInfoEntry ::= SEQUENCE {
+    cucsIdentSysInfoInstanceId                                       CucsManagedObjectId,
+    cucsIdentSysInfoDn                                               CucsManagedObjectDn,
+    cucsIdentSysInfoRn                                               SnmpAdminString,
+    cucsIdentSysInfoGeneration                                       Gauge32,
+    cucsIdentSysInfoIsSync                                           TruthValue,
+    cucsIdentSysInfoIsSyncAllowed                                    TruthValue,
+    cucsIdentSysInfoIsFirstSync                                      TruthValue,
+    cucsIdentSysInfoUcscGeneration                                   Gauge32
+}
+
+cucsIdentSysInfoInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIdentSysInfoEntry 1 }
+
+cucsIdentSysInfoDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:SysInfo:dn managed object property"
+    ::= { cucsIdentSysInfoEntry 2 }
+
+cucsIdentSysInfoRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:SysInfo:rn managed object property"
+    ::= { cucsIdentSysInfoEntry 3 }
+
+cucsIdentSysInfoGeneration OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:SysInfo:generation managed object property"
+    ::= { cucsIdentSysInfoEntry 4 }
+
+cucsIdentSysInfoIsSync OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:SysInfo:isSync managed object property"
+    ::= { cucsIdentSysInfoEntry 5 }
+
+cucsIdentSysInfoIsSyncAllowed OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:SysInfo:isSyncAllowed managed object property"
+    ::= { cucsIdentSysInfoEntry 6 }
+
+cucsIdentSysInfoIsFirstSync OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:SysInfo:isFirstSync managed object property"
+    ::= { cucsIdentSysInfoEntry 7 }
+
+cucsIdentSysInfoUcscGeneration OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ident:SysInfo:ucscGeneration managed object property"
+    ::= { cucsIdentSysInfoEntry 8 }
+
+END

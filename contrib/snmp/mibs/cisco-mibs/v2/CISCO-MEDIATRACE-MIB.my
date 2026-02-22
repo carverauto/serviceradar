@@ -1,0 +1,3501 @@
+-- *****************************************************************
+-- CISCO-MEDIATRACE-MIB
+-- Definitions of managed objects describing Mediatrace.
+--   
+-- August 2012, Gaurang Mokashi, Arthur Lin
+--   
+-- Copyright (c) 2012 by cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-MEDIATRACE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Counter64,
+    Gauge32,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    RowStatus,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddress,
+    InetAddressType,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    VlanId
+        FROM Q-BRIDGE-MIB
+    FlowMetricValue
+        FROM CISCO-FLOW-MONITOR-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoMediatraceMIB MODULE-IDENTITY
+    LAST-UPDATED    "201208230000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-mediatrace@cisco.com"
+    DESCRIPTION
+        "Mediatrace helps to isolate and troubleshoot network
+        degradation problems by enabling a network administrator 
+        to discover an Internet Protocol (IP) flow's path, 
+        dynamically enable monitoring capabilities on the nodes 
+        along the path, and collect information on a hop-by-hop basis.  
+        This information includes, among other things, flow 
+        statistics, and utilization information for incoming and 
+        outgoing interfaces, CPUs, and memory, as well as any changes
+        to IP routes.
+
+        This information can be retrieved by configuring Cisco 
+        Mediatrace to start a recurring monitoring session at 
+        a specific time and on specific days.  The session can be 
+        configured to specify which metrics to collect, and how 
+        frequently they are collected.  The hops along the path 
+        are automatically discovered as part of the operation.
+
+        This module defines a MIB for the features of
+        configuring Mediatrace sessions and obtain statistics 
+        data for a particular hop at a specific time.      
+
+        INITIATOR/RESPONDER 
+        ====================
+        At the top level, this MIB module describes the initiator
+        and responder roles for the device.  The scalar objects 
+        corresponding to each role are used to enable and set 
+        parameters like maximum sessions supported, IP address used 
+        for enabling the initiator,etc.  Some of the scalar objects are 
+        used to obtain information about a particular role for the 
+        device.  At a time the device supports a single initiator 
+        and/or single responder.
+
+        The following scalar objects are used for enabling the 
+        initiator,
+
+                  +---------> cMTInitiatorEnable
+                  +---------> cMTInitiatorSourceInterface 
+                  +---------> cMTInitiatorSourceAddressType
+                  +---------> cMTInitiatorSourceAddress
+                  +---------> cMTInitiatorMaxSessions
+
+        In addition to the above objects, the following objects are 
+        used for obtaining information about the initiator role on 
+        the device,
+
+                  +---------> cMTInitiatorSoftwareVersionMajor
+                  +---------> cMTInitiatorSoftwareVersionMinor
+                  +---------> cMTInitiatorProtocolVersionMajor
+                  +---------> cMTInitiatorProtocolVersionMinor
+                  +---------> cMTInitiatorConfiguredSessions
+                  +---------> cMTInitiatorPendingSessions
+                  +---------> cMTInitiatorInactiveSessions
+                  +---------> cMTInitiatorActiveSessions
+
+        The following scalar objects are used for enabling the 
+        responder,
+
+                  +---------> cMTResponderEnable
+                  +---------> cMTResponderMaxSessions
+
+        In addition to the above objects, the following object is used
+        for obtaining information about the responder role on the 
+        device,
+
+                  +---------> cMTResponderActiveSessions
+
+
+        CONTROL TABLES
+        ===============
+        At the next level,  this MIB module describes the entities -
+        path specifier, flow specifier, session params and profile.
+        This section also includes the session and scheduling entities.
+
+        Each row in the cMTSessionTable corresponds to a single
+        session.  The session is a container and hence the path
+        specifier, flow specifier, session params and profile 
+        objects for each session point to the corresponding entities
+        in the cMTPathSpecifierTable, cMTFlowSpecifierTable,
+        cMTSessionParamsTable, cMTMediaMonitorProfileTable and
+        cMTSystemProfileTable tables.
+
+            o cMTPathSpecifierTable - describes path specifiers.
+            o cMTFlowSpecifierTable - describes flow specifiers.
+            o cMTSessionParamsTable - describes session params entities.
+            o cMTMediaMonitorProfileTable - describes media monitor profile.
+            o cMTSystemProfileTable - describes system profiles.
+
+
+        The cMTSessionTable has a sparse dependent relationship with 
+        each of these tables, as there exist situations when data from
+        those tables may not be used for a particular session, 
+        including :
+            1) The session using system profile does not need flow 
+               specifier.
+            2) The session using media monitor profile may not need
+               optional flow specifier.
+            3) The session may only use one of the two profiles, system
+               or media monitor.
+
+
+          o cMTSessionTable - describes sessions.
+          o cMTScheduleTable - describes scheduling entities for
+                                the sessions.
+
+        The cMTScheduleTable has sparse dependent relationship on the 
+        cMTSessionTable, as there exist situations when the a session 
+        is not available for scheduling, including - a session is 
+        created but is not yet scheduled.
+
+                                           +----------------------+
+                                           | cMTPathSpecifierTable|
+                                           |                      |
+                                       +-----------------------------+
+                                       | cMTPathSpecifierName = ps1  |
+                                       +-----------------------------+
+                                           |                      | 
+                                       +-----------------------------+
+                                       | cMTPathSpecifierName = ps2  |
+                                       +-----------------------------+
+                                           :                      :
+                                           :                      :
+                                       +-----------------------------+
+                                       | cMTPathSpecifierName = ps6  |
+                                       +-----------------------------+
+                                           |                      | 
+                                           +----------------------+
+
+
+                                           +----------------------+
+                                           | cMTFlowSpecifierTable|
+                                           |                      | 
+                                       +-----------------------------+
+                                       | cMTFlowSpecifierName = fs1  |
+                                       +-----------------------------+
+                                           |                      | 
+                                       +-----------------------------+
+                                       | cMTFlowSpecifierName = fs2  |
+                                       +-----------------------------+
+                                           :                      :
+                                           :                      :
+                                       +-----------------------------+
+                                       | cMTFlowSpecifierName = fs6  |
+                                       +-----------------------------+
+                                           |                      | 
+                                           +----------------------+
+
+
+        +-------------------------+              +----------------------+
+        |   cMTSessionTable       |              | cMTSessionParamsTable|
+        |                         |              |                      | 
+        +-------------------------------------+  +--------------------------+
+        | cMTSessionNumber = 1                |  |cMTSessionParamsName = sp1|
+        | +---------------------------------+ |  +--------------------------+
+        | |cMTSessionPathSpecifierName = ps1| |    |                      | 
+        | +---------------------------------+ |  +--------------------------+
+        |                                     |  |cMTSessionParamsName = sp2|  
+        | +---------------------------------+ |  +--------------------------+
+        | |cMTSessionParamName = sp1        | |    :                       :
+        | +---------------------------------+ |    :                       :
+        |                                     |  +--------------------------+
+        | +---------------------------------+ |  |cMTSessionParamsName = sp5|
+        | |cMTSessionProfileName = rtp1     | |  +--------------------------+
+        | +---------------------------------+ |    |                       |
+        |                                     |    +-----------------------+
+        | +---------------------------------+ |
+        | |cMTSessionFlowSpecifierName = fs1| |
+        | +---------------------------------+ |
+        |                                     | 
+        | +---------------------------------+ |
+        | |cMTSessionTraceRouteEnabled = T  | |
+        | +---------------------------------+ |
+        |                                     | 
+        +-------------------------------------+
+        |                         |
+        |                         |              
+        +-------------------------------------+
+        | cMTSessionNumber = 2                |   
+        | +---------------------------------+ |  +---------------------------+
+        | |cMTSessionPathSpecifierName = ps2| |  |cMTMediaMonitorProfileTable|
+        | +---------------------------------+ |  |                           |
+        |                                     | +-----------------------------+  
+        | +---------------------------------+ | |cMTMediaMonitorProfileName   | 
+        | |cMTSessionParamName = sp5        | | |                   =rtp1     |
+        | +---------------------------------+ | +-----------------------------+ 
+        |                                     |  |                           | 
+        | +---------------------------------+ | +-----------------------------+
+        | |cMTSessionProfileName = intf1    | | |cMTMediaMonitorProfileName   |
+        | +---------------------------------+ | |                   =rtp1     |
+        |                                     | +-----------------------------+ 
+        | +---------------------------------+ |  :                           :
+        | |cMTSessionTraceRouteEnabled = T  | |  :                           :
+        | +---------------------------------+ | +-----------------------------+  
+        |                                     | |cMTMediaMonitorProfileName   | 
+        +-------------------------------------+ |                   =tcp1     |
+        :                        :              +-----------------------------+
+        :                        :               |                           |
+        +-------------------------------------+  +---------------------------+
+        | cMTSessionNumber = 10               |   
+        | +---------------------------------+ |
+        | |cMTSessionPathSpecifierName = ps1| |
+        | +---------------------------------+ |
+        |                                     |  
+        | +---------------------------------+ |
+        | |cMTSessionParamName = sp1        | |
+        | +---------------------------------+ |
+        |                                     | 
+        | +---------------------------------+ |
+        | |cMTSessionProfileName = tcp1     | |
+        | +---------------------------------+ |
+        |                                     | 
+        | +---------------------------------+ |
+        | |cMTSessionTraceRouteEnabled = T  | |
+        | +---------------------------------+ |
+        |                                     | 
+        +-------------------------------------+
+        |                         |
+        |                         |
+        +-------------------------+  
+                                           +----------------------+
+                                           | cMTSystemProfileTable|
+                                           |                      | 
+                                       +-----------------------------+
+                                       | cMTSystemProfileName = intf1|
+                                       +-----------------------------+
+                                           |                      | 
+                                       +-----------------------------+
+                                       | cMTSystemProfileName = cpu1 |
+                                       +-----------------------------+
+                                           :                      :
+                                           :                      :
+                                       +-----------------------------+
+                                       | cMTSystemProfileName = intf2|
+                                       +-----------------------------+
+                                           |                      | 
+                                           +----------------------+
+
+
+        DEFINITIONS
+        ===============
+
+        Mediatrace Initiator -
+                   This is the entity that supports creation of 
+                   periodic sessions using global session id.  
+                   Initiator can send request, collects the 
+                   responses to those request and processes 
+                   them for reporting.  
+                   Henceforth, it will be referred as initiator.    
+
+        Mediatrace Responder -
+                   This is the entity that queries local database and 
+                   features to obtain information based on the request
+                   sent by the Initiator as part of a session.  
+                   The collected information is sent as response to 
+                   the initiator to match the session.  Henceforth, 
+                   it will be referred as responder.
+
+        Meta-data -
+                   Meta information about the flow not contained 
+                   in the data packet.  Examples of such information 
+                   are global session id, multi party session id, 
+                   type of application that is generating this flow 
+                   e.g., telepresence.  
+
+        Meta-data global session identifier - 
+                   it is one of the meta-data attributes which uniquely
+                   identifies a flow globally and is used to query the
+                   meta-data database for obtaining the corresponding
+                   5-tuple (destination address, destination port, 
+                   source address, source port and IP protocol) for 
+                   path specifier or flow specifier.
+
+        Path -
+                   This specifies the route taken by the Mediatrace
+                   request for a particular session.  This can be 
+                   specified in terms of single or multiple 5-tuple 
+                   parameters - destination address, destination port, 
+                   source address, source port and IP protocol.  
+                   Gateway address and VLAN are required in cases 
+                   where the path starts from network element without 
+                   IP address.  This is specified using path specifier 
+                   entity.
+
+        Path Specifier -                     
+                   The path specifier is generally specified using 
+                   complete or partial 5-tuple (destination address, 
+                   destination port, source address, source port and 
+                   IP protocol) for Layer 3 initiator.  Gateway and
+                   VLAN ID are required for a Layer 2 initiator.  It 
+                   can also use the meta-data Global session Id to
+                   specify the 5-tuple.
+
+                   A single row corresponds to a path specifier which 
+                   is created or destroyed when a path specifier is 
+                   added or removed.  Each path specifier entry is 
+                   uniquely identified by cMTPathSpecifierName.
+
+            Examples of a path specifier are as follows, 
+
+            path-specifier (ps1)+-------> destination address (10.10.10.2)
+                                +-------> destination port (12344)
+                                +-------> source address (10.10.12.2)
+                                +-------> source port (12567)
+                                +-------> IP protocol (UDP)
+                                +-------> gateway (10.10.11.2)
+                                +-------> VLAN ID (601)
+
+            path-specifier (ps2)+-------> meta-data global identifier 
+                                          (345123456)
+
+        Flow -    
+                   A unidirectional stream of packets conforming to
+                   a classifier.  For example, packets having a 
+                   particular source IP address, destination IP
+                   address, protocol type, source port number, 
+                   and destination port number.  This is 
+                   specified using a flow specifier entity.
+
+        Flow Specifier -                     
+                   The flow specifier is generally specified using 
+                   complete or partial 5-tuple (destination address, 
+                   destination port, source address, source port and 
+                   IP protocol).  It can also use the meta-data Global
+                   session Id to specify the 5-tuple.
+
+                   A single row corresponds to a flow specifier which 
+                   is created or destroyed when a flow specifier is 
+                   added or removed.  Each flow specifier entry is 
+                   uniquely identified by cMTFlowSpecifierName.
+
+            Examples of a flow specifier is as follows,
+
+            flow-specifier (fs1)+-------> destination address(10.11.10.2)
+                                +-------> destination port (12344)
+                                +-------> source address (10.11.12.2)
+                                +-------> source port (12567)
+                                +-------> IP protocol (UDP)
+
+            flow-specifier (fs2)+-------> meta-data global identifier 
+                                          (345123456)
+
+        Metric -   
+                   It defines a measurement that reflects the quality 
+                   of a traffic flow or a resource on a hop or along 
+                   the path e.g.  number of packets for a flow, memory 
+                   utilization on a hop, number of dropped packets on 
+                   an interface, etc.  
+
+        Metric-list - 
+                   It defines logical grouping of related metrics e.g.
+                   Metric-list CPU has 1% and 2% CPU utilization 
+                   metric, Metric-list interface has ingress interface 
+                   speed, egress interface speed, etc.
+
+        Profile -
+                   It defines the set of metric-lists to be collected 
+                   from the devices along the path.  It can also 
+                   include additional parameters which are required for 
+                   collecting the metric e.g., sampling interval (also 
+                   referred as monitor interval), etc.  A Profile can 
+                   include a set of related metric-lists along with 
+                   related configuration parameters.  The metrics 
+                   could be the media monitoring (also referred as 
+                   performance monitoring) metrics such as jitter, 
+                   packet loss, bit rate etc., or system resource 
+                   utilization metrics or interface counters.  Two 
+                   profiles, System profile and Media Monitoring 
+                   (Performance Monitoring) Profile are supported.
+
+             The different profiles, metric-lists and metrics are 
+             listed below,
+
+        +-----> Profile +---> Metric-list +--------> one min CPU utilization
+        |       System  |         CPU     |          
+        |               |                 +--------> five min CPU utilization
+        |               |                            
+        |               +---> Metric-list +-----> memory utilization Memory
+        |               |            
+        |               +---> Metric-list +------> octets input at ingress
+        |                      Interface  |        
+        |                                 +------> octets output at egress
+        |                                 |------> packets received  with error
+        |                                 |        at ingress
+        |                                 +------> packets with error at egress
+        |                                 +------> packets discarded at ingress
+        |                                 +------> packets discarded at egress
+        |                                 +------> ingress interface speed
+        |                                 +------> egress interface speed
+        |
+        +--> Profile  +--> Metric-list +--> Common +--> loss of 
+        Media Monitor |     TCP        |      IP   |    measurement confidence
+                      |                |   metrics |    
+                      |                |           +--> media stop event occurred
+                      |                |           +--> IP packet drop count
+                      |                |           +--> IP byte count
+                      |                |           +--> IP byte rate
+                      |                |           +--> IP DSCP
+                      |                |           +--> IP TTL
+                      |                |           +--> IP protocol
+                      |                |           +---> media byte
+                      |                |                   count
+                      |                |           
+                      |                +--> TCP    +--> TCP connect round trip
+                      |                   specific |    delay
+                      |                    metrics |    
+                      |                            +--> TCP lost event count
+                      |                                 
+                      +--> Metric-list +--> Common +--> loss of measurement
+                            RTP        |      IP   |    confidence
+                                       |   metrics |    
+                                       |           +--> media stop event occurred
+                                       |           +--> IP packet drop count
+                                       |           +--> IP byte count
+                                       |           +--> IP byte rate
+                                       |           +--> IP DSCP
+                                       |           +--> IP TTL
+                                       |           +--> IP protocol
+                                       |           +---> media byte count
+                                       |           
+                                       +--> RTP    +--> RTP inter arrival jitter
+                                          specific |    delay 
+                                          metrics  |    
+                                                   +--> RTP packets lost
+                                                   +--> RTP packets expected
+                                                   +--> RTP packets lost event
+                                                   |    count
+                                                   +---> RTP loss percent
+
+             Examples of the profiles are as follows,
+
+             profile system - metric-list interface (sys1)
+
+             profile media-monitor - metric-list rtp (rtp1)
+                                   +-------> monitor interval  
+                                             (60 seconds)
+
+         Session parameter Profile -
+                   These correspond to the various parameters related 
+                   to session such as frequency of data collection,
+                   timeout for request, etc.  These are specified 
+                   using the session params entity.
+
+                   This is the entity that executes via a conceptual 
+                   session/schedule control row and populates a 
+                   conceptual statistics row.
+
+             Example session parameter profile is as follows,
+
+             Session-params (sp1)+-------> response timeout (10 seconds)
+                                 +-------> frequency (60 seconds)
+                                 +-------> history data sets (2)
+                                 +-------> route change reaction time (10 seconds) 
+                                 +-------> inactivity timeout (180 seconds)
+
+         Session -
+                   The session is a grouping of various configurable 
+                   entities such as profiles, session parameters and 
+                   path specifiers.  Flow specifier is optional and
+                   required for media monitor profile only.  Once 
+                   these parameters for a mediatrace session are 
+                   defined through these entities, they are combined
+                   into a mediatrace session.
+
+             Example of sessions are as follows,
+
+             session (1) +--------> path-specifier (ps1)
+                         +--------> session-params (sp1)
+                         +--------> profile system (sys1) metric-list interface
+
+
+             session (2) +--------> path-specifier (ps1)
+                         +--------> session-params (sp2)
+                         +--------> profile media-monitor (rtp1)
+                         |              metric-list rtp
+                         +--------> flow-specifier (fs1)
+
+
+         A session cycles through various states in its lifetime. 
+         The different states are,
+
+             Active state : 
+                   A session is said to be in active state 
+                   when it is requesting and collecting data from
+                   the responders.
+
+             Inactive state : 
+                   A session becomes inactive when it is either stopped 
+                   by unscheduling or life expires. In this state it 
+                   will no longer collect or request data. 
+
+             Pending state: 
+                   A session is in pending state when the session is 
+                   created but not yet scheduled to be active. 
+                   Based on the state and history of a session it can 
+                   be classified as configured or scheduled session.
+
+             Configured session :  
+                   A session which is created and is in pending or 
+                   inactive state is called a configured session. 
+                   It can also be a newly created session which has 
+                   not been scheduled (made active) yet.
+
+             Scheduled session : 
+                   A session which is in active state or pending state 
+                   which is already requesting and collecting data or 
+                   has set a time in future to start requesting or 
+                   collecting data.
+
+             Responder: 
+                   The responder is in active state when it is able to 
+                   process the requests from the initiator, collect the 
+                   data locally and send the Response back to the 
+                   initiator. 
+
+             Reachability Address: 
+                   It is the address of the interface on a responder 
+                   which is used to send the response to the initiator.
+
+         Statistics row -
+                   This conceptual row is indexed based on the session
+                   index, session life index, bucket number and hop 
+                   information (Hop address type and Hop address).
+                   This identifies the statistics for a particular 
+                   session with specific life, at a particular 
+                   time and for a specific hop."
+    REVISION        "201208230000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 800 }
+
+
+
+-- Textual Conventions definition will be defined before this line
+
+CiscoNTPTimeStamp ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "4d.4d"
+    STATUS          current
+    DESCRIPTION
+        "CiscoNTP timestamps are represented as a 64-bit
+        unsigned fixed-point number, in seconds relative to
+        00:00 on 1 January 1900.  The integer part is in the
+        first 32 bits and the fraction part is in the last
+        32 bits."
+
+    REFERENCE
+        "D.L. Mills, 'Network Time Protocol (Version 3)',
+        RFC-1305, March 1992, Section 3.1"
+    SYNTAX          OCTET STRING (SIZE (8))
+
+CiscoMediatraceSupportProtocol ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Represents different types of layer 3 protocols supported by
+        by Mediatrace for path and flow specification.  Currently
+        two protocols - TCP and UDP are supported."
+    SYNTAX          INTEGER  {
+                        tcp(6),
+                        udp(17)
+                    }
+
+CiscoMediatraceDiscoveryProtocol ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Represents different types of protocols used by Mediatrace to
+        discover the path based on the path specifier."
+    SYNTAX          INTEGER  {
+                        rsvp(46)
+                    }
+ciscoMediatraceMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoMediatraceMIB 0 }
+
+ciscoMediatraceMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoMediatraceMIB 1 }
+
+ciscoMediatraceMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoMediatraceMIB 2 }
+
+cMTCtrl  OBJECT IDENTIFIER
+    ::= { ciscoMediatraceMIBObjects 1 }
+
+cMTStats  OBJECT IDENTIFIER
+    ::= { ciscoMediatraceMIBObjects 2 }
+
+
+cMTInitiatorEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the whether the Mediatrace initiator
+        is enabled on the network element." 
+    ::= { cMTCtrl 2 }
+
+cMTInitiatorSourceInterface OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interface whose IP or IPv6
+        address will be used as initiator address.  The Initiator 
+        address is used by layer 2 mediatrace responder to unicast 
+        the response message to initiator.  This address is also 
+        reachability address for mediatrace hop 0.  The value of 
+        this object should be set to ifIndex value of the desired 
+        interface from the ifTable." 
+    ::= { cMTCtrl 3 }
+
+cMTInitiatorSourceAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Address type (IP or IPv6) of the initiator address
+        specified in cMTInitiatorSourceAddress object.  The value 
+        should be set to unknown (0) if source interface object 
+        is non zero." 
+    ::= { cMTCtrl 4 }
+
+cMTInitiatorSourceAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address used by the initiator
+        when obtaining the reachability address from a downstream 
+        responder." 
+    ::= { cMTCtrl 5 }
+
+cMTInitiatorMaxSessions OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum number of mediatrace
+        sessions that can be active simultaneously on the initiator." 
+    ::= { cMTCtrl 6 }
+
+cMTInitiatorSoftwareVersionMajor OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the major version number of Mediatrace
+        application." 
+    ::= { cMTCtrl 7 }
+
+cMTInitiatorSoftwareVersionMinor OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the minor version number of Mediatrace
+        application." 
+    ::= { cMTCtrl 8 }
+
+cMTInitiatorProtocolVersionMajor OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the major version number of Mediatrace
+        protocol." 
+    ::= { cMTCtrl 9 }
+
+cMTInitiatorProtocolVersionMinor OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the minor version number of Mediatrace
+        protocol." 
+    ::= { cMTCtrl 10 }
+
+cMTInitiatorConfiguredSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates number of mediatrace sessions configured.
+        The session may or may not be active." 
+    ::= { cMTCtrl 11 }
+
+cMTInitiatorPendingSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current number of sessions in pending
+        state on the initiator." 
+    ::= { cMTCtrl 12 }
+
+cMTInitiatorInactiveSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current number of sessions in
+        inactive state on the initiator." 
+    ::= { cMTCtrl 13 }
+
+cMTInitiatorActiveSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current number of sessions in
+        active state on the initiator." 
+    ::= { cMTCtrl 14 }
+
+cMTResponderEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the whether the Mediatrace responder
+        is enabled.
+
+        If set to 'true' the responder will be enabled.  If set to 
+        false then mediatrace responder process will be stopped and
+        the device will no longer be discovered as mediatrace capable 
+        hop along the flow path." 
+    ::= { cMTCtrl 15 }
+
+cMTResponderMaxSessions OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum number of sessions that
+        a responder can accept from initiator." 
+    ::= { cMTCtrl 16 }
+
+cMTResponderActiveSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current number of sessions that are
+        in active state on the responder." 
+    ::= { cMTCtrl 17 }
+
+cMTFlowSpecifierTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTFlowSpecifierEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the flow specifiers contained by the device."
+    ::= { cMTCtrl 18 }
+
+cMTFlowSpecifierEntry OBJECT-TYPE
+    SYNTAX          CMTFlowSpecifierEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry represents a flow specifier which can be
+        associated with a Mediatrace session contained by the 
+        cMTSessionTable.
+
+        Each entry is uniquely identified by name specified 
+        by cMTFlowSpecifierName object.  A row created in this 
+        table will be shown in 'show running' command and it 
+        will not be saved into non-volatile memory."
+    INDEX           { cMTFlowSpecifierName } 
+    ::= { cMTFlowSpecifierTable 1 }
+
+CMTFlowSpecifierEntry ::= SEQUENCE {
+        cMTFlowSpecifierName             SnmpAdminString,
+        cMTFlowSpecifierRowStatus        RowStatus,
+        cMTFlowSpecifierMetadataGlobalId SnmpAdminString,
+        cMTFlowSpecifierDestAddrType     InetAddressType,
+        cMTFlowSpecifierDestAddr         InetAddress,
+        cMTFlowSpecifierDestPort         InetPortNumber,
+        cMTFlowSpecifierSourceAddrType   InetAddressType,
+        cMTFlowSpecifierSourceAddr       InetAddress,
+        cMTFlowSpecifierSourcePort       InetPortNumber,
+        cMTFlowSpecifierIpProtocol       CiscoMediatraceSupportProtocol
+}
+
+cMTFlowSpecifierName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique identifier for the flow specifier." 
+    ::= { cMTFlowSpecifierEntry 1 }
+
+cMTFlowSpecifierRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the flow specifier.
+        Only CreateAndGo and active status is supported.  The 
+        following columns must be valid before activating the 
+        flow specifier: 
+
+        - cMTFlowSpecifierDestAddrType and cMTFlowSpecifierDestAddr OR
+        - cMTFlowSpecifierMetadataGlobalId
+
+        All other objects can assume default values.
+
+        Once the flow specifier is activated no column can be modified.
+
+        Setting this object to 'delete' will destroy the flow specifier.
+        The flow specifier can be deleted only if it is not attached to 
+        any session." 
+    ::= { cMTFlowSpecifierEntry 2 }
+
+cMTFlowSpecifierMetadataGlobalId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the meta-data Global ID of the
+        flow specifier.  Maximum of 24 characters can be
+        specified for this field." 
+    ::= { cMTFlowSpecifierEntry 3 }
+
+cMTFlowSpecifierDestAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of IP address specified by
+        the corresponding instance of cMTFlowSpecifierDestAddr." 
+    ::= { cMTFlowSpecifierEntry 4 }
+
+cMTFlowSpecifierDestAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Address of the destination of the flow to be monitored." 
+    ::= { cMTFlowSpecifierEntry 5 }
+
+cMTFlowSpecifierDestPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the destination port for the flow." 
+    ::= { cMTFlowSpecifierEntry 6 }
+
+cMTFlowSpecifierSourceAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of IP address specified by
+        the corresponding instance of cMTFlowSpecifierSourceAddr." 
+    ::= { cMTFlowSpecifierEntry 7 }
+
+cMTFlowSpecifierSourceAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the source address for the
+        flow to be monitored." 
+    ::= { cMTFlowSpecifierEntry 8 }
+
+cMTFlowSpecifierSourcePort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the source port for the flow." 
+    ::= { cMTFlowSpecifierEntry 9 }
+
+cMTFlowSpecifierIpProtocol OBJECT-TYPE
+    SYNTAX          CiscoMediatraceSupportProtocol
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is transport protocol type for the flow.  Flow of this
+        type between specified source and and destination will be 
+        monitored."
+    DEFVAL          { udp } 
+    ::= { cMTFlowSpecifierEntry 10 }
+ 
+
+
+cMTPathSpecifierTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTPathSpecifierEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the path specifiers contained by the device."
+    ::= { cMTCtrl 19 }
+
+cMTPathSpecifierEntry OBJECT-TYPE
+    SYNTAX          CMTPathSpecifierEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry defines path specifier that can be used in
+        mediatrace session.  
+
+        Each entry is uniquely identified by name specified 
+        by cMTPathSpecifierName object.  A row created in this 
+        table will be shown in 'show running' command and it will 
+        not be saved into non-volatile memory."
+    INDEX           { cMTPathSpecifierName } 
+    ::= { cMTPathSpecifierTable 1 }
+
+CMTPathSpecifierEntry ::= SEQUENCE {
+        cMTPathSpecifierName                 SnmpAdminString,
+        cMTPathSpecifierRowStatus            RowStatus,
+        cMTPathSpecifierMetadataGlobalId     SnmpAdminString,
+        cMTPathSpecifierDestAddrType         InetAddressType,
+        cMTPathSpecifierDestAddr             InetAddress,
+        cMTPathSpecifierDestPort             InetPortNumber,
+        cMTPathSpecifierSourceAddrType       InetAddressType,
+        cMTPathSpecifierSourceAddr           InetAddress,
+        cMTPathSpecifierSourcePort           InetPortNumber,
+        cMTPathSpecifierProtocolForDiscovery CiscoMediatraceDiscoveryProtocol,
+        cMTPathSpecifierGatewayAddrType      InetAddressType,
+        cMTPathSpecifierGatewayAddr          InetAddress,
+        cMTPathSpecifierGatewayVlanId        VlanId,
+        cMTPathSpecifierIpProtocol           CiscoMediatraceSupportProtocol
+}
+
+cMTPathSpecifierName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique identifier for the path specifier." 
+    ::= { cMTPathSpecifierEntry 1 }
+
+cMTPathSpecifierRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the path specifier.
+        Only CreateAndGo and active status is supported.  The 
+        following columns must be valid before activating the 
+        path specifier: 
+
+        - cMTPathSpecifierDestAddrType and cMTPathSpecifierDestAddr OR
+        - cMTPathSpecifierMetadataGlobalId
+
+        All other objects can assume default values.
+
+        Once the path specifier is activated no column can be modified.
+
+        Setting this object to 'delete' will destroy the path specifier.
+        The path specifier can be deleted only if it is not attached to 
+        any session." 
+    ::= { cMTPathSpecifierEntry 2 }
+
+cMTPathSpecifierMetadataGlobalId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Metadata global session id can be used as path specifier.
+        This object should be populated when this is desired.  
+        Mediatrace software will query the Metadata database for 
+        five tuple to be used for establishing the path." 
+    ::= { cMTPathSpecifierEntry 3 }
+
+cMTPathSpecifierDestAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of IP address specified by
+        the corresponding instance of cMTPathSpecifierDestAddr." 
+    ::= { cMTPathSpecifierEntry 4 }
+
+cMTPathSpecifierDestAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the destination address for
+        the path specifier." 
+    ::= { cMTPathSpecifierEntry 5 }
+
+cMTPathSpecifierDestPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the destination port for the
+        path specifier." 
+    ::= { cMTPathSpecifierEntry 6 }
+
+cMTPathSpecifierSourceAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of IP address specified by
+        the corresponding instance of cMTFlowSpecifierSourceAddr." 
+    ::= { cMTPathSpecifierEntry 7 }
+
+cMTPathSpecifierSourceAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the source address for the
+        path specifier." 
+    ::= { cMTPathSpecifierEntry 8 }
+
+cMTPathSpecifierSourcePort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the source port for the path
+        specifier." 
+    ::= { cMTPathSpecifierEntry 9 }
+
+cMTPathSpecifierProtocolForDiscovery OBJECT-TYPE
+    SYNTAX          CiscoMediatraceDiscoveryProtocol
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the protocol used for path discovery
+        on Mediatrace.  Currently, only RSVP is used by default."
+    DEFVAL          { rsvp } 
+    ::= { cMTPathSpecifierEntry 10 }
+
+cMTPathSpecifierGatewayAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of IP address specified by
+        the corresponding instance of cMTPathSpecifierGatewayAddr." 
+    ::= { cMTPathSpecifierEntry 11 }
+
+cMTPathSpecifierGatewayAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "When the mediatrace session is originated on layer-2 switch
+        the address of gateway is required to establish the session.  
+        This object specifies address of this gateway." 
+    ::= { cMTPathSpecifierEntry 12 }
+
+cMTPathSpecifierGatewayVlanId OBJECT-TYPE
+    SYNTAX          VlanId (1..4094)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Vlan ID associated with the gateway
+        for path specifier." 
+    ::= { cMTPathSpecifierEntry 13 }
+
+cMTPathSpecifierIpProtocol OBJECT-TYPE
+    SYNTAX          CiscoMediatraceSupportProtocol
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies which metrics are monitored for a
+        path specifier.  Currently, only TCP and UDP are
+        supported."
+    DEFVAL          { udp } 
+    ::= { cMTPathSpecifierEntry 14 }
+ 
+
+
+cMTSessionParamsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTSessionParamsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is collection of session parameter profiles."
+    ::= { cMTCtrl 20 }
+
+cMTSessionParamsEntry OBJECT-TYPE
+    SYNTAX          CMTSessionParamsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry represents session parameters that can be associated
+        with a Mediatrace session contained by the cMTSessionTable.
+
+        Each entry is uniquely identified by name specified 
+        by cMTSessionParamsName object.  A row created in this 
+        table will be shown in 'show running' command and it will 
+        not be saved into non-volatile memory."
+    INDEX           { cMTSessionParamsName } 
+    ::= { cMTSessionParamsTable 1 }
+
+CMTSessionParamsEntry ::= SEQUENCE {
+        cMTSessionParamsName                    SnmpAdminString,
+        cMTSessionParamsRowStatus               RowStatus,
+        cMTSessionParamsResponseTimeout         Unsigned32,
+        cMTSessionParamsFrequency               Unsigned32,
+        cMTSessionParamsInactivityTimeout       Unsigned32,
+        cMTSessionParamsHistoryBuckets          Unsigned32,
+        cMTSessionParamsRouteChangeReactiontime Unsigned32
+}
+
+cMTSessionParamsName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of this set of session
+        parameters." 
+    ::= { cMTSessionParamsEntry 1 }
+
+cMTSessionParamsRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the session parameters.
+        Only CreateAndGo and active status is supported.  
+
+        In order for this object to become active cMTSessionParamsName 
+        must be defined. The value of cMTSessionParamsInactivityTimeout 
+        needs to be at least 3 times of the value of 
+        cMTSessionParamsFrequency. All other objects assume the default 
+        value.
+
+        Once the session parameters is activated no column can be 
+        modified.
+
+        Setting this object to 'delete' will destroy the session 
+        parameters. The session parameters can be deleted only if 
+        it is not attached to any session." 
+    ::= { cMTSessionParamsEntry 2 }
+
+cMTSessionParamsResponseTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the amount of time a session
+        should wait for the responses after sending out a 
+        Mediatrace request.  The initiator will discard any 
+        responses to a particular request after this timeout." 
+    ::= { cMTSessionParamsEntry 3 }
+
+cMTSessionParamsFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32 (10..3600)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Duration between two successive data fetch requests."
+    DEFVAL          { 120 } 
+    ::= { cMTSessionParamsEntry 4 }
+
+cMTSessionParamsInactivityTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..10800)
+    UNITS           "sconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval that the responder
+        wait without any requests from the initiator before
+        removing a particular session.  
+
+        The inactivity timeout needs to be at least 3 times of 
+        the session frequency." 
+    ::= { cMTSessionParamsEntry 5 }
+
+cMTSessionParamsHistoryBuckets OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..10)
+    UNITS           "buckets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of buckets of statistics
+        retained.  Each bucket will contain complete set of metrics 
+        collected for all hops in one iteration."
+    DEFVAL          { 3 } 
+    ::= { cMTSessionParamsEntry 6 }
+
+cMTSessionParamsRouteChangeReactiontime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..60)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the amount of time the initiator should
+        wait after receiving the first route change, before reacting to
+        further route change notifications.  Range is from 0 to 60." 
+    ::= { cMTSessionParamsEntry 7 }
+ 
+
+
+cMTMediaMonitorProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTMediaMonitorProfileEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the media monitor profiles configured on the
+        device."
+    ::= { cMTCtrl 21 }
+
+cMTMediaMonitorProfileEntry OBJECT-TYPE
+    SYNTAX          CMTMediaMonitorProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry represents a media monitor profile that can be
+        associated with a Mediatrace session contained by the 
+        cMTSessionTable.
+
+        The entry is uniquely identified by cMTMediaMonitorProfileName.
+        A row created in this table will be shown in 'show running' 
+        command and it will not be saved into non-volatile memory."
+    INDEX           { cMTMediaMonitorProfileName } 
+    ::= { cMTMediaMonitorProfileTable 1 }
+
+CMTMediaMonitorProfileEntry ::= SEQUENCE {
+        cMTMediaMonitorProfileName                 SnmpAdminString,
+        cMTMediaMonitorProfileRowStatus            RowStatus,
+        cMTMediaMonitorProfileMetric               INTEGER,
+        cMTMediaMonitorProfileInterval             Unsigned32,
+        cMTMediaMonitorProfileRtpMaxDropout        Unsigned32,
+        cMTMediaMonitorProfileRtpMaxReorder        Unsigned32,
+        cMTMediaMonitorProfileRtpMinimalSequential Unsigned32
+}
+
+cMTMediaMonitorProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the Mediatrace media monitor
+        profile." 
+    ::= { cMTMediaMonitorProfileEntry 1 }
+
+cMTMediaMonitorProfileRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the media monitor profile.
+        Only CreateAndGo and active status is supported.  
+
+        In order for this object to become active cMTMediaMonitorProfileName 
+        must be defined. All other objects assume the default value.
+
+        Once the media monitor profile is activated no column can be 
+        modified.
+
+        Setting this object to 'delete' will destroy the media monitor.
+        The media monitor profile can be deleted only if it is not 
+        attached to any session." 
+    ::= { cMTMediaMonitorProfileEntry 2 }
+
+cMTMediaMonitorProfileMetric OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        rtp(1),
+                        tcp(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of metrics group to be
+        collected in addition to basic IP metrics.  Specify value 
+        as RTP if metrics from 'Metric-List RTP' are desired 
+        and 'TCP' if metrics in 'Metric-List TCP' is desired." 
+    ::= { cMTMediaMonitorProfileEntry 3 }
+
+cMTMediaMonitorProfileInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (10..120)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the sampling interval for the media
+        monitor profile." 
+    ::= { cMTMediaMonitorProfileEntry 4 }
+
+cMTMediaMonitorProfileRtpMaxDropout OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..20)
+    UNITS           "packets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum number of dropouts allowed
+        when sampling RTP monitoring metrics."
+    DEFVAL          { 10 } 
+    ::= { cMTMediaMonitorProfileEntry 5 }
+
+cMTMediaMonitorProfileRtpMaxReorder OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..20)
+    UNITS           "packets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum number of reorders allowed
+        when sampling RTP monitoring metrics."
+    DEFVAL          { 5 } 
+    ::= { cMTMediaMonitorProfileEntry 6 }
+
+cMTMediaMonitorProfileRtpMinimalSequential OBJECT-TYPE
+    SYNTAX          Unsigned32 (2..10)
+    UNITS           "packets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum number of sequental packets
+        required to identify a stream as being an RTP flow." 
+    ::= { cMTMediaMonitorProfileEntry 7 }
+ 
+
+
+cMTSystemProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTSystemProfileEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the system profiles configured on the
+        device."
+    ::= { cMTCtrl 22 }
+
+cMTSystemProfileEntry OBJECT-TYPE
+    SYNTAX          CMTSystemProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry represents a system profile that can be associated
+        with a Mediatrace session contained by the cMTSessionTable.
+
+        Each entry is uniquely identified by name specified 
+        by cMTSystemProfileName object.  A row created in this 
+        table will be shown in 'show running' command and it will 
+        not be saved into non-volatile memory."
+    INDEX           { cMTSystemProfileName } 
+    ::= { cMTSystemProfileTable 1 }
+
+CMTSystemProfileEntry ::= SEQUENCE {
+        cMTSystemProfileName      SnmpAdminString,
+        cMTSystemProfileRowStatus RowStatus,
+        cMTSystemProfileMetric    INTEGER
+}
+
+cMTSystemProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the Mediatrace system
+        profile." 
+    ::= { cMTSystemProfileEntry 1 }
+
+cMTSystemProfileRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the system profile.
+        Only CreateAndGo and active status is supported.  
+
+        In order for this object to become active cMTSystemProfileName 
+        must be defined. All other objects assume the default value.
+
+        Once the system profile is activated no column can be 
+        modified.
+
+        Setting this object to 'delete' will destroy the system 
+        profile.  The system prifile can be deleted only if 
+        it is not attached to any session." 
+    ::= { cMTSystemProfileEntry 2 }
+
+cMTSystemProfileMetric OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        interface(1),
+                        cpu(2),
+                        memory(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of metrics group to be
+        collected in addition to basic IP metrics.  Specify 
+        'interface' if metrics from 'Metric-List-Interface' 
+        are desired.  Specify 'cpu' if metrics in 'Metric-List-CPU' 
+        is desired.  Specify 'memory' if metrics in 
+        'Metric-List-Memory' is desired." 
+    ::= { cMTSystemProfileEntry 3 }
+ 
+
+
+cMTSessionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTSessionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the Mediatrace sessions configured on the
+        device."
+    ::= { cMTCtrl 23 }
+
+cMTSessionEntry OBJECT-TYPE
+    SYNTAX          CMTSessionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of objects that define specific configuration for
+        the session of Mediatrace.
+
+        The entry is uniquely identified by cMTSessionNumber.
+        A row created in this table will be shown in 'show running' 
+        command and it will not be saved into non-volatile memory."
+    REFERENCE       "An entry in cMTSessionTable"
+    INDEX           { cMTSessionNumber } 
+    ::= { cMTSessionTable 1 }
+
+CMTSessionEntry ::= SEQUENCE {
+        cMTSessionNumber            Unsigned32,
+        cMTSessionRowStatus         RowStatus,
+        cMTSessionPathSpecifierName SnmpAdminString,
+        cMTSessionParamName         SnmpAdminString,
+        cMTSessionProfileName       SnmpAdminString,
+        cMTSessionFlowSpecifierName SnmpAdminString,
+        cMTSessionTraceRouteEnabled TruthValue
+}
+
+cMTSessionNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies an arbitrary integer-value that uniquely
+        identifies a Mediatrace session." 
+    ::= { cMTSessionEntry 2 }
+
+cMTSessionRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of Mediatrace session. Only
+        CreateAndGo and active status is supported.  Following columns 
+        must be specified in order to activate the session:
+            - cMTSessionPathSpecifierName
+            - cMTSessionProfileName
+
+        All other objects can assume default values.
+
+        None of the properties of session can be modified once it is in 
+        'active' state.
+
+        Setting the value of 'destroy' for this object will delete the 
+        session.  The session can be deleted only if the corresponding 
+        schedule (row in cMTScheduleTable ) not exist." 
+    ::= { cMTSessionEntry 3 }
+
+cMTSessionPathSpecifierName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the Mediatrace path
+        specifier profile associated with the session." 
+    ::= { cMTSessionEntry 4 }
+
+cMTSessionParamName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of Mediatrace session
+        parameter associated with the session." 
+    ::= { cMTSessionEntry 5 }
+
+cMTSessionProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the Mediatrace metric
+        profile associated with the session." 
+    ::= { cMTSessionEntry 6 }
+
+cMTSessionFlowSpecifierName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the Mediatrace flow
+        specifier profile associated with the session.  Flow 
+        specifier is not required if system profile is attached 
+        to the session.  In this case, media monitor 
+        profile is attached to the session.  Flow specifier is 
+        optional and the 5-tuple from the path-specifier is used 
+        instead." 
+    ::= { cMTSessionEntry 7 }
+
+cMTSessionTraceRouteEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if traceroute is enabled for this
+        session." 
+    ::= { cMTSessionEntry 8 }
+ 
+
+-- Schedule Administration Table
+
+cMTScheduleTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTScheduleEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of Mediatrace scheduling specific definitions.
+        Each entry in this table schedules a cMTSessionEntry 
+        created via the cMTSessionTable object."
+    ::= { cMTCtrl 24 }
+
+cMTScheduleEntry OBJECT-TYPE
+    SYNTAX          CMTScheduleEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of objects that define specific configuration for
+        the scheduling of Mediatrace operations.
+
+        A row is created when a session is scheduled to make it active. 
+        Likewise, a row is destroyed when the session is unscheduled.
+
+        A row created in this table will be shown in 'show running' 
+        command and it will not be saved into non-volatile memory."
+    REFERENCE       "An entry in cMTScheduleTable"
+    INDEX           { cMTSessionNumber } 
+    ::= { cMTScheduleTable 1 }
+
+CMTScheduleEntry ::= SEQUENCE {
+        cMTScheduleRowStatus   RowStatus,
+        cMTScheduleStartTime   TimeStamp,
+        cMTScheduleLife        Unsigned32,
+        cMTScheduleEntryAgeout Unsigned32,
+        cMTScheduleRecurring   TruthValue
+}
+
+cMTScheduleRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This objects specifies the status of Mediatrace session
+        schedule.  Only CreateAndGo and destroy operations are 
+        permitted on the row.
+
+        All objects can assume default values.
+
+        The schedule start time (column cMTScheduleStartTime) must 
+        be specified in order to activate the schedule.  Once 
+        activated none of the properties of the schedule can be 
+        changed.  
+
+        The schedule can be destroyed any time by setting the value 
+        of this object to 'destroy'.  Destroying the schedule will 
+        stop the Mediatrace session but the session will not be 
+        destroyed." 
+    ::= { cMTScheduleEntry 1 }
+
+cMTScheduleStartTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the start time of the scheduled
+        session." 
+    ::= { cMTScheduleEntry 2 }
+
+cMTScheduleLife OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the duration of the session in seconds."
+    DEFVAL          { 3600 } 
+    ::= { cMTScheduleEntry 3 }
+
+cMTScheduleEntryAgeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2073600)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the amount of time after which
+        mediatrace session entry will be removed once the life 
+        of session is over and session is inactive."
+    DEFVAL          { 3600 } 
+    ::= { cMTScheduleEntry 4 }
+
+cMTScheduleRecurring OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the schedule is recurring
+        schedule.  This object can be used when a periodic session 
+        is to be executed everyday at certain time and for certain 
+        life." 
+    ::= { cMTScheduleEntry 5 }
+ 
+
+-- STATS TABLES
+-- ===============
+-- At the next level, this MIB module describes the various
+-- entities which store the data or statistics collected for
+-- each periodic session.  The statistics are distributed across
+-- the various entities based on the level at which they are
+-- collected.
+--   
+-- e.g. In addition to its own statisticcs session can have
+-- statistics for zero or more paths based on request time. Each
+-- path can in turn have one or more hops with each hop might have
+-- its individual statistics.
+--   
+-- +++++++++++++++++++++++++++++++++++
+-- |         Session = 1             |
+-- |       Session id = 45678        |
+-- +++++++++++++++++++++++++++++++++++++++++
+-- |            Bucket = 1                 |
+-- |          Request number = 1           |
+-- |   +++++++++++++++++++++++++++++++++   |
+-- |   |        Path = 1               |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |   | Hop = 1 :             |   |   |
+-- |   |   | metric drop count = 1 |   |   |
+-- |   |   | metric rtt = 10       |   |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |                               |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |   | Hop = 2 :             |   |   |
+-- |   |   | metric drop count = 5 |   |   |
+-- |   |   | metric rtt = 20       |   |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |       :           :           |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |   | Hop = 10 :            |   |   |
+-- |   |   | metric drop count = 3 |   |   |
+-- |   |   |    rtt = 1            |   |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |                               |   |
+-- |   +++++++++++++++++++++++++++++++++   |
+-- |                                       |
+-- +++++++++++++++++++++++++++++++++++++++++
+-- |                                 |
+-- +++++++++++++++++++++++++++++++++++++++++
+-- |            Bucket = 2                 |
+-- |          Request number = 2           |
+-- |   +++++++++++++++++++++++++++++++++   |
+-- |   |        Path = 2               |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |   | Hop = 1 :             |   |   |
+-- |   |   | metric drop count = 5 |   |   |
+-- |   |   | metric rtt = 12       |   |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |                               |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |   | Hop = 2 :             |   |   |
+-- |   |   | metric drop count = 15|   |   |
+-- |   |   | metric rtt = 2        |   |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |       :           :           |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |   | Hop = 10 :            |   |   |
+-- |   |   | metric drop count = 4 |   |   |
+-- |   |   | metric rtt = 8        |   |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |                               |   |
+-- |   +++++++++++++++++++++++++++++++++   |
+-- |                                       |
+-- +++++++++++++++++++++++++++++++++++++++++
+-- :                                :
+-- +++++++++++++++++++++++++++++++++++++++++
+-- |            Bucket = 4                 |
+-- |          Request number = 4           |
+-- |   +++++++++++++++++++++++++++++++++   |
+-- |   |        Path = 4               |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |   | Hop = 1 :             |   |   |
+-- |   |   | metric drop count = 15|   |   |
+-- |   |   | metric rtt = 12       |   |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |                               |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |   | Hop = 2 :             |   |   |
+-- |   |   | metric drop count = 9 |   |   |
+-- |   |   | metric rtt = 12       |   |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |       :           :           |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |   | Hop = 10 :            |   |   |
+-- |   |   | metric drop count = 12|   |   |
+-- |   |   | metric rtt = 10       |   |   |
+-- |   |   +++++++++++++++++++++++++   |   |
+-- |   |                               |   |
+-- |   +++++++++++++++++++++++++++++++++   |
+-- |                                       |
+-- +++++++++++++++++++++++++++++++++++++++++
+-- |                                 |
+-- +++++++++++++++++++++++++++++++++++
+--   
+
+-- o cMTSessionStatusTable - describes statistics for the
+-- session.
+-- o cMTSessionRequestStatsTable - describes statistics for
+-- the latest request of a session.
+-- o cMTPathTable - describes latest path statistics for the
+-- o cMTHopStatsTable - describes statistics collected
+-- for each hop.
+--   
+-- The above tables have sparse dependent relationship on the
+-- cMTSessionTable, as there exist situations when data may not
+-- be available, including :
+--   
+-- 1) A session is not active and hence not collecting statistics.
+-- 2) Failure cause session, request, path or hop statistics to
+-- be unavailable.
+--   
+
+-- o cMTCommonMetricStatsTable - describes common IP statistics
+-- collected for media monitor profile.
+-- o cMTRtpMetricStatsTable - describes the RTP specific
+-- statistics collected for media monitor profile.
+-- o cMTTcpMetricStatsTable - describes the TCP specific
+-- statistics collected for media monitor profile.
+-- o cMTSystemMetricStatsTable - describes the CPU and memory
+-- statistics collected for system profile.
+-- o cMTInterfaceMetricStatsTable - describes the interface
+-- statistics collected for system profile.
+-- o cMTTraceRouteTable - describes statistics collected from
+-- traceroute.
+--   
+-- The above tables have sparse dependent relationship on the
+-- cMTHopStatsTable, as there exist situations when data may not
+-- be available, including :
+--   
+-- 1) Failure to collect statistics on a hop due to error.
+-- 2) Particular statistics is not applicable for a session.
+-- e.g a session with system profile and interface
+-- metric-list will not collect RTP, TCP, common, CPU or
+-- memory statistics.
+
+cMTPathTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTPathEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "List of paths discovered by a mediatrace session."
+    ::= { cMTStats 1 }
+
+cMTPathEntry OBJECT-TYPE
+    SYNTAX          CMTPathEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cMTPathTable represents a Mediatrace path
+        discovered by a session.  
+
+        This table contains information about the hops (Mediatrace or
+        non-Mediatrace) discovered during a specific request.  
+        The Path table is used to find the hop address (Address type 
+        - IPv4 or IPv6 and Address) and hop type (currently Mediatrace 
+        or Traceroute) to use as index for other statistics tables.
+
+        A row is created when a Mediatrace scheduled session discovers 
+        a path to the specified destination during a request.  
+        Likewise, a row is destroyed when the path is no longer avilable.
+
+        A single row corresponds to a Mediatrace path discovered for  
+        a session and is uniquely identified by cMTSessionNumber,
+        cMTSessionLifeNumber, cMTBucketNumber and cMTPathHopNumber.
+
+        The created rows are destroyed when the device undergoes a 
+        restart."
+    INDEX           {
+                        cMTSessionNumber,
+                        cMTSessionLifeNumber,
+                        cMTBucketNumber,
+                        cMTPathHopNumber
+                    } 
+    ::= { cMTPathTable 1 }
+
+CMTPathEntry ::= SEQUENCE {
+        cMTSessionLifeNumber         Unsigned32,
+        cMTBucketNumber              Unsigned32,
+        cMTPathHopNumber             Unsigned32,
+        cMTPathHopAddrType           InetAddressType,
+        cMTPathHopAddr               InetAddress,
+        cMTPathHopType               INTEGER,
+        cMTPathHopAlternate1AddrType InetAddressType,
+        cMTPathHopAlternate1Addr     InetAddress,
+        cMTPathHopAlternate2AddrType InetAddressType,
+        cMTPathHopAlternate2Addr     InetAddress,
+        cMTPathHopAlternate3AddrType InetAddressType,
+        cMTPathHopAlternate3Addr     InetAddress
+}
+
+cMTSessionLifeNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a life for a conceptual statistics
+        row. 
+
+        For a particular value of cMTSessionLifeNumber, the agent 
+        assigns the first value of 0 to the current (latest) life, 
+        with 1 being the next latest and so on.  The sequence 
+        keeps incrementing, despite older (lower) values being removed 
+        from the table." 
+    ::= { cMTPathEntry 1 }
+
+cMTBucketNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..10)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object is index of the list of statistics buckets
+        stored.  A statistics bucket corresponds to data collected 
+        from each hop in one run of the periodic mediatrace 
+        session.  Bucket with Index value of 0 is the bucket for 
+        latest completed run.  Index 1 is one run prior to latest 
+        completed run, index 2 is two runs prior to latest 
+        completed run, and so on." 
+    ::= { cMTPathEntry 2 }
+
+cMTPathHopNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the hop number for a Mediatrace Path.
+        This hop can be either Mediatrace or Non-Mediatrace node.  
+        The hop number is relative to the initiator with 0 being
+        used to identify initiator itself, 1 for next farther node, 
+        etc.  This hop number is always unique i.e., two hops cannot 
+        have same hop number." 
+    ::= { cMTPathEntry 3 }
+
+cMTPathHopAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of IP address specified by
+        the corresponding instance of cMTPathHopAddrType." 
+    ::= { cMTPathEntry 4 }
+
+cMTPathHopAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates IP Address type of the hop on a
+        Mediatrace Path." 
+    ::= { cMTPathEntry 5 }
+
+cMTPathHopType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        mediatrace(1),
+                        traceroute(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of the hop on a Mediatrace
+        path. Currently, only two types are present - mediatrace(1) 
+        and traceroute(2). 
+        A hop is of type 'mediatrace' if it is discovered by only 
+        mediatrace or by both mediatrace and trace-route. The hop  
+        is 'trace route' if it is discovered by trace route only." 
+    ::= { cMTPathEntry 6 }
+
+cMTPathHopAlternate1AddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of IP address specified by
+        the corresponding instance of cMTPathHopAlternate1AddrType." 
+    ::= { cMTPathEntry 7 }
+
+cMTPathHopAlternate1Addr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP Address of the first alternate hop
+        on a traceroute path." 
+    ::= { cMTPathEntry 8 }
+
+cMTPathHopAlternate2AddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of IP address specified by
+        the corresponding instance of cMTPathHopAlternate2AddrType." 
+    ::= { cMTPathEntry 9 }
+
+cMTPathHopAlternate2Addr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP Address of the second alternate
+        hop on a traceroute path." 
+    ::= { cMTPathEntry 10 }
+
+cMTPathHopAlternate3AddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of IP address specified by
+        the corresponding instance of cMTPathHopAlternate3AddrType." 
+    ::= { cMTPathEntry 11 }
+
+cMTPathHopAlternate3Addr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP Address of the third alternate hop
+        on a traceroute path." 
+    ::= { cMTPathEntry 12 }
+ 
+
+
+cMTHopStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTHopStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cMTHopStatsTable represents a hop on the
+        path associated to a Mediatrace session.  
+
+        This table contains information about particular hop 
+        (Mediatrace or non-Mediatrace) such as the address,
+        type of hop, etc.
+
+        A single row corresponds to a hop on the Mediatrace
+        path discovered for a session and is uniquely 
+        identified by cMTSessionNumber, cMTSessionLifeNumber,
+        cMTBucketNumber,cMTHopStatsAddrType and cMTHopStatsAddr.
+
+        The created rows are destroyed when the device undergoes 
+        a restart."
+    ::= { cMTStats 2 }
+
+cMTHopStatsEntry OBJECT-TYPE
+    SYNTAX          CMTHopStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cMTHopStatsTable"
+    INDEX           {
+                        cMTSessionNumber,
+                        cMTSessionLifeNumber,
+                        cMTBucketNumber,
+                        cMTHopStatsAddrType,
+                        cMTHopStatsAddr
+                    } 
+    ::= { cMTHopStatsTable 1 }
+
+CMTHopStatsEntry ::= SEQUENCE {
+        cMTHopStatsMaskBitmaps      BITS,
+        cMTHopStatsAddrType         InetAddressType,
+        cMTHopStatsAddr             InetAddress,
+        cMTHopStatsName             SnmpAdminString,
+        cMTHopStatsMediatraceTtl    Unsigned32,
+        cMTHopStatsCollectionStatus INTEGER,
+        cMTHopStatsIngressInterface SnmpAdminString,
+        cMTHopStatsEgressInterface  SnmpAdminString
+}
+
+cMTHopStatsMaskBitmaps OBJECT-TYPE
+    SYNTAX          BITS {
+                        mediatraceTtlUnsupported(0),
+                        mediatraceTtlUncollected(1),
+                        collectionStatsUnsupported(2),
+                        collectionStatsUncollected(3),
+                        ingressInterfaceUnsupported(4),
+                        ingressInterfaceUncollected(5),
+                        egressInterfaceUnsupported(6),
+                        egressInterfaceUncollected(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the corresponding instances of
+        these statistics fields in the table are supported.  It also
+        indicates if the statistics data are collected.  There are 2
+        bits for each corresponding field." 
+    ::= { cMTHopStatsEntry 1 }
+
+cMTHopStatsAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of IP address specified by
+        the corresponding instance of cMTHopStatsAddr." 
+    ::= { cMTHopStatsEntry 2 }
+
+cMTHopStatsAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP Address of the hop on a
+        Mediatrace Path.  This value is obtained from 
+        CMTPathHopAddr in cMTPathTable." 
+    ::= { cMTHopStatsEntry 3 }
+
+cMTHopStatsName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name for this hop.  This can
+        be either the hostname or the IP address for the hop." 
+    ::= { cMTHopStatsEntry 4 }
+
+cMTHopStatsMediatraceTtl OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the hop limit of the corresponding
+        traffic flow.
+
+        If version 4 of the IP carries the traffic flow, then the value
+        of this column corresponds to the 'Time to Live' field of the
+        IP header contained by packets in the Mediatrace request.
+
+        If version 6 of the IP carries the traffic flow, then the value
+        of this column corresponds to the 'Hop Limit' field of the IP
+        header contained by packets in the Mediatrace request."
+    REFERENCE
+        "J. Postel, 'Internet Protocol', RFC-791, September 1981.
+
+        J. Deering and R. Hinden, 'Internet Protocol, Version 6
+        (IPv6)
+        Specification', RFC-2460, December 1998." 
+    ::= { cMTHopStatsEntry 5 }
+
+cMTHopStatsCollectionStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        success(1),
+                        notSuccess(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the operational status of data being
+        collected on the hop for a specific session:
+
+            'success'
+                The hop is actively collecting and responding with 
+                data.
+
+            'notsuccess'
+                The hop is not collecting or responding with data." 
+    ::= { cMTHopStatsEntry 6 }
+
+cMTHopStatsIngressInterface OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the interface on the responder that
+        receives the Mediatrace request from the initiator." 
+    ::= { cMTHopStatsEntry 7 }
+
+cMTHopStatsEgressInterface OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the interface on the responder which
+        is used to forward the Mediatrace request from the initiator 
+        towards destination in the path specifier.     
+
+        Value of 'None' will be shown if the destination address in 
+        path specifier terminates on this hop." 
+    ::= { cMTHopStatsEntry 8 }
+ 
+
+
+cMTTraceRouteTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTTraceRouteEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the hops discovered by traceroute
+        executed from the initiator.  These are the hops 
+        which are on media flow path but on which mediatrace 
+        is not enabled or is not supported."
+    ::= { cMTStats 3 }
+
+cMTTraceRouteEntry OBJECT-TYPE
+    SYNTAX          CMTTraceRouteEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cMTTraceRouteTable represents a Traceroute
+        hop on the path associated to a Mediatrace session.
+
+        The created rows are destroyed when the device undergoes 
+        a restart."
+    INDEX           {
+                        cMTSessionNumber,
+                        cMTSessionLifeNumber,
+                        cMTBucketNumber,
+                        cMTHopStatsAddrType,
+                        cMTHopStatsAddr
+                    } 
+    ::= { cMTTraceRouteTable 1 }
+
+CMTTraceRouteEntry ::= SEQUENCE {
+        cMTTraceRouteHopNumber Gauge32,
+        cMTTraceRouteHopRtt    Counter64
+}
+
+cMTTraceRouteHopNumber OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the hop number of Traceroute host
+        relative to the Initiator.  It start with 1 and increments 
+        as we go farther from the Initiator." 
+    ::= { cMTTraceRouteEntry 1 }
+
+cMTTraceRouteHopRtt OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates RTT.  The time it takes for a packet
+        to get to a hop and back, displayed in milliseconds. (ms)." 
+    ::= { cMTTraceRouteEntry 2 }
+ 
+
+
+cMTSessionStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTSessionStatusEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains aggregate data maintained by Mediatrace
+        for session status."
+    ::= { cMTStats 4 }
+
+cMTSessionStatusEntry OBJECT-TYPE
+    SYNTAX          CMTSessionStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cMTSessionStatusTable represents information
+        about a Mediatrace session.  
+
+        This table contains information about particular session
+        such as global session identifier, operation state and
+        time to live.
+
+        A single row corresponds to status of a Mediatrace
+        session and is uniquely identified by cMTSessionNumber.
+
+        The created rows are destroyed when the device undergoes 
+        a restart."
+    INDEX           { cMTSessionNumber } 
+    ::= { cMTSessionStatusTable 1 }
+
+CMTSessionStatusEntry ::= SEQUENCE {
+        cMTSessionStatusBitmaps             BITS,
+        cMTSessionStatusGlobalSessionId     Unsigned32,
+        cMTSessionStatusOperationState      INTEGER,
+        cMTSessionStatusOperationTimeToLive Counter64
+}
+
+cMTSessionStatusBitmaps OBJECT-TYPE
+    SYNTAX          BITS {
+                        globalSessionIdUusupport(0),
+                        globalSessionIdUncollected(1),
+                        operationStateUusupport(2),
+                        operationStateUncollected(3),
+                        operationTimeToLiveUusupport(4),
+                        operationTimeToLiveUncollected(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the corresponding instances of
+        these statistics fields in the table are supported.  It also
+        indicates if the statistics are collected.  There are 2 bits for
+        each field." 
+    ::= { cMTSessionStatusEntry 1 }
+
+cMTSessionStatusGlobalSessionId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a globally unique Id to identify a
+        session throughout the network." 
+    ::= { cMTSessionStatusEntry 2 }
+
+cMTSessionStatusOperationState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        pending(1),
+                        active(2),
+                        inactive(3),
+                        sleep(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the operation status of the session.
+
+        pending - Session is not currently active.
+        active - Session is in active state.
+        inactive - Session is not active but it has not aged out.
+        sleep - Session is in sleep state." 
+    ::= { cMTSessionStatusEntry 3 }
+
+cMTSessionStatusOperationTimeToLive OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates how long the session operation will
+        last." 
+    ::= { cMTSessionStatusEntry 4 }
+ 
+
+
+cMTSessionRequestStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTSessionRequestStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains aggregate data maintained by Mediatrace
+        for session request status."
+    ::= { cMTStats 5 }
+
+cMTSessionRequestStatsEntry OBJECT-TYPE
+    SYNTAX          CMTSessionRequestStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cMTSessionRequestStatsTable represents status
+        for each request for a particular session.
+
+        A single row corresponds to a request sent by a 
+        particular Mediatrace session and is uniquely 
+        identified by cMTSessionNumber, cMTSessionLifeNumber and
+        cMTBucketNumber.
+
+        The created rows are destroyed when the device undergoes 
+        a restart."
+    INDEX           {
+                        cMTSessionNumber,
+                        cMTSessionLifeNumber,
+                        cMTBucketNumber
+                    } 
+    ::= { cMTSessionRequestStatsTable 1 }
+
+CMTSessionRequestStatsEntry ::= SEQUENCE {
+        cMTSessionRequestStatsBitmaps                   BITS,
+        cMTSessionRequestStatsRequestTimestamp          TimeStamp,
+        cMTSessionRequestStatsRequestStatus             INTEGER,
+        cMTSessionRequestStatsTracerouteStatus          INTEGER,
+        cMTSessionRequestStatsRouteIndex                Gauge32,
+        cMTSessionRequestStatsNumberOfMediatraceHops    Counter32,
+        cMTSessionRequestStatsNumberOfNonMediatraceHops Counter32,
+        cMTSessionRequestStatsNumberOfValidHops         Counter32,
+        cMTSessionRequestStatsNumberOfErrorHops         Counter32,
+        cMTSessionRequestStatsNumberOfNoDataRecordHops  Counter32,
+        cMTSessionRequestStatsMDGlobalId                OCTET STRING,
+        cMTSessionRequestStatsMDMultiPartySessionId     OCTET STRING,
+        cMTSessionRequestStatsMDAppName                 OCTET STRING
+}
+
+cMTSessionRequestStatsBitmaps OBJECT-TYPE
+    SYNTAX          BITS {
+                        requestTimestampUnsupport(0),
+                        requestTimestampUncollected(1),
+                        requestStatusUnsupport(2),
+                        requestStatusUncollected(3),
+                        tracerouteStatusUnsupport(4),
+                        tracerouteStatusUncollected(5),
+                        routeIndexUnsupport(6),
+                        routeIndexUncollected(7),
+                        numberOfMediatraceHopsUnsupport(8),
+                        numberOfMediatraceHopsUncollected(9),
+                        numberOfNonMediatraceHopsUnsupport(10),
+                        numberOfNonMediatraceHopsUncollected(11),
+                        numberOfValidHopsUnsupport(12),
+                        numberOfValidHopsUncollected(13),
+                        numberOfErrorHopsUnsupport(14),
+                        numberOfErrorHopsUncollected(15),
+                        numberOfNoDataRecordHopsUnsupport(16),
+                        numberOfNoDataRecordHopsUncollected(17),
+                        metaGlobalIdUnsupport(18),
+                        metaGlobalIdUncollected(19),
+                        metaMultiPartySessionIdUnsupport(20),
+                        metaMultiPartySessionIdUncollected(21),
+                        metaAppNameUnsupport(22),
+                        metaAppNameUncollected(23)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the corresponding instances of
+        these stats fields in the table are supported.  It also 
+        indicates if the stats data are collected.  There are 2 bits 
+        for each corresponding field." 
+    ::= { cMTSessionRequestStatsEntry 1 }
+
+cMTSessionRequestStatsRequestTimestamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of request time when the
+        request was sent our by the initiator for this particular 
+        session." 
+    ::= { cMTSessionRequestStatsEntry 2 }
+
+cMTSessionRequestStatsRequestStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        completed(1),
+                        notCompleted(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of request for the session." 
+    ::= { cMTSessionRequestStatsEntry 3 }
+
+cMTSessionRequestStatsTracerouteStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        completed(1),
+                        notCompleted(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of traceroute for the
+        session." 
+    ::= { cMTSessionRequestStatsEntry 4 }
+
+cMTSessionRequestStatsRouteIndex OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the route index for the session
+        request.  It signifies the number of times a route 
+        has changed for a particular session.  0 signifies 
+        no route change." 
+    ::= { cMTSessionRequestStatsEntry 5 }
+
+cMTSessionRequestStatsNumberOfMediatraceHops OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of Mediatrace hops in
+        the path." 
+    ::= { cMTSessionRequestStatsEntry 6 }
+
+cMTSessionRequestStatsNumberOfNonMediatraceHops OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of non-Mediatrace hops in the
+        path." 
+    ::= { cMTSessionRequestStatsEntry 7 }
+
+cMTSessionRequestStatsNumberOfValidHops OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of hops with valid data
+        report." 
+    ::= { cMTSessionRequestStatsEntry 8 }
+
+cMTSessionRequestStatsNumberOfErrorHops OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of hops with error report.
+        These hops are not able to return the statistics due to
+        some issue." 
+    ::= { cMTSessionRequestStatsEntry 9 }
+
+cMTSessionRequestStatsNumberOfNoDataRecordHops OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of hops with no data record." 
+    ::= { cMTSessionRequestStatsEntry 10 }
+
+cMTSessionRequestStatsMDGlobalId OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the meta-data global Id for this
+        session." 
+    ::= { cMTSessionRequestStatsEntry 11 }
+
+cMTSessionRequestStatsMDMultiPartySessionId OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the meta-data Multi Party Session Id for
+        this session." 
+    ::= { cMTSessionRequestStatsEntry 12 }
+
+cMTSessionRequestStatsMDAppName OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the meta-data AppName for this session." 
+    ::= { cMTSessionRequestStatsEntry 13 }
+ 
+
+
+cMTCommonMetricStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTCommonMetricStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the list of entries representing
+        common IP metrics values for a particular mediatrace 
+        session on particular hop."
+    ::= { cMTStats 6 }
+
+cMTCommonMetricStatsEntry OBJECT-TYPE
+    SYNTAX          CMTCommonMetricStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cMTCommonMetricStatsTable represents
+        common media monitor profile information of a hop on the
+        path associated to a Mediatrace session such as flow sampling 
+        time stamp, packets dropped, IP TTL, etc.  
+
+        The devices creates a row in the cMTCommonMetricStatsTable 
+        when a Mediatrace session starts collecting a traffic metrics 
+        data and has been configured to compute common IP metrics.  
+        Likewise, the device destroys a row in the 
+        cMTCommonMetricStatsTable when the corresponding 
+        Mediatrace session has ceased collecting the traffic metrics 
+        data (e.g., when a scheduled session has timed out).
+
+        A single row corresponds to a common media monitor profile
+        information of a hop on the path discovered for a session 
+        and is uniquely identified by cMTSessionNumber,
+        cMTSessionLifeNumber, cMTBucketNumber,cMTHopStatsAddrType
+        and cMTHopStatsAddr.
+
+        The created rows are destroyed when the device undergoes 
+        a restart."
+    INDEX           {
+                        cMTSessionNumber,
+                        cMTSessionLifeNumber,
+                        cMTBucketNumber,
+                        cMTHopStatsAddrType,
+                        cMTHopStatsAddr
+                    } 
+    ::= { cMTCommonMetricStatsTable 1 }
+
+CMTCommonMetricStatsEntry ::= SEQUENCE {
+        cMTCommonMetricsBitmaps               BITS,
+        cMTCommonMetricsFlowSamplingStartTime CiscoNTPTimeStamp,
+        cMTCommonMetricsIpPktDropped          Counter64,
+        cMTCommonMetricsIpOctets              Counter64,
+        cMTCommonMetricsIpPktCount            Counter64,
+        cMTCommonMetricsIpByteRate            Gauge32,
+        cMTCommonMetricsIpDscp                Unsigned32,
+        cMTCommonMetricsIpTtl                 Unsigned32,
+        cMTCommonMetricsFlowCounter           Gauge32,
+        cMTCommonMetricsFlowDirection         INTEGER,
+        cMTCommonMetricsLossMeasurement       INTEGER,
+        cMTCommonMetricsMediaStopOccurred     INTEGER,
+        cMTCommonMetricsRouteForward          SnmpAdminString,
+        cMTCommonMetricsIpProtocol            CiscoMediatraceSupportProtocol
+}
+
+cMTCommonMetricsBitmaps OBJECT-TYPE
+    SYNTAX          BITS {
+                        flowSamplingStartTimeUnsupported(0),
+                        flowSamplingStartTimeUncollected(1),
+                        ipPktDroppedUnsupported(2),
+                        ipPktDroppedUncollected(3),
+                        ipPktCountUnsupported(4),
+                        ipPktCountUncollected(5),
+                        ipOctetsUnsupported(6),
+                        ipOctetsUncollected(7),
+                        ipByteRateUnsupported(8),
+                        ipByteRateUncollected(9),
+                        ipDscpUnsupported(10),
+                        ipDscpUncollected(11),
+                        ipTtlUnsupported(12),
+                        ipTtlUncollected(13),
+                        flowCounterUnsupported(14),
+                        flowCounterUncollected(15),
+                        flowDirectionUnsupported(16),
+                        flowDirectionUncollected(17),
+                        lossMeasurementUnsupported(18),
+                        lossMeasurementUncollected(19),
+                        mediaStopOccurredUnsupported(20),
+                        mediaStopOccurredUncollected(21),
+                        routeForwardUnsupported(22),
+                        routeForwardUncollected(23),
+                        ipProtocolUnsupported(24),
+                        ipProtocolUncollected(25)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the corresponding instances of
+        these stats fields in the table are supported.  It also 
+        indicates if the stats data are collected.  There are 2 bits 
+        for each field." 
+    ::= { cMTCommonMetricStatsEntry 2 }
+
+cMTCommonMetricsFlowSamplingStartTime OBJECT-TYPE
+    SYNTAX          CiscoNTPTimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object defines the the timestamp when the statistics
+        were collected on the responder." 
+    ::= { cMTCommonMetricStatsEntry 3 }
+
+cMTCommonMetricsIpPktDropped OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates number of packet drops observed
+        on the flow being monitored on this hop from flow sampling 
+        start time in window of 'sample interval' length." 
+    ::= { cMTCommonMetricStatsEntry 4 }
+
+cMTCommonMetricsIpOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of octets contained by
+        the packets processed by the Mediatrace request for the
+        corresponding traffic flow." 
+    ::= { cMTCommonMetricStatsEntry 5 }
+
+cMTCommonMetricsIpPktCount OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of packets processed by
+        the Mediatrace request for the corresponding traffic flow." 
+    ::= { cMTCommonMetricStatsEntry 6 }
+
+cMTCommonMetricsIpByteRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "packets per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average packet rate at which the
+        Mediatrace request is processing data for the corresponding 
+        traffic flow.  This value is cumulative over the lifetime of 
+        the traffic flow." 
+    ::= { cMTCommonMetricStatsEntry 7 }
+
+cMTCommonMetricsIpDscp OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..64)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the DSCP value of the corresponding
+        traffic flow.
+
+        If version 4 of the IP carries the traffic flow, then the value
+        of this column corresponds to the DSCP part of 'Type of
+        Service' field of the IP header contained by packets in the 
+        traffic flow.
+
+        If version 6 of the IP carries the traffic flow, then the value
+        of this column corresponds to DSCP part of the 'Traffic Class'
+        field of the IP header contained by packets in the traffic
+        flow." 
+    ::= { cMTCommonMetricStatsEntry 8 }
+
+cMTCommonMetricsIpTtl OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the hop limit of the corresponding
+        traffic flow.
+
+        If version 4 of the IP carries the traffic flow, then the value
+        of this column corresponds to the 'Time to Live' field of the
+        IP header contained by packets in the Mediatrace request.
+
+        If version 6 of the IP carries the traffic flow, then the value
+        of this column corresponds to the 'Hop Limit' field of the IP
+        header contained by packets in the Mediatrace request."
+    REFERENCE
+        "J. Postel, 'Internet Protocol', RFC-791, September 1981.
+
+        J. Deering and R. Hinden, 'Internet Protocol, Version 6
+        (IPv6)
+        Specification', RFC-2460, December 1998." 
+    ::= { cMTCommonMetricStatsEntry 9 }
+
+cMTCommonMetricsFlowCounter OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of traffic flows currently
+        monitored by the Mediatrace request." 
+    ::= { cMTCommonMetricStatsEntry 10 }
+
+cMTCommonMetricsFlowDirection OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        ingress(2),
+                        egress(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the direction of the traffic flow where
+        the data is monitored :
+                'unknown'
+                    The SNMP entity does not know the direction of the
+                    traffic flow at the point data is collected. 
+
+                'ingress'
+                    Data is collected at the point where the
+                    traffic flow enters the devices
+
+                'egress'
+                    Data is colected at the point where the
+                    traffic flow leaves the device." 
+    ::= { cMTCommonMetricStatsEntry 11 }
+
+cMTCommonMetricsLossMeasurement OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        true(1),
+                        false(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the loss measurement." 
+    ::= { cMTCommonMetricStatsEntry 12 }
+
+cMTCommonMetricsMediaStopOccurred OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        true(1),
+                        false(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the media stop occurred." 
+    ::= { cMTCommonMetricStatsEntry 13 }
+
+cMTCommonMetricsRouteForward OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates routing or forwarding status i.e.
+        whether the packet is forwarded or dropped for the flow." 
+    ::= { cMTCommonMetricStatsEntry 14 }
+
+cMTCommonMetricsIpProtocol OBJECT-TYPE
+    SYNTAX          CiscoMediatraceSupportProtocol
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This table contains entry to specify the media
+        Metric-list for the particular Mmediatrace session on 
+        the hop." 
+    ::= { cMTCommonMetricStatsEntry 15 }
+ 
+
+
+cMTRtpMetricStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTRtpMetricStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains aggregate data maintained by Mediatrace
+        for traffic flows for which it is computing RTP metrics."
+    ::= { cMTStats 7 }
+
+cMTRtpMetricStatsEntry OBJECT-TYPE
+    SYNTAX          CMTRtpMetricStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cMTRtpMetricStatsTable represents RTP related
+        information of a hop on the path associated to a Mediatrace 
+        session such as bit rate, octets, etc.  
+
+        The devices creates a row in the cMTRtpMetricStatsTable when 
+        a Mediatrace session starts collecting a traffic metrics data 
+        and has been configured to compute RTP metrics for the same 
+        traffic metrics data.  Likewise, the device destroys a row in 
+        the cMTRtpMetricStatsTable when the corresponding Mediatrace 
+        session has ceased collecting the traffic metrics data (e.g., 
+        when a scheduled session has timed out).
+
+        A single row corresponds to a RTP information of a hop on the 
+        path discovered for a Mediatrace session and is uniquely 
+        identified by cMTSessionNumber, cMTSessionLifeNumber, 
+        cMTBucketNumber,cMTHopStatsAddrType and cMTHopStatsAddr.
+
+        The created rows are destroyed when the device undergoes 
+        a restart."
+    AUGMENTS           { cMTCommonMetricStatsEntry  } 
+    ::= { cMTRtpMetricStatsTable 1 }
+
+CMTRtpMetricStatsEntry ::= SEQUENCE {
+        cMTRtpMetricsBitmaps       BITS,
+        cMTRtpMetricsBitRate       Gauge32,
+        cMTRtpMetricsOctets        Counter64,
+        cMTRtpMetricsPkts          Counter64,
+        cMTRtpMetricsJitter        FlowMetricValue,
+        cMTRtpMetricsLostPkts      Counter64,
+        cMTRtpMetricsExpectedPkts  Counter64,
+        cMTRtpMetricsLostPktEvents Counter64,
+        cMTRtpMetricsLossPercent   Gauge32
+}
+
+cMTRtpMetricsBitmaps OBJECT-TYPE
+    SYNTAX          BITS {
+                        bitRateunSupport(0),
+                        bitRateunCollected(1),
+                        octetsunSupport(2),
+                        octetsunCollected(3),
+                        pktsunSupport(4),
+                        pktsunCollected(5),
+                        jitterunSupport(6),
+                        jitterunCollected(7),
+                        lostPktsunSupport(8),
+                        lostPktsunCollected(9),
+                        expectedPktsunSupport(10),
+                        expectedPktsunCollected(11),
+                        lostPktEventsunSupport(12),
+                        lostPktEventsunCollected(13),
+                        losspercentUnsupport(14),
+                        losspercentUncollected(15)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the corresponding instances of
+        these statistics fields in the table are supported.  It also 
+        indicates if the stats data are collected.  There are 2 bits 
+        for each field." 
+    ::= { cMTRtpMetricStatsEntry 2 }
+
+cMTRtpMetricsBitRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average bit rate at which the
+        corresponding Mediatrace request is processing data for 
+        the corresponding traffic flow.  This value is
+        cumulative over the lifetime of the traffic flow." 
+    ::= { cMTRtpMetricStatsEntry 3 }
+
+cMTRtpMetricsOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of octets contained
+        by the packets processed by the Mediatrace request for the
+        corresponding traffic flow." 
+    ::= { cMTRtpMetricStatsEntry 4 }
+
+cMTRtpMetricsPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of packets processed by
+        the corresponding Mediatrace request for the corresponding 
+        traffic flow." 
+    ::= { cMTRtpMetricStatsEntry 5 }
+
+cMTRtpMetricsJitter OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the inter-arrival jitter for the traffic
+        flow." 
+    ::= { cMTRtpMetricStatsEntry 6 }
+
+cMTRtpMetricsLostPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP packets lost for the
+        traffic flow." 
+    ::= { cMTRtpMetricStatsEntry 7 }
+
+cMTRtpMetricsExpectedPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP packets expected for
+        the traffic flow." 
+    ::= { cMTRtpMetricStatsEntry 8 }
+
+cMTRtpMetricsLostPktEvents OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packet loss events observed
+        by the Mediatrace request for the corresponding traffic flow." 
+    ::= { cMTRtpMetricStatsEntry 9 }
+
+cMTRtpMetricsLossPercent OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the percentage of packages are lost per
+        ten thousand packets in a traffic flow." 
+    ::= { cMTRtpMetricStatsEntry 10 }
+ 
+
+
+cMTTcpMetricStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTTcpMetricStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains aggregate data maintained by Mediatrace
+        for traffic flows for which it is computing TCP
+        metrics."
+    ::= { cMTStats 8 }
+
+cMTTcpMetricStatsEntry OBJECT-TYPE
+    SYNTAX          CMTTcpMetricStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cMTTcpMetricStatsTable represents TCP information
+        of a hop on the path associated to a Mediatrace session such 
+        as byte count, round trip delay, etc.  
+
+        The devices creates a row in the cMTTcpMetricStatsTable when 
+        a Mediatrace session starts collecting a traffic metrics data 
+        and has been configured to compute TCP metrics for the same 
+        traffic metrics data.  Likewise, the device destroys a row in 
+        the cMTTcpMetricStatsTable when the corresponding Mediatrace 
+        session has ceased collecting the traffic metrics data (e.g., 
+        when a scheduled session has timed out).
+
+        A single row corresponds to TCP information of
+        a hop on the path discovered for a Mediatrace session 
+        and is uniquely identified by cMTSessionNumber,
+        cMTSessionLifeNumber, cMTBucketNumber,cMTHopStatsAddrType
+        and cMTHopStatsAddr.
+
+        The created rows are destroyed when the device undergoes 
+        a restart."
+    AUGMENTS           { cMTCommonMetricStatsEntry  } 
+    ::= { cMTTcpMetricStatsTable 1 }
+
+CMTTcpMetricStatsEntry ::= SEQUENCE {
+        cMTTcpMetricBitmaps               BITS,
+        cMTTcpMetricMediaByteCount        FlowMetricValue,
+        cMTTcpMetricConnectRoundTripDelay Counter64,
+        cMTTcpMetricLostEventCount        Counter64
+}
+
+cMTTcpMetricBitmaps OBJECT-TYPE
+    SYNTAX          BITS {
+                        mediaByteCountUnsupport(0),
+                        mediaByteCountUncollected(1),
+                        connectRoundTripDelayUnsupport(2),
+                        connectRoundTripDelayUncollected(3),
+                        lostEventCountUnsupport(4),
+                        lostEventCountUncollected(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the corresponding instances of
+        these stats fields in the table are supported.  It also 
+        indicates if the stats data are collected.  There are 2 bits 
+        for each field." 
+    ::= { cMTTcpMetricStatsEntry 2 }
+
+cMTTcpMetricMediaByteCount OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of bytes for the packets
+        observed by the Mediatrace session for the corresponding 
+        flow." 
+    ::= { cMTTcpMetricStatsEntry 3 }
+
+cMTTcpMetricConnectRoundTripDelay OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the round trip time for the packets
+        observed by the Mediatrace session for the corresponding 
+        flow.  The round trip time is defined as the length of time 
+        it takes for a TCP segment transmission and receipt of 
+        acknowledgement.  This object indicates the connect round 
+        trip delay." 
+    ::= { cMTTcpMetricStatsEntry 4 }
+
+cMTTcpMetricLostEventCount OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets lost for the
+        traffic flow." 
+    ::= { cMTTcpMetricStatsEntry 5 }
+ 
+
+
+cMTSystemMetricStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTSystemMetricStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of objects which accumulate the system metrics results
+        of a particular node for that path."
+    ::= { cMTStats 9 }
+
+cMTSystemMetricStatsEntry OBJECT-TYPE
+    SYNTAX          CMTSystemMetricStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cMTSystemMetricStatsTable represents
+        CPU or memory utilization information of a hop on the
+        path associated to a Mediatrace session such as five 
+        minutes CPU utilization, memory utilization, etc.  
+
+        The devices creates a row in the cMTSystemMetricStatsTable when 
+        a Mediatrace session starts collecting a system metrics data 
+        and has been configured to compute system metrics.  Likewise, 
+        the device destroys a row in the cMTSystemMetricStatsTable when 
+        the corresponding Mediatrace session has ceased collecting 
+        the system metrics data (e.g., when a scheduled session has 
+        timed out).
+
+        A single row corresponds to a CPU or memory utilization 
+        information of a hop on the path discovered for a Mediatrace 
+        session and is uniquely identified by cMTSessionNumber,
+        cMTSessionLifeNumber, cMTBucketNumber,cMTHopStatsAddrType
+        and cMTHopStatsAddr.
+
+        The created rows are destroyed when the device undergoes 
+        a restart."
+    INDEX           {
+                        cMTSessionNumber,
+                        cMTSessionLifeNumber,
+                        cMTBucketNumber,
+                        cMTHopStatsAddrType,
+                        cMTHopStatsAddr
+                    } 
+    ::= { cMTSystemMetricStatsTable 1 }
+
+CMTSystemMetricStatsEntry ::= SEQUENCE {
+        cMTSystemMetricBitmaps                   BITS,
+        cMTSystemMetricCpuOneMinuteUtilization   Gauge32,
+        cMTSystemMetricCpuFiveMinutesUtilization Gauge32,
+        cMTSystemMetricMemoryUtilization         Gauge32
+}
+
+cMTSystemMetricBitmaps OBJECT-TYPE
+    SYNTAX          BITS {
+                        cpuOneMinuteUtilizationUnsupport(0),
+                        cpuOneMinuteUtilizationUncollected(1),
+                        cpuFiveMinutesUtilizationUnsupport(2),
+                        cpuFiveMinutesUtilizationUncollected(3),
+                        memoryMetricsUnsupport(4),
+                        memoryMetricsUncollected(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the corresponding instances of
+        these stats fields in the table are supported.  It also 
+        indicates if the stats data are collected.  There are 2 bits 
+        for each field." 
+    ::= { cMTSystemMetricStatsEntry 1 }
+
+cMTSystemMetricCpuOneMinuteUtilization OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the overall CPU busy percentage in the
+        last 1 minute period for the network element" 
+    ::= { cMTSystemMetricStatsEntry 2 }
+
+cMTSystemMetricCpuFiveMinutesUtilization OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the overall CPU busy percentage in
+        the last 5 minute period for the network element" 
+    ::= { cMTSystemMetricStatsEntry 3 }
+
+cMTSystemMetricMemoryUtilization OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the overall memory usage percentage for
+        the node." 
+    ::= { cMTSystemMetricStatsEntry 4 }
+ 
+
+
+cMTInterfaceMetricStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CMTInterfaceMetricStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains aggregate data of interface information for
+        the network nodes."
+    ::= { cMTStats 10 }
+
+cMTInterfaceMetricStatsEntry OBJECT-TYPE
+    SYNTAX          CMTInterfaceMetricStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cMTInterfaceMetricStatsTable represents
+        interface information of a hop on the path associated 
+        to a Mediatrace session such as ingress interface speed, 
+        egress interface speed, etc.  
+
+        The devices creates a row in the cMTInterfaceMetricStatsTable 
+        when a Mediatrace session starts collecting an interface 
+        metrics data and has been configured to compute interface 
+        metrics.  Likewise, the device destroys a row in the 
+        cMTInterfaceMetricStatsTable when the corresponding Mediatrace 
+        session has ceased collecting the interface metrics data 
+        (e.g., when a scheduled session has timed out).
+
+        A single row corresponds to a interface information of a hop 
+        on the path discovered for a session and is uniquely identified 
+        by cMTSessionNumber, cMTSessionLifeNumber, cMTBucketNumber, 
+        cMTHopStatsAddrType and cMTHopStatsAddr.
+
+        The created rows are destroyed when the device undergoes 
+        a restart."
+    INDEX           {
+                        cMTSessionNumber,
+                        cMTSessionLifeNumber,
+                        cMTBucketNumber,
+                        cMTHopStatsAddrType,
+                        cMTHopStatsAddr
+                    } 
+    ::= { cMTInterfaceMetricStatsTable 1 }
+
+CMTInterfaceMetricStatsEntry ::= SEQUENCE {
+        cMTInterfaceBitmaps     BITS,
+        cMTInterfaceOutSpeed    Gauge32,
+        cMTInterfaceInSpeed     Gauge32,
+        cMTInterfaceOutDiscards Counter32,
+        cMTInterfaceInDiscards  Counter32,
+        cMTInterfaceOutErrors   Counter32,
+        cMTInterfaceInErrors    Counter32,
+        cMTInterfaceOutOctets   Counter32,
+        cMTInterfaceInOctets    Counter32
+}
+
+cMTInterfaceBitmaps OBJECT-TYPE
+    SYNTAX          BITS {
+                        inSpeedUnsupport(0),
+                        inSpeedUncollected(1),
+                        outSpeedUnsupport(2),
+                        outSpeedUncollected(3),
+                        outDiscardsUnsupport(4),
+                        outDiscardsUncollected(5),
+                        inDiscardsUnsupport(6),
+                        inDiscardsUncollected(7),
+                        outErrorsUnsupport(8),
+                        outErrorsUncollected(9),
+                        inErrorsUnsupport(10),
+                        inErrorsUncollected(11),
+                        outOctetsUnsupport(12),
+                        outOctetsUncollected(13),
+                        inOctetsUnsupport(14),
+                        inOctetsUncollected(15)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the corresponding instances of
+        these stats fields in the table are supported.  It also 
+        indicates if the stats data are collected.  There are 2 bits 
+        for each field." 
+    ::= { cMTInterfaceMetricStatsEntry 2 }
+
+cMTInterfaceOutSpeed OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the egress interface's current bandwidth
+        in bits per second.  For interfaces which do not vary in
+        bandwidth or for those where no accurate estimation can be 
+        made, this object should contain the nominal bandwidth.  
+        Currently bandwidth above the maximum value 4,294,967,295 
+        is not supported and it will show the maximum for this 
+        condition." 
+    ::= { cMTInterfaceMetricStatsEntry 3 }
+
+cMTInterfaceInSpeed OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an estimate of the ingress interface's
+        current bandwidth in bits per second.  Currently bandwidth 
+        above the maximum value 4,294,967,295 is not supported and it 
+        will show the maximum for this condition." 
+    ::= { cMTInterfaceMetricStatsEntry 4 }
+
+cMTInterfaceOutDiscards OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of outbound packets which were
+        chosen to be discarded even though no errors had been detected
+        to prevent their being transmitted.  One possible reason for
+        discarding such a packet could be to free up buffer space." 
+    ::= { cMTInterfaceMetricStatsEntry 5 }
+
+cMTInterfaceInDiscards OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of inbound packets which were
+        chosen to be discarded even though no errors had been detected
+        to prevent their being deliverable to a higher-layer protocol.  
+        One possible reason for discarding such a packet could be to
+        free up buffer space.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other
+        times as indicated by the value of
+        ifCounterDiscontinuityTime." 
+    ::= { cMTInterfaceMetricStatsEntry 6 }
+
+cMTInterfaceOutErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the error packet number.  For
+        packet-oriented interfaces, the number of outbound packets that
+        could not be transmitted because of errors.  For
+        character-oriented or fixed-length interfaces, the number of
+        outbound transmission units that could not be transmitted
+        because of errors.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other
+        times as indicated by the value of
+        ifCounterDiscontinuityTime." 
+    ::= { cMTInterfaceMetricStatsEntry 7 }
+
+cMTInterfaceInErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the error packet number.  For
+        packet-oriented interfaces, the number of inbound packets that
+        contained errors preventing them from being deliverable to a
+        higher-layer protocol.  For character-oriented or fixed-length
+        interfaces, the number of inbound transmission units that
+        contained errors preventing them from being deliverable to 
+        a higher-layer protocol.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other
+        times as indicated by the value of
+        ifCounterDiscontinuityTime." 
+    ::= { cMTInterfaceMetricStatsEntry 8 }
+
+cMTInterfaceOutOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of octets transmitted
+        out of the interface, including framing characters.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other
+        times as indicated by the value of
+        ifCounterDiscontinuityTime." 
+    ::= { cMTInterfaceMetricStatsEntry 9 }
+
+cMTInterfaceInOctets OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of octets received on
+        the interface, including framing characters.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other
+        times as indicated by the value of
+        ifCounterDiscontinuityTime." 
+    ::= { cMTInterfaceMetricStatsEntry 10 }
+ 
+
+ciscoMediatraceMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoMediatraceMIBConform 1 }
+
+ciscoMediatraceMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoMediatraceMIBConform 2 }
+
+
+ciscoMediatraceMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoMediatraceMIBMainObjectGroup }
+    ::= { ciscoMediatraceMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoMediatraceMIBMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cMTFlowSpecifierRowStatus,
+                        cMTFlowSpecifierDestAddrType,
+                        cMTFlowSpecifierDestAddr,
+                        cMTFlowSpecifierDestPort,
+                        cMTFlowSpecifierSourceAddrType,
+                        cMTFlowSpecifierSourceAddr,
+                        cMTFlowSpecifierSourcePort,
+                        cMTFlowSpecifierIpProtocol,
+                        cMTPathSpecifierRowStatus,
+                        cMTPathSpecifierDestAddrType,
+                        cMTPathSpecifierDestAddr,
+                        cMTPathSpecifierDestPort,
+                        cMTPathSpecifierSourceAddrType,
+                        cMTPathSpecifierSourceAddr,
+                        cMTPathSpecifierSourcePort,
+                        cMTPathSpecifierProtocolForDiscovery,
+                        cMTPathSpecifierGatewayAddrType,
+                        cMTPathSpecifierGatewayAddr,
+                        cMTPathSpecifierGatewayVlanId,
+                        cMTPathSpecifierIpProtocol,
+                        cMTSessionParamsResponseTimeout,
+                        cMTSessionParamsFrequency,
+                        cMTSessionParamsHistoryBuckets,
+                        cMTSessionParamsInactivityTimeout,
+                        cMTSessionParamsRouteChangeReactiontime,
+                        cMTSessionParamsRowStatus,
+                        cMTSessionPathSpecifierName,
+                        cMTMediaMonitorProfileRtpMaxDropout,
+                        cMTMediaMonitorProfileRtpMaxReorder,
+                        cMTMediaMonitorProfileRtpMinimalSequential,
+                        cMTMediaMonitorProfileInterval,
+                        cMTMediaMonitorProfileRowStatus,
+                        cMTSessionFlowSpecifierName,
+                        cMTSessionParamName,
+                        cMTSessionProfileName,
+                        cMTSessionRequestStatsRouteIndex,
+                        cMTSessionRequestStatsTracerouteStatus,
+                        cMTSessionRowStatus,
+                        cMTScheduleLife,
+                        cMTScheduleStartTime,
+                        cMTScheduleEntryAgeout,
+                        cMTScheduleRowStatus,
+                        cMTSystemProfileMetric,
+                        cMTSystemProfileRowStatus,
+                        cMTHopStatsMediatraceTtl,
+                        cMTHopStatsName,
+                        cMTHopStatsCollectionStatus,
+                        cMTHopStatsIngressInterface,
+                        cMTHopStatsEgressInterface,
+                        cMTPathHopType,
+                        cMTPathHopAddrType,
+                        cMTPathHopAddr,
+                        cMTPathHopAlternate1AddrType,
+                        cMTPathHopAlternate1Addr,
+                        cMTPathHopAlternate2AddrType,
+                        cMTPathHopAlternate2Addr,
+                        cMTPathHopAlternate3AddrType,
+                        cMTPathHopAlternate3Addr,
+                        cMTTraceRouteHopNumber,
+                        cMTTraceRouteHopRtt,
+                        cMTSessionRequestStatsRequestTimestamp,
+                        cMTSessionRequestStatsRequestStatus,
+                        cMTSessionRequestStatsNumberOfMediatraceHops,
+                        cMTSessionRequestStatsNumberOfValidHops,
+                        cMTSessionRequestStatsNumberOfErrorHops,
+                        cMTSessionRequestStatsNumberOfNoDataRecordHops,
+                        cMTSessionRequestStatsNumberOfNonMediatraceHops,
+                        cMTCommonMetricsIpPktDropped,
+                        cMTCommonMetricsIpOctets,
+                        cMTCommonMetricsIpPktCount,
+                        cMTCommonMetricsIpByteRate,
+                        cMTCommonMetricsIpDscp,
+                        cMTCommonMetricsIpTtl,
+                        cMTCommonMetricsFlowCounter,
+                        cMTCommonMetricsFlowDirection,
+                        cMTCommonMetricsLossMeasurement,
+                        cMTCommonMetricsMediaStopOccurred,
+                        cMTCommonMetricsRouteForward,
+                        cMTCommonMetricsIpProtocol,
+                        cMTRtpMetricsBitRate,
+                        cMTRtpMetricsOctets,
+                        cMTRtpMetricsPkts,
+                        cMTRtpMetricsJitter,
+                        cMTRtpMetricsLostPkts,
+                        cMTRtpMetricsExpectedPkts,
+                        cMTRtpMetricsLostPktEvents,
+                        cMTRtpMetricsLossPercent,
+                        cMTTcpMetricMediaByteCount,
+                        cMTTcpMetricConnectRoundTripDelay,
+                        cMTTcpMetricLostEventCount,
+                        cMTSystemMetricCpuOneMinuteUtilization,
+                        cMTSystemMetricCpuFiveMinutesUtilization,
+                        cMTSystemMetricMemoryUtilization,
+                        cMTInterfaceOutSpeed,
+                        cMTInterfaceInSpeed,
+                        cMTInterfaceOutDiscards,
+                        cMTInterfaceInDiscards,
+                        cMTInterfaceOutErrors,
+                        cMTInterfaceInErrors,
+                        cMTInterfaceOutOctets,
+                        cMTInterfaceInOctets,
+                        cMTMediaMonitorProfileMetric,
+                        cMTSessionTraceRouteEnabled,
+                        cMTScheduleRecurring,
+                        cMTFlowSpecifierMetadataGlobalId,
+                        cMTPathSpecifierMetadataGlobalId,
+                        cMTHopStatsMaskBitmaps,
+                        cMTSessionStatusBitmaps,
+                        cMTCommonMetricsBitmaps,
+                        cMTRtpMetricsBitmaps,
+                        cMTTcpMetricBitmaps,
+                        cMTSystemMetricBitmaps,
+                        cMTInterfaceBitmaps,
+                        cMTSessionStatusOperationState,
+                        cMTSessionStatusOperationTimeToLive,
+                        cMTSessionStatusGlobalSessionId,
+                        cMTSessionRequestStatsBitmaps,
+                        cMTSessionRequestStatsMDGlobalId,
+                        cMTSessionRequestStatsMDMultiPartySessionId,
+                        cMTSessionRequestStatsMDAppName,
+                        cMTInitiatorEnable,
+                        cMTInitiatorSourceInterface,
+                        cMTInitiatorSourceAddressType,
+                        cMTInitiatorSourceAddress,
+                        cMTInitiatorMaxSessions,
+                        cMTInitiatorSoftwareVersionMajor,
+                        cMTInitiatorProtocolVersionMajor,
+                        cMTInitiatorConfiguredSessions,
+                        cMTInitiatorPendingSessions,
+                        cMTInitiatorInactiveSessions,
+                        cMTInitiatorActiveSessions,
+                        cMTResponderEnable,
+                        cMTResponderMaxSessions,
+                        cMTResponderActiveSessions,
+                        cMTInitiatorSoftwareVersionMinor,
+                        cMTInitiatorProtocolVersionMinor,
+                        cMTCommonMetricsFlowSamplingStartTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The is a object group."
+    ::= { ciscoMediatraceMIBGroups 1 }
+
+END
+
+
+
+
+
+

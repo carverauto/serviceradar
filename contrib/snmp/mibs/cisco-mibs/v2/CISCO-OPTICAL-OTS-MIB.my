@@ -1,0 +1,2124 @@
+-- *****************************************************************
+-- CISCO-OPTICAL-OTS-MIB.my
+-- OPTICAL TRANSMISSION SECTION INTERFACE MIB
+--   
+-- April 2020 ncs1001 Team
+--   
+-- Copyright (c) 2016, 2020 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-OPTICAL-OTS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    TimeStamp
+        FROM SNMPv2-TC
+    ifIndex,
+    ifName
+        FROM IF-MIB
+    CoiOpticalPower,
+    CoiOpticalWavelength,
+    CoiIntervalType,
+    CoiOptAlarmType,
+    CoiOptAlarmSeverity,
+    CoiOptAlarmStatus,
+    CoiOptAlarmServiceAffecting
+        FROM CISCO-OPTICAL-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoOpticalOtsMIB MODULE-IDENTITY
+    LAST-UPDATED    "202004080000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+
+            Postal: 170 W Tasman Drive
+
+            San Jose, CA  95134
+
+            USA
+
+
+            Tel: +1 800 553-NETS
+
+
+            E-mail: cs-ncs1001@cisco.com"
+    DESCRIPTION
+        "This MIB module defines the managed objects and statistics
+        objects for physical layer characteristics of optical line 
+        systems and optical transport devices. 
+        Performance monitoring (PM) parameters are used to gather, 
+        store, set thresholds for and report
+        performance data for early detection of problems.
+        Thresholds are used to set error levels for each PM parameter.
+        During the accumulation cycle, if the current value of a
+        performance monitoring parameter reaches or exceeds its
+        corresponding threshold value, a threshold crossing alarm (TCA)
+        is generated. The TCAs provide early detection of performance
+        degradation.
+        Glossary:
+        OTS       : Optical Transmission Section
+        OTS-OCH   : Optical Channel Information on OTS
+        ATTN      : Optical Attenuation
+        GAIN      : Optical Amplifier Gain
+        TILT      : Optical Amplifier TILT
+        LBC       : Laser Bias Current
+        OSRI      : Optical Safety Remote Interlock
+        TX        : Transmit
+        RX        : Receive
+        VOA       : Variable Optical Attenuator
+        dB        : Decibel
+        dBm       : Decibel-milliwatt
+        mW        : Milliwatt
+        nm        : Nanometer."
+    REVISION        "202004080000Z"
+    DESCRIPTION
+        "- Modified cooOtsOchControllerFrequency description
+        and unit of measure
+        - Added to cooOtsOchControllerEntry  new attibute:
+        cooOtsOchControllerWidth
+        - Added cooOtsOchControllerWidth attribute to
+        cooOtsOchGroup group"
+    REVISION        "201806060000Z"
+    DESCRIPTION
+        "- Added to CooOtsControllerEntry new attributes:
+        cooOtsControllerRXSpanLoss
+        cooOtsControllerTXSpanLoss
+        cooOtsControllerRXEnabled
+        cooOtsControllerTXEnabled 
+
+        - Added to cooOtsControllerAlarmState new alarm
+        autoAmpliCtrlRunnig
+
+        - Added new PM attribute AmpliGain and AmpliGainTilt"
+    REVISION        "201612160000Z"
+    DESCRIPTION
+        "- Added IfName to cooOtsEquipmentAlarm
+        - Modified primary type from TimeStamp to OCTET STRING for
+        objects cooCurrentTimestamp and cooIntervalTimestamp"
+    REVISION        "201612090000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 834 }
+
+
+
+CiscoOpticalOtsPortType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the port type for optical OTS
+        interface. 
+                Valid values are -
+        line(1)      : port facing the fiber and far-end section.
+        com(2)       : port facing the near-end section.
+        osc(3)       : port for optical service channel signal.
+        comCheck(4)  : com monitoring port for near-end safety usage.
+        working(5)   : physical working port if device protection.
+        protected(6) : physical protected port if device protection."
+    SYNTAX          INTEGER  {
+                        line(1),
+                        com(2),
+                        osc(3),
+                        comCheck(4),
+                        working(5),
+                        protected(6)
+                    }
+
+CiscoOpticalOtsGainInDb ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "OTS ports associated to amplifier device,this value represent
+        the amplifier gain setting. 
+        An integer value that represents the gain level in
+        1/100ths of dB. 
+        A negative value represents not meaninful value in case the
+        amplifier is switched off for any reason.
+        Example: 
+        The value 800 represents an gain level of 8.0 dB."
+    SYNTAX          Integer32 (-100..4000)
+
+CiscoOpticalOtsTiltInDb ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "OTS ports associated to amplifier device, this values represent
+        the tilt parameter. 
+        An integer value that represents the tilt level in 1/100ths of
+        dB. 
+        Example: 
+        The value 300 represents a tilt level of 3.0 dB."
+    SYNTAX          Integer32 (-500..500)
+
+CiscoOpticalOtsVoaAttenInDb ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "An unsigned integer value that represents the VOA attenuation
+        level in 1/100ths of dB. 
+        Example: The value 200 represents an attenuation
+        level of 2.0 dB."
+    SYNTAX          Unsigned32
+
+CiscoOpticalOtsLaserStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the module laser status.
+        Valid values are -
+
+        unknown(1) : unknown status
+        on(2)      : laser on 
+        off(3)     : laser off
+        apr(4)     : Denotes Automatic Power Reduction (APR)"
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        on(2),
+                        off(3),
+                        apr(4)
+                    }
+
+CiscoOpticalOtsAmpliControlMode ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "OTS ports associated to amplifier device, this value indicates
+        how the amplifier is controlled.
+        Valid values are -
+        manual(1) : manual control mode (An external entity has to
+        provide gain/tilt settings)
+        auto(2)   : automatic control mode (An internal will provide
+        gain/tilt calculation based on power setpoint)"
+    SYNTAX          INTEGER  {
+                        manual(1),
+                        auto(2)
+                    }
+
+CiscoOpticalOtsAmpliGainRange ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "OTS ports associated to amplifier device, this value indicates
+        the working ranges available for amplifier gain.
+        Valid values are -
+
+        normal(1)   : normal gain range
+        extended(2) : extended gain range"
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        extended(2)
+                    }
+
+CiscoOpticalOtsAmpliSafetyCtrlMode ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "OTS ports associated to amplifier device, this value indicates
+        how the safety compliaces regulation are statisfied.
+        Valid values are -
+
+        auto(1)     : automatic safety control mode
+        disabled(2) : disabled safety control mode"
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        disabled(2)
+                    }
+
+CiscoOpticalOtsOsri ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "OTS ports associated to amplifier device, this value indicates
+        the optical safety remote interlock (OSRI) status.
+        Valid values are -
+
+        on(1)  : force laser shutdown for safety interlock
+        off(2) : normal operation"
+    SYNTAX          INTEGER  {
+                        on(1),
+                        off(2)
+                    }
+
+CiscoOpticalOtsProtectionPortRole ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the actual OTS port role in case a
+        protection device is in place.
+        Valid values are -
+
+        active(1)  : active port
+        standby(2) : standby port"
+    SYNTAX          INTEGER  {
+                        active(1),
+                        standby(2)
+                    }
+
+CiscoOpticalOtsState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the controller status.
+        Valid values are -
+
+        up(1)        : controller operstatus up
+        down(2)      : controller operstatus down
+        adminDown(3) : controller administratively down"
+    SYNTAX          INTEGER  {
+                        up(1),
+                        down(2),
+                        adminDown(3)
+                    }
+
+CiscoOpticalOtsTranspAdminState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the transport administrative status.
+        Valid values are -
+
+        inService(1)    : transport administrative status in-service
+        outOfService(2) : transport administrative status out-of-service
+        maintenance(3)  : transport administrative status maintenance
+        ains(4)         : transport administrative status automatic
+        in-service"
+    SYNTAX          INTEGER  {
+                        inService(1),
+                        outOfService(2),
+                        maintenance(3),
+                        ains(4)
+                    }
+-- Textual Conventions definition will be defined before this line
+
+ciscoOpticalOtsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoOpticalOtsMIB 0 }
+
+ciscoOpticalOtsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoOpticalOtsMIB 1 }
+
+
+cooOtsStatusChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        ifIndex,
+                        ifName,
+                        cooOtsControllerPortType,
+                        cooOtsControllerAlarmState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the value of
+        cooOtsControllerStatus changes.
+        The varbind for this notification indicates the ifindex, 
+        ifname of the OTS interface as well as controller port type and status."
+   ::= { ciscoOpticalOtsMIBNotifs 1 }
+
+cooOtsOchStatusChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        ifIndex,
+                        ifName,
+                        cooOtsOchControllerPortType,
+                        cooOtsOchControllerAlarmState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the value of
+        cooOtsOchControllerStatus changes.
+        The varbind for this notification indicates the ifindex, 
+        ifname of the OTS-OCH interface as well as controller port type
+        and status."
+   ::= { ciscoOpticalOtsMIBNotifs 2 }
+
+cooOtsEquipmentAlarm NOTIFICATION-TYPE
+    OBJECTS         {
+                        cooOtsAlarmLocation,
+                        cooOtsAlarmType,
+                        cooOtsAlarmTimeStamp,
+                        cooOtsAlarmName,
+                        cooOtsAlarmAdditionalInfo,
+                        cooOtsAlarmSeverity,
+                        cooOtsAlarmStatus,
+                        cooOtsAlarmServiceAffecting,
+                        ifName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated whenever the optical equipment
+        alarm is generated."
+   ::= { ciscoOpticalOtsMIBNotifs 3 }
+cooOtsController  OBJECT IDENTIFIER
+    ::= { ciscoOpticalOtsMIBObjects 1 }
+
+cooOtsPerformanceMonitoring  OBJECT IDENTIFIER
+    ::= { ciscoOpticalOtsMIBObjects 2 }
+
+
+cooOtsNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object controls the generation of cooOtsStatusChange
+        notification.
+        If the value of this object is 'true', then the generation of
+        cooOtsStatusChange notification is enabled. If the value of
+        this object is 'false', then the generation of
+        cooOtsStatusChange notification is disabled."
+    DEFVAL          { false } 
+    ::= { cooOtsController 1 }
+
+cooOtsControllerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CooOtsControllerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for OTS optical layer
+        related attributes of interfaces with an ifType of
+        opticalTransport(196)."
+    ::= { cooOtsController 2 }
+
+cooOtsControllerEntry OBJECT-TYPE
+    SYNTAX          CooOtsControllerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on OTS optical layer
+        related attributes of interfaces with an ifType
+        opticalTrasnport(196). Entries are created by the feature when a
+        new interface is added to the ifTable."
+    INDEX           { ifIndex } 
+    ::= { cooOtsControllerTable 1 }
+
+CooOtsControllerEntry ::= SEQUENCE {
+        cooOtsControllerPortType            CiscoOpticalOtsPortType,
+        cooOtsControllerLaserStatus         CiscoOpticalOtsLaserStatus,
+        cooOtsControllerRXPower             CoiOpticalPower,
+        cooOtsControllerTXPower             CoiOpticalPower,
+        cooOtsControllerAmpliGain           CiscoOpticalOtsGainInDb,
+        cooOtsControllerAmpliTilt           CiscoOpticalOtsTiltInDb,
+        cooOtsControllerTotalRXPower        CoiOpticalPower,
+        cooOtsControllerTotalTXPower        CoiOpticalPower,
+        cooOtsControllerRXVoaAttenuation    CiscoOpticalOtsVoaAttenInDb,
+        cooOtsControllerTXVoaAttenuation    CiscoOpticalOtsVoaAttenInDb,
+        cooOtsControllerRXLowThreshold      CoiOpticalPower,
+        cooOtsControllerTXLowThreshold      CoiOpticalPower,
+        cooOtsControllerAmpliChannelPwr     CoiOpticalPower,
+        cooOtsControllerChannelPwrMaxDelta  CoiOpticalPower,
+        cooOtsControllerAmpliControlMode    CiscoOpticalOtsAmpliControlMode,
+        cooOtsControllerAmpliGainRange      CiscoOpticalOtsAmpliGainRange,
+        cooOtsControllerAmpliSafetyCtrlMode CiscoOpticalOtsAmpliSafetyCtrlMode,
+        cooOtsControllerOsri                CiscoOpticalOtsOsri,
+        cooOtsControllerProtectionPortRole  CiscoOpticalOtsProtectionPortRole,
+        cooOtsControllerState               CiscoOpticalOtsState,
+        cooOtsControllerTranspAdminState    CiscoOpticalOtsTranspAdminState,
+        cooOtsControllerAlarmState          BITS,
+        cooOtsControllerRXSpanLoss          CoiOpticalPower,
+        cooOtsControllerTXSpanLoss          CoiOpticalPower,
+        cooOtsControllerRXEnabled           TruthValue,
+        cooOtsControllerTXEnabled           TruthValue
+}
+
+cooOtsControllerPortType OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsPortType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the port type of the optical OTS interface." 
+    ::= { cooOtsControllerEntry 1 }
+
+cooOtsControllerLaserStatus OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsLaserStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the current operational state of the
+        laser." 
+    ::= { cooOtsControllerEntry 2 }
+
+cooOtsControllerRXPower OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the receive power in
+        1/100 dBm on optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 3 }
+
+cooOtsControllerTXPower OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the transmit power in
+        1/100 dBm on optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 4 }
+
+cooOtsControllerAmpliGain OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsGainInDb
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the amplifier gain value in
+        1/100 dB on optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 5 }
+
+cooOtsControllerAmpliTilt OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsTiltInDb
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the amplifier tilt value in
+        1/100 dB on optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 6 }
+
+cooOtsControllerTotalRXPower OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object is used to represents the total receive power in
+        1/100 dBm on optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 7 }
+
+cooOtsControllerTotalTXPower OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object is used to represents the total transmit power
+        in 1/100 dBm on optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 8 }
+
+cooOtsControllerRXVoaAttenuation OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsVoaAttenInDb
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the receive VOA attenuation value
+        in 1/100 dBm on optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 9 }
+
+cooOtsControllerTXVoaAttenuation OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsVoaAttenInDb
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the transmit VOA attenuation value
+        in 1/100 dBm on optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 10 }
+
+cooOtsControllerRXLowThreshold OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the receive low threshold in
+        1/100 dBm on optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 11 }
+
+cooOtsControllerTXLowThreshold OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the transmit low threshold in
+        1/100 dBm on optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 12 }
+
+cooOtsControllerAmpliChannelPwr OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the amplifier channel power in
+        1/100 dBm on optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 13 }
+
+cooOtsControllerChannelPwrMaxDelta OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the maximum delta on channel
+        power in 1/100 dBm on optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 14 }
+
+cooOtsControllerAmpliControlMode OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsAmpliControlMode
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the amplifier control mode." 
+    ::= { cooOtsControllerEntry 15 }
+
+cooOtsControllerAmpliGainRange OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsAmpliGainRange
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the amplifier gain range." 
+    ::= { cooOtsControllerEntry 16 }
+
+cooOtsControllerAmpliSafetyCtrlMode OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsAmpliSafetyCtrlMode
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the safety control mode." 
+    ::= { cooOtsControllerEntry 17 }
+
+cooOtsControllerOsri OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsOsri
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the OSRI." 
+    ::= { cooOtsControllerEntry 18 }
+
+cooOtsControllerProtectionPortRole OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsProtectionPortRole
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the port role on
+        optical channel interfaces." 
+    ::= { cooOtsControllerEntry 19 }
+
+cooOtsControllerState OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the controller status of
+        optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 20 }
+
+cooOtsControllerTranspAdminState OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsTranspAdminState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the transport administration status on
+        optical OTS interfaces." 
+    ::= { cooOtsControllerEntry 21 }
+
+cooOtsControllerAlarmState OBJECT-TYPE
+    SYNTAX          BITS {
+                        noDefect(0),
+                        highRXPwr(1),
+                        highTXPwr(2),
+                        lowRXPwr(3),
+                        lowTXPwr(4),
+                        lospRXPwr(5),
+                        locRXPwr(6),
+                        degLowGain(7),
+                        degHighGain(8),
+                        alsAmp(9),
+                        aprAmp(10),
+                        noEqAutoAmp(11),
+                        misAutoAmp(12),
+                        switchToProtect(13),
+                        autoAmpliCtrlRunning(14)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current alarms status of the Optics
+        layer.
+            Alarms description  :
+            noDefect        : No alarms
+            highRXPwr       : Input optical power reading over the
+        fail-high threshold
+            highTXPwr       : Output optical power reading over the
+        fail-high threshold
+            lowRXPwr        : Input optical power reading below the
+        fail-low threshold
+            lowTXPwr        : Output optical power reading below the
+        fail-low threshold
+            lospRXPwr       : Loss of optical power signal
+            locRXPwr        : Loss of optical continuity
+            degLowGain      : Amplifier gain degrade low
+            degHighGain     : Amplifier gain degrade high
+            alsAmp          : Amplifier automatic laser shutdown for
+        safety reason
+            aprAmp          : Amplifier automatic power reduction
+            noEqAutoAmp     : Channels power not equalized for
+        amplifier
+        automatic control mode
+            misAutoAmp      : Misconfiguration for amplifier automatic
+        control mode
+            switchToProtect : Protected port switching to active role
+           autoAmpliCtrlRunning : Amplifier automatic control mode
+        algorithm running" 
+    ::= { cooOtsControllerEntry 22 }
+
+cooOtsControllerRXSpanLoss OBJECT-TYPE
+    SYNTAX          CoiOpticalPower (-4000..3000)
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object is used to represents the sapn loss power in 1/100
+        dBm on optical OTS interfaces" 
+    ::= { cooOtsControllerEntry 23 }
+
+cooOtsControllerTXSpanLoss OBJECT-TYPE
+    SYNTAX          CoiOpticalPower (-4000..3000)
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object is used to represents the sapn loss power in 1/100
+        dBm on optical OTS interfaces" 
+    ::= { cooOtsControllerEntry 24 }
+
+cooOtsControllerRXEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the RX direction status of optical OTS
+        interfaces." 
+    ::= { cooOtsControllerEntry 25 }
+
+cooOtsControllerTXEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the TX direction status of optical OTS
+        interfaces." 
+    ::= { cooOtsControllerEntry 26 }
+ 
+
+
+cooOtsOchControllerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CooOtsOchControllerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for OTS-OCH optical layer
+        related attributes of interfaces with an ifType of
+        opticalTransport(196)."
+    ::= { cooOtsController 3 }
+
+cooOtsOchControllerEntry OBJECT-TYPE
+    SYNTAX          CooOtsOchControllerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on OTS-OCH optical layer
+        related attributes of interfaces with an ifType
+        opticalTransport(196). Entries are created by the feature when a
+        new interface is added to the ifTable."
+    INDEX           { ifIndex } 
+    ::= { cooOtsOchControllerTable 1 }
+
+CooOtsOchControllerEntry ::= SEQUENCE {
+        cooOtsOchControllerPortType         CiscoOpticalOtsPortType,
+        cooOtsOchControllerLaserStatus      CiscoOpticalOtsLaserStatus,
+        cooOtsOchControllerRXPower          CoiOpticalPower,
+        cooOtsOchControllerTXPower          CoiOpticalPower,
+        cooOtsOchControllerRXLowThreshold   CoiOpticalPower,
+        cooOtsOchControllerTXLowThreshold   CoiOpticalPower,
+        cooOtsOchControllerWavelength       CoiOpticalWavelength,
+        cooOtsOchControllerFrequency        Unsigned32,
+        cooOtsOchControllerChannelNumber    Unsigned32,
+        cooOtsOchControllerState            CiscoOpticalOtsState,
+        cooOtsOchControllerTranspAdminState CiscoOpticalOtsTranspAdminState,
+        cooOtsOchControllerAlarmState       BITS,
+        cooOtsOchControllerWidth            Unsigned32
+}
+
+cooOtsOchControllerPortType OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsPortType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the port type of the optical OTS-OCH interface." 
+    ::= { cooOtsOchControllerEntry 1 }
+
+cooOtsOchControllerLaserStatus OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsLaserStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the current operational state of the
+        laser." 
+    ::= { cooOtsOchControllerEntry 2 }
+
+cooOtsOchControllerRXPower OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the receive power in
+        1/100 dBm on optical OTS-OCH interfaces." 
+    ::= { cooOtsOchControllerEntry 3 }
+
+cooOtsOchControllerTXPower OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the transmit power in
+        1/100 dBm on optical OTS-OCH interfaces." 
+    ::= { cooOtsOchControllerEntry 4 }
+
+cooOtsOchControllerRXLowThreshold OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the receive low threshold in
+        1/100 dBm on optical OTS-OCH interfaces." 
+    ::= { cooOtsOchControllerEntry 5 }
+
+cooOtsOchControllerTXLowThreshold OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the transmit low threshold in
+        1/100 dBm on optical OTS-OCH interfaces." 
+    ::= { cooOtsOchControllerEntry 6 }
+
+cooOtsOchControllerWavelength OBJECT-TYPE
+    SYNTAX          CoiOpticalWavelength
+    UNITS           "1/100 nm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the wavelength on
+        optical OTS-OCH interfaces (unit 1/100 nm)."
+    DEFVAL          { 0 } 
+    ::= { cooOtsOchControllerEntry 7 }
+
+cooOtsOchControllerFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32 (1913500..1961000)
+    UNITS           "100 MHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the frequency on
+        optical Ots-Och channel interfaces (unit 100 MHz)." 
+    ::= { cooOtsOchControllerEntry 8 }
+
+cooOtsOchControllerChannelNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..384)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the channel number on
+        optical OTS-OCH interfaces." 
+    ::= { cooOtsOchControllerEntry 9 }
+
+cooOtsOchControllerState OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the controller status of
+        optical OTS-OCH interfaces." 
+    ::= { cooOtsOchControllerEntry 10 }
+
+cooOtsOchControllerTranspAdminState OBJECT-TYPE
+    SYNTAX          CiscoOpticalOtsTranspAdminState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the transport administration status on
+        optical OTS-OCH interfaces." 
+    ::= { cooOtsOchControllerEntry 11 }
+
+cooOtsOchControllerAlarmState OBJECT-TYPE
+    SYNTAX          BITS {
+                        noDefect(0),
+                        highRXPwr(1),
+                        highTXPwr(2),
+                        lowRXPwr(3),
+                        lowTXPwr(4),
+                        lospRXPwr(5),
+                        locRXPwr(6),
+                        degLowGain(7),
+                        degHighGain(8),
+                        alsAmp(9),
+                        aprAmp(10),
+                        noEqAutoAmp(11),
+                        misAutoAmp(12),
+                        switchToProtect(13)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current alarms status of the Optics
+        layer.
+            Alarms description  :
+            noDefect        : No alarms
+            highRXPwr       : Input optical power reading over the
+        fail-high threshold
+            highTXPwr       : Output optical power reading over the
+        fail-high threshold
+            lowRXPwr        : Input optical power reading below the
+        fail-low threshold
+            lowTXPwr        : Output optical power reading below the
+        fail-low threshold
+            lospRXPwr       : Loss of optical power signal
+            locRXPwr        : Loss of optical continuity
+            degLowGain      : Amplifier gain degrade low
+            degHighGain     : Amplifier gain degrade high
+            alsAmp          : Amplifier automatic laser shutdown for
+        safety reason
+            aprAmp          : Amplifier automatic power reduction
+            noEqAutoAmp     : Channels power not equalized for amplifier
+        automatic control mode
+            misAutoAmp      : Misconfiguration for amplifier automatic
+        control mode
+            switchToProtect : Protected port switching to active role" 
+    ::= { cooOtsOchControllerEntry 12 }
+
+cooOtsOchControllerWidth OBJECT-TYPE
+    SYNTAX          Unsigned32 (500..8000)
+    UNITS           "1/10 GHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the frequency on
+        optical Ots-Och channel interfaces (unit 1/10 GHz)."
+    DEFVAL          { 500 } 
+    ::= { cooOtsOchControllerEntry 13 }
+ 
+
+
+cooOtsOchNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object controls the generation of cooOtsOchStatusChange
+        notification.
+        If the value of this object is 'true', then the generation of
+        cooOtsOchStatusChange notification is enabled. If the value of
+        this object is 'false', then the generation of
+        cooOtsOchStatusChange notification is disabled."
+    DEFVAL          { false } 
+    ::= { cooOtsController 4 }
+
+cooOtsThresholdTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CooOtsThresholdEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides threshold information for optical layer
+        related attributes of interfaces with an ifType of
+        opticalTransport(196) and interval type as
+        cooThreshIntervalType."
+    ::= { cooOtsPerformanceMonitoring 1 }
+
+cooOtsThresholdEntry OBJECT-TYPE
+    SYNTAX          CooOtsThresholdEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing threshold information on optical layer
+        related attributes of interfaces with an ifType
+        opticalTransport(196). Entries are created by the feature
+        when a new interface is added to the ifTable."
+    INDEX           {
+                        ifIndex,
+                        cooThreshIntervalType
+                    } 
+    ::= { cooOtsThresholdTable 1 }
+
+CooOtsThresholdEntry ::= SEQUENCE {
+        cooThreshIntervalType           CoiIntervalType,
+        cooThreshTXPowerMin             CoiOpticalPower,
+        cooThreshRXPowerMin             CoiOpticalPower,
+        cooThreshLBCMin                 Unsigned32,
+        cooThreshTXPowerMax             CoiOpticalPower,
+        cooThreshRXPowerMax             CoiOpticalPower,
+        cooThreshLBCMax                 Unsigned32,
+        cooThreshTXPowerEnableMin       TruthValue,
+        cooThreshRXPowerEnableMin       TruthValue,
+        cooThreshLBCEnableMin           TruthValue,
+        cooThreshTXPowerEnableMax       TruthValue,
+        cooThreshRXPowerEnableMax       TruthValue,
+        cooThreshLBCEnableMax           TruthValue,
+        cooThreshAmpliGainMin           Integer32,
+        cooThreshAmpliGainMax           Integer32,
+        cooThreshAmpliGainEnableMax     TruthValue,
+        cooThreshAmpliGainEnableMin     TruthValue,
+        cooThreshAmpliGainTiltMin       Integer32,
+        cooThreshAmpliGainTiltMax       Integer32,
+        cooThreshAmpliGainTiltEnableMax TruthValue,
+        cooThreshAmpliGainTiltEnableMin TruthValue
+}
+
+cooThreshIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the interval type during which the
+        performance statistics are accumulated for the interface." 
+    ::= { cooOtsThresholdEntry 1 }
+
+cooThreshTXPowerMin OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum
+        transmit power for the interface in 1/100 dBm." 
+    ::= { cooOtsThresholdEntry 2 }
+
+cooThreshRXPowerMin OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum
+        receive power for the interface in 1/100 dBm." 
+    ::= { cooOtsThresholdEntry 3 }
+
+cooThreshLBCMin OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "1/10 percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum
+        laser bias current in 1/10 percent." 
+    ::= { cooOtsThresholdEntry 4 }
+
+cooThreshTXPowerMax OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum
+        Transmit power for the interface in 1/100 dBm." 
+    ::= { cooOtsThresholdEntry 5 }
+
+cooThreshRXPowerMax OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum
+        receive power for the interface in 1/100 dBm." 
+    ::= { cooOtsThresholdEntry 6 }
+
+cooThreshLBCMax OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "1/10 percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum
+        Laser Bias Current in 1/10 percent for the interface." 
+    ::= { cooOtsThresholdEntry 7 }
+
+cooThreshTXPowerEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of threshold
+        minimum transmit power for the interface."
+    DEFVAL          { false } 
+    ::= { cooOtsThresholdEntry 8 }
+
+cooThreshRXPowerEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold minimum receive power for the interface."
+    DEFVAL          { false } 
+    ::= { cooOtsThresholdEntry 9 }
+
+cooThreshLBCEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold minimum laser bias current for the interface."
+    DEFVAL          { false } 
+    ::= { cooOtsThresholdEntry 10 }
+
+cooThreshTXPowerEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold maximum transmit power for the interface."
+    DEFVAL          { false } 
+    ::= { cooOtsThresholdEntry 11 }
+
+cooThreshRXPowerEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold maximum receive power for the interface."
+    DEFVAL          { false } 
+    ::= { cooOtsThresholdEntry 12 }
+
+cooThreshLBCEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold maximum laser bias current for the interface."
+    DEFVAL          { false } 
+    ::= { cooOtsThresholdEntry 13 }
+
+cooThreshAmpliGainMin OBJECT-TYPE
+    SYNTAX          Integer32 (0..500)
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum ampli
+        gain for the interface in 1/100 dB." 
+    ::= { cooOtsThresholdEntry 14 }
+
+cooThreshAmpliGainMax OBJECT-TYPE
+    SYNTAX          Integer32 (0..500)
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum ampli
+        gain for the interface in 1/100 dB." 
+    ::= { cooOtsThresholdEntry 15 }
+
+cooThreshAmpliGainEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold maximum ampli gain for the interface."
+    DEFVAL          { false } 
+    ::= { cooOtsThresholdEntry 16 }
+
+cooThreshAmpliGainEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold minimum ampli gain for the interface."
+    DEFVAL          { false } 
+    ::= { cooOtsThresholdEntry 17 }
+
+cooThreshAmpliGainTiltMin OBJECT-TYPE
+    SYNTAX          Integer32 (-50..50)
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum ampli
+        gain tilt for the interface in 1/100 dB." 
+    ::= { cooOtsThresholdEntry 18 }
+
+cooThreshAmpliGainTiltMax OBJECT-TYPE
+    SYNTAX          Integer32 (-50..50)
+    UNITS           "1/100 db"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum ampli
+        gain tilt for the interface in 1/100 dB." 
+    ::= { cooOtsThresholdEntry 19 }
+
+cooThreshAmpliGainTiltEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold maximum ampli gain tilt for the interface."
+    DEFVAL          { false } 
+    ::= { cooOtsThresholdEntry 20 }
+
+cooThreshAmpliGainTiltEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold minimum ampli gain tilt for the interface."
+    DEFVAL          { false } 
+    ::= { cooOtsThresholdEntry 21 }
+ 
+
+
+cooOtsCurrentTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CooOtsCurrentEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides current information for optical layer
+        related attributes of interfaces with an ifType of
+        opticalChannel(196), lane as cooCurrentLane and interval
+        as cooCurrentIntervalType."
+    ::= { cooOtsPerformanceMonitoring 2 }
+
+cooOtsCurrentEntry OBJECT-TYPE
+    SYNTAX          CooOtsCurrentEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing current information on optical layer
+        related attributes of interfaces with an ifType
+        opticalChannel(196). Entries are created by the feature when
+        a new interface is added to the ifTable."
+    INDEX           {
+                        ifIndex,
+                        cooCurrentIntervalType
+                    } 
+    ::= { cooOtsCurrentTable 1 }
+
+CooOtsCurrentEntry ::= SEQUENCE {
+        cooCurrentIntervalType     CoiIntervalType,
+        cooCurrentTXPowerMax       CoiOpticalPower,
+        cooCurrentRXPowerMax       CoiOpticalPower,
+        cooCurrentLBCMax           Unsigned32,
+        cooCurrentTXPowerMin       CoiOpticalPower,
+        cooCurrentRXPowerMin       CoiOpticalPower,
+        cooCurrentLBCMin           Unsigned32,
+        cooCurrentTXPowerAvg       CoiOpticalPower,
+        cooCurrentRXPowerAvg       CoiOpticalPower,
+        cooCurrentLBCAvg           Unsigned32,
+        cooCurrentTimestamp        OCTET STRING,
+        cooCurrentAmpliGainMin     Integer32,
+        cooCurrentAmpliGainMax     Integer32,
+        cooCurrentAmpliGainAvg     Integer32,
+        cooCurrentAmpliGainTiltMin Integer32,
+        cooCurrentAmpliGainTiltMax Integer32,
+        cooCurrentAmpliGainTiltAvg Integer32
+}
+
+cooCurrentIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the interval type during which the
+        current performance statistics are accumulated." 
+    ::= { cooOtsCurrentEntry 1 }
+
+cooCurrentTXPowerMax OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current maximum transmit power
+        for the interface in 1/100 dBm." 
+    ::= { cooOtsCurrentEntry 2 }
+
+cooCurrentRXPowerMax OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current maximum receive power for the
+        interface in 1/100 dBm." 
+    ::= { cooOtsCurrentEntry 3 }
+
+cooCurrentLBCMax OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "1/10 percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current maximum laser bias current in
+        1/10 percent for the interface." 
+    ::= { cooOtsCurrentEntry 4 }
+
+cooCurrentTXPowerMin OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current minimum transmit power for
+        the
+        interface in 1/100 dBm." 
+    ::= { cooOtsCurrentEntry 5 }
+
+cooCurrentRXPowerMin OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current minimum receive power for the
+        interface in 1/100 dBm." 
+    ::= { cooOtsCurrentEntry 6 }
+
+cooCurrentLBCMin OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "1/10 percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current minimum laser bias current in
+        1/10 percent for the interface." 
+    ::= { cooOtsCurrentEntry 7 }
+
+cooCurrentTXPowerAvg OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average transmit power
+        for the interface in 1/100 dBm." 
+    ::= { cooOtsCurrentEntry 8 }
+
+cooCurrentRXPowerAvg OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average receive power
+        for the interface in 1/100 dBm." 
+    ::= { cooOtsCurrentEntry 9 }
+
+cooCurrentLBCAvg OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "1/10 percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average Laser Bias Current
+        in 1/10 percent for the interface." 
+    ::= { cooOtsCurrentEntry 10 }
+
+cooCurrentTimestamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the timestamp for
+        the current bucket for the interface." 
+    ::= { cooOtsCurrentEntry 11 }
+
+cooCurrentAmpliGainMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current minimum amplifier gain for
+        the
+        interface in 1/100 dB." 
+    ::= { cooOtsCurrentEntry 12 }
+
+cooCurrentAmpliGainMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current maximum amplifier gain for
+        the
+        interface in 1/100 dB." 
+    ::= { cooOtsCurrentEntry 13 }
+
+cooCurrentAmpliGainAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average amplifier gain for
+        the interface in 1/100 dB." 
+    ::= { cooOtsCurrentEntry 14 }
+
+cooCurrentAmpliGainTiltMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current minimum amplifier gain tilt
+        for
+        the interface in 1/100 dB." 
+    ::= { cooOtsCurrentEntry 15 }
+
+cooCurrentAmpliGainTiltMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current maximum amplifier gain tilt
+        for
+        the interface in 1/100 dB." 
+    ::= { cooOtsCurrentEntry 16 }
+
+cooCurrentAmpliGainTiltAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average amplifier gain tilt
+        for
+        the interface in 1/100 dB." 
+    ::= { cooOtsCurrentEntry 17 }
+ 
+
+
+cooOtsIntervalTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CooOtsIntervalEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides interval information for optical layer
+        related attributes of interfaces with an ifType of
+        opticalChannel(196), lane as cooIntervalLane, Interval as
+        cooIntervalIntervalType and history bucket as
+        cooIntervalIntervalType."
+    ::= { cooOtsPerformanceMonitoring 3 }
+
+cooOtsIntervalEntry OBJECT-TYPE
+    SYNTAX          CooOtsIntervalEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing interval information on optical layer
+        related attributes of interfaces with an ifType
+        opticalChannel(196). Entries are created by the feature when a
+        new interface is added to the ifTable."
+    INDEX           {
+                        ifIndex,
+                        cooIntervalType,
+                        cooIntervalNum
+                    } 
+    ::= { cooOtsIntervalTable 1 }
+
+CooOtsIntervalEntry ::= SEQUENCE {
+        cooIntervalType             CoiIntervalType,
+        cooIntervalNum              Unsigned32,
+        cooIntervalTXPowerMax       CoiOpticalPower,
+        cooIntervalRXPowerMax       CoiOpticalPower,
+        cooIntervalLBCMax           Unsigned32,
+        cooIntervalTXPowerMin       CoiOpticalPower,
+        cooIntervalRXPowerMin       CoiOpticalPower,
+        cooIntervalLBCMin           Unsigned32,
+        cooIntervalTXPowerAvg       CoiOpticalPower,
+        cooIntervalRXPowerAvg       CoiOpticalPower,
+        cooIntervalLBCAvg           Unsigned32,
+        cooIntervalTimestamp        OCTET STRING,
+        cooIntervalAmpliGainMin     Integer32,
+        cooIntervalAmpliGainMax     Integer32,
+        cooIntervalAmpliGainAvg     Integer32,
+        cooIntervalAmpliGainTiltMin Integer32,
+        cooIntervalAmpliGainTiltMax Integer32,
+        cooIntervalAmpliGainTiltAvg Integer32
+}
+
+cooIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the interval type during which the
+        performance statistics are accumulated." 
+    ::= { cooOtsIntervalEntry 1 }
+
+cooIntervalNum OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..31)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the interval for which the set of
+        interval performance values is available.
+        The interval identified by 1 is the most recent 15 minute
+        or 24 hour interval, and the interval identified by N is
+        the interval immediately preceding the one identified by N-1." 
+    ::= { cooOtsIntervalEntry 2 }
+
+cooIntervalTXPowerMax OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum transmit power in
+        1/100 dBm for the interface." 
+    ::= { cooOtsIntervalEntry 3 }
+
+cooIntervalRXPowerMax OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum receive power in
+        1/100 dBm for the interface." 
+    ::= { cooOtsIntervalEntry 4 }
+
+cooIntervalLBCMax OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "1/10 percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum laser bias current
+        in 1/10 percent for the interface." 
+    ::= { cooOtsIntervalEntry 5 }
+
+cooIntervalTXPowerMin OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum transmit power in
+        1/100 dBm for the interface." 
+    ::= { cooOtsIntervalEntry 6 }
+
+cooIntervalRXPowerMin OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum receive power in
+        1/100 dBm for the interface." 
+    ::= { cooOtsIntervalEntry 7 }
+
+cooIntervalLBCMin OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "1/10 percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum laser bias current
+        in 1/10 percent for the interface." 
+    ::= { cooOtsIntervalEntry 8 }
+
+cooIntervalTXPowerAvg OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average transmit power in
+        1/100 dBm for the interface." 
+    ::= { cooOtsIntervalEntry 9 }
+
+cooIntervalRXPowerAvg OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average receive power in
+        1/100 dBm for the interface." 
+    ::= { cooOtsIntervalEntry 10 }
+
+cooIntervalLBCAvg OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "1/10 percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average laser bias current
+        in 1/10 percent for the interface." 
+    ::= { cooOtsIntervalEntry 11 }
+
+cooIntervalTimestamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the timestamp, for the bucket specified
+        by 'cooIntervalNum', for the interface." 
+    ::= { cooOtsIntervalEntry 12 }
+
+cooIntervalAmpliGainMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum amplifier gain in
+        1/100 dB for the interface." 
+    ::= { cooOtsIntervalEntry 13 }
+
+cooIntervalAmpliGainMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum amplifier gain in
+        1/100 dB for the interface." 
+    ::= { cooOtsIntervalEntry 14 }
+
+cooIntervalAmpliGainAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval acerage amplifier gain in
+        1/100 dB for the interface." 
+    ::= { cooOtsIntervalEntry 15 }
+
+cooIntervalAmpliGainTiltMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum amplifier gain tilt
+        in 1/100 dB for the interface." 
+    ::= { cooOtsIntervalEntry 16 }
+
+cooIntervalAmpliGainTiltMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum amplifier gain tilt
+        in 1/100 dB for the interface." 
+    ::= { cooOtsIntervalEntry 17 }
+
+cooIntervalAmpliGainTiltAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average amplifier gain tilt
+        in 1/100 dB for the interface." 
+    ::= { cooOtsIntervalEntry 18 }
+ 
+
+cooOtsEquipmentAlarmGroup  OBJECT IDENTIFIER
+    ::= { ciscoOpticalOtsMIBObjects 5 }
+
+
+cooOtsAlarmLocation OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the location of the component that
+        raised alarm, within the device." 
+    ::= { cooOtsEquipmentAlarmGroup 1 }
+
+cooOtsAlarmType OBJECT-TYPE
+    SYNTAX          CoiOptAlarmType
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of alarm that is raised." 
+    ::= { cooOtsEquipmentAlarmGroup 2 }
+
+cooOtsAlarmTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the time when an event occurred. This is
+        accurate only upto a second." 
+    ::= { cooOtsEquipmentAlarmGroup 3 }
+
+cooOtsAlarmName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the user-visible name, which
+        uniquely identifies the alarm in the system." 
+    ::= { cooOtsEquipmentAlarmGroup 4 }
+
+cooOtsAlarmAdditionalInfo OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object provides additional information about the alarm.
+        This object would be an empty string if no additional
+        information is specified." 
+    ::= { cooOtsEquipmentAlarmGroup 5 }
+
+cooOtsAlarmSeverity OBJECT-TYPE
+    SYNTAX          CoiOptAlarmSeverity
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object specifies alarm severity." 
+    ::= { cooOtsEquipmentAlarmGroup 6 }
+
+cooOtsAlarmStatus OBJECT-TYPE
+    SYNTAX          CoiOptAlarmStatus
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object specifies alarm status." 
+    ::= { cooOtsEquipmentAlarmGroup 7 }
+
+cooOtsAlarmServiceAffecting OBJECT-TYPE
+    SYNTAX          CoiOptAlarmServiceAffecting
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the service affecting state of the
+        alarm." 
+    ::= { cooOtsEquipmentAlarmGroup 8 }
+-- MIB Conformance Statements
+
+ciscoOpticalOtsMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoOpticalOtsMIB 2 }
+
+ciscoOpticalOtsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoOpticalOtsMIBConformance 1 }
+
+ciscoOpticalOtsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoOpticalOtsMIBConformance 2 }
+
+
+ciscoOpticalOtsMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for platforms that monitor the
+        parameters for the optical interfaces."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cooOtsGroup }
+
+    GROUP           cooOtsOchGroup
+    DESCRIPTION
+        "The collection of objects to allow configurations and give
+        information related to the optical layer characteristics
+        for interfaces of ifType opticalChannel(196)."
+
+    GROUP           cooOtsControllerGroup
+    DESCRIPTION
+        "The collection of objects to allow configurations and give
+        information related to the optical layer characteristics
+        for interfaces of ifType opticalChannel(196)."
+
+    GROUP           cooOtsOchControllerGroup
+    DESCRIPTION
+        "The collection of objects to allow configurations and give
+        information related to the optical layer characteristics
+        for interfaces of ifType opticalChannel(196)."
+
+    GROUP           cooOtsThresholdGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the threshold
+        information for optical layer related attributes of interfaces
+        with an ifType of opticalChannel(196)."
+
+    GROUP           cooOtsCurrentGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the current
+        information for optical layer related attributes of interfaces
+        with an ifType of opticalChannel(196) in a current interval."
+
+    GROUP           cooOtsIntervalGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the interval
+        information for optical layer related attributes of interfaces
+        with an ifType of opticalChannel(196) in a given interval."
+
+    GROUP           cooOtsNotifEnableGroup
+    DESCRIPTION
+        "The collection of objects to enable the notification
+        generations upon an interface's alarms status change on optics
+        layer."
+
+    GROUP           cooOtsNotifGroup
+    DESCRIPTION
+        "The optical status change notifications whenever the
+        alarms status of optical OTS layer on an interface changes."
+
+    GROUP           cooOtsOchNotifGroup
+    DESCRIPTION
+        "The optical status change notifications whenever the
+        alarms status of optical OTS-OCH layer on an interface changes."
+
+    GROUP           cooOtsEquipmentAlarmInfoGroup
+    DESCRIPTION
+        "The optical equipment alarm notifications whenever the
+        equipment failed alarm is detected."
+
+    GROUP           cooOtsPowerGroup
+    DESCRIPTION
+        "The collection of objects used for monitoring the total power
+        information for optical layer related attributes of interfaces
+        with an ifType of opticalChannel(196)."
+
+    GROUP           cooOtsOchNotifEnableGroup
+    DESCRIPTION
+        "The collection of objects to enable the notification generations
+        upon an interface's alarms status change on optics OTS-OCH
+        layer."
+    ::= { ciscoOpticalOtsMIBCompliances 1 }
+
+-- units of conformance
+
+cooOtsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cooOtsControllerPortType,
+                        cooOtsControllerLaserStatus,
+                        cooOtsControllerRXPower,
+                        cooOtsControllerTXPower,
+                        cooOtsControllerAmpliGain,
+                        cooOtsControllerAmpliTilt,
+                        cooOtsControllerTotalRXPower,
+                        cooOtsControllerTotalTXPower,
+                        cooOtsControllerRXVoaAttenuation,
+                        cooOtsControllerTXVoaAttenuation,
+                        cooOtsControllerRXLowThreshold,
+                        cooOtsControllerTXLowThreshold,
+                        cooOtsControllerAmpliChannelPwr,
+                        cooOtsControllerChannelPwrMaxDelta,
+                        cooOtsControllerAmpliControlMode,
+                        cooOtsControllerAmpliGainRange,
+                        cooOtsControllerAmpliSafetyCtrlMode,
+                        cooOtsControllerOsri,
+                        cooOtsControllerProtectionPortRole,
+                        cooOtsControllerState,
+                        cooOtsControllerTranspAdminState,
+                        cooOtsControllerAlarmState,
+                        cooThreshTXPowerMin,
+                        cooThreshRXPowerMin,
+                        cooThreshLBCMin,
+                        cooThreshTXPowerMax,
+                        cooThreshRXPowerMax,
+                        cooThreshLBCMax,
+                        cooCurrentTXPowerMax,
+                        cooCurrentRXPowerMax,
+                        cooCurrentLBCMax,
+                        cooCurrentTXPowerMin,
+                        cooCurrentRXPowerMin,
+                        cooCurrentLBCMin,
+                        cooCurrentTXPowerAvg,
+                        cooCurrentRXPowerAvg,
+                        cooCurrentLBCAvg,
+                        cooIntervalTXPowerMax,
+                        cooIntervalRXPowerMax,
+                        cooIntervalLBCMax,
+                        cooIntervalTXPowerMin,
+                        cooIntervalRXPowerMin,
+                        cooIntervalLBCMin,
+                        cooIntervalTXPowerAvg,
+                        cooIntervalRXPowerAvg,
+                        cooIntervalLBCAvg,
+                        cooOtsControllerRXSpanLoss,
+                        cooOtsControllerTXSpanLoss,
+                        cooOtsControllerRXEnabled,
+                        cooOtsControllerTXEnabled,
+                        cooThreshAmpliGainMin,
+                        cooThreshAmpliGainMax,
+                        cooThreshAmpliGainEnableMax,
+                        cooThreshAmpliGainEnableMin,
+                        cooThreshAmpliGainTiltMin,
+                        cooThreshAmpliGainTiltMax,
+                        cooThreshAmpliGainTiltEnableMax,
+                        cooThreshAmpliGainTiltEnableMin,
+                        cooCurrentAmpliGainMin,
+                        cooCurrentAmpliGainMax,
+                        cooCurrentAmpliGainAvg,
+                        cooCurrentAmpliGainTiltMin,
+                        cooCurrentAmpliGainTiltMax,
+                        cooCurrentAmpliGainTiltAvg,
+                        cooIntervalAmpliGainMin,
+                        cooIntervalAmpliGainMax,
+                        cooIntervalAmpliGainAvg,
+                        cooIntervalAmpliGainTiltMin,
+                        cooIntervalAmpliGainTiltMax,
+                        cooIntervalAmpliGainTiltAvg
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects to provide information related to the
+        optical OTS characteristics for interfaces of ifType
+        opticalChannel(196)."
+    ::= { ciscoOpticalOtsMIBGroups 1 }
+
+cooOtsOchGroup OBJECT-GROUP
+    OBJECTS         {
+                        cooOtsOchControllerPortType,
+                        cooOtsOchControllerLaserStatus,
+                        cooOtsOchControllerRXPower,
+                        cooOtsOchControllerTXPower,
+                        cooOtsOchControllerRXLowThreshold,
+                        cooOtsOchControllerTXLowThreshold,
+                        cooOtsOchControllerWavelength,
+                        cooOtsOchControllerFrequency,
+                        cooOtsOchControllerChannelNumber,
+                        cooOtsOchControllerState,
+                        cooOtsOchControllerTranspAdminState,
+                        cooOtsOchControllerAlarmState,
+                        cooThreshTXPowerMin,
+                        cooThreshRXPowerMin,
+                        cooThreshLBCMin,
+                        cooThreshTXPowerMax,
+                        cooThreshRXPowerMax,
+                        cooThreshLBCMax,
+                        cooCurrentTXPowerMax,
+                        cooCurrentRXPowerMax,
+                        cooCurrentLBCMax,
+                        cooCurrentTXPowerMin,
+                        cooCurrentRXPowerMin,
+                        cooCurrentLBCMin,
+                        cooCurrentTXPowerAvg,
+                        cooCurrentRXPowerAvg,
+                        cooCurrentLBCAvg,
+                        cooIntervalTXPowerMax,
+                        cooIntervalRXPowerMax,
+                        cooIntervalLBCMax,
+                        cooIntervalTXPowerMin,
+                        cooIntervalRXPowerMin,
+                        cooIntervalLBCMin,
+                        cooIntervalTXPowerAvg,
+                        cooIntervalRXPowerAvg,
+                        cooIntervalLBCAvg,
+                        cooOtsOchControllerWidth
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects to give information related to the
+        optical OTS-OCH characteristics for interfaces of ifType
+        opticalChannel(196)."
+    ::= { ciscoOpticalOtsMIBGroups 2 }
+
+cooOtsControllerGroup OBJECT-GROUP
+    OBJECTS         {
+                        cooOtsControllerAmpliGain,
+                        cooOtsControllerAmpliTilt,
+                        cooOtsControllerRXVoaAttenuation,
+                        cooOtsControllerTXVoaAttenuation,
+                        cooOtsControllerRXLowThreshold,
+                        cooOtsControllerTXLowThreshold,
+                        cooOtsControllerAmpliChannelPwr,
+                        cooOtsControllerChannelPwrMaxDelta,
+                        cooOtsControllerAmpliControlMode,
+                        cooOtsControllerAmpliGainRange,
+                        cooOtsControllerAmpliSafetyCtrlMode,
+                        cooOtsControllerOsri,
+                        cooOtsControllerRXEnabled,
+                        cooOtsControllerTXEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects to allow configurations and give
+        information related to the optical OTS characteristics
+        for interfaces of ifType opticalChannel(196)."
+    ::= { ciscoOpticalOtsMIBGroups 3 }
+
+cooOtsOchControllerGroup OBJECT-GROUP
+    OBJECTS         {
+                        cooOtsOchControllerRXLowThreshold,
+                        cooOtsOchControllerTXLowThreshold
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects to allow configurations and give
+        information related to the optical OTS-OCH characteristics
+        for interfaces of ifType opticalChannel(196)."
+    ::= { ciscoOpticalOtsMIBGroups 4 }
+
+cooOtsThresholdGroup OBJECT-GROUP
+    OBJECTS         {
+                        cooThreshTXPowerMin,
+                        cooThreshRXPowerMin,
+                        cooThreshLBCMin,
+                        cooThreshTXPowerMax,
+                        cooThreshRXPowerMax,
+                        cooThreshLBCMax,
+                        cooThreshTXPowerEnableMin,
+                        cooThreshRXPowerEnableMin,
+                        cooThreshLBCEnableMin,
+                        cooThreshTXPowerEnableMax,
+                        cooThreshRXPowerEnableMax,
+                        cooThreshLBCEnableMax,
+                        cooThreshAmpliGainMin,
+                        cooThreshAmpliGainMax,
+                        cooThreshAmpliGainEnableMax,
+                        cooThreshAmpliGainEnableMin,
+                        cooThreshAmpliGainTiltMin,
+                        cooThreshAmpliGainTiltMax,
+                        cooThreshAmpliGainTiltEnableMax,
+                        cooThreshAmpliGainTiltEnableMin
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used for monitoring the threshold
+        information for optical layer related attributes of interfaces
+        with an ifType of opticalChannel(196)."
+    ::= { ciscoOpticalOtsMIBGroups 5 }
+
+cooOtsCurrentGroup OBJECT-GROUP
+    OBJECTS         {
+                        cooCurrentTXPowerMax,
+                        cooCurrentRXPowerMax,
+                        cooCurrentLBCMax,
+                        cooCurrentTXPowerMin,
+                        cooCurrentRXPowerMin,
+                        cooCurrentLBCMin,
+                        cooCurrentTXPowerAvg,
+                        cooCurrentRXPowerAvg,
+                        cooCurrentLBCAvg,
+                        cooCurrentTimestamp,
+                        cooCurrentAmpliGainMin,
+                        cooCurrentAmpliGainMax,
+                        cooCurrentAmpliGainAvg,
+                        cooCurrentAmpliGainTiltMin,
+                        cooCurrentAmpliGainTiltMax,
+                        cooCurrentAmpliGainTiltAvg
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used for monitoring the current
+        information for optical layer related attributes of interfaces
+        with an ifType of opticalChannel(196) in a current interval."
+    ::= { ciscoOpticalOtsMIBGroups 6 }
+
+cooOtsIntervalGroup OBJECT-GROUP
+    OBJECTS         {
+                        cooIntervalTXPowerMax,
+                        cooIntervalRXPowerMax,
+                        cooIntervalLBCMax,
+                        cooIntervalTXPowerMin,
+                        cooIntervalRXPowerMin,
+                        cooIntervalLBCMin,
+                        cooIntervalTXPowerAvg,
+                        cooIntervalRXPowerAvg,
+                        cooIntervalLBCAvg,
+                        cooIntervalTimestamp,
+                        cooIntervalAmpliGainMin,
+                        cooIntervalAmpliGainMax,
+                        cooIntervalAmpliGainAvg,
+                        cooIntervalAmpliGainTiltMin,
+                        cooIntervalAmpliGainTiltMax,
+                        cooIntervalAmpliGainTiltAvg
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used for monitoring the interval
+        information for optical layer related attributes of interfaces
+        with an ifType of opticalChannel(196) in a given interval."
+    ::= { ciscoOpticalOtsMIBGroups 7 }
+
+cooOtsNotifEnableGroup OBJECT-GROUP
+    OBJECTS         { cooOtsNotifEnabled }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects to enable the notification
+        generations upon an interface's alarms status change on optics OTS
+        layer."
+    ::= { ciscoOpticalOtsMIBGroups 8 }
+
+cooOtsNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cooOtsStatusChange,
+                        cooOtsEquipmentAlarm
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The optical status change notifications whenever the
+        alarms status of optical OTS layer on an interface changes."
+    ::= { ciscoOpticalOtsMIBGroups 9 }
+
+cooOtsOchNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cooOtsOchStatusChange,
+                        cooOtsEquipmentAlarm
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The optical status change notifications whenever the
+        alarms status of optical OTS-OCH layer on an interface changes."
+    ::= { ciscoOpticalOtsMIBGroups 10 }
+
+cooOtsEquipmentAlarmInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cooOtsAlarmLocation,
+                        cooOtsAlarmType,
+                        cooOtsAlarmTimeStamp,
+                        cooOtsAlarmName,
+                        cooOtsAlarmAdditionalInfo,
+                        cooOtsAlarmSeverity,
+                        cooOtsAlarmStatus,
+                        cooOtsAlarmServiceAffecting
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The optical equipment notifications whenever the
+        alarm is generated."
+    ::= { ciscoOpticalOtsMIBGroups 11 }
+
+cooOtsPowerGroup OBJECT-GROUP
+    OBJECTS         {
+                        cooOtsControllerTotalRXPower,
+                        cooOtsControllerTotalTXPower,
+                        cooOtsControllerRXPower,
+                        cooOtsControllerTXPower
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used for monitoring the total power
+        information for optical layer related attributes of interfaces
+        with an ifType of opticalChannel(196)."
+    ::= { ciscoOpticalOtsMIBGroups 12 }
+
+cooOtsOchNotifEnableGroup OBJECT-GROUP
+    OBJECTS         { cooOtsOchNotifEnabled }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects to enable the notification
+        generations upon an interface's alarms status change on optics
+        OTS-OCH layer."
+    ::= { ciscoOpticalOtsMIBGroups 13 }
+
+END
+
+

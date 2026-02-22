@@ -1,0 +1,358 @@
+-- MIB file created 20-Jun-2007 17:13:15, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LWAPP-DOT11-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LWAPP-DOT11-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    CLDot11Band, CLDot11ChannelBandwidth
+            FROM CISCO-LWAPP-TC-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoLwappDot11MIB OBJECT IDENTIFIER ::= { ciscoMgmt 612 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200701040000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems,
+--    Customer Service
+--    Postal: 170 West Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553-NETS
+--    
+--    Email: cs-wnbu-snmp@cisco.com
+--  Descr
+--    This MIB is intended to be implemented on all those
+--    devices operating as Central controllers, that
+--    terminate the Light Weight Access Point Protocol
+--    tunnel from Cisco Light-weight LWAPP Access Points.
+--    
+--    This MIB provides the information about the
+--    operational parameters of the 802.11 networks.
+--    References about specific type of 802.11 flavors like
+--    802.11a/b/g or 802.11n will be made whereever required
+--    to indicate that the respective parameters are
+--    applicable only to that particular type of 802.11
+--    networks.
+--    
+--    The relationship between CC and the LWAPP APs
+--    can be depicted as follows:
+--    
+--          +......+     +......+     +......+
+--          +      +     +      +     +      +
+--          +  CC  +     +  CC  +     +  CC  +
+--          +      +     +      +     +      +
+--          +......+     +......+     +......+
+--            ..            .             .
+--            ..            .             .
+--           .  .            .             .
+--          .    .            .             .
+--         .      .            .             .
+--        .        .            .             .
+--    +......+ +......+     +......+      +......+
+--    +      + +      +     +      +      +      +
+--    +  AP  + +  AP  +     +  AP  +      +  AP  +
+--    +      + +      +     +      +      +      +
+--    +......+ +......+     +......+      +......+
+--               .              .             .
+--             .  .              .             .
+--            .    .              .             .
+--           .      .              .             .
+--          .        .              .             .
+--       +......+ +......+     +......+      +......+
+--       +      + +      +     +      +      +      +
+--       +  MN  + +  MN  +     +  MN  +      +  MN  +
+--       +      + +      +     +      +      +      +
+--       +......+ +......+     +......+      +......+
+--    
+--    
+--    The LWAPP tunnel exists between the controller and
+--    the APs.  The MNs communicate with the APs through
+--    the protocol defined by the 802.11 standard.
+--    
+--    LWAPP APs, upon bootup, discover and join one of the
+--    controllers and the controller pushes the configuration,
+--    that includes the WLAN parameters, to the LWAPP APs.
+--    The APs then encapsulate all the 802.11 frames from
+--    wireless clients inside LWAPP frames and forward
+--    the LWAPP frames to the controller.
+--    
+--                       GLOSSARY
+--    
+--    Access Point ( AP )
+--    
+--    An entity that contains an 802.11 medium access
+--    control ( MAC ) and physical layer ( PHY ) interface
+--    and provides access to the distribution services via
+--    the wireless medium for associated clients.  
+--    
+--    LWAPP APs encapsulate all the 802.11 frames in
+--    LWAPP frames and sends them to the controller to which
+--    it is logically connected.
+--    
+--    Gratuitous Probe Response (GPR)
+--    
+--    The Gratuitous Probe Response feature aids in conserving
+--    battery power of WLAN-enabled cell phones by providing
+--    a high rate packet on the order of tens of milliseconds
+--    such that these kind of phones can wake up and wait at
+--    predefined intervals, to reduce battery power.  The 
+--    GPR packet is transmitted from the AP at a predefined
+--    time interval.
+--    
+--    
+--    Light Weight Access Point Protocol ( LWAPP )
+--    
+--    This is a generic protocol that defines the 
+--    communication between the Access Points and the
+--    Central Controller. 
+--    
+--    Mobile Node ( MN )
+--    
+--    A roaming 802.11 wireless device in a wireless
+--    network associated with an access point. Mobile Node 
+--    and client are used interchangeably. 
+--    
+--    TU
+--    
+--    A measurement of time in units of 1024 microseconds.
+--    
+--    802.11n
+--    
+--    802.11n builds upon previous 802.11 standards by adding MIMO 
+--    (multiple-input multiple-output). MIMO uses multiple 
+--    transmitter and receiver antennas to allow for increased data 
+--    throughput through spatial multiplexing and increased range .
+--    
+--    
+--    A-MPDU
+--    
+--    An aggregated format that consists of several MAC
+--    Protocol Data Units being aggregated and transmitted
+--    in one PHY Service Data Unit.
+--    
+--    A-MSDU
+--    
+--    An aggregated format that consists of several MAC
+--    Service Data Units being aggregated and transmitted
+--    in one MAC Protocol Data Unit.
+--    
+--    Reduced Inter-Frame Space ( RIFS )
+--    
+--    A time interval between multiple transmissions of a
+--    single transmitter used to reduce overhead and
+--    increase network efficiency.
+--    
+--    Modulation and Coding Scheme ( MCS )
+--    
+--    This is a value that determines the modulation, coding and
+--    number of spatial channels.  Each scheme specifies the       
+--    modulation technique, coding rate , number of spatial
+--    streams  etc and the corresponding data rate.
+--    
+--    Guard Interval
+--    
+--    Guard intervals are used to ensure that distinct 
+--    transmissions do not interfere with one another. 
+--    The purpose of the guard interval is to introduce 
+--    immunity to propagation delays, echoes and 
+--    reflections, to which digital data is normally 
+--    very sensitive.
+--    
+--    Media Access Control ( MAC )
+--    
+--    The Media Access Control Layer is one of two sublayers 
+--    that make up the Data Link Layer.  The MAC layer is 
+--    responsible for moving data packets to and from one 
+--    Network Interface Card (NIC) to another across a shared 
+--    channel. 
+--    
+--    REFERENCE
+--    
+--    [1] Wireless LAN Medium Access Control ( MAC ) and
+--        Physical Layer ( PHY ) Specifications.
+--    
+--    [2] Draft-obara-Capwap-lwapp-00.txt, IETF Light
+--        Weight Access Point Protocol.
+--    
+--    [3] Enhanced Wireless Consortium MAC Specification,
+--        v1.24.
+--    
+--    [4] Enhanced Wireless Consortium PHY Specification,
+--        v1.27.
+--  RevDate
+--    200701040000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoLwappDot11MIBNotifs OBJECT IDENTIFIER ::= { ciscoLwappDot11MIB 0 }
+ciscoLwappDot11MIBObjects OBJECT IDENTIFIER ::= { ciscoLwappDot11MIB 1 }
+ciscoLwappDot11MIBConform OBJECT IDENTIFIER ::= { ciscoLwappDot11MIB 2 }
+cldConfig       OBJECT IDENTIFIER ::= { ciscoLwappDot11MIBObjects 1 }
+cldStatus       OBJECT IDENTIFIER ::= { ciscoLwappDot11MIBObjects 2 }
+ciscoLwappDot11MIBCompliances OBJECT IDENTIFIER ::= { ciscoLwappDot11MIBConform 1 }
+ciscoLwappDot11MIBGroups OBJECT IDENTIFIER ::= { ciscoLwappDot11MIBConform 2 }
+
+cldHtMacOperationsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CldHtMacOperationsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the operational parameters
+        at the MAC layer for the 802.11n networks managed 
+        through the controller. An agent adds an entry to 
+        this table for every 802.11n band on startup."
+    ::= { cldConfig 1 }
+
+cldHtMacOperationsEntry OBJECT-TYPE
+    SYNTAX CldHtMacOperationsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents the operational parameters
+        at the MAC layer for 802.11n networks."
+    INDEX { cldHtDot11nBand }
+    ::= { cldHtMacOperationsTable 1 }
+
+CldHtMacOperationsEntry ::= SEQUENCE {
+    cldHtDot11nBand CLDot11Band,
+    cldHtDot11nChannelBandwidth CLDot11ChannelBandwidth,
+    cldHtDot11nRifsEnable TruthValue,
+    cldHtDot11nAmsduEnable TruthValue,
+    cldHtDot11nAmpduEnable TruthValue,
+    cldHtDot11nGuardIntervalEnable TruthValue
+    }
+
+cldHtDot11nBand OBJECT-TYPE
+    SYNTAX CLDot11Band
+--    Rsyntax INTEGER {
+--        band2dot4(1),
+--        band5(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the 802.11n band the parameters
+        correspond to."
+    ::= { cldHtMacOperationsEntry 1 }
+
+cldHtDot11nChannelBandwidth OBJECT-TYPE
+    SYNTAX CLDot11ChannelBandwidth
+--    Rsyntax INTEGER {
+--        five(1),
+--        ten(2),
+--        twenty(3),
+--        aboveforty(4),
+--        belowforty(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the channel bandwidth for
+        the 802.11n networks in the particular band."
+    DEFVAL { twenty }
+    ::= { cldHtMacOperationsEntry 2 }
+
+cldHtDot11nRifsEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to indicate the support for RIFS on
+        this band. A value of 'true' indicates that RIFS is 
+        enabled for this band. A value of 'false' indicates that 
+        RIFS is disabled for this band."
+    DEFVAL { true }
+    ::= { cldHtMacOperationsEntry 3 }
+
+cldHtDot11nAmsduEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to indicate the support for 802.11n
+        A-MSDU on this band. A value of 'true' indicates that 
+        A-MSDU is enabled for this band. A value of 'false' 
+        indicates that A-MSDU is disabled for this band."
+    DEFVAL { true }
+    ::= { cldHtMacOperationsEntry 4 }
+
+cldHtDot11nAmpduEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to indicate the support for 802.11n
+        A-MPDU on this band. A value of 'true' indicates that 
+        A-MPDU is enabled for this band. A value of 'false' 
+        indicates that A-MPDU is disabled for this band."
+    DEFVAL { true }
+    ::= { cldHtMacOperationsEntry 5 }
+
+cldHtDot11nGuardIntervalEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to indicate the support for 802.11n
+        guard interval on this band. A value of 'true' indicates 
+        that guard interval is enabled for this band. A value of 
+        'false' indicates that guard interval is disabled for this 
+        band."
+    DEFVAL { true }
+    ::= { cldHtMacOperationsEntry 6 }
+
+ciscoLwappDot11MIBMacOperGroup OBJECT IDENTIFIER ::= { ciscoLwappDot11MIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    operational parameters at the MAC layer
+--    for the 802.11n networks.
+--  objects
+--    cldHtDot11nChannelBandwidth, cldHtDot11nRifsEnable, 
+--    cldHtDot11nAmsduEnable, cldHtDot11nAmpduEnable, 
+--    cldHtDot11nGuardIntervalEnable
+
+ciscoLwappDot11MIBCompliance OBJECT IDENTIFIER ::= { ciscoLwappDot11MIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappDot11MIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappDot11MIBMacOperGroup
+
+
+END
+

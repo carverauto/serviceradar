@@ -1,0 +1,235 @@
+
+
+-- *****************************************************************
+-- CISCO-NDE-MIB.my 
+--
+-- July 2001, Jayakumar Kadirvelu
+-- 
+--
+-- Copyright (c) 2001 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+CISCO-NDE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    ciscoMgmt
+        FROM CISCO-SMI
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    RowStatus
+        FROM SNMPv2-TC;
+
+ciscoNDEMIB MODULE-IDENTITY
+    LAST-UPDATED        "200603010000Z"
+    ORGANIZATION        "Cisco Systems, Inc."
+    CONTACT-INFO
+       "Cisco Systems
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        Tel: +1 800 553-NETS
+
+        E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "The Netflow Data Export (NDE) MIB provides instrumentation for
+        configuration and operation of the Netflow Data Export feature.
+
+        A network flow is defined as an unidirectional sequence of 
+        packets between a given source and destination endpoints.
+        Network flows are highly granular; flow endpoints are 
+        identified both by IP address  as well as by transport layer
+        application port numbers. NetFlow also utilizes the IP
+        Protocol type, Type of Service (ToS) and the input interface
+        identifier to uniquely identify flows.
+
+        Netflow Data Export refers to the export of Netflow Data using 
+        UDP packets to Netflow Data Collector(s). A NetFlow Data 
+        Collector (NDC) captures, filters, aggregates, and stores the
+        data from multiple NetFlow enabled devices. NDCs provide fast,
+        scalable, and economical Netflow data."
+    
+    REVISION        "200603010000Z"
+    DESCRIPTION
+        "Moved cndeCollectorStatus and cndeCollectorAddress from
+         OBJECT clause to DESCRIPTION clause of MODULE COMPLIANCE."
+    
+    REVISION        "200512060000Z"
+    DESCRIPTION
+        "Imported Unsigned32 from SNMPv2-SMI instead of CISCO-TC"
+
+    REVISION        "200108080000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 226 }
+
+ciscoNDEMIBObjects OBJECT IDENTIFIER     ::=  { ciscoNDEMIB 1 }
+
+cndeCollectorConfiguration OBJECT IDENTIFIER 
+                                         ::=  { ciscoNDEMIBObjects 1 }
+
+-- Textual Conventions
+-- No Textual Conventions
+
+--
+-- Collector Configuration objects
+--
+
+cndeMaxCollectors OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "Maximum number of entries allowed in the cndeCollectorTable.
+         A zero indicates unlimitted number of entries.
+         The agent should set this value during initialization, and
+         the vaule for this object cannot be changed during the 
+         system's operation"
+
+    ::= { cndeCollectorConfiguration 1 }
+
+cndeCollectorTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CndeCollectorEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "A control table to configure the NDE collectors. 
+         The maximum number of entries is limited by cndeMaxCollectors.
+         The agent sends the NDE packets to each address configured
+         in this table."
+    ::= { cndeCollectorConfiguration 2 }
+
+cndeCollectorEntry OBJECT-TYPE
+    SYNTAX     CndeCollectorEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "A conceptual row in the cndeCollectorEntry." 
+    INDEX { cndeCollectorAddressType, 
+            cndeCollectorAddress, 
+            cndeCollectorPort }
+    ::= { cndeCollectorTable 1 }
+
+CndeCollectorEntry ::= SEQUENCE {
+    cndeCollectorAddressType   InetAddressType,
+    cndeCollectorAddress       InetAddress,
+    cndeCollectorPort          Integer32,
+    cndeCollectorStatus        RowStatus
+    }
+
+cndeCollectorAddressType OBJECT-TYPE
+    SYNTAX     InetAddressType
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The type of Internet address used by this entry"
+   ::= { cndeCollectorEntry 1 }
+
+
+cndeCollectorAddress OBJECT-TYPE
+    SYNTAX     InetAddress (SIZE (1..64))
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The Internet address of the collector. This is the 
+        address which the Netflow data is exported to."
+   ::= { cndeCollectorEntry 2 }
+
+cndeCollectorPort OBJECT-TYPE
+    SYNTAX     Integer32 (1..65535) 
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The transport port of the collector which the 
+         Netflow data is exported to."
+   ::= { cndeCollectorEntry 3 }
+
+cndeCollectorStatus OBJECT-TYPE
+    SYNTAX     RowStatus 
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "The status object used to manage the rows in this table."
+   ::= { cndeCollectorEntry 4 }
+
+-- An obsolete OID subtree
+cndeMIBNotifications   OBJECT IDENTIFIER ::= { ciscoNDEMIB 2 }
+
+-- An OID subtree for notifications, if and when any need to be defined
+cndeMIBNotifs          OBJECT IDENTIFIER ::= { ciscoNDEMIB 0 }
+
+-- Conformance and Compliance
+
+cndeMIBConformance   OBJECT IDENTIFIER  ::=   { ciscoNDEMIB  3 }
+cndeMIBCompliances   OBJECT IDENTIFIER  ::=   { cndeMIBConformance 1 }
+cndeMIBGroups        OBJECT IDENTIFIER  ::=   { cndeMIBConformance 2 }
+
+-- Conformance
+
+cndeMIBCompliance MODULE-COMPLIANCE
+     STATUS       current
+     DESCRIPTION
+         "The compliance statement for the CISCO-NDE-MIB.
+     
+         Objects used in an INDEX clause normally have a MAX-ACCESS
+         of 'not-accessible', and the SMIv2 does not allow
+         'not-accessible' objects to be included in a GROUP clause.
+         Consequently, a minimum syntax cannot be specified for them
+         in an OBJECT clause.  So, the following minimum compliance
+         is specified within this DESCRIPTION clause:
+          
+        
+         --OBJECT cndeCollectorAddressType
+         --SYNTAX InetAddressType { ipv4(1) }
+         --DESCRIPTION
+         --    An implementation is only required to support IPv4
+         --    addresses.
+         
+         --OBJECT cndeCollectorAddress
+         --SYNTAX InetAddress { SIZE(4) }
+         --DESCRIPTION
+         --    An implementation is only required to support IPv4
+         --    addresses.
+         "
+
+     MODULE  -- this module
+     MANDATORY-GROUPS { 
+                      cndeCollectorConfigurationGroup
+                      }
+     
+     OBJECT cndeCollectorStatus
+     SYNTAX   -- a subset of RowStatus 
+              INTEGER { active(1), createAndGo(4), destroy(6) }
+     DESCRIPTION
+            "Support for 'createAndWait' is not required."
+
+                
+     ::= { cndeMIBCompliances 1 }
+
+-- Units of Conformance
+
+cndeCollectorConfigurationGroup OBJECT-GROUP
+       OBJECTS {
+            cndeMaxCollectors,
+            cndeCollectorStatus
+                              
+       }
+       STATUS current
+       DESCRIPTION
+           "A collection of objects for configuring the Netflow Data
+            Export Collectors and ports."
+       ::= { cndeMIBGroups 1 }
+
+END
+ 
+ 

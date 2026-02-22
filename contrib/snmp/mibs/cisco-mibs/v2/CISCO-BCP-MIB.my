@@ -1,0 +1,458 @@
+--********************************************************************
+--
+-- CISCO-BCP-MIB.my: MIB file for Bridge Control Protocol (RFC 2878) 
+--
+-- June 2002, Hui Fu 
+--
+-- Copyright (c) 2002, 2004 by cisco Systems, Inc.
+-- All rights reserved.
+--
+--********************************************************************
+
+CISCO-BCP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Unsigned32
+            FROM SNMPv2-SMI
+        ifIndex
+            FROM IF-MIB 
+        DisplayString
+            FROM SNMPv2-TC
+        ciscoMgmt
+            FROM CISCO-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP
+            FROM SNMPv2-CONF;
+
+ ciscoBcpMIB MODULE-IDENTITY
+        LAST-UPDATED    "200408310000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134-1706
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: osm-wan-snmp@cisco.com"
+
+        DESCRIPTION
+               "This MIB module describes the Managed Objects for  
+                of Bridge Control Protocol (RFC2878). This MIB is
+                influenced by RFC1474. "
+
+        REVISION        "200408310000Z"
+        DESCRIPTION
+                "Import Unsigned32 from SNMPv2-SMI."
+
+        REVISION        "200208020000Z"
+        DESCRIPTION
+                "Initial Version of this MIB module."
+
+        ::= { ciscoMgmt 275 } 
+
+
+ciscoBcpMIBObjects      OBJECT IDENTIFIER ::= { ciscoBcpMIB 1 }
+
+--   The BCP Group.
+
+bcpOperTable    OBJECT-TYPE
+         SYNTAX           SEQUENCE OF BcpOperEntry
+         MAX-ACCESS       not-accessible
+         STATUS           current
+         DESCRIPTION
+                 "Table containing the status of the local BCP entity
+                  that is related to the operation of Bridging Control
+                  Protocol."
+         ::= { ciscoBcpMIBObjects 1 }
+
+bcpOperEntry    OBJECT-TYPE
+         SYNTAX          BcpOperEntry
+         MAX-ACCESS      not-accessible
+         STATUS          current
+         DESCRIPTION
+                 "Operational status information for a particular BCP
+                  link. For all entries in ifTable with ifType ppp(23),
+                  there will be an entry in this table."
+         INDEX       { ifIndex }
+         ::= { bcpOperTable 1 }         
+
+BcpOperEntry ::= SEQUENCE {
+         bcpOperStatus
+             INTEGER
+         }
+
+bcpOperStatus   OBJECT-TYPE
+         SYNTAX        INTEGER {
+                           open(1),
+                           closed(2),
+                           listening(3)     
+                       }
+         MAX-ACCESS    read-only
+         STATUS        current 
+         DESCRIPTION
+                 "The operational status of the Bridge Control 
+                  Protocol. The possible values are : 
+
+                  open(1)  -  the BCP link is up and both ends
+                  are configured in the compatible manner.
+                 
+                  closed(2) - the BCP link is down and neither
+                  ends are configured.
+                 
+                  listening(3) - the local BCP entity is configured
+                  and the remote end is not configured compatibly."
+         ::= { bcpOperEntry 1}
+        
+--
+-- The BCP Configuration table
+--
+
+bcpConfigTable   OBJECT-TYPE
+            SYNTAX        SEQUENCE OF BcpConfigEntry
+            MAX-ACCESS    not-accessible
+            STATUS        current
+            DESCRIPTION
+                    "Table containing the configuration information 
+                     for the local BCP  entity that is related to
+                     the operation of Bridging over the PPP link."
+            ::= { ciscoBcpMIBObjects 2 }
+
+bcpConfigEntry   OBJECT-TYPE
+            SYNTAX        BcpConfigEntry
+            MAX-ACCESS    not-accessible
+            STATUS        current
+            DESCRIPTION
+                    "Bridging Configuration information for a
+                     particular BCP link. For all entries in 
+                     ifTable with ifType ppp(23), there will be an
+                     entry in this table."
+            INDEX     { ifIndex }
+            ::= { bcpConfigTable 1 }
+
+BcpConfigEntry ::= SEQUENCE {
+            bcpConfigBridgeIdControl
+                INTEGER,
+            bcpConfigBridgeId
+                Unsigned32,
+            bcpConfigLineIdControl
+                INTEGER,
+            bcpConfigLineId
+                Unsigned32,
+            bcpConfigMacSupport
+                INTEGER,
+            bcpConfigMacType
+                INTEGER,
+            bcpConfigTinygram
+                INTEGER,
+            bcpConfigMacAddressControl
+                INTEGER,
+            bcpConfigMacAddress
+                DisplayString,
+            bcpConfigSpanTreeControl
+                INTEGER,
+            bcpConfigSpanTree
+                INTEGER,
+            bcpConfigIeee802dot1qTagged
+                INTEGER,
+            bcpConfigMgmtInline
+                INTEGER,
+            bcpConfigBCPacketIndicator
+                INTEGER
+         }
+
+         bcpConfigBridgeIdControl   OBJECT-TYPE
+               SYNTAX        INTEGER { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current 
+               DESCRIPTION
+                       "The Bridge-Identification configuration option
+                        is designed for use when the line is an 
+                        interface between half bridges connecting 
+                        virtual or physical LAN segments. 
+                        
+                        When enabled the local BCP entity initiates a 
+                        Bridge Identification Option negotiation. "
+               REFERENCE
+                      "Section 5.1, Bridge-Identification, of RFC2878"
+               ::= { bcpConfigEntry 1 }
+
+         bcpConfigBridgeId  OBJECT-TYPE
+               SYNTAX        Unsigned32 (0..15)
+               MAX-ACCESS    read-write
+               STATUS        current
+               DESCRIPTION
+                       "The bridge number of the local BCP entity. 
+
+                        This value is meaningful only when the local
+                        BCP entity has negotiated the BridgeId
+                        Configuration option, which means the value
+                        of bcpConfigBridgeIdControl is enabled(1).  
+
+                        The two half bridges must agree on the bridge
+                        number."
+               REFERENCE
+                       "Section 5.1, Bridge-Identification, of RFC2878"
+               ::= { bcpConfigEntry 2 }         
+
+         bcpConfigLineIdControl   OBJECT-TYPE
+               SYNTAX        INTEGER { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current 
+               DESCRIPTION
+                       "The Line-Identification configuration option 
+                        is designed for use when the line is assigned 
+                        a LAN segment number. 
+
+                        When enabled the local BCP entity initiates
+                        a Line Identification Option negotiation."
+               REFERENCE
+                      "Section 5.2 ,  Line Identification, of RFC2878"
+               ::= { bcpConfigEntry 3 }
+
+         bcpConfigLineId    OBJECT-TYPE
+               SYNTAX        Unsigned32 (0..4095)
+               MAX-ACCESS    read-write
+               STATUS        current
+               DESCRIPTION
+                       "The LAN segment number of the local BCP entity.
+
+                        This value is meaningful only when the local
+                        BCP entity negotiated the LineId Configuration
+                        option, which means the value of 
+                        bcpConfigLineIdControl is enabled(1).
+
+                        The two half bridges must agree on the LAN
+                        segment number."
+               REFERENCE
+                       "Section 5.2, Line-Identification, of RFC2878"
+               ::= { bcpConfigEntry 4 }         
+         
+         bcpConfigMacSupport OBJECT-TYPE
+               SYNTAX        INTEGER { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current 
+               DESCRIPTION
+                       "The Mac-Support configuration option is 
+                        provided to permit implementations to 
+                        indicate the sort of traffic they are 
+                        prepared to receive.
+
+                        When enabled the local BCP entity initiates
+                        a Mac-Support Option negotiation. "
+               REFERENCE
+                      "Section 5.3 ,  MAC-Support, of RFC2878"
+               ::= { bcpConfigEntry 5 }
+
+         bcpConfigMacType   OBJECT-TYPE
+               SYNTAX        INTEGER {
+                               ieee802dot3Canonical(1),
+                               ieee802dot4Canonical(2),
+                               ieee802dot5NonCanonical(3),
+                               fddiNonCanonical(4),
+                               ieee802dot5Canonical(11),
+                               fddiCanonical(12)
+                             }
+               MAX-ACCESS    read-write
+               STATUS        current
+               DESCRIPTION
+                       "The MAC type that this local BCP entity is 
+                        prepared to receive and service. 
+
+                        This value is meaningful only when the local
+                        BCP entity has negotiated the MAC-Support 
+                        Configuration option, which means the value
+                        of bcpConfigMacSupport is enabled(1). 
+
+                        These values definition are specified in the
+                        most recent RFC1700. " 
+               REFERENCE
+                       "Section 5.3, Mac-Support, of RFC2878"
+               ::= { bcpConfigEntry 6 }         
+         
+         bcpConfigTinygram OBJECT-TYPE
+               SYNTAX        INTEGER { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current 
+               DESCRIPTION
+                       "The Tinygram-Compression configuration option
+                        permits implementations to indicate support 
+                        for Tinygram Compression.
+
+                        When enabled the local BCP Entity initiates
+                        a Tinygram-Compression Option negotiation. "
+               REFERENCE
+                      "Section 5.4 ,  Tinygram-Compression, of RFC2878"
+               ::= { bcpConfigEntry 7 }
+
+         bcpConfigMacAddressControl OBJECT-TYPE
+               SYNTAX        INTEGER { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current 
+               DESCRIPTION
+                       "The Mac-Address configuration option enables
+                        the implementations to announce its MAC address
+                        or have one assigned.
+
+                        When enabled the local BCP Entity initiates 
+                        a Mac-Address Option negotiation. "
+               REFERENCE
+                      "Section 5.5 ,  Mac-Address , of RFC2878"
+               ::= { bcpConfigEntry 8 }
+
+         bcpConfigMacAddress  OBJECT-TYPE
+               SYNTAX        DisplayString  (SIZE (1..20))
+               MAX-ACCESS    read-write
+               STATUS        current
+               DESCRIPTION
+                       "This value is meaningful only when the local
+                        BCP entity has negotiated the MAC-Address 
+                        configuration option, which means the value 
+                        of bcpConfigMacAddressControl is enabled(1).
+         
+                        If it is non-zero format, the local BCP get 
+                        its MAC address announced. It is represented 
+                        in IEEE 802.1 Canonical format. 
+         
+                        If it is in zero format, i.e. 00-00-00-00-00-00
+                        then the implementation of the system wishes to
+                        have a MAC address assigned."
+               REFERENCE
+                       "Section 5.5, MAC-Address, of RFC2878"
+               ::= { bcpConfigEntry 9 }
+         
+         bcpConfigSpanTreeControl OBJECT-TYPE
+               SYNTAX        INTEGER { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current 
+               DESCRIPTION
+                       "The Spanning-Tree-Protocol configuration option
+                        enables a bridge to remain compatible with 
+                        older implementations of BCP. 
+
+                        When enabled the local BCP Entity initiates
+                        a Spanning-Tree-Protocol Option negotiation. "
+               REFERENCE
+                      "Section 5.6, Spanning-Tree-Protocol, of RFC2878"
+               ::= { bcpConfigEntry 10 }
+
+         bcpConfigSpanTree   OBJECT-TYPE
+               SYNTAX       INTEGER {
+                               null(0),
+                               ieee802dot1D(1),
+                               ieee802dot1GExtended(2),
+                               ibmSourceRoute(3),
+                               decLanBridge100(4)
+                            }
+               MAX-ACCESS    read-write
+               STATUS        current
+               DESCRIPTION
+                       "The desired spanning tree protocol of the local
+                        BCP entity. The listing values of the Spanning-
+                        Tree Protocol are specified in the most recent
+                        RFC1700.
+
+                        This value is meaningful only when the local BCP
+                        entity has negotiated the Spanning-Tree-Protocol
+                        configuration option, which means the value of 
+                        bcpConfigSpanTreeControl is enabled(1). "
+               REFERENCE
+                      "Section 5.6, Spanning-Tree-Protocol, of RFC 2878"
+               ::= { bcpConfigEntry 11 }          
+                         
+         bcpConfigIeee802dot1qTagged OBJECT-TYPE
+               SYNTAX        INTEGER { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current 
+               DESCRIPTION
+                       "The IEEE-802-Tagged-Frame configuration option
+                        permits the implementation to support for IEEE
+                        802.1q Tagged Frame.
+
+                        When enabled the local BCP Entity initiates
+                        a IEEE-802-Tagged-Frame Option negotiation. "
+               REFERENCE
+                      "Section 5.7, IEEE-802-Tagged-Frame, of RFC2878"
+               ::= { bcpConfigEntry 12 }
+
+         bcpConfigMgmtInline OBJECT-TYPE
+               SYNTAX        INTEGER { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current 
+               DESCRIPTION
+                       "The Management-Inline configuration option 
+                        indicates that the system is willing to receive
+                        any IEEE-defined inter-bridge protocols. 
+
+                        When enabled if the local BCP Entity initiates 
+                        a Management-Inline Option negotiation. "
+               REFERENCE
+                      "Section 5.8 ,  Management-Inline, of RFC2878"
+               ::= { bcpConfigEntry 13 }
+
+         bcpConfigBCPacketIndicator OBJECT-TYPE
+               SYNTAX        INTEGER { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current 
+               DESCRIPTION
+                       "The Bridge Control Packet Indicator 
+                        configuration option permits the implementation
+                        to indicate support for Bridge Control Packet
+                        Indicator. 
+
+                        When enabled the local BCP Entity initiates
+                        a Bridge Control Packet Indicator Option 
+                        negotiation. "
+               REFERENCE
+                      "Section 5.9 ,  Bridge-Control-Packet-Indicator,
+                      of RFC2878"
+               ::= { bcpConfigEntry 14 }
+
+-- Conformance Information
+
+cBcpMIBConformance OBJECT IDENTIFIER ::= { ciscoBcpMIB 3 }
+cBcpMIBCompliances OBJECT IDENTIFIER ::= { cBcpMIBConformance 1 }
+cBcpMIBGroups      OBJECT IDENTIFIER ::= { cBcpMIBConformance 2 }
+
+-- Compliance Statement
+cBcpMIBCompliance MODULE-COMPLIANCE
+        STATUS    current
+        DESCRIPTION       
+                "The compliance statement for entities which implement
+                 this Cisco BCP MIB."
+        MODULE  -- this module 
+        MANDATORY-GROUPS { cBcpMIBGroup }
+        ::= { cBcpMIBCompliances 1 }        
+
+-- Units of Conformance
+
+cBcpMIBGroup  OBJECT-GROUP
+        OBJECTS {
+            bcpOperStatus,
+
+            bcpConfigBridgeIdControl,
+            bcpConfigBridgeId,
+            bcpConfigLineIdControl,
+            bcpConfigLineId,
+            bcpConfigMacSupport,
+            bcpConfigMacType,
+            bcpConfigTinygram,
+            bcpConfigMacAddressControl,
+            bcpConfigMacAddress,
+            bcpConfigSpanTreeControl,
+            bcpConfigSpanTree,
+            bcpConfigIeee802dot1qTagged,
+            bcpConfigMgmtInline,
+            bcpConfigBCPacketIndicator
+        }
+       STATUS   current
+       DESCRIPTION
+               "A collection of objects providing the configuration
+                and operating status of the BCP entity." 
+       ::= { cBcpMIBGroups 1 } 
+
+END

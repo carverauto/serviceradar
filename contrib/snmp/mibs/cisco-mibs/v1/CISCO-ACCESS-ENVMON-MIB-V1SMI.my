@@ -1,0 +1,161 @@
+-- MIB created 6/25/99 12:56:44, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-ACCESS-ENVMON-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ACCESS-ENVMON-MIB.my"
+
+IMPORTS
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215
+    ciscoEnvMonSupplyStatusEntry, ciscoEnvMonTemperatureStatusDescr, 
+    ciscoEnvMonTemperatureState, ciscoEnvMonVoltageStatusDescr, 
+    ciscoEnvMonVoltageState, ciscoEnvMonSupplyStatusIndex
+            FROM CISCO-ENVMON-MIB
+    ciscoMgmt
+            FROM CISCO-SMI;
+
+ciscoAccessEnvMonMIB OBJECT IDENTIFIER ::= { ciscoMgmt 61 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9808050000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    The MIB module to describe the additional status of
+--     the Environmental Monitor on those Cisco Access devices
+--     which support one.
+--  RevDate
+--    9808050000Z
+--  RevDescr
+--    Rename the enumerated values for caemSupplyFailedComponent 
+--     and add fan, overvoltage failure events to it. 
+--     Add caemVoltageNotification.
+
+caemObjects     OBJECT IDENTIFIER ::= { ciscoAccessEnvMonMIB 1 }
+caemMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoAccessEnvMonMIB 2 }
+caemMIBNotifications OBJECT IDENTIFIER ::= { caemMIBNotificationPrefix 0 }
+caemConformance OBJECT IDENTIFIER ::= { ciscoAccessEnvMonMIB 3 }
+caemCompliances OBJECT IDENTIFIER ::= { caemConformance 1 }
+caemGroups      OBJECT IDENTIFIER ::= { caemConformance 2 }
+
+caemSupplyStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CaemSupplyStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table contains the additional power supply information
+         that are not covered in the ciscoEnvMonSupplyStatusTable of
+         CISCO-ENVMON-MIB.                                "
+    ::= { caemObjects 1 }
+
+caemSupplyStatusEntry OBJECT-TYPE
+    SYNTAX CaemSupplyStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Additional information about the failure component or location
+         in the power Supply beyond that provided by Cisco Environmental
+         Monitor MIB's ciscoEnvMonSupplyStatusEntry."
+    INDEX { ciscoEnvMonSupplyStatusIndex }
+-- Augments ciscoEnvMonSupplyStatusEntry FROM CISCO-ENVMON-MIB
+    ::= { caemSupplyStatusTable 1 }
+
+CaemSupplyStatusEntry ::= SEQUENCE {
+    caemSupplyFailedComponent INTEGER
+    }
+
+caemSupplyFailedComponent OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        inputVoltage(2),
+        dcOutputVoltage(3),
+        thermal(4),
+        multiple(5),
+        fan(6),
+        overvoltage(7)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The failure component of the power supply being instrumented.
+         none            - No failure.
+         inputVoltage    - Input power lost in one of the power supplies
+         dcOutputVoltage - DC output voltage lost in one of the power supplies
+         thermal         - Power supply thermal failure.
+         multiple        - Multiple failures.
+         fan             - Fan failure
+         overvoltage     - Over voltage."
+    ::= { caemSupplyStatusEntry 1 }
+
+caemTemperatureNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE caemMIBNotificationPrefix
+    VARIABLES {
+        ciscoEnvMonTemperatureStatusDescr, 
+        ciscoEnvMonTemperatureState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A caemTemperatureNotification is sent if the over temperature
+         condition is detected in the managed system.
+         This is a replacement for the ciscoEnvMonTemperatureNotification 
+         trap because the information 'ciscoEnvMonTemperatureStatusValue' 
+         required by the trap is not available in the managed system."
+    ::= 1
+
+caemVoltageNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE caemMIBNotificationPrefix
+    VARIABLES {
+        ciscoEnvMonVoltageStatusDescr, ciscoEnvMonVoltageState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A caemVoltageNotification is sent if the over voltage 
+         condition is detected and ciscoEnvMonVoltageState is not set
+         to 'notPresent' in the managed system.
+         This is a replacement for the ciscoEnvMonVoltageNotification 
+         trap because the information 'ciscoEnvMonVoltageStatusValue' 
+         required by the trap is not available in the managed system."
+    ::= 2
+
+caemGroup OBJECT IDENTIFIER ::= { caemGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the additional Environmental
+--     Monitor information beyond that provided by
+--     Cisco Environmental Monitor MIB.
+--  objects
+--    caemSupplyFailedComponent
+
+caemCompliance OBJECT IDENTIFIER ::= { caemCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--     the Cisco Environmental Monitor Supplemental MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    caemGroup
+
+
+END
+

@@ -1,0 +1,63 @@
+-- *****************************************************************
+-- CISCO-IP-FORWARD-CAPABILITY.my
+-- Cisco IP-FORWARD-MIB AGENT-CAPABILITIES
+--   
+-- Sep 2010, Saravanan M K
+--   
+-- Copyright (c) 2010 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-IP-FORWARD-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoIpForwardCapability MODULE-IDENTITY
+    LAST-UPDATED    "201009230000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ipv6@cisco.com"
+    DESCRIPTION
+        "The capabilities description of IP-FORWARD-MIB."
+    REVISION        "201009230000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 595 }
+
+
+
+ciscoIpForwardCapabilityV12R2SE AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2SE Catalyst 2k/3k series."
+    STATUS          current
+    DESCRIPTION
+        "IP-FORWARD-MIB capabilities for Catalyst 2k/3k."
+
+    SUPPORTS        IP-FORWARD-MIB
+    INCLUDES        { inetForwardCidrRouteGroup }
+    VARIATION       inetCidrRouteDiscards
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoIpForwardCapability 1 }
+
+END
+
+
+

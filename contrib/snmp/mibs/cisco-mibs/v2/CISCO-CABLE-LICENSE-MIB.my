@@ -1,0 +1,179 @@
+CISCO-CABLE-LICENSE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    OBJECT-TYPE,
+    MODULE-IDENTITY,
+    Unsigned32,
+    Integer32
+        FROM SNMPv2-SMI
+    TimeStamp
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoCableLicenseMIB MODULE-IDENTITY
+        LAST-UPDATED "201702160000Z"
+        ORGANIZATION "Cisco Systems, Inc."
+        CONTACT-INFO
+            "         Cisco Systems
+                      Customer Service
+
+            Postal:   Cisco Systems
+                      170 West Tasman Drive
+                      San Jose, CA 95134
+                      U.S.A.
+            Phone:    +1 800 553-NETS
+            E-mail:   cs-ubr@cisco.com"
+
+        DESCRIPTION
+            "The MIB module defines objects enabling the management of
+             capped enforcement licensing scheme for a Cisco CMTS.
+
+             The capped enforcement licensing scheme works in parallel 
+             to Cisco Smart Licensing. While Cisco Smart License 
+             doesn't normally enforce, one can use capped enforcement 
+             licensing scheme to set a capped count for each licensed 
+             feature and the CMTS makes sure the usage for that 
+             particular feature cannot exceed the capped count."
+
+        REVISION     "201702160000Z"
+        DESCRIPTION
+            "This is the initial version."
+        ::= { ciscoMgmt 839 }
+
+ciscoCableLicenseInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoCableLicenseInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains objects that provide cable licensing related
+         information on a CMTS"
+    ::= { ciscoCableLicenseMIB 1 }
+
+ciscoCableLicenseInfoEntry OBJECT-TYPE
+    SYNTAX          CiscoCableLicenseInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in ciscoCableLicenseInfoTable. Each entry contains
+         licensing related information for a specific feature/entitlement,
+         such as downstream channel, upstream channel, WAN port, etc."
+    INDEX           { ciscoCableLicenseIndex }
+    ::= { ciscoCableLicenseInfoTable 1 }
+
+CiscoCableLicenseInfoEntry ::= SEQUENCE {
+        ciscoCableLicenseIndex                 Unsigned32,
+        ciscoCableLicenseFeatureName           SnmpAdminString,
+        ciscoCableLicenseEnforcementEnabled    TruthValue,
+        ciscoCableLicenseCapLimit              Unsigned32,
+        ciscoCableLicenseUsageCountRemaining   Integer32,
+        ciscoCableLicenseStatus                INTEGER,
+        ciscoCableLicenseLastActionFailCause   INTEGER,
+        ciscoCableLicenseLastActionTime        TimeStamp
+}
+
+ciscoCableLicenseIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies a license within
+         the CMTS." 
+    ::= { ciscoCableLicenseInfoEntry 1 }
+
+ciscoCableLicenseFeatureName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the feature/entitlement that is
+         using or can use this license."
+    ::= { ciscoCableLicenseInfoEntry 2 }
+
+ciscoCableLicenseEnforcementEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "While reading(get) this object indicates whether capped enforcement 
+         is enabled or not . During write(set) the user can enable/disable 
+         capped enforcement for a specific feature by writing 1 (enable) 
+         or 2 (disable) into this object."
+    DEFVAL          { false } 
+    ::= { ciscoCableLicenseInfoEntry 3 }
+
+ciscoCableLicenseCapLimit OBJECT-TYPE
+    SYNTAX          Unsigned32 
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the License limit of a given 
+         feature/entitlement. User can set the capped count for a specific
+         feature by writing the desired capped count into this object."
+    ::= { ciscoCableLicenseInfoEntry 4 }
+
+ciscoCableLicenseUsageCountRemaining OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of entities that can
+        still use this license. Negative numbers mean that the consumed 
+        license has exceeded the capped limit."
+    ::= { ciscoCableLicenseInfoEntry 5 }
+
+ciscoCableLicenseStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        notCappedEnforced(1),
+                        cappedEnforced(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents status of the license."
+    ::= { ciscoCableLicenseInfoEntry 6 }
+
+ciscoCableLicenseLastActionFailCause OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        noError(1),
+                        configLocked(2),
+                        cappedEnabledAlready(3),
+                        cappedLessThanUsed(4),
+                        cappedCountSaveFail(5),
+                        cmtsNotReady(6),
+                        wrongValue(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the result of the latest write operation to
+         ciscoCableLicenseEnforcementEnabled or
+         ciscoCableLicenseCapLimit
+
+         'noError'           : The operation was successful.
+         'configLocked'      : write failed because the CMTS is in config locked
+                               state.
+         'cappedEnabledAlready': write failed because the capped enforcement has
+                               already been enabled for this feature.
+         'cappedLessThanUsed': write failed because the capped count to be set
+                               is less than what was being used.
+         'cappedCountSaveFail': This is due to writing into database failed.
+         'cmtsNotReady': This may happend when try to send write request during                          cmts is booting up.
+         'wrongValue':   This indicates the value of user input is an invalid 
+                         value"
+
+    ::= { ciscoCableLicenseInfoEntry 7 }
+
+ciscoCableLicenseLastActionTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+           "Timestamp indicating the latest write operation to
+           ciscoCableLicenseEnforcementEnabled or
+           ciscoCableLicenseCapLimit"
+    ::= { ciscoCableLicenseInfoEntry 8 }
+
+END

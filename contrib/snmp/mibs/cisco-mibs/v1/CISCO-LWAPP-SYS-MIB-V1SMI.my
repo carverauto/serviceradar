@@ -1,0 +1,313 @@
+-- MIB file created 20-Jun-2007 17:13:17, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LWAPP-SYS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LWAPP-SYS-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoLwappSysMIB OBJECT IDENTIFIER ::= { ciscoMgmt 618 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200703140000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems,
+--    Customer Service
+--    Postal: 170 West Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553-NETS
+--    
+--    Email: cs-wnbu-snmp@cisco.com
+--  Descr
+--    This MIB is intended to be implemented on all those
+--    devices operating as Central controllers, that
+--    terminate the Light Weight Access Point Protocol
+--    tunnel from Cisco Light-weight LWAPP Access Points.
+--    
+--    This MIB provides global configuration and status 
+--    information for the controller. All general system 
+--    related information is presented in this MIB.
+--    
+--    The relationship between CC and the LWAPP APs
+--    can be depicted as follows:
+--    
+--          +......+     +......+     +......+
+--          +      +     +      +     +      +
+--          +  CC  +     +  CC  +     +  CC  +
+--          +      +     +      +     +      +
+--          +......+     +......+     +......+
+--            ..            .             .
+--            ..            .             .
+--           .  .            .             .
+--          .    .            .             .
+--         .      .            .             .
+--        .        .            .             .
+--    +......+ +......+     +......+      +......+
+--    +      + +      +     +      +      +      +
+--    +  AP  + +  AP  +     +  AP  +      +  AP  +
+--    +      + +      +     +      +      +      +
+--    +......+ +......+     +......+      +......+
+--               .              .             .
+--             .  .              .             .
+--            .    .              .             .
+--           .      .              .             .
+--          .        .              .             .
+--       +......+ +......+     +......+      +......+
+--       +      + +      +     +      +      +      +
+--       +  MN  + +  MN  +     +  MN  +      +  MN  +
+--       +      + +      +     +      +      +      +
+--       +......+ +......+     +......+      +......+
+--    
+--    
+--    The LWAPP tunnel exists between the controller and
+--    the APs.  The MNs communicate with the APs through
+--    the protocol defined by the 802.11 standard.
+--    
+--    LWAPP APs, upon bootup, discover and join one of the
+--    controllers and the controller pushes the configuration,
+--    that includes the WLAN parameters, to the LWAPP APs.
+--    The APs then encapsulate all the 802.11 frames from
+--    wireless clients inside LWAPP frames and forward
+--    the LWAPP frames to the controller.
+--    
+--                       GLOSSARY
+--    
+--    Access Point ( AP )
+--    
+--    An entity that contains an 802.11 medium access
+--    control ( MAC ) and physical layer ( PHY ) interface
+--    and provides access to the distribution services via
+--    the wireless medium for associated clients.  
+--    
+--    LWAPP APs encapsulate all the 802.11 frames in
+--    LWAPP frames and sends them to the controller to which
+--    it is logically connected.
+--    
+--    Light Weight Access Point Protocol ( LWAPP )
+--    
+--    This is a generic protocol that defines the 
+--    communication between the Access Points and the
+--    Central Controller. 
+--    
+--    Mobile Node ( MN )
+--    
+--    A roaming 802.11 wireless device in a wireless
+--    network associated with an access point. Mobile Node 
+--    and client are used interchangeably. 
+--    
+--    Extensible Authentication Protocol ( EAP )
+--    
+--    EAP is a universal authentication protocol used in
+--    wireless and PPP networks. It is defined by RFC 3748.
+--    
+--    EAP-Flexible Authentication ( EAP-FAST )
+--    
+--    This protocol is used via secure tunneling for 802.1X EAP.
+--    
+--    PAC
+--    
+--    PAC (Protected Access Credential) is a meachanism for 
+--    mutual authentication in EAP-FAST.
+--    
+--    
+--    REFERENCE
+--    
+--    [1] Wireless LAN Medium Access Control ( MAC ) and
+--        Physical Layer ( PHY ) Specifications.
+--    
+--    [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+--        Weight Access Point Protocol.
+--    
+--    [3] IEEE 802.1X - Authentication for Wireless and 
+--        Wired Connections.
+--  RevDate
+--    200703140000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoLwappSysMIBNotifs OBJECT IDENTIFIER ::= { ciscoLwappSysMIB 0 }
+ciscoLwappSysMIBObjects OBJECT IDENTIFIER ::= { ciscoLwappSysMIB 1 }
+ciscoLwappSysMIBConform OBJECT IDENTIFIER ::= { ciscoLwappSysMIB 2 }
+clsConfig       OBJECT IDENTIFIER ::= { ciscoLwappSysMIBObjects 1 }
+clsConfigDownload OBJECT IDENTIFIER ::= { clsConfig 2 }
+clsConfigUpload OBJECT IDENTIFIER ::= { clsConfig 3 }
+ciscoLwappSysMIBCompliances OBJECT IDENTIFIER ::= { ciscoLwappSysMIBConform 1 }
+ciscoLwappSysMIBGroups OBJECT IDENTIFIER ::= { ciscoLwappSysMIBConform 2 }
+
+clsDot3BridgeEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether 803.2 bridging
+        mode is enabled or disabled on the controller.
+        A value of 'true' specifies that the bridging 
+        mode is enabled. A value of 'false' specifies 
+        that the bridging mode is disabled."
+    ::= { clsConfig 1 }
+
+clsDownloadFileType OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        code(2),
+        config(3),
+        webAuthCert(4),
+        webAdminCert(5),
+        signatures(6),
+        customWebAuth(7),
+        vendorDeviceCert(8),
+        vendorCaCert(9)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the file types that
+        can be downloaded to the controller.
+        The file types for download are:
+          unknown          -   Unknown file type
+          code             -   Code file
+          config           -   Configuration file
+          webAuthCert      -   Web authentication certificates 
+          webAdminCert     -   Web administrative certificates
+          signatures       -   Signature file
+          customWebAuth    -   Custom web authentication 
+                               tar file
+          vendorDeviceCert -   Vendor device certificates
+          vendorCaCert     -   Vendor certificate authority 
+                               certificates"
+    ::= { clsConfigDownload 1 }
+
+clsDownloadCertificateKey OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the key used
+        to encrypt the EAP certificate, specified
+        by IEEE 802.1X standard, during upload from 
+        the controller and for decrypting the file 
+        after its downloaded to the controller. 
+        This object is relevant only when 
+        clsDownloadFileType is  'vendorDeviceCert'. 
+        For all other values of clsDownloadFileType 
+        object this will return an empty string."
+    ::= { clsConfigDownload 2 }
+
+clsUploadFileType OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        config(2),
+        errorLog(3),
+        systemTrace(4),
+        trapLog(5),
+        crashFile(6),
+        signatures(7),
+        pac(8)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the file types that
+        can be uploaded to the controller.
+        The file types for upload are:
+          unknown     -   Unknown file
+          config      -   Configuration file
+          errorLog    -   Error log
+          systemTrace -   System trace
+          trapLog     -   Trap log
+          crashFile   -   Crash file
+          signatures  -   Signature file
+          pac         -   PAC file"
+    ::= { clsConfigUpload 1 }
+
+clsUploadPacUsername OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..63))
+--    Rsyntax OCTET STRING(SIZE(0..63))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the upload user name
+        for protected access credential (PAC). This 
+        object needs to be set before setting 
+        clsUploadFileType to 'pac'.  For all other 
+        values of clsUploadFileType this will return 
+        an empty string."
+    ::= { clsConfigUpload 2 }
+
+clsUploadPacPassword OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..128))
+--    Rsyntax OCTET STRING(SIZE(0..128))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the upload password for
+        protected access credential (PAC). This object 
+        needs to be set before setting clsUploadFileType 
+        to 'pac'. For all other values of 
+        clsUploadFileType this will return an empty 
+        string."
+    ::= { clsConfigUpload 3 }
+
+clsUploadPacValidity OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+--  Units
+--    days
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the upload validity in
+        days for protected access credential (PAC). 
+        This object is relevant only when 
+        clsUploadFileType is set to 'pac'. 
+        For all other values of clsUploadFileType 
+        this will return an empty string."
+    ::= { clsConfigUpload 4 }
+
+ciscoLwappSysConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappSysMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents the
+--    system wide configuration on the controller.
+--  objects
+--    clsDot3BridgeEnabled, clsDownloadFileType, 
+--    clsDownloadCertificateKey, clsUploadFileType, 
+--    clsUploadPacUsername, clsUploadPacPassword, 
+--    clsUploadPacValidity
+
+ciscoLwappSysMIBCompliance OBJECT IDENTIFIER ::= { ciscoLwappSysMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappSysMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappSysConfigGroup
+
+
+END
+

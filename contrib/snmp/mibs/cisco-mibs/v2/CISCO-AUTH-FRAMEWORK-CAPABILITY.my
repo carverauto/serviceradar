@@ -1,0 +1,985 @@
+-- *****************************************************************
+-- CISCO-AUTH-FRAMEWORK-CAPABILITY.my:
+-- Cisco CISCO-AUTH-FRAMEWORK-MIB AGENT-CAPABILITIES
+--   
+-- April 2008, Binh Phu Le
+--   
+-- Copyright (c) 2008-2012 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-AUTH-FRAMEWORK-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    Unsigned32,
+    Integer32,
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoAuthFrameworkCapability MODULE-IDENTITY
+    LAST-UPDATED    "201209040000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ibns@cisco.com,
+            cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-AUTH-FRAMEWORK-MIB."
+    REVISION        "201209040000Z"
+    DESCRIPTION
+        "Added capability statement cafCapV15R0101SYPCat6K."
+    REVISION        "201204020000Z"
+    DESCRIPTION
+        "Added capability statement cafCapV15R0101SGPCat4K."
+    REVISION        "201103290000Z"
+    DESCRIPTION
+        "Added capability statement cafCapV15R0002SGPCat4K.
+        Updated VARIATION of cafPortViolationAction for
+        cafCapV12R0254SGPCat4K."
+    REVISION        "201103240000Z"
+    DESCRIPTION
+        "Added capability statement cafCapV12R0233SXJPCat6K.
+        Updated VARIATION of cafPortViolationAction for
+        cafCapV12R0233SXI4PCat6K."
+    REVISION        "201005060000Z"
+    DESCRIPTION
+        "Added capability statement cafCapV12R0254SGPCat4K."
+    REVISION        "201004050000Z"
+    DESCRIPTION
+        "Added capability statement cafCapV12R0233SXI4PCat6K."
+    REVISION        "201003090000Z"
+    DESCRIPTION
+        "Added capability statement cafCapV12R0252SGPCat4K."
+    REVISION        "200905180000Z"
+    DESCRIPTION
+        "Added capability statement cafCapV12R0233SXI2PCat6K.
+
+        Updated cafCapV12R0233SXIPCat6K with additional
+        VARIATION clauses."
+    REVISION        "200810300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 573 }
+
+
+
+cafCapV12R0233SXIPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-AUTH-FRAMEWORK-MIB capabilities."
+
+    SUPPORTS        CISCO-AUTH-FRAMEWORK-MIB
+    INCLUDES        {
+                        cafAuthMethodRegGroup,
+                        cafAaaNoRespRecoveryDelayGroup,
+                        cafAuthPortConfigGroup,
+                        cafPortMethodGroup,
+                        cafAuthFailedEventGroup,
+                        cafClientNoRespEventGroup,
+                        cafServerEventGroup,
+                        cafSessionGroup,
+                        cafSessionMethodInfoGroup,
+                        cafSecViolationNotifEnableGroup,
+                        cafSecurityViolationNotifGroup,
+                        cafSecurityViolationClientGroup
+                    }
+    VARIATION       cafAaaNoRespRecoveryDelay
+    SYNTAX          Unsigned32 (1..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortFallBackProfile
+    SYNTAX          OCTET STRING (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortReauthInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortRestartInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortInactivityTimeout
+    SYNTAX          Integer32 (-1 | 0 | 1..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortViolationAction
+    SYNTAX          INTEGER  {
+                        restrict(1),
+                        shutdown(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafAuthFailedMaxRetry
+    SYNTAX          Unsigned32 (0..5)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Unable to set this if the corresponding
+        instance of cafAuthFailedNoActionEnabled is
+        'true'."
+
+    VARIATION       cafAuthFailedAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafClientNoRespAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafServerDeadAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortConfigEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafPortMethodEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafAuthFailedEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafClientNoRespEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafServerEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafSessionEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    ::= { ciscoAuthFrameworkCapability 1 }
+
+cafCapV12R0233SXI2PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI2 on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-AUTH-FRAMEWORK-MIB capabilities."
+
+    SUPPORTS        CISCO-AUTH-FRAMEWORK-MIB
+    INCLUDES        {
+                        cafAuthMethodRegGroup,
+                        cafAaaNoRespRecoveryDelayGroup,
+                        cafAuthPortConfigGroup,
+                        cafPortMethodGroup,
+                        cafAuthFailedEventGroup,
+                        cafClientNoRespEventGroup,
+                        cafServerEventGroup,
+                        cafSessionGroup,
+                        cafSessionMethodInfoGroup,
+                        cafSecViolationNotifEnableGroup,
+                        cafSecurityViolationNotifGroup,
+                        cafSecurityViolationClientGroup,
+                        cafSessionVlanGroupNameGroup
+                    }
+    VARIATION       cafAaaNoRespRecoveryDelay
+    SYNTAX          Unsigned32 (1..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortFallBackProfile
+    SYNTAX          OCTET STRING (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortReauthInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortRestartInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortInactivityTimeout
+    SYNTAX          Integer32 (-1 | 0 | 1..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortViolationAction
+    SYNTAX          INTEGER  {
+                        restrict(1),
+                        shutdown(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafAuthFailedMaxRetry
+    SYNTAX          Unsigned32 (0..5)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Unable to set this if the corresponding
+        instance of cafAuthFailedNoActionEnabled is
+        'true'."
+
+    VARIATION       cafAuthFailedAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafClientNoRespAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafServerDeadAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortConfigEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafPortMethodEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafAuthFailedEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafClientNoRespEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafServerEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafSessionEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    ::= { ciscoAuthFrameworkCapability 2 }
+
+cafCapV12R0252SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(52)SG on Cat4K family switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-AUTH-FRAMEWORK-MIB capabilities."
+
+    SUPPORTS        CISCO-AUTH-FRAMEWORK-MIB
+    INCLUDES        {
+                        cafAuthMethodRegGroup,
+                        cafAaaNoRespRecoveryDelayGroup,
+                        cafAuthPortConfigGroup,
+                        cafPortMethodGroup,
+                        cafAuthFailedEventGroup,
+                        cafClientNoRespEventGroup,
+                        cafServerEventGroup,
+                        cafSessionGroup,
+                        cafSessionMethodInfoGroup,
+                        cafSecViolationNotifEnableGroup,
+                        cafSecurityViolationNotifGroup,
+                        cafSecurityViolationClientGroup
+                    }
+    VARIATION       cafAaaNoRespRecoveryDelay
+    SYNTAX          Unsigned32 (1..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortFallBackProfile
+    SYNTAX          OCTET STRING (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortReauthInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortRestartInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortInactivityTimeout
+    SYNTAX          Integer32 (-1 | 0 | 1..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortViolationAction
+    SYNTAX          INTEGER  {
+                        restrict(1),
+                        shutdown(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafAuthFailedMaxRetry
+    SYNTAX          Unsigned32 (0..5)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Unable to set this if the corresponding
+        instance of cafAuthFailedNoActionEnabled is
+        'true'."
+
+    VARIATION       cafAuthFailedAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafClientNoRespAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafServerDeadAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoAuthFrameworkCapability 3 }
+
+cafCapV12R0233SXI4PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-AUTH-FRAMEWORK-MIB capabilities."
+
+    SUPPORTS        CISCO-AUTH-FRAMEWORK-MIB
+    INCLUDES        {
+                        cafAuthMethodRegGroup,
+                        cafAaaNoRespRecoveryDelayGroup,
+                        cafAuthPortConfigGroup,
+                        cafPortMethodGroup,
+                        cafAuthFailedEventGroup,
+                        cafClientNoRespEventGroup,
+                        cafServerEventGroup,
+                        cafSessionGroup,
+                        cafSessionMethodInfoGroup,
+                        cafSecViolationNotifEnableGroup,
+                        cafSecurityViolationNotifGroup,
+                        cafSecurityViolationClientGroup,
+                        cafSessionVlanGroupNameGroup
+                    }
+    VARIATION       cafAaaNoRespRecoveryDelay
+    SYNTAX          Unsigned32 (1..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortFallBackProfile
+    SYNTAX          OCTET STRING (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortReauthInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortRestartInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortInactivityTimeout
+    SYNTAX          Integer32 (-1 | 0 | 1..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortViolationAction
+    SYNTAX          INTEGER  {
+                        restrict(1),
+                        shutdown(2),
+                        replace(4)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Value 'replace' is implemented as read-only."
+
+    VARIATION       cafAuthFailedMaxRetry
+    SYNTAX          Unsigned32 (0..5)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Unable to set this if the corresponding
+        instance of cafAuthFailedNoActionEnabled is
+        'true'."
+
+    VARIATION       cafAuthFailedAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafClientNoRespAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafServerDeadAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortConfigEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafPortMethodEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafAuthFailedEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafClientNoRespEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafServerEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafSessionEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    ::= { ciscoAuthFrameworkCapability 4 }
+
+cafCapV12R0254SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(54)SG on Cat4K family switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-AUTH-FRAMEWORK-MIB capabilities."
+
+    SUPPORTS        CISCO-AUTH-FRAMEWORK-MIB
+    INCLUDES        {
+                        cafAuthMethodRegGroup,
+                        cafAaaNoRespRecoveryDelayGroup,
+                        cafAuthPortConfigGroup,
+                        cafPortMethodGroup,
+                        cafAuthFailedEventGroup,
+                        cafClientNoRespEventGroup,
+                        cafServerEventGroup,
+                        cafSessionGroup,
+                        cafSessionMethodInfoGroup,
+                        cafSecViolationNotifEnableGroup,
+                        cafSecurityViolationNotifGroup,
+                        cafSecurityViolationClientGroup
+                    }
+    VARIATION       cafAaaNoRespRecoveryDelay
+    SYNTAX          Unsigned32 (1..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortFallBackProfile
+    SYNTAX          OCTET STRING (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortReauthInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortRestartInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortInactivityTimeout
+    SYNTAX          Integer32 (-1 | 0 | 1..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortViolationAction
+    SYNTAX          INTEGER  {
+                        restrict(1),
+                        shutdown(2),
+                        replace(4)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Value 'replace' is implemented as read-only."
+
+    VARIATION       cafAuthFailedMaxRetry
+    SYNTAX          Unsigned32 (0..5)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Unable to set this if the corresponding
+        instance of cafAuthFailedNoActionEnabled is
+        'true'."
+
+    VARIATION       cafAuthFailedAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafClientNoRespAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafServerDeadAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoAuthFrameworkCapability 5 }
+
+cafCapV12R0233SXJPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXJ on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-AUTH-FRAMEWORK-MIB capabilities."
+
+    SUPPORTS        CISCO-AUTH-FRAMEWORK-MIB
+    INCLUDES        {
+                        cafAuthMethodRegGroup,
+                        cafAaaNoRespRecoveryDelayGroup,
+                        cafAuthPortConfigGroup,
+                        cafPortMethodGroup,
+                        cafAuthFailedEventGroup,
+                        cafClientNoRespEventGroup,
+                        cafServerEventGroup,
+                        cafSessionGroup,
+                        cafSessionMethodInfoGroup,
+                        cafSecViolationNotifEnableGroup,
+                        cafSecurityViolationNotifGroup,
+                        cafSecurityViolationClientGroup,
+                        cafSessionVlanGroupNameGroup,
+                        cafMacMoveConfigGroup,
+                        cafCoACommandConfigGroup
+                    }
+    VARIATION       cafAaaNoRespRecoveryDelay
+    SYNTAX          Unsigned32 (1..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortFallBackProfile
+    SYNTAX          OCTET STRING (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortReauthInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortRestartInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortInactivityTimeout
+    SYNTAX          Integer32 (-1 | 0 | 1..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortViolationAction
+    SYNTAX          INTEGER  {
+                        restrict(1),
+                        shutdown(2),
+                        replace(4)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafAuthFailedMaxRetry
+    SYNTAX          Unsigned32 (0..5)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Unable to set this if the corresponding
+        instance of cafAuthFailedNoActionEnabled is
+        'true'."
+
+    VARIATION       cafAuthFailedAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafClientNoRespAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafServerDeadAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortConfigEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafPortMethodEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafAuthFailedEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafClientNoRespEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafServerEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafSessionEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    ::= { ciscoAuthFrameworkCapability 6 }
+
+cafCapV15R0002SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(2)SG on Cat4K family switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-AUTH-FRAMEWORK-MIB capabilities."
+
+    SUPPORTS        CISCO-AUTH-FRAMEWORK-MIB
+    INCLUDES        {
+                        cafAuthMethodRegGroup,
+                        cafAaaNoRespRecoveryDelayGroup,
+                        cafAuthPortConfigGroup,
+                        cafPortMethodGroup,
+                        cafAuthFailedEventGroup,
+                        cafClientNoRespEventGroup,
+                        cafServerEventGroup,
+                        cafSessionGroup,
+                        cafSessionMethodInfoGroup,
+                        cafSecViolationNotifEnableGroup,
+                        cafSecurityViolationNotifGroup,
+                        cafSecurityViolationClientGroup,
+                        cafSessionVlanGroupNameGroup,
+                        cafMacMoveConfigGroup,
+                        cafCoACommandConfigGroup
+                    }
+    VARIATION       cafAaaNoRespRecoveryDelay
+    SYNTAX          Unsigned32 (1..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortFallBackProfile
+    SYNTAX          OCTET STRING (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortReauthInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortRestartInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortInactivityTimeout
+    SYNTAX          Integer32 (-1 | 0 | 1..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortViolationAction
+    SYNTAX          INTEGER  {
+                        restrict(1),
+                        shutdown(2),
+                        replace(4)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Value 'replace' is implemented as read-only by
+        the system with SUP7."
+
+    VARIATION       cafAuthFailedMaxRetry
+    SYNTAX          Unsigned32 (0..5)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Unable to set this if the corresponding
+        instance of cafAuthFailedNoActionEnabled is
+        'true'."
+
+    VARIATION       cafAuthFailedAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafClientNoRespAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafServerDeadAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafMacMoveMode
+    DESCRIPTION
+        "This object is not supported by the system with SUP7."
+
+    VARIATION       cafCoABouncePortCommandIgnoreEnabled
+    DESCRIPTION
+        "This object is not supported by the system with SUP7."
+
+    VARIATION       cafCoADisablePortCommandIgnoreEnabled
+    DESCRIPTION
+        "This object is not supported by the system with SUP7."
+
+    ::= { ciscoAuthFrameworkCapability 7 }
+
+cafCapV15R0101SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SG on Cat4K family switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-AUTH-FRAMEWORK-MIB capabilities."
+
+    SUPPORTS        CISCO-AUTH-FRAMEWORK-MIB
+    INCLUDES        {
+                        cafAuthMethodRegGroup,
+                        cafAaaNoRespRecoveryDelayGroup,
+                        cafAuthPortConfigGroup,
+                        cafPortMethodGroup,
+                        cafAuthFailedEventGroup,
+                        cafClientNoRespEventGroup,
+                        cafServerEventGroup,
+                        cafSessionGroup,
+                        cafSessionMethodInfoGroup,
+                        cafSecViolationNotifEnableGroup,
+                        cafSecurityViolationNotifGroup,
+                        cafSecurityViolationClientGroup,
+                        cafSessionVlanGroupNameGroup,
+                        cafMacMoveConfigGroup,
+                        cafCoACommandConfigGroup
+                    }
+    VARIATION       cafAaaNoRespRecoveryDelay
+    SYNTAX          Unsigned32 (1..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortFallBackProfile
+    SYNTAX          OCTET STRING (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortReauthInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortRestartInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortInactivityTimeout
+    SYNTAX          Integer32 (-1 | 0 | 1..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortViolationAction
+    SYNTAX          INTEGER  {
+                        restrict(1),
+                        shutdown(2),
+                        replace(4)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafAuthFailedMaxRetry
+    SYNTAX          Unsigned32 (0..5)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Unable to set this if the corresponding
+        instance of cafAuthFailedNoActionEnabled is
+        'true'."
+
+    VARIATION       cafAuthFailedAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafClientNoRespAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafServerDeadAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoAuthFrameworkCapability 8 }
+
+cafCapV15R0101SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-AUTH-FRAMEWORK-MIB capabilities."
+
+    SUPPORTS        CISCO-AUTH-FRAMEWORK-MIB
+    INCLUDES        {
+                        cafAuthMethodRegGroup,
+                        cafAaaNoRespRecoveryDelayGroup,
+                        cafAuthPortConfigGroup,
+                        cafPortMethodGroup,
+                        cafAuthFailedEventGroup,
+                        cafClientNoRespEventGroup,
+                        cafServerEventGroup,
+                        cafSessionGroup,
+                        cafSessionMethodInfoGroup,
+                        cafSecViolationNotifEnableGroup,
+                        cafSecurityViolationNotifGroup,
+                        cafSecurityViolationClientGroup,
+                        cafSessionVlanGroupNameGroup,
+                        cafMacMoveConfigGroup,
+                        cafCoACommandConfigGroup
+                    }
+    VARIATION       cafAaaNoRespRecoveryDelay
+    SYNTAX          Unsigned32 (1..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortFallBackProfile
+    SYNTAX          OCTET STRING (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortReauthInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortRestartInterval
+    SYNTAX          Unsigned32 (0..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortInactivityTimeout
+    SYNTAX          Integer32 (-1 | 0 | 1..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortViolationAction
+    SYNTAX          INTEGER  {
+                        restrict(1),
+                        shutdown(2),
+                        replace(4)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafAuthFailedMaxRetry
+    SYNTAX          Unsigned32 (0..5)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Unable to set this if the corresponding
+        instance of cafAuthFailedNoActionEnabled is
+        'true'."
+
+    VARIATION       cafAuthFailedAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafClientNoRespAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafServerDeadAuthorizedVlan
+    SYNTAX          Integer32 (-1 | 0 | 1..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cafPortConfigEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafPortMethodEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafAuthFailedEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafClientNoRespEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafServerEventPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cafSessionEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    ::= { ciscoAuthFrameworkCapability 9 }
+
+END
+
+
+
+

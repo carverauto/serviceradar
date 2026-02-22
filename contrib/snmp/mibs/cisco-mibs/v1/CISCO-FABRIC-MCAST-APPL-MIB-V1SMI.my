@@ -1,0 +1,171 @@
+-- MIB file created 12-Aug-2004 18:54:31, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-FABRIC-MCAST-APPL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-FABRIC-MCAST-APPL-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    entLogicalIndex
+            FROM ENTITY-MIB
+    CfmPoolIndex
+            FROM CISCO-FABRIC-MCAST-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoFabricMcastApplMIB OBJECT IDENTIFIER ::= { ciscoMgmt 256 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200212180000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-fabric@cisco.com
+--  Descr
+--    Fabric multicast resource MIB module.
+--    This MIB module is used for managing/tracking the fabric
+--    multicast resource application related information.
+--    
+--    Acronyms and terms:
+--    FGID          - Fabric Multicast Group Identifier.
+--  RevDate
+--    200212180000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoFabricMcastApplMIBObjects OBJECT IDENTIFIER ::= { ciscoFabricMcastApplMIB 1 }
+cfmaAppl        OBJECT IDENTIFIER ::= { ciscoFabricMcastApplMIBObjects 1 }
+cfmaMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoFabricMcastApplMIB 2 }
+cfmaMIBNotifications OBJECT IDENTIFIER ::= { cfmaMIBNotificationPrefix 0 }
+cfmaMIBConformance OBJECT IDENTIFIER ::= { ciscoFabricMcastApplMIB 3 }
+cfmaMIBCompliances OBJECT IDENTIFIER ::= { cfmaMIBConformance 1 }
+cfmaMIBGroups   OBJECT IDENTIFIER ::= { cfmaMIBConformance 2 }
+
+cfmaApplTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfmaApplEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains fabric multicast resource 
+        usage for a particular fabric multicast client application."
+    ::= { cfmaAppl 1 }
+
+cfmaApplEntry OBJECT-TYPE
+    SYNTAX CfmaApplEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single application that
+        uses fabric multicast resource in a logical router.
+        An entry of this table is created when a fabric multicast
+        client application is registered to fabric software for the
+        use of fabric multicast resource from a logical router.
+        A logical router is identified by the value of mib-2 in
+        entLogicalType object of ENTITY-MIB.
+        
+        An entry of this table is deleted when a fabric multicast
+        client application unregistered the use of fabric multicast
+        resource."
+    INDEX { entLogicalIndex, cfmaApplId }
+    ::= { cfmaApplTable 1 }
+
+CfmaApplEntry ::= SEQUENCE {
+    cfmaApplId Gauge,
+    cfmaApplName SnmpAdminString,
+    cfmaApplInuseFgids Gauge,
+    cfmaApplHighWaterInuseFGIDs Gauge,
+    cfmaApplPoolId CfmPoolIndex
+    }
+
+cfmaApplId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An unique value, greater than zero, for each fabric client
+        application that uses fabric multicast resource."
+    ::= { cfmaApplEntry 1 }
+
+cfmaApplName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..128))
+--    Rsyntax OCTET STRING(SIZE(1..128))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of this fabric multicast client application."
+    ::= { cfmaApplEntry 2 }
+
+cfmaApplInuseFgids OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    fgid
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of FGIDs that are currently in use
+        by this application."
+    ::= { cfmaApplEntry 3 }
+
+cfmaApplHighWaterInuseFGIDs OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    fgid
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The highest number of FGIDs that was in use by this
+        application."
+    ::= { cfmaApplEntry 4 }
+
+cfmaApplPoolId OBJECT-TYPE
+    SYNTAX CfmPoolIndex
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The fabric multicast resource pool id for the
+        resource pool which is used by this application."
+    ::= { cfmaApplEntry 5 }
+
+cfmaApplGroup OBJECT IDENTIFIER ::= { cfmaMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information for
+--    the applications that use the fabric multicast resource.
+--  objects
+--    cfmaApplName, cfmaApplInuseFgids, cfmaApplHighWaterInuseFGIDs, 
+--    cfmaApplPoolId
+
+cfmaMIBCompliance OBJECT IDENTIFIER ::= { cfmaMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-FABRIC-MCAST-APPL-MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cfmaApplGroup
+
+
+END
+

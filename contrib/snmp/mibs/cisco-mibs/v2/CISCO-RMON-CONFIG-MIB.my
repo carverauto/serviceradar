@@ -1,0 +1,3330 @@
+-- $Source#
+-- *****************************************************************
+-- CISCO-RMON-CONFIG-MIB.my:  Cisco RMON Configuration Extensions
+--   
+-- January 1998, Andy Bierman
+-- February 2001, Edward Pham
+--   
+-- Copyright (c) 1998-2001, 2003-2005, 2007-2008, 2010 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-RMON-CONFIG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    RowStatus,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    ifIndex,
+    InterfaceIndex
+        FROM IF-MIB
+    portCopyEntry
+        FROM SMON-MIB
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    Dscp
+        FROM CISCO-QOS-PIB-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoRmonConfigMIB MODULE-IDENTITY
+    LAST-UPDATED    "201008030000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-rmon@cisco.com"
+    DESCRIPTION
+        "This module defines configuration extensions for
+        some of the IETF RMON MIBs.
+
+        The following terms are used throughout this MIB:
+
+           A SPAN session is an association of one or more 
+           destination(s) with a set of source(s), along with
+           other parameters, to specify the network traffic to be
+           monitored. Each SPAN session is denoted by an unique
+           number.
+
+           The term 'remote SPAN', also called 'RSPAN', refers to 
+           the analysis of network traffic remotely, from 
+           destination port(s) for one or more source ports, 
+           distributed in one or more switches in a switched
+           network, through a RSPAN VLAN."
+    REVISION        "201008030000Z"
+    DESCRIPTION
+        "Add enumerator 'reflector' in crcSpanCapacityType."
+    REVISION        "200805020000Z"
+    DESCRIPTION
+        "Added rmonConfiguredAlarms,rmonConfiguredHcAlarms.
+        deprecated ciscoRmonConfigComplianceRev9 and added 
+        rmonAlarmCapacityGroup, ciscoRmonConfigComplianceRev10"
+    REVISION        "200804040000Z"
+    DESCRIPTION
+        "Add crcSpanCapacityGroup."
+    REVISION        "200602210000Z"
+    DESCRIPTION
+        "Add TC SpanTxReplicationMode and object group
+        crcSpanEgressReplicationGroup."
+    REVISION        "200509281210Z"
+    DESCRIPTION
+        "Add crcERSpanIFOptionGroup and deprecate
+        crcDstERSpanOption."
+    REVISION        "200505020000Z"
+    DESCRIPTION
+        "Add crcSpanSessionDescr and value 'localTx'
+        to portCopySessionType."
+    REVISION        "200501240000Z"
+    DESCRIPTION
+        "Add MIB group crcSpanDstPermitListGroup."
+    REVISION        "200402040000Z"
+    DESCRIPTION
+        "Updated crcERSpanSessionType."
+    REVISION        "200402030000Z"
+    DESCRIPTION
+        "Add the following MIB objects:
+        crcSpanSessionNo,
+        crcSpanSessionType,
+        crcSpanSessionEnabled,
+        crcERSpanSessionNo,
+        crcERSpanSessionType,
+        crcERSpanSessionDescr,
+        crcERSpanEncapID,
+        crcERSpanIpType,
+        crcERSpanIp,
+        crcSrcERSpanIpTTL,
+        crcSrcERSpanDscpOrPrec,
+        crcSrcERSpanIpPrec,
+        crcSrcERSpanIpDscp,
+        crcERSpanIpVRF,
+        crcSrcERSpanLoVlanMask,
+        crcSrcERSpanHiVlanMask,
+        crcSrcERSpanOrigIpType,
+        crcSrcERSpanOrigIp,
+        crcDstERSpanOption,
+        crcERSpanSessionRowStatus,
+        crcERSpanIFIndex,
+        crcERSpanIFDirection,
+        crcERSpanIFRowStatus."
+    REVISION        "200304290000Z"
+    DESCRIPTION
+        "Added the portCopyInpktVlan MIB object.
+        Add the following bit definitions to the existing 
+        MIB object portCopyOption:
+                unicastDisable,
+                broadcastDisable,
+                goodDisable,
+                badDisable."
+    REVISION        "200210080000Z"
+    DESCRIPTION
+        "Added rmonMaxAlarms and rmonAlarmEnable."
+    REVISION        "200104010000Z"
+    DESCRIPTION
+        "Add the portCopyReflectorPort MIB object"
+    REVISION        "200102220000Z"
+    DESCRIPTION
+        "Add the following MIB objects:
+        portCopyDestLoVlanMask,
+        portCopyDestHiVlanMask,
+        portCopyOption,
+        portCopySessionNo,
+        portCopySessionType,
+        portCopyRemoveSrc, 
+        portCopyMaxIngressSessions,
+        portCopyMinEgressSessions."
+    REVISION        "9812010000Z"
+    DESCRIPTION
+        "Updated the portCopyXTable;
+        portCopyDirection moved to SMON standard, and
+        multiple VLANs per source port now supported."
+    ::= { ciscoMgmt 103 }
+
+
+ciscoRmonConfigObjects  OBJECT IDENTIFIER
+    ::= { ciscoRmonConfigMIB 1 }
+
+ciscoRmonConfigNotifications  OBJECT IDENTIFIER
+    ::= { ciscoRmonConfigMIB 2 }
+
+ciscoRmonConfigConformance  OBJECT IDENTIFIER
+    ::= { ciscoRmonConfigMIB 3 }
+
+ciscoRmon2ConfigObjects  OBJECT IDENTIFIER
+    ::= { ciscoRmonConfigObjects 1 }
+
+ciscoSmonConfigObjects  OBJECT IDENTIFIER
+    ::= { ciscoRmonConfigObjects 2 }
+
+ciscoSampleConfigObjects  OBJECT IDENTIFIER
+    ::= { ciscoRmonConfigObjects 3 }
+
+ciscoAlarmConfigObjects  OBJECT IDENTIFIER
+    ::= { ciscoRmonConfigObjects 4 }
+
+ciscoSpanTxReplicationObjects  OBJECT IDENTIFIER
+    ::= { ciscoRmonConfigObjects 5 }
+
+ciscoSpanCapacityObjects  OBJECT IDENTIFIER
+    ::= { ciscoRmonConfigObjects 6 }
+
+
+-- Textual Conventions
+
+SpanTxReplicationMode ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Describes whether egress SPAN packets replication is
+        centralized in the device or distributed to where 
+        traffic is sourced."
+    SYNTAX          INTEGER  {
+                        centralized(1),
+                        distributed(2)
+                    }
+
+-- Extensions to the RMON-2 MIB
+
+rmonTimeFilterMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        stopAfterOne(1),
+                        stopAfterAll(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object controls the way the SNMP agent implements the
+        getnext operation for tables with a TimeFilter index, such
+        as those found in the RMON2-MIB module.
+
+        If this object has the value `stopAfterOne(1)', then a GetNext
+        or GetBulk operation will provide one pass through a given 
+        table, i.e., the agent will continue to the next object or 
+        table, instead of incrementing a TimeMark INDEX value, even if
+        there exists higher TimeMark values which are valid for
+        the same conceptual row.
+
+        This mode is not strictly compliant with the TimeFilter textual
+        convention definition, because potentially many conceptual rows
+        will be skipped instead of returned in a GetNext or GetBulk
+        operation.  Such rows are identical to each other, except for
+        the returned TimeMark INDEX value. This mode is intended only
+        for testing purposes, however it may also be useful if an NMS
+        wishes to utilize the GetBulk PDU. This mode will prevent the
+        GetBulk responses from containing duplicate rows due to the
+        TimeFilter mechanism.
+
+        If this object has the value `stopAfterAll(2)', then a getNext
+        or getBulk MIB walk will repeat through the same MIB table 
+        until the TimeMark for the most-recently changed entry is 
+        reached. Note that as long as traffic occurs on the monitored 
+        interface, it is possible a highest value of the TimeFilter 
+        INDEX may never be reached. This mode is strictly compliant 
+        with the TimeFilter textual convention definition.  Note that 
+        GetBulk PDU responses in this mode will likely contain multiple
+        copies of the same MIB instances, differing only in the 
+        TimeMark INDEX value.
+
+        As an example, consider row 'fooEntry' which was last updated
+        at 'time 1000'. An NMS may use any TimeMark INDEX value in the
+        range '0' to '1000', and the current (i.e., time of get 
+        request) counter values for the 'fooEntry' will be returned by
+        agent. In the 'stopAfterOne' mode, the agent will not increment
+        the fooEntry TimeMark index under any conditions. In the
+        'stopAfterAll' mode, the agent will increment any fooEntry
+        TimeMark INDEX value in the range '0' to '999', up until
+        the TimeMark value of '1000' is reached."
+    DEFVAL          { stopAfterAll } 
+    ::= { ciscoRmon2ConfigObjects 1 }
+-- Extensions to the SMON MIB
+
+portCopyXTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF PortCopyXEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table extends the port copy capability found in the
+        SMON MIB portCopyTable. This table is intended to augment 
+        every portCopyEntry, but not all features provided may be 
+        available on all RMON platforms. In such a case, a 
+        particular MIB object will be implemented with read-only 
+        access."
+    ::= { ciscoSmonConfigObjects 1 }
+
+portCopyXEntry OBJECT-TYPE
+    SYNTAX          PortCopyXEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Describes a particular port copy extension entry.
+
+        When creating an entry in this table using the 'createAndwait'
+        method, the following rules are applied:
+
+        - no SPAN consistency check is done for the entry until
+        the entry is activated.  An entry will not be activated
+        if it fails the SPAN consistency check described for
+        the 'createAndGo' method.
+
+        -an instance remains in the 'notReady' state until the
+        associated portCopyStatus changes to 'active'.
+
+        When the agent processes a request of adding an entry
+        using 'createAndGo' method or a request that sets the value
+        of portCopyStatus object to 'active', the following rules
+        are applied:
+
+        The agent will add the entry to a SPAN session having the same
+        portCopySessionNo, or create a new session if it does not
+        exist. To join an existing session, either portCopySource or
+        portCopyDest, but not both, must exist in one of the entries
+        from the same SPAN session. In addition, the following actions
+        will be taken after a successful join:
+
+        1. The portCopyDirection, portCopyLoVlanMask, and
+           portCopyHiVlanMask values will overwrite the existing
+           values associated with this port copy session.
+
+        2. The portCopyDestLoVlanMask, portCopyDestHiVlanMask, and
+           portCopyOption values will overwrite the existing values
+           associated the same portCopyDest and this port copy session.
+
+        3. If the value of portCopyDest object does not exist in the
+           existing SPAN session, each of the ports identified in the
+           portCopySource is added to this SPAN session. 
+           For example, given an existing SPAN session having ports 
+           1, 2, and 3 as source ports, and port A as the destination
+           port, if an entry is added by an NMS with indices of (2,B),
+           the agent will also add entries for the other source ports
+           (e.g. (1,B) and (3,B)) to the session.  The same algorithm
+           for adding entries will be applied if the portCopySource
+           does not already belong to this SPAN session.
+
+        When the agent processes a request to change the RowStatus of
+        an entry from 'active' to 'notInService', the following
+        rules are applied:
+
+        - That entry will be removed from its participating SPAN 
+        session. The new RowStatus state will be 'notInService'.
+
+        - all entries in the table that have the same value of
+        portCopySessionNo and same value of portCopySource are
+        also set to 'NotInService'.
+
+        When agent processes a request to delete an entry, the
+        following rules are applied:
+
+        - the entry is simply removed if it is not currently active.
+
+        - if the portCopySessionNo value is non-zero and the value of
+        portCopyRemoveSrc object is set to 'true', then all entries 
+        with the same value of portCopySessionNo and same value of 
+        portCopySource are deleted.
+
+        - if the portCopySessionNo value is non-zero and the value of
+        portCopyRemoveSrc object is set to 'false', then all entries
+        with the same value of portCopySessionNo and same
+        value of portCopyDest are deleted.
+
+        - if the last portCopy entry is removed from a session, 
+        then the session information is also removed."
+    AUGMENTS           { portCopyEntry  } 
+    ::= { portCopyXTable 1 }
+
+PortCopyXEntry ::= SEQUENCE {
+        portCopyLoVlanMask     OCTET STRING,
+        portCopyHiVlanMask     OCTET STRING,
+        portCopyDestLoVlanMask OCTET STRING,
+        portCopyDestHiVlanMask OCTET STRING,
+        portCopyOption         BITS,
+        portCopySessionNo      Integer32,
+        portCopySessionType    INTEGER,
+        portCopyRemoveSrc      TruthValue,
+        portCopyReflectorPort  InterfaceIndex,
+        portCopyInpktVlan      Unsigned32
+}
+
+portCopyLoVlanMask OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..256))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object affects the way VLAN-based traffic is copied from
+        a switch source port, for the indicated port copy operation. 
+        It is used in tandem with the portCopyHiVlanMask to 
+        identify all possible 4096 IEEE 802.1Q VLAN ID values. 
+        This object is used to select or deselect VLAN IDs 
+        0 though 2047. 
+
+        If this object contains a zero-length string, or none 
+        of the octets contain a non-zero value, and the 
+        associated portCopyHiVlanMask is not instantiated, 
+        contains a zero-length string, or contains only 
+        zero-valued octets, then network traffic will not 
+        be filtered, based on IEEE 802.1Q or ISL VLAN ID, before 
+        it is copied to the indicated destination port. 
+
+        If this object has a non-zero length, and at least 
+        one octet contains a non-zero value, or the 
+        portCopyHiVlanMask contains at least one non-zero octet, 
+        then traffic will be filtered, based on the indicated 
+        IEEE 802.1Q or ISL VLAN ID, before it is copied to the 
+        indicated destination port. Only frames (tagged or 
+        untagged) which match the indicated VLAN ID(s) will be 
+        copied to the indicated destination port. 
+
+        VLAN IDs are encoded as a string of octets containing 
+        one bit per VLAN to be included in the port copy operation. 
+        The first octet corresponds to VLANs with VlanIndex values 
+        of 0 through 7; the second octet to VLANs 8 through 15; etc. 
+        The most significant bit of each octet corresponds to the 
+        lowest value VlanIndex in that octet.  If the bit 
+        corresponding to a VLAN is set to '1', then the traffic 
+        associated with that VLAN will be selected for the 
+        indicated port copy operation. 
+
+        Note that if the length of this string is less than 
+        256 octets, any 'missing' octets are assumed to contain 
+        the value zero. An NMS may omit any zero-valued octets 
+        from the end of this string in order to reduce SetPDU size, 
+        and the agent may also omit zero-valued trailing octets, 
+        to reduce the size of GetResponse PDUs. 
+
+        The creation and deletion of instances of this object is 
+        controlled by the portCopyStatus object found in the 
+        augmented portCopyEntry.  It is an implementation-specific 
+        matter as to how many VLANs may be selected from a 
+        particular physical source port at any one time, or whether 
+        this object may be modified while the associated 
+        portCopyStatus object is equal to 'active'."
+    DEFVAL          { ''H } 
+    ::= { portCopyXEntry 1 }
+
+portCopyHiVlanMask OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..256))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object affects the way VLAN-based traffic is copied from
+        a switch source port, for the indicated port copy operation. 
+        It is used in tandem with the portCopyLoVlanMask to 
+        identify all possible 4096 IEEE 802.1Q VLAN ID values. 
+        This object is used to select or deselect VLAN IDs 
+        2048 though 4095. 
+
+        If this object contains a zero-length string, or none 
+        of the octets contain a non-zero value, and the 
+        associated portCopyLoVlanMask is not instantiated, 
+        contains a zero-length string, or contains only 
+        zero-valued octets, then network traffic will not 
+        be filtered, based on IEEE 802.1Q or ISL VLAN ID, before 
+        it is copied to the indicated destination port. 
+
+        If this object has a non-zero length, and at least 
+        one octet contains a non-zero value, or the 
+        portCopyLoVlanMask contains at least one non-zero octet, 
+        then traffic will be filtered, based on the indicated 
+        IEEE 802.1Q or ISL VLAN ID, before it is copied to the 
+        indicated destination port. Only frames (tagged or 
+        untagged) which match the indicated VLAN ID(s) will be 
+        copied to the indicated destination port. 
+
+        VLAN IDs are encoded as a string of octets containing 
+        one bit per VLAN to be included in the port copy operation. 
+        The first octet corresponds to VLANs with VlanIndex values 
+        of 2048 through 2055; the second octet to VLANs 2056 through 
+        2063; etc. The most significant bit of each octet corresponds 
+        to the lowest value VlanIndex in that octet.  If the bit 
+        corresponding to a VLAN is set to '1', then the traffic 
+        associated with that VLAN will be selected for the 
+        indicated port copy operation. 
+
+        Note that if the length of this string is less than 
+        256 octets, any 'missing' octets are assumed to contain 
+        the value zero. An NMS may omit any zero-valued octets 
+        from the end of this string in order to reduce SetPDU size, 
+        and the agent may also omit zero-valued trailing octets, 
+        to reduce the size of GetResponse PDUs. 
+
+        The creation and deletion of instances of this object is 
+        controlled by the portCopyStatus object found in the 
+        augmented portCopyEntry.  It is an implementation-specific 
+        matter as to how many VLANs may be selected from a 
+        particular physical source port at any one time, or whether 
+        this object may be modified while the associated 
+        portCopyStatus object is equal to 'active'."
+    DEFVAL          { ''H } 
+    ::= { portCopyXEntry 2 }
+
+portCopyDestLoVlanMask OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..256))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object affects the way VLAN-based traffic to a switch
+        destination port is filtered for the indicated port copy 
+        operation. It is used in tandem with the 
+        portCopyDestHiVlanMask to identify all possible 4096 IEEE 
+        802.1Q VLAN ID values. This object is used to select or 
+        deselect VLAN IDs 0 though 2047. 
+
+        If this object contains a zero-length string, or none 
+        of the octets contain a non-zero value, and the 
+        associated portCopyDestHiVlanMask is not instantiated, 
+        contains a zero-length string, or contains only 
+        zero-valued octets, then network traffic will not 
+        be filtered, based on IEEE 802.1Q or ISL VLAN ID, before 
+        it is copied to the indicated destination port. 
+
+        If this object has a non-zero length, and at least 
+        one octet contains a non-zero value, or the 
+        portCopyDestHiVlanMask contains at least one non-zero octet, 
+        then traffic will be filtered, based on the indicated 
+        IEEE 802.1Q or ISL VLAN ID, before it is copied to the 
+        indicated destination port. Only frames (tagged or 
+        untagged) which match the indicated VLAN ID(s) will be 
+        copied to the indicated destination port. If a VLAN is
+        included in the portCopyDestLoVlanMask object, it should 
+        also be included in the portCopyLoVlanMask object and 
+        vice versa.
+
+        VLAN IDs are encoded as a string of octets containing 
+        one bit per VLAN to be included in the port copy operation. 
+        The first octet corresponds to VLANs with VlanIndex values 
+        of 0 through 7; the second octet to VLANs 8 through 15; etc. 
+        The most significant bit of each octet corresponds to the 
+        lowest value VlanIndex in that octet.  If the bit 
+        corresponding to a VLAN is set to '1', then the traffic 
+        associated with that VLAN will be selected for the 
+        indicated port copy operation. 
+
+        Note that if the length of this string is less than 
+        256 octets, any 'missing' octets are assumed to contain 
+        the value zero. An NMS may omit any zero-valued octets 
+        from the end of this string in order to reduce SetPDU size, 
+        and the agent may also omit zero-valued trailing octets, 
+        to reduce the size of GetResponse PDUs. 
+
+        The creation and deletion of instances of this object is 
+        controlled by the portCopyStatus object found in the 
+        augmented portCopyEntry.  It is an implementation-specific 
+        matter as to how many VLANs may be selected from a 
+        particular physical source port at any one time, or whether 
+        this object may be modified while the associated 
+        portCopyStatus object is equal to 'active'."
+    DEFVAL          { ''H } 
+    ::= { portCopyXEntry 3 }
+
+portCopyDestHiVlanMask OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..256))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object affects the way VLAN-based traffic to a switch
+        destination port is filtered for the indicated port copy 
+        operation. It is used in tandem with the 
+        portCopyDestLoVlanMask to identify all possible 4096 IEEE 
+        802.1Q VLAN ID values. This object is used to select or 
+        deselect VLAN IDs 2048 though 4095. 
+
+        If this object contains a zero-length string, or none 
+        of the octets contain a non-zero value, and the 
+        associated portCopyDestLoVlanMask is not instantiated, 
+        contains a zero-length string, or contains only 
+        zero-valued octets, then network traffic will not 
+        be filtered, based on IEEE 802.1Q or ISL VLAN ID, before 
+        it is copied to the indicated destination port. 
+
+        If this object has a non-zero length, and at least 
+        one octet contains a non-zero value, or the 
+        portCopyDestLoVlanMask contains at least one non-zero octet, 
+        then traffic will be filtered, based on the indicated 
+        IEEE 802.1Q or ISL VLAN ID, before it is copied to the 
+        indicated destination port. Only frames (tagged or 
+        untagged) which match the indicated VLAN ID(s) will be 
+        copied to the indicated destination port. If a VLAN is
+        included in the portCopyDestHiVlanMask object, it should
+        also be included in the portCopyHiVlanMask object and
+        vice versa.
+
+        VLAN IDs are encoded as a string of octets containing 
+        one bit per VLAN to be included in the port copy operation. 
+        The first octet corresponds to VLANs with VlanIndex values 
+        of 2048 through 2055; the second octet to VLANs 2056 through 
+        2063; etc. The most significant bit of each octet corresponds 
+        to the lowest value VlanIndex in that octet.  If the bit 
+        corresponding to a VLAN is set to '1', then the traffic 
+        associated with that VLAN will be selected for the 
+        indicated port copy operation. 
+
+        Note that if the length of this string is less than 
+        256 octets, any 'missing' octets are assumed to contain 
+        the value zero. An NMS may omit any zero-valued octets 
+        from the end of this string in order to reduce SetPDU size, 
+        and the agent may also omit zero-valued trailing octets, 
+        to reduce the size of GetResponse PDUs. 
+
+        The creation and deletion of instances of this object is 
+        controlled by the portCopyStatus object found in the 
+        augmented portCopyEntry.  It is an implementation-specific 
+        matter as to how many VLANs may be selected from a 
+        particular physical source port at any one time, or whether 
+        this object may be modified while the associated 
+        portCopyStatus object is equal to 'active'."
+    DEFVAL          { ''H } 
+    ::= { portCopyXEntry 4 }
+
+portCopyOption OBJECT-TYPE
+    SYNTAX          BITS {
+                        inpkts(0),
+                        learningDisable(1),
+                        dot1q(2),
+                        isl(3),
+                        multicast(4),
+                        unicastDisable(5),
+                        broadcastDisable(6),
+                        goodDisable(7),
+                        badDisable(8)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Indicates the additional SPAN configuration on destination
+        port. Instances of same portCopyDest index must have same 
+        values in portCopyOption. Changes on portCopyOption of 
+        one instance will be applied to all other instances of 
+        same portCopyDest index. 
+
+        - inpkts(0) 
+          This bit is set to enable the destination port to 
+          receive normal incoming traffic. 
+
+        - learningDisable(1) 
+          This bit is set to suppress MAC learning for incoming 
+          traffic at the destination port. 
+
+        - dot1q(2) 
+          This bit is set for dot1q trunking encapsulation of 
+          forwarded traffic at the destination port. This bit can
+          not be set when isl(3) bit is 1. 
+
+        - isl(3) 
+          This bit is set for isl trunking encapsulation of 
+          forwarded traffic at the destination port. This bit can
+          not be set when dot1q(2) bit is 1.
+
+        - multicast(4) 
+          This bit is set to enable the destination port to 
+          receive multicast traffic.
+
+        - unicastDisable(5) 
+          This bit is set to disable the destination port to 
+          receive unicast traffic.
+
+        - broadcastDisable(6) 
+          This bit is set to disable the destination port to 
+          receive broadcast traffic.
+
+        - goodDisable(7) 
+          This bit is set to disable the destination port to 
+          receive good packets.
+
+        - badDisable(8) 
+          This bit is set to disable the destination port to 
+          receive bad packets."
+    DEFVAL          { {  } } 
+    ::= { portCopyXEntry 5 }
+
+portCopySessionNo OBJECT-TYPE
+    SYNTAX          Integer32 (0..2147483647)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Indicates the arbitrary unique identifier for this
+        SPAN session.
+
+        If a non zero value is specified, the agent will check 
+        if a SPAN session that has the same session number exists. 
+        If so, the agent will use this session number when this
+        entry is activated.  This entry will be added to the existing
+        SPAN session (identified by all entries with the same
+        portCopySessionNo value).  If no such session exists, a new 
+        SPAN session is created and assigned the specified value.
+
+        Otherwise, the agent will check if the destination port
+        belongs to an existing SPAN session. If so, the agent
+        will assign that session number when this entry is activated.
+        This entry will be added to the existing SPAN session 
+        (identified by all entries with the same portCopySessionNo 
+        value).  If no such session exists, a new 
+        SPAN session is created and assigned an arbitrary, locally
+        unique value.
+
+        If the associated portCopyStatus object is equal to 'active', 
+        then this object may not be modified."
+    DEFVAL          { 0 } 
+    ::= { portCopyXEntry 6 }
+
+portCopySessionType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        notSpecified(1), -- session type not specified
+                        local(2), -- local session
+                        remoteSource(3), -- remote source  session
+                        remoteDestination(4), -- remote destination
+                                              -- session
+                        localTx(5) -- local session Tx only                        
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Indicates the SPAN session type.
+
+        'remoteSource' refers to session where traffic is copied from
+        source port to RSPAN VLAN as its destination port. 
+
+        'remoteDestination' refers to session where traffic is copied
+        from RSPAN VLAN to the destination port.
+
+        For 'local' SPAN session, both source and destination ports
+        reside in the same switch. 
+
+        'localTx' refers to session where only traffic transmitted out
+        the indicated source port will be copied to the destination
+        port, i.e. the corresponding portCopyDirection can only have
+        the value of 'copyTxOnly'.
+
+        In a set operation, agent will decide the actual SPAN type
+        for the session if this MIB object is 'notSpecified' based on
+        type of source and destination ports. A read operation will
+        return one of the other three types. 
+
+        Changes on portCopySessionType of one entry will be applied
+        to all existing active entries having the same value of
+        portCopySessionNo if such change is allowed by the
+        implementation.
+
+        If the associated portCopyStatus object is equal to 'active',
+        then this object may not be modified."
+    DEFVAL          { notSpecified } 
+    ::= { portCopyXEntry 7 }
+
+portCopyRemoveSrc OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Indicates how the agent will modify a SPAN session when an
+        entry belonging to this session is deleted. 
+
+        The value 'true' specifies source port based entry deletion. 
+        In source port based deletion, all entries of same index 
+        portCopySource from the session are to be deleted. 
+
+        The value 'false' specifies destination based entry deletion. 
+        In destination port based deletion, all entries of same 
+        index portCopyDest from the session are to be deleted."
+    DEFVAL          { true } 
+    ::= { portCopyXEntry 8 }
+
+portCopyReflectorPort OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Indicates the reflector port of this SPAN session. The value
+        of this object is ignored whenever the value of 
+        portCopySessionType is not remoteSource(3)." 
+    ::= { portCopyXEntry 9 }
+
+portCopyInpktVlan OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4095)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the default VLAN that is used for the
+        untagged incoming traffic from the portCopyDest when
+        portCopyOption's inpkts bit is set. The range is defined  to
+        identify all possible 4096 IEEE 802.1Q VLAN ID values although
+        only 1 - 4094 are valid VLAN IDs that could be configured as
+        the default VLAN for the untagged incoming traffic. 
+
+        If this object contains a value of zero and portCopyOption's
+        inpkts bit is set, then the switch is free to use its default 
+        VLAN for untagged incoming packets. On platforms that do not
+        have a dedicated default VLAN for this purpose, error is
+        returned.
+
+        If portCopyOption's inpkts bit is not set or isl bit is set,
+        the value in this object is ignored by the agent."
+    DEFVAL          { 0 } 
+    ::= { portCopyXEntry 10 }
+ 
+
+
+portCopyMaxIngressSessions OBJECT-TYPE
+    SYNTAX          Integer32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of local ingress (rx or both) SPAN
+        session that can be configured on this agent." 
+    ::= { ciscoSmonConfigObjects 2 }
+
+portCopyMaxEgressSessions OBJECT-TYPE
+    SYNTAX          Integer32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of local egress SPAN sessions that
+        can be configured on this agent." 
+    ::= { ciscoSmonConfigObjects 3 }
+-- SPAN Session
+
+crcSpanSessionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CrcSpanSessionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Contains SPAN session entries. A row is created for each
+        SPAN session configured in a device."
+    ::= { ciscoSmonConfigObjects 4 }
+
+crcSpanSessionEntry OBJECT-TYPE
+    SYNTAX          CrcSpanSessionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Describes a particular SPAN session."
+    INDEX           { crcSpanSessionNo } 
+    ::= { crcSpanSessionTable 1 }
+
+CrcSpanSessionEntry ::= SEQUENCE {
+        crcSpanSessionNo      Unsigned32,
+        crcSpanSessionType    INTEGER,
+        crcSpanSessionEnabled TruthValue,
+        crcSpanSessionDescr   SnmpAdminString
+}
+
+crcSpanSessionNo OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Defines a SPAN session number." 
+    ::= { crcSpanSessionEntry 1 }
+
+crcSpanSessionType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        local(1), -- local SPAN
+                        remote(2), -- remote SPAN
+                        erspan(3), -- ERSPAN
+                        service(4), -- special service
+                        other(5) -- other session type                        
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Defines the SPAN session type.
+
+        'local' refers to SPAN session where both source and destination
+        ports reside in the same switch.  This type of SPAN is
+        manageable via portCopyTable and portCopyXTable.
+
+        'remote' refers to session where traffic is copied from
+        source port to RSPAN VLAN as its destination port or vise versa.
+        This type of SPAN is manageable via portCopyTable and
+        portCopyXTable.
+
+        'erspan' refers to a session where traffic is copied from
+        crcERSpanIFIndex of crcERSpanIFTable as source to crcERSpanIp
+        as destination or vise versa. This type of SPAN is manageable 
+        via crcERSpanSessionTable and crcERSpanIFTable. 
+
+        'service' refers to special SPAN service session.
+
+        'other' refers to any other SPAN session type not enumerated for
+        the MIB object." 
+    ::= { crcSpanSessionEntry 2 }
+
+crcSpanSessionEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the SPAN session is enabled.
+
+        Modifying the value of crcSpanSessionEnabled to 'false' 
+        stops the SPAN monitoring but does not remove this SPAN
+        configuration from the system."
+    DEFVAL          { true } 
+    ::= { crcSpanSessionEntry 3 }
+
+crcSpanSessionDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Provides description of this SPAN session." 
+    ::= { crcSpanSessionEntry 4 }
+ 
+
+-- ERSPAN Session
+
+crcERSpanSessionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CrcERSpanSessionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Contains ERSPAN session entries. A row is created for each
+        SPAN session configured in a device. A row can  only be
+        created if an instance of the same session number is not
+        present in crcSpanSessionEntry. 
+
+        ERSPAN, or  Encapsulated Remote SPAN, provides the ability to
+        copy all frames from a specified source to a specified
+        destination across a layer 3 network, allowing source and
+        destination to be from different devices.
+
+        Depending on type of ERSPAN, the source can be an interface
+        from crcERSpanIFIndex of crcERSpanIFTable, the destination
+        be a layer 3 internet address defined by crcERSpanIp of this
+        table, or vise versa."
+    ::= { ciscoSmonConfigObjects 5 }
+
+crcERSpanSessionEntry OBJECT-TYPE
+    SYNTAX          CrcERSpanSessionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Describes a particular SPAN session."
+    INDEX           { crcERSpanSessionNo } 
+    ::= { crcERSpanSessionTable 1 }
+
+CrcERSpanSessionEntry ::= SEQUENCE {
+        crcERSpanSessionNo        Unsigned32,
+        crcERSpanSessionType      INTEGER,
+        crcERSpanSessionDescr     SnmpAdminString,
+        crcERSpanEncapID          Unsigned32,
+        crcERSpanIpType           InetAddressType,
+        crcERSpanIp               InetAddress,
+        crcSrcERSpanIpTTL         Unsigned32,
+        crcSrcERSpanDscpOrPrec    INTEGER,
+        crcSrcERSpanIpPrec        Unsigned32,
+        crcSrcERSpanIpDscp        Dscp,
+        crcERSpanIpVRF            SnmpAdminString,
+        crcSrcERSpanLoVlanMask    OCTET STRING,
+        crcSrcERSpanHiVlanMask    OCTET STRING,
+        crcSrcERSpanOrigIpType    InetAddressType,
+        crcSrcERSpanOrigIp        InetAddress,
+        crcDstERSpanOption        BITS,
+        crcERSpanSessionRowStatus RowStatus
+}
+
+crcERSpanSessionNo OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Defines an ERSPAN session number." 
+    ::= { crcERSpanSessionEntry 1 }
+
+crcERSpanSessionType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        eRSpanSource(1), -- remote source ERSPAN
+                        eRSpanDestination(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines the ERSPAN session type. This object may not be
+        modified if the value of the corresponding instance of
+        crcERSpanSessionRowStatus is active.
+
+        'eRSpanSource' refers to a session where traffic is copied from
+        crcERSpanIFIndex of crcERSpanIFTable as source to crcERSpanIp
+        as destination.
+
+        'eRSpanDestination' refers to a session where traffic is copied
+        from crcERSpanIp as source to crcERSpanIFIndex of
+        crcERSpanIFTable as destination."
+    DEFVAL          { eRSpanSource } 
+    ::= { crcERSpanSessionEntry 2 }
+
+crcERSpanSessionDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Provides description of this ERSPAN session.
+
+        This object may be modified when the row is active."
+    DEFVAL          { ''H } 
+    ::= { crcERSpanSessionEntry 3 }
+
+crcERSpanEncapID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines ERSPAN's encapsulation id for this entry.
+
+        This object may be modified when the row is active." 
+    ::= { crcERSpanSessionEntry 4 }
+
+crcERSpanIpType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines the type of Internet address for crcERSpanIp used by
+        this entry.
+
+        This object may be modified when the row is active."
+    DEFVAL          { ipv4 } 
+    ::= { crcERSpanSessionEntry 5 }
+
+crcERSpanIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines Internet address of copy source or destination. If
+        crcERSanSessionType has value of eRSpanSource(1), crcERSpanIp is
+        a copy destination. If crcERSpanSessionType has value of
+        eRSpanDestination(2), crcERSpanIp is a copy source.
+
+        This object may be modified when the row is active." 
+    ::= { crcERSpanSessionEntry 6 }
+
+crcSrcERSpanIpTTL OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..255)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The IP TTL value for this traffic type.
+
+        This object is only significant when object crcERSpanSessionType
+        is eRSpanSource(1). 
+
+        This object may be modified when the row is active."
+    DEFVAL          { 255 } 
+    ::= { crcERSpanSessionEntry 7 }
+
+crcSrcERSpanDscpOrPrec OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        dscp(1), -- dscp based
+                        precedence(2) -- precedence based                        
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The QOS classification used - precedence or DSCP based.
+
+        This object is only significant when object crcERSpanSessionType
+        is eRSpanSource(1).
+
+        This object may be modified when the row is active."
+    DEFVAL          { dscp } 
+    ::= { crcERSpanSessionEntry 8 }
+
+crcSrcERSpanIpPrec OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..7)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The IP precedence value for this traffic type.
+
+        This object is only significant when object crcERSpanSessionType
+        is eRSpanSource(1) and object crcSrcERSpanDscpOrPrec is
+        precedence(1).
+
+        This object may be modified when the row is active."
+    DEFVAL          { 0 } 
+    ::= { crcERSpanSessionEntry 9 }
+
+crcSrcERSpanIpDscp OBJECT-TYPE
+    SYNTAX          Dscp
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The IP DSCP value for this traffic type.
+
+        This object is only significant when object crcERSpanSessionType
+        is eRSpanSource(1) and object crcSrcERSpanDscpOrPrec is
+        dscp(1).
+
+        This object may be modified when the row is active."
+    DEFVAL          { 0 } 
+    ::= { crcERSpanSessionEntry 10 }
+
+crcERSpanIpVRF OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies VRF used for the traffic type.
+
+        This object may be modified when the row is active."
+    DEFVAL          { ''H } 
+    ::= { crcERSpanSessionEntry 11 }
+
+crcSrcERSpanLoVlanMask OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..256))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object affects the way VLAN-based traffic is copied from
+        a switch source port, for the indicated port copy operation.
+        It is used in tandem with the crcSrcERSpanHiVlanMask to
+        identify all possible 4096 IEEE 802.1Q VLAN ID values.
+        This object is used to select or deselect VLAN IDs
+        0 though 2047.
+
+        If this object contains a zero-length string, or none
+        of the octets contain a non-zero value, and the
+        associated crcSrcERSpanHiVlanMask is not instantiated,
+        contains a zero-length string, or contains only
+        zero-valued octets, then network traffic will not
+        be filtered, based on IEEE 802.1Q or ISL VLAN ID, before
+        it is copied to the indicated destination.
+
+        If this object has a non-zero length, and at least
+        one octet contains a non-zero value, or the
+        crcSrcERSpanHiVlanMask contains at least one non-zero octet,
+        then traffic will be filtered, based on the indicated
+        IEEE 802.1Q or ISL VLAN ID, before it is copied to the
+        indicated destination. Only frames (tagged or untagged)
+        which match the indicated VLAN ID(s) will be copied to the
+        indicated destination.
+
+        VLAN IDs are encoded as a string of octets containing
+        one bit per VLAN to be included in the port copy operation.
+        The first octet corresponds to VLANs with VlanIndex values
+        of 0 through 7; the second octet to VLANs 8 through 15; etc.
+        The most significant bit of each octet corresponds to the
+        lowest value VlanIndex in that octet.  If the bit
+        corresponding to a VLAN is set to '1', then the traffic
+        associated with that VLAN will be selected for the
+        indicated port copy operation.
+
+        Note that if the length of this string is less than
+        256 octets, any 'missing' octets are assumed to contain
+        the value zero. An NMS may omit any zero-valued octets
+        from the end of this string in order to reduce SetPDU size,
+        and the agent may also omit zero-valued trailing octets,
+        to reduce the size of GetResponse PDUs.
+
+        This object is only significant when object crcERSpanSessionType
+        is eRSpanSource(1).
+
+        This object may be modified when the row is active."
+    DEFVAL          { ''H } 
+    ::= { crcERSpanSessionEntry 12 }
+
+crcSrcERSpanHiVlanMask OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..256))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object affects the way VLAN-based traffic is copied from
+        a switch source port, for the indicated port copy operation.
+        It is used in tandem with the crcSrcERSpanLoVlanMask to
+        identify all possible 4096 IEEE 802.1Q VLAN ID values.
+        This object is used to select or deselect VLAN IDs
+        2048 though 4095.
+
+        If this object contains a zero-length string, or none
+        of the octets contain a non-zero value, and the
+        associated crcSrcERSpanLoVlanMask is not instantiated,
+        contains a zero-length string, or contains only
+        zero-valued octets, then network traffic will not
+        be filtered, based on IEEE 802.1Q or ISL VLAN ID, before
+        it is copied to the indicated destination.
+
+        If this object has a non-zero length, and at least
+        one octet contains a non-zero value, or the
+        crcSrcERSpanLoVlanMask contains at least one non-zero octet,
+        then traffic will be filtered, based on the indicated
+        IEEE 802.1Q or ISL VLAN ID, before it is copied to the
+        indicated destination. Only frames (tagged or untagged)
+        which match the indicated VLAN ID(s) will be copied to the
+        indicated destination.
+
+        VLAN IDs are encoded as a string of octets containing
+        one bit per VLAN to be included in the port copy operation.
+        The first octet corresponds to VLANs with VlanIndex values
+        of 2048 through 2055; the second octet to VLANs 2056 through
+        2063; etc. The most significant bit of each octet corresponds
+        to the lowest value VlanIndex in that octet.  If the bit
+        corresponding to a VLAN is set to '1', then the traffic
+        associated with that VLAN will be selected for the
+        indicated port copy operation.
+
+        Note that if the length of this string is less than
+        256 octets, any 'missing' octets are assumed to contain
+        the value zero. An NMS may omit any zero-valued octets
+        from the end of this string in order to reduce SetPDU size,
+        and the agent may also omit zero-valued trailing octets,
+        to reduce the size of GetResponse PDUs.
+
+        This object is only significant when object crcERSpanSessionType
+        is eRSpanSource(1).
+
+        This object may be modified when the row is active."
+    DEFVAL          { ''H } 
+    ::= { crcERSpanSessionEntry 13 }
+
+crcSrcERSpanOrigIpType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines the type of Internet address for crcSrcERSpanOrigIp
+        used by this entry.
+
+        This object is only significant when object crcERSpanSessionType
+        is eRSpanSource(1).
+
+        This object may be modified when the row is active."
+    DEFVAL          { ipv4 } 
+    ::= { crcERSpanSessionEntry 14 }
+
+crcSrcERSpanOrigIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines the Internet address of copy source.
+
+        This object is only significant when object crcERSpanSessionType
+        is eRSpanSource(1).
+
+        This object may be modified when the row is active." 
+    ::= { crcERSpanSessionEntry 15 }
+
+crcDstERSpanOption OBJECT-TYPE
+    SYNTAX          BITS {
+                        inpkts(0),
+                        learningDisable(1)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "Indicates the additional ERSPAN configuration on destination
+        port.
+
+        - inpkts(0)
+          This bit is set to enable the destination port to receive
+          incoming traffic.
+
+        - learningDisable(1)
+          This bit is set to suppress MAC learning for incoming
+          traffic at the destination port.
+
+        This object only takes effect when object crcERSpanSessionType
+        is eRSpanDestination(2) and crcERSpanIfIndex of same ERSPAN 
+        session from crcERSpanIFTable points to a physical port.
+
+        This object may be modified when the row is active.
+
+        This object is deprecated and replaced by crcERSpanIFOption."
+    DEFVAL          { {  } } 
+    ::= { crcERSpanSessionEntry 16 }
+
+crcERSpanSessionRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines the status of this  entry." 
+    ::= { crcERSpanSessionEntry 17 }
+ 
+
+-- -
+-- - ERPSAN interface table
+-- -
+
+crcERSpanIFTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CrcERSpanIFEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table in conjunction with crcERSpanSessionTable,
+        provides the ability to copy all frames from a specified 
+        source to a specified destination across a layer 3
+        network.
+
+        A row is created for each interface from ifEntries that
+        is configured as ERSPAN source or destination while 
+        crcERSpanSessionRowStatus is active(1) for the corresponding
+        session."
+    ::= { ciscoSmonConfigObjects 6 }
+
+crcERSpanIFEntry OBJECT-TYPE
+    SYNTAX          CrcERSpanIFEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Describes a particular ERSPAN copy source or copy
+        destination entry."
+    INDEX           {
+                        crcERSpanSessionNo,
+                        crcERSpanIFIndex
+                    } 
+    ::= { crcERSpanIFTable 1 }
+
+CrcERSpanIFEntry ::= SEQUENCE {
+        crcERSpanIFIndex     InterfaceIndex,
+        crcERSpanIFDirection INTEGER,
+        crcERSpanIFRowStatus RowStatus,
+        crcERSpanIFOption    BITS
+}
+
+crcERSpanIFIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Defines the device interface's ifIndex. Mapped via
+        crcERSpanSessionNo, if crcERSanSessionType from 
+        crcERSpanSessionTable has value of eRSpanSource(1),
+        crcRSpanIFIndex is a copy source.  If crcERSpanSessionType
+        has value of eRSpanDestination(2), crcRSpanIFIndex is a
+        copy destination." 
+    ::= { crcERSpanIFEntry 1 }
+
+crcERSpanIFDirection OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        copyRxOnly(1),
+                        copyTxOnly(2),
+                        copyBoth(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object affects the way traffic is copied from a device's
+        source.
+
+        If this object has the value 'copyRxOnly(1)', then only
+        traffic received on crcERSpanIFIndex will be copied
+        to the destination.
+
+        If this object has the value 'copyTxOnly(2)', then only
+        traffic transmitted out the crcERSpanIFIndex will be
+        copied to the destination.
+
+        If this object has the value 'copyBoth(3)', then all traffic
+        received or transmitted on crcERSpanIFIndex will be
+        copied to the destination.
+
+        This object is only significant when object crcERSpanSessionType
+        of the corresponding crcERSpanSessionTable, mapped via 
+        crcERSpanSessionNo, is eRSpanSource(1).
+
+        This object may be modified when the row is active."
+    DEFVAL          { copyBoth } 
+    ::= { crcERSpanIFEntry 2 }
+
+crcERSpanIFRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines the status of this  entry.
+
+        For this object to be active(1), the crcERSpanSessionRowStatus
+        from crcERSpanSessionTable, mapped via crcERSpanSessionNo,
+        must be active(1). If the said crcERSpanSessionRowStatus 
+        transistions to notInService(2) or destroy(6), all
+        corresponding entries from crcERSpanIFTable will be deleted.
+
+        In order to configure a source to destination traffic copy
+        relationship, crcERSpanIFIndex  MUST be present as an 
+        ifEntry in the ifTable and its respective ifAdminStatus and
+        ifOperStatus values MUST be equal to 'up(1)'. If the value
+        of any of those two objects changes after the 
+        crcERSpanSessionEntry is activated, crcERSpanSessionRowStatus
+        will transition to 'notReady(3)'.
+
+        The capability of crcERSpanIFIndex to be source or
+        destination of a port copy operation is described by the
+        'copySourcePort(0)' and 'copyDestPort(1)' bits in
+        dataSourceCopyCaps. Those bits SHOULD be appropriately set
+        by the agent, in order to allow for a crcERSpanIFEntry to be
+        created." 
+    ::= { crcERSpanIFEntry 3 }
+
+crcERSpanIFOption OBJECT-TYPE
+    SYNTAX          BITS {
+                        inpkts(0),
+                        learningDisable(1)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Indicates the additional ERSPAN configuration on destination
+        port.
+
+        - inpkts
+          This bit is set to enable the destination port to receive
+          incoming traffic.
+
+        - learningDisable
+          This bit is set to suppress MAC learning for incoming
+          traffic at the destination port.
+
+        This object can only be modified when object
+        crcERSpanSessionType of the corresponding
+        crcERSpanSessionTable, mapped via crcERSpanSessionNo,
+        is eRSpanDestination and the crcERSpanIfIndex points to a
+        physical port.
+
+        This object may be modified when the row is active."
+    DEFVAL          { {  } } 
+    ::= { crcERSpanIFEntry 4 }
+ 
+
+
+-- Control of SPAN destination permit list
+
+crcSpanDstPermitListEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the SPAN destination permit list feature
+        is enabled.
+
+        When crcSpanDstPermitListEnabled is 'true', only ports 
+        that have an entry in crcSpanDstPermitListTable are allowed
+        to set as SPAN destination. There is no such restriction
+        when crcSpanDstPermitListEnabled is 'false'." 
+    ::= { ciscoSmonConfigObjects 7 }
+
+crcSpanDstPermitListTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CrcSpanDstPermitListEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Contains a list of ports that are configured as allowed
+        SPAN destination ports.
+
+        Entry of portCopyTable with its portCopyDest can not be
+        created if crcSpanDstPermitListEnabled is 'true' and a 
+        corresponding entry does not exist in the
+        crcSpanDstPermitListTable table. In other words the
+        InterfaceIndex specified by portCopyDest object from
+        SMON-MIB must match ifIndex of entries in this table."
+    ::= { ciscoSmonConfigObjects 8 }
+
+crcSpanDstPermitListEntry OBJECT-TYPE
+    SYNTAX          CrcSpanDstPermitListEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Describes a particular entry that can be set as SPAN
+        destination."
+    INDEX           { ifIndex } 
+    ::= { crcSpanDstPermitListTable 1 }
+
+CrcSpanDstPermitListEntry ::= SEQUENCE {
+        crcSpanDstPermitListRowStatus RowStatus
+}
+
+crcSpanDstPermitListRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines the status of this entry.  An active entry
+        means that the port of this ifIndex can be set as SPAN
+        destination port.
+
+        The valid values are active(1), createAndGo(4) and destroy(6)." 
+    ::= { crcSpanDstPermitListEntry 1 }
+ 
+
+
+-- Configuration of SPAN egress replication mode
+
+crcSpanEgressReplicationMode OBJECT-TYPE
+    SYNTAX          SpanTxReplicationMode
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Describes where SPAN egress packets get replicated,
+        centralized in the device or distributed to where traffic
+        is sourced" 
+    ::= { ciscoSpanTxReplicationObjects 1 }
+
+crcSpanSessionEgressModeTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CrcSpanSessionEgressModeEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing operational SPAN egress packet replication mode
+        for each SPAN session. A row is created for each SPAN session that 
+        is capable of monitoring egress traffic in a device."
+    ::= { ciscoSpanTxReplicationObjects 2 }
+
+crcSpanSessionEgressModeEntry OBJECT-TYPE
+    SYNTAX          CrcSpanSessionEgressModeEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Describes a particular SPAN session that is capable of monitoring
+        egress traffic."
+    INDEX           { crcSpanSessionNo } 
+    ::= { crcSpanSessionEgressModeTable 1 }
+
+CrcSpanSessionEgressModeEntry ::= SEQUENCE {
+        crcSpanEgressReplicationOperMode SpanTxReplicationMode
+}
+
+crcSpanEgressReplicationOperMode OBJECT-TYPE
+    SYNTAX          SpanTxReplicationMode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current egress replication mode in operation." 
+    ::= { crcSpanSessionEgressModeEntry 1 }
+ 
+
+-- SPAN resources capacity
+
+crcSpanCapacityTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CrcSpanCapacityEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the resource capacity for each SPAN session
+        type that is capable of providing such information."
+    ::= { ciscoSpanCapacityObjects 1 }
+
+crcSpanCapacityEntry OBJECT-TYPE
+    SYNTAX          CrcSpanCapacityEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Indicating resource capacity and usage information for
+        a particular SPAN capacity session type."
+    INDEX           { crcSpanCapacityType } 
+    ::= { crcSpanCapacityTable 1 }
+
+CrcSpanCapacityEntry ::= SEQUENCE {
+        crcSpanCapacityType   INTEGER,
+        crcSpanCapacityShared INTEGER,
+        crcSpanMaxSession     Unsigned32,
+        crcSpanUsedSession    Unsigned32
+}
+
+crcSpanCapacityType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        allSrc(1), -- all SPAN source
+                        allDst(2), -- all SPAN destination
+                        localSrc(3), -- local SPAN source
+                        localTx(4), -- local SPAN source, Tx only
+                        rspanSrc(5), -- remote SPAN source
+                        rspanDst(6), -- remote SPAN destination
+                        erspanSrc(7), -- ERSPAN source
+                        erspanDst(8), -- ERSPAN destination
+                        serviceModule(9), -- service module
+                        oamLoopback(10), -- OAM loopback
+                        capture(11), -- Packet Capture
+                        reflector(12) -- Packet Reflector                        
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Indicating the SPAN resource capacity session type.
+
+        'allSrc' refers to all SPAN source sessions. 
+
+        'allDst' refers to all SPAN destination sessions.
+
+        'localSrc' refers to local SPAN session where both source
+        and destination ports reside in the same switch.
+
+        'localTx' refers to local Tx only SPAN session.
+
+        'rspanSrc' refers to remote span source in a RSPAN session
+        where traffic is copied from source port to RSPAN VLAN as
+        its destination port.
+
+        'rspanDst' refers to remote span destination in a RSPAN session
+        where traffic is copied from RSPAN VLAN as its source to
+        its destination port.
+
+        'erspanSrc' refers to a session where traffic is copied from
+        crcERSpanIFIndex of crcERSpanIFTable as source to crcERSpanIp
+        as destination.
+
+        'erspanDst' refers to a session where traffic is copied from
+        crcERSpanIp as source to crcERSpanIFIndex of crcERSpanIFTable
+        as destination.
+
+        'serviceModule' refers to special SPAN service module session.
+
+        'oamLoopback' refers to special SPAN service for OAM
+        (Operations, Administration and Maintenance) loopback.
+
+        'capture' refers to Packet Capture Span Session.
+
+        'reflector' refers to Reflector Span Session." 
+    ::= { crcSpanCapacityEntry 1 }
+
+crcSpanCapacityShared OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1), -- none
+                        source(2), -- shared source
+                        destination(3) -- shared destination                        
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicating the shared SPAN capacity type.
+
+        'none' means the capacity is not shared out of
+        crcSpanSharedSource or crcSpanSharedDestination.
+
+        'source' means the capacity is counted against
+        crcSpanSharedSource. The sum of crcSpanUsedSession for all
+        entries with crcSpanCapacityShared being 'source' shall not
+        exceed crcSpanSharedSource. 
+
+        'destination' means the capacity is counted against
+        crcSpanSharedDestination. The sum of crcSpanUsedSession
+        for all entries with crcSpanCapacityShared being
+        'destination' shall not exceed crcSpanSharedDestination." 
+    ::= { crcSpanCapacityEntry 2 }
+
+crcSpanMaxSession OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of sessions allowed for the SPAN type
+        defined by crcSpanCapacityType.
+
+        A value of zero indicates no specific limit for this SPAN
+        capacity session type." 
+    ::= { crcSpanCapacityEntry 3 }
+
+crcSpanUsedSession OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of sessions currently used for the SPAN capacity
+        session type defined." 
+    ::= { crcSpanCapacityEntry 4 }
+ 
+
+
+crcSpanSharedSource OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of maximum shared span source sessions." 
+    ::= { ciscoSpanCapacityObjects 2 }
+
+crcSpanSharedDestination OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of maximum shared span destination sessions." 
+    ::= { ciscoSpanCapacityObjects 3 }
+-- Extensions to configure Statistical Sampling based collection
+-- of the RMON-1, RMON-2, HC-RMON, and SMON MIBs.
+
+rmonSampleConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF RmonSampleConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table controls the configuration of RMON collection
+        based on statistical sampling techniques, for each 
+        monitored interface on the RMON probe. It is a SPARSE-AUGMENTS
+        of the ifEntry found in the IF-MIB module.
+
+        An entry is created in this table at the same time the 
+        augmented ifEntry is created (usually at system startup time), 
+        for each interface which can be monitored by the RMON agent.
+        An associated entry in the SMON MIB dataSourceCapsTable is 
+        also created for each RMON-capable interface at the same time.
+
+        An RMON collection is associated with a particular
+        interface if the control table dataSource OBJECT
+        IDENTIFIER is of the form 'ifIndex.I', and 'I'
+        is the same value as the ifIndex value for the 
+        ifEntry and rmonSampleConfigEntry."
+    ::= { ciscoSampleConfigObjects 1 }
+
+rmonSampleConfigEntry OBJECT-TYPE
+    SYNTAX          RmonSampleConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Describes a particular sampling configuration for the
+        indicated RMON-capable interface."
+    INDEX           { ifIndex } 
+    ::= { rmonSampleConfigTable 1 }
+
+RmonSampleConfigEntry ::= SEQUENCE {
+        rmonSamplingEnabled TruthValue
+}
+
+rmonSamplingEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object affects the way the RMON probe uses statistical
+        sampling to collect packets from the indicated interface.
+
+        If this object has the value 'false', then the probe
+        will attempt to monitor all packets detected on the 
+        indicated interface, in the event any RMON collections are
+        actually configured.  The data returned in all RMON collection
+        tables associated with this interface will represent 
+        non-sampled monitored counter values. 
+
+        If this object has the value 'true', then the 
+        probe will use adaptive statistical sampling techniques to 
+        monitor the indicated interface, in the event any RMON 
+        collections are actually configured.  The data returned
+        in RMON collection tables associated with this interface
+        may be based on statistical approximations. In this mode, the 
+        RMON agent will also maintain additional MIB objects to provide
+        the confidence interval information for each sampled counter. 
+        These objects can be found in the CISCO-RMON-SAMPLING-MIB.
+
+        When this object transitions from 'false' to 'true', 
+        all active packet capture functions will be suspended,
+        without affecting the contents of any associated 
+        filterEntry, filter2Entry, channelEntry, channel2Entry,
+        bufferControlEntry, captureBufferEntry, or
+        captureBufferHighCapacityEntry. Only the low-level packet 
+        capture processing is deactivated.
+
+        When this object transitions from 'true' to 'false',
+        all suspended packet capture functions associated
+        with the interface will be reactivated. 
+
+        Note that an NMS application which is unaware of this MIB 
+        object will not be able to detect suspended packet capture 
+        operations or sampled collections, however multi-manager 
+        mis-configuration issues are beyond the scope of this MIB. 
+        The packet capture function Get and Set operations are
+        not affected by this object.
+
+        If an interface cannot be sampled, or the sampling 
+        configuration cannot be modified, then such an instance
+        of this object will be implemented with read-only access."
+    DEFVAL          { false } 
+    ::= { rmonSampleConfigEntry 1 }
+ 
+
+
+-- RMON Alarm config group
+-- Objects to controls alarms of alarmTable RMON-MIB
+
+rmonMaxAlarms OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of entries allowed in the
+        alarmTable."
+    DEFVAL          { 100 } 
+    ::= { ciscoAlarmConfigObjects 1 }
+
+rmonAlarmEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object determines if the RMON alarm feature is
+        enabled/disabled on this device. If this object is set
+        to 'true', the RMON alarm feature enabled. If this 
+        object is 'false', RMON alarm feature is disabled.
+        If the RMON feature is disabled, all the RMON alarm 
+        related polling are stopped.
+
+        Note that this object is only intended for temporary 
+        disabling of RMON alarm feature to ensure that the 
+        CPU usage by RMON alarms is not detrimental. For 
+        permanent disabling on this feature, it suggested that
+        all the entries in the alarmTable are removed."
+    DEFVAL          { true } 
+    ::= { ciscoAlarmConfigObjects 2 }
+
+rmonConfiguredAlarms OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of entries configured in the
+        alarmTable." 
+    ::= { ciscoAlarmConfigObjects 3 }
+
+rmonConfiguredHcAlarms OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of entries configured in the
+        hcAlarmTable." 
+    ::= { ciscoAlarmConfigObjects 4 }
+-- Notifications Section
+-- (none defined)
+--   
+
+--   
+-- Conformance Section
+
+ciscoRmonConfigCompliances  OBJECT IDENTIFIER
+    ::= { ciscoRmonConfigConformance 1 }
+
+ciscoRmonConfigGroups  OBJECT IDENTIFIER
+    ::= { ciscoRmonConfigConformance 2 }
+
+
+ciscoRmonConfigCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "Describes the requirements for conformance to Cisco RMON
+        Configuration Extensions MIB."
+    MODULE          -- this module
+    GROUP           rmon2ExtensionsGroup
+    DESCRIPTION
+        "The rmon2ExtensionsGroup is mandatory for systems which
+        implement the RMON-2 MIB [RFC2021]."
+
+    GROUP           smonExtensionsGroup
+    DESCRIPTION
+        "The smonExtensionsGroup is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           rmonSampleConfigGroup
+    DESCRIPTION
+        "The rmonSampleConfigGroup is mandatory for systems which
+        implement RMON instrumentation based on statistical sampling
+        techniques."
+
+    OBJECT          portCopyHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          rmonSamplingEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoRmonConfigCompliances 1 }
+
+ciscoRmonConfigComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "Describes the requirements for conformance to Cisco RMON
+        Configuration Extensions MIB."
+    MODULE          -- this module
+    GROUP           rmon2ExtensionsGroup
+    DESCRIPTION
+        "The rmon2ExtensionsGroup is mandatory for systems which
+        implement the RMON-2 MIB [RFC2021]."
+
+    GROUP           smonExtensionsGroup
+    DESCRIPTION
+        "The smonExtensionsGroup is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions2Group
+    DESCRIPTION
+        "The smonExtensions2Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        vlan filtering at SPAN destination port."
+
+    GROUP           smonExtensions3Group
+    DESCRIPTION
+        "The smonExtensions3Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        additional configuration at SPAN destination port."
+
+    GROUP           smonExtensions4Group
+    DESCRIPTION
+        "The smonExtensions4Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        SPAN session concept."
+
+    GROUP           smonExtensions5Group
+    DESCRIPTION
+        "The smonExtensions5Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        local and remote SPAN."
+
+    GROUP           smonExtensions6Group
+    DESCRIPTION
+        "The smonExtensions6Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions7Group
+    DESCRIPTION
+        "The smonExtensions7Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613] and require reflector
+        port."
+
+    GROUP           rmonSampleConfigGroup
+    DESCRIPTION
+        "The rmonSampleConfigGroup is mandatory for systems which
+        implement RMON instrumentation based on statistical sampling
+        techniques."
+
+    OBJECT          portCopyHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          portCopyDestHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          rmonSamplingEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoRmonConfigCompliances 2 }
+
+ciscoRmonConfigComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "Describes the requirements for conformance to Cisco RMON
+        Configuration Extensions MIB."
+    MODULE          -- this module
+    GROUP           rmon2ExtensionsGroup
+    DESCRIPTION
+        "The rmon2ExtensionsGroup is mandatory for systems which
+        implement the RMON-2 MIB [RFC2021]."
+
+    GROUP           smonExtensionsGroup
+    DESCRIPTION
+        "The smonExtensionsGroup is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions2Group
+    DESCRIPTION
+        "The smonExtensions2Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        vlan filtering at SPAN destination port."
+
+    GROUP           smonExtensions3Group
+    DESCRIPTION
+        "The smonExtensions3Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        additional configuration at SPAN destination port."
+
+    GROUP           smonExtensions4Group
+    DESCRIPTION
+        "The smonExtensions4Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        SPAN session concept."
+
+    GROUP           smonExtensions5Group
+    DESCRIPTION
+        "The smonExtensions5Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        local and remote SPAN."
+
+    GROUP           smonExtensions6Group
+    DESCRIPTION
+        "The smonExtensions6Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions7Group
+    DESCRIPTION
+        "The smonExtensions7Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613] and require reflector
+        port."
+
+    GROUP           rmonSampleConfigGroup
+    DESCRIPTION
+        "The rmonSampleConfigGroup is mandatory for systems which
+        implement RMON instrumentation based on statistical sampling
+        techniques."
+
+    GROUP           rmonAlarmConfigGroup
+    DESCRIPTION
+        "The rmonAlarmConfigGroup is not mandatory for systems which
+        do not support RMON alarm controls as an extension to 
+        RMON-MIB."
+
+    OBJECT          portCopyHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          portCopyDestHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          rmonSamplingEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoRmonConfigCompliances 3 }
+
+ciscoRmonConfigComplianceRev3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "Describes the requirements for conformance to Cisco RMON
+        Configuration Extensions MIB."
+    MODULE          -- this module
+    GROUP           rmon2ExtensionsGroup
+    DESCRIPTION
+        "The rmon2ExtensionsGroup is mandatory for systems which
+        implement the RMON-2 MIB [RFC2021]."
+
+    GROUP           smonExtensionsGroup
+    DESCRIPTION
+        "The smonExtensionsGroup is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions2Group
+    DESCRIPTION
+        "The smonExtensions2Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        vlan filtering at SPAN destination port."
+
+    GROUP           smonExtensions4Group
+    DESCRIPTION
+        "The smonExtensions4Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        SPAN session concept."
+
+    GROUP           smonExtensions5Group
+    DESCRIPTION
+        "The smonExtensions5Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        local and remote SPAN."
+
+    GROUP           smonExtensions6Group
+    DESCRIPTION
+        "The smonExtensions6Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions7Group
+    DESCRIPTION
+        "The smonExtensions7Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613] and require reflector
+        port."
+
+    GROUP           rmonSampleConfigGroup
+    DESCRIPTION
+        "The rmonSampleConfigGroup is mandatory for systems which
+        implement RMON instrumentation based on statistical sampling
+        techniques."
+
+    GROUP           rmonAlarmConfigGroup
+    DESCRIPTION
+        "The rmonAlarmConfigGroup is not mandatory for systems which
+        do not support RMON alarm controls as an extension to 
+        RMON-MIB."
+
+    GROUP           smonExtensions8Group
+    DESCRIPTION
+        "The smonExtensions8Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        additional configuration at SPAN destination port."
+
+    OBJECT          portCopyHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          portCopyDestHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          rmonSamplingEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          portCopyInpktVlan
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations which
+        do not support portCopyOption's inpkts bit being set."
+    ::= { ciscoRmonConfigCompliances 4 }
+
+ciscoRmonConfigComplianceRev4 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "Describes the requirements for conformance to Cisco RMON
+        Configuration Extensions MIB."
+    MODULE          -- this module
+    GROUP           rmon2ExtensionsGroup
+    DESCRIPTION
+        "The rmon2ExtensionsGroup is mandatory for systems which
+        implement the RMON-2 MIB [RFC2021]."
+
+    GROUP           smonExtensionsGroup
+    DESCRIPTION
+        "The smonExtensionsGroup is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions2Group
+    DESCRIPTION
+        "The smonExtensions2Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        vlan filtering at SPAN destination port."
+
+    GROUP           smonExtensions4Group
+    DESCRIPTION
+        "The smonExtensions4Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        SPAN session concept."
+
+    GROUP           smonExtensions5Group
+    DESCRIPTION
+        "The smonExtensions5Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        local and remote SPAN."
+
+    GROUP           smonExtensions6Group
+    DESCRIPTION
+        "The smonExtensions6Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions7Group
+    DESCRIPTION
+        "The smonExtensions7Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613] and require reflector
+        port."
+
+    GROUP           rmonSampleConfigGroup
+    DESCRIPTION
+        "The rmonSampleConfigGroup is mandatory for systems which
+        implement RMON instrumentation based on statistical sampling
+        techniques."
+
+    GROUP           rmonAlarmConfigGroup
+    DESCRIPTION
+        "The rmonAlarmConfigGroup is not mandatory for systems which
+        do not support RMON alarm controls as an extension to
+        RMON-MIB."
+
+    GROUP           smonExtensions8Group
+    DESCRIPTION
+        "The smonExtensions8Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        additional configuration at SPAN destination port."
+
+    GROUP           crcSpanSessionGroup
+    DESCRIPTION
+        "The crcSpanSessionGroup is mandatory for systems which
+        implement SPAN."
+
+    GROUP           crcERSpanSessionGroup
+    DESCRIPTION
+        "The crcERSpanSessionGroup is mandatory for systems which
+        implement ERSPAN."
+
+    GROUP           crcERSpanIFGroup
+    DESCRIPTION
+        "The crcERSpanIFGroup is mandatory for systems which
+        implement ERSAPN."
+
+    OBJECT          portCopyHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          portCopyDestHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          rmonSamplingEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          portCopyInpktVlan
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations which
+        do not support portCopyOption's inpkts bit being set."
+
+    OBJECT          crcSpanSessionEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required for SPAN session that
+        can't be disabled."
+
+    OBJECT          crcERSpanIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+
+    OBJECT          crcSrcERSpanOrigIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+
+    OBJECT          crcDstERSpanOption
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoRmonConfigCompliances 5 }
+
+ciscoRmonConfigComplianceRev5 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "Describes the requirements for conformance to Cisco RMON
+        Configuration Extensions MIB."
+    MODULE          -- this module
+    GROUP           rmon2ExtensionsGroup
+    DESCRIPTION
+        "The rmon2ExtensionsGroup is mandatory for systems which
+        implement the RMON-2 MIB [RFC2021]."
+
+    GROUP           smonExtensionsGroup
+    DESCRIPTION
+        "The smonExtensionsGroup is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions2Group
+    DESCRIPTION
+        "The smonExtensions2Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        vlan filtering at SPAN destination port."
+
+    GROUP           smonExtensions4Group
+    DESCRIPTION
+        "The smonExtensions4Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        SPAN session concept."
+
+    GROUP           smonExtensions5Group
+    DESCRIPTION
+        "The smonExtensions5Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        local and remote SPAN."
+
+    GROUP           smonExtensions6Group
+    DESCRIPTION
+        "The smonExtensions6Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions7Group
+    DESCRIPTION
+        "The smonExtensions7Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613] and require reflector
+        port."
+
+    GROUP           rmonSampleConfigGroup
+    DESCRIPTION
+        "The rmonSampleConfigGroup is mandatory for systems which
+        implement RMON instrumentation based on statistical sampling
+        techniques."
+
+    GROUP           rmonAlarmConfigGroup
+    DESCRIPTION
+        "The rmonAlarmConfigGroup is not mandatory for systems which
+        do not support RMON alarm controls as an extension to
+        RMON-MIB."
+
+    GROUP           smonExtensions8Group
+    DESCRIPTION
+        "The smonExtensions8Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        additional configuration at SPAN destination port."
+
+    GROUP           crcSpanSessionGroup
+    DESCRIPTION
+        "The crcSpanSessionGroup is mandatory for systems which
+        implement SPAN."
+
+    GROUP           crcERSpanSessionGroup
+    DESCRIPTION
+        "The crcERSpanSessionGroup is mandatory for systems which
+        implement ERSPAN."
+
+    GROUP           crcERSpanIFGroup
+    DESCRIPTION
+        "The crcERSpanIFGroup is mandatory for systems which
+        implement ERSAPN."
+
+    GROUP           crcSpanDstPermitListGroup
+    DESCRIPTION
+        "The crcSpanDstPermitListGroup is mandatory for systems
+        which implement SPAN destination port permit list."
+
+    OBJECT          portCopyHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          portCopyDestHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          rmonSamplingEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          portCopyInpktVlan
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations which
+        do not support portCopyOption's inpkts bit being set."
+
+    OBJECT          crcSpanSessionEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required for SPAN session that
+        can't be disabled."
+
+    OBJECT          crcERSpanIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+
+    OBJECT          crcSrcERSpanOrigIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+
+    OBJECT          crcDstERSpanOption
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoRmonConfigCompliances 6 }
+
+ciscoRmonConfigComplianceRev6 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "Describes the requirements for conformance to Cisco RMON
+        Configuration Extensions MIB."
+    MODULE          -- this module
+    GROUP           rmon2ExtensionsGroup
+    DESCRIPTION
+        "The rmon2ExtensionsGroup is mandatory for systems which
+        implement the RMON-2 MIB [RFC2021]."
+
+    GROUP           smonExtensionsGroup
+    DESCRIPTION
+        "The smonExtensionsGroup is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions2Group
+    DESCRIPTION
+        "The smonExtensions2Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        vlan filtering at SPAN destination port."
+
+    GROUP           smonExtensions4Group
+    DESCRIPTION
+        "The smonExtensions4Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        SPAN session concept."
+
+    GROUP           smonExtensions5Group
+    DESCRIPTION
+        "The smonExtensions5Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        local and remote SPAN."
+
+    GROUP           smonExtensions6Group
+    DESCRIPTION
+        "The smonExtensions6Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions7Group
+    DESCRIPTION
+        "The smonExtensions7Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613] and require reflector
+        port."
+
+    GROUP           rmonSampleConfigGroup
+    DESCRIPTION
+        "The rmonSampleConfigGroup is mandatory for systems which
+        implement RMON instrumentation based on statistical sampling
+        techniques."
+
+    GROUP           rmonAlarmConfigGroup
+    DESCRIPTION
+        "The rmonAlarmConfigGroup is not mandatory for systems which
+        do not support RMON alarm controls as an extension to
+        RMON-MIB."
+
+    GROUP           smonExtensions8Group
+    DESCRIPTION
+        "The smonExtensions8Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        additional configuration at SPAN destination port."
+
+    GROUP           crcSpanSessionGroup
+    DESCRIPTION
+        "The crcSpanSessionGroup is mandatory for systems which
+        implement SPAN."
+
+    GROUP           crcERSpanSessionGroup
+    DESCRIPTION
+        "The crcERSpanSessionGroup is mandatory for systems which
+        implement ERSPAN."
+
+    GROUP           crcERSpanIFGroup
+    DESCRIPTION
+        "The crcERSpanIFGroup is mandatory for systems which
+        implement ERSAPN."
+
+    GROUP           crcSpanDstPermitListGroup
+    DESCRIPTION
+        "The crcSpanDstPermitListGroup is mandatory for systems
+        which implement SPAN destination port permit list."
+
+    GROUP           smonExtensions9Group
+    DESCRIPTION
+        "The smonExtensions8Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and SPAN session
+        description."
+
+    OBJECT          portCopyHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          portCopyDestHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          rmonSamplingEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          portCopyInpktVlan
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations which
+        do not support portCopyOption's inpkts bit being set."
+
+    OBJECT          crcSpanSessionEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required for SPAN session that
+        can't be disabled."
+
+    OBJECT          crcERSpanIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+
+    OBJECT          crcSrcERSpanOrigIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+
+    OBJECT          crcDstERSpanOption
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoRmonConfigCompliances 7 }
+
+ciscoRmonConfigComplianceRev7 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "Describes the requirements for conformance to Cisco RMON
+        Configuration Extensions MIB."
+    MODULE          -- this module
+    GROUP           rmon2ExtensionsGroup
+    DESCRIPTION
+        "The rmon2ExtensionsGroup is mandatory for systems which
+        implement the RMON-2 MIB [RFC2021]."
+
+    GROUP           smonExtensionsGroup
+    DESCRIPTION
+        "The smonExtensionsGroup is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions2Group
+    DESCRIPTION
+        "The smonExtensions2Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        vlan filtering at SPAN destination port."
+
+    GROUP           smonExtensions4Group
+    DESCRIPTION
+        "The smonExtensions4Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        SPAN session concept."
+
+    GROUP           smonExtensions5Group
+    DESCRIPTION
+        "The smonExtensions5Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        local and remote SPAN."
+
+    GROUP           smonExtensions6Group
+    DESCRIPTION
+        "The smonExtensions6Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions7Group
+    DESCRIPTION
+        "The smonExtensions7Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613] and require reflector
+        port."
+
+    GROUP           rmonSampleConfigGroup
+    DESCRIPTION
+        "The rmonSampleConfigGroup is mandatory for systems which
+        implement RMON instrumentation based on statistical sampling
+        techniques."
+
+    GROUP           rmonAlarmConfigGroup
+    DESCRIPTION
+        "The rmonAlarmConfigGroup is not mandatory for systems which
+        do not support RMON alarm controls as an extension to
+        RMON-MIB."
+
+    GROUP           smonExtensions8Group
+    DESCRIPTION
+        "The smonExtensions8Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        additional configuration at SPAN destination port."
+
+    GROUP           crcSpanSessionGroup
+    DESCRIPTION
+        "The crcSpanSessionGroup is mandatory for systems which
+        implement SPAN."
+
+    GROUP           crcERSpanSessionGroupRev1
+    DESCRIPTION
+        "The crcERSpanSessionGroupRev1 is mandatory for systems
+        which implement ERSPAN."
+
+    GROUP           crcERSpanIFGroup
+    DESCRIPTION
+        "The crcERSpanIFGroup is mandatory for systems which
+        implement ERSAPN."
+
+    GROUP           crcSpanDstPermitListGroup
+    DESCRIPTION
+        "The crcSpanDstPermitListGroup is mandatory for systems
+        which implement SPAN destination port permit list."
+
+    GROUP           smonExtensions9Group
+    DESCRIPTION
+        "The smonExtensions8Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and SPAN session
+        description."
+
+    GROUP           crcERSpanIFOptionGroup
+    DESCRIPTION
+        "The crcERSpanIFGroup is mandatory for systems which
+        support ERSPAN destination port receiving incoming
+        traffic."
+
+    OBJECT          portCopyHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          portCopyDestHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          rmonSamplingEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          portCopyInpktVlan
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations which
+        do not support portCopyOption's inpkts bit being set."
+
+    OBJECT          crcSpanSessionEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required for SPAN session that
+        can't be disabled."
+
+    OBJECT          crcERSpanIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+
+    OBJECT          crcSrcERSpanOrigIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+    ::= { ciscoRmonConfigCompliances 8 }
+
+ciscoRmonConfigComplianceRev8 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "Describes the requirements for conformance to Cisco RMON
+        Configuration Extensions MIB."
+    MODULE          -- this module
+    GROUP           rmon2ExtensionsGroup
+    DESCRIPTION
+        "The rmon2ExtensionsGroup is mandatory for systems which
+        implement the RMON-2 MIB [RFC2021]."
+
+    GROUP           smonExtensionsGroup
+    DESCRIPTION
+        "The smonExtensionsGroup is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions2Group
+    DESCRIPTION
+        "The smonExtensions2Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        vlan filtering at SPAN destination port."
+
+    GROUP           smonExtensions4Group
+    DESCRIPTION
+        "The smonExtensions4Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        SPAN session concept."
+
+    GROUP           smonExtensions5Group
+    DESCRIPTION
+        "The smonExtensions5Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        local and remote SPAN."
+
+    GROUP           smonExtensions6Group
+    DESCRIPTION
+        "The smonExtensions6Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions7Group
+    DESCRIPTION
+        "The smonExtensions7Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613] and require reflector
+        port."
+
+    GROUP           rmonSampleConfigGroup
+    DESCRIPTION
+        "The rmonSampleConfigGroup is mandatory for systems which
+        implement RMON instrumentation based on statistical sampling
+        techniques."
+
+    GROUP           rmonAlarmConfigGroup
+    DESCRIPTION
+        "The rmonAlarmConfigGroup is not mandatory for systems which
+        do not support RMON alarm controls as an extension to
+        RMON-MIB."
+
+    GROUP           smonExtensions8Group
+    DESCRIPTION
+        "The smonExtensions8Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        additional configuration at SPAN destination port."
+
+    GROUP           crcSpanSessionGroup
+    DESCRIPTION
+        "The crcSpanSessionGroup is mandatory for systems which
+        implement SPAN."
+
+    GROUP           crcERSpanSessionGroupRev1
+    DESCRIPTION
+        "The crcERSpanSessionGroupRev1 is mandatory for systems
+        which implement ERSPAN."
+
+    GROUP           crcERSpanIFGroup
+    DESCRIPTION
+        "The crcERSpanIFGroup is mandatory for systems which
+        implement ERSAPN."
+
+    GROUP           crcSpanDstPermitListGroup
+    DESCRIPTION
+        "The crcSpanDstPermitListGroup is mandatory for systems
+        which implement SPAN destination port permit list."
+
+    GROUP           smonExtensions9Group
+    DESCRIPTION
+        "The smonExtensions8Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and SPAN session
+        description."
+
+    GROUP           crcERSpanIFOptionGroup
+    DESCRIPTION
+        "The crcERSpanIFGroup is mandatory for systems which
+        support ERSPAN destination port receiving incoming
+        traffic."
+
+    GROUP           crcSpanEgressReplicationGroup
+    DESCRIPTION
+        "The crcSpanEgressReplicationGroup is mandatory for
+        systems which support SPAN egress replication mode
+        operation."
+
+    OBJECT          portCopyHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          portCopyDestHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          rmonSamplingEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          portCopyInpktVlan
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations which
+        do not support portCopyOption's inpkts bit being set."
+
+    OBJECT          crcSpanSessionEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required for SPAN session that
+        can't be disabled."
+
+    OBJECT          crcERSpanIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+
+    OBJECT          crcSrcERSpanOrigIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+    ::= { ciscoRmonConfigCompliances 9 }
+
+ciscoRmonConfigComplianceRev9 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "Describes the requirements for conformance to Cisco RMON
+        Configuration Extensions MIB."
+    MODULE          -- this module
+    GROUP           rmon2ExtensionsGroup
+    DESCRIPTION
+        "The rmon2ExtensionsGroup is mandatory for systems which
+        implement the RMON-2 MIB [RFC2021]."
+
+    GROUP           smonExtensionsGroup
+    DESCRIPTION
+        "The smonExtensionsGroup is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions2Group
+    DESCRIPTION
+        "The smonExtensions2Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        vlan filtering at SPAN destination port."
+
+    GROUP           smonExtensions4Group
+    DESCRIPTION
+        "The smonExtensions4Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        SPAN session concept."
+
+    GROUP           smonExtensions5Group
+    DESCRIPTION
+        "The smonExtensions5Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        local and remote SPAN."
+
+    GROUP           smonExtensions6Group
+    DESCRIPTION
+        "The smonExtensions6Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions7Group
+    DESCRIPTION
+        "The smonExtensions7Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613] and require reflector
+        port."
+
+    GROUP           rmonSampleConfigGroup
+    DESCRIPTION
+        "The rmonSampleConfigGroup is mandatory for systems which
+        implement RMON instrumentation based on statistical sampling
+        techniques."
+
+    GROUP           rmonAlarmConfigGroup
+    DESCRIPTION
+        "The rmonAlarmConfigGroup is not mandatory for systems which
+        do not support RMON alarm controls as an extension to
+        RMON-MIB."
+
+    GROUP           smonExtensions8Group
+    DESCRIPTION
+        "The smonExtensions8Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        additional configuration at SPAN destination port."
+
+    GROUP           crcSpanSessionGroup
+    DESCRIPTION
+        "The crcSpanSessionGroup is mandatory for systems which
+        implement SPAN."
+
+    GROUP           crcERSpanSessionGroupRev1
+    DESCRIPTION
+        "The crcERSpanSessionGroupRev1 is mandatory for systems
+        which implement ERSPAN."
+
+    GROUP           crcERSpanIFGroup
+    DESCRIPTION
+        "The crcERSpanIFGroup is mandatory for systems which
+        implement ERSAPN."
+
+    GROUP           crcSpanDstPermitListGroup
+    DESCRIPTION
+        "The crcSpanDstPermitListGroup is mandatory for systems
+        which implement SPAN destination port permit list."
+
+    GROUP           smonExtensions9Group
+    DESCRIPTION
+        "The smonExtensions8Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and SPAN session
+        description."
+
+    GROUP           crcERSpanIFOptionGroup
+    DESCRIPTION
+        "The crcERSpanIFGroup is mandatory for systems which
+        support ERSPAN destination port receiving incoming
+        traffic."
+
+    GROUP           crcSpanEgressReplicationGroup
+    DESCRIPTION
+        "The crcSpanEgressReplicationGroup is mandatory for
+        systems which support SPAN egress replication mode
+        operation."
+
+    GROUP           crcSpanCapacityGroup
+    DESCRIPTION
+        "The crcSpanCapacityGroup is mandatory for systems which
+        provide SPAN capacity information."
+
+    OBJECT          portCopyHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          portCopyDestHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          rmonSamplingEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          portCopyInpktVlan
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations which
+        do not support portCopyOption's inpkts bit being set."
+
+    OBJECT          crcSpanSessionEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required for SPAN session that
+        can't be disabled."
+
+    OBJECT          crcERSpanIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+
+    OBJECT          crcSrcERSpanOrigIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+    ::= { ciscoRmonConfigCompliances 10 }
+
+ciscoRmonConfigComplianceRev10 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Describes the requirements for conformance to Cisco RMON
+        Configuration Extensions MIB."
+    MODULE          -- this module
+    GROUP           rmon2ExtensionsGroup
+    DESCRIPTION
+        "The rmon2ExtensionsGroup is mandatory for systems which
+        implement the RMON-2 MIB [RFC2021]."
+
+    GROUP           smonExtensionsGroup
+    DESCRIPTION
+        "The smonExtensionsGroup is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions2Group
+    DESCRIPTION
+        "The smonExtensions2Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        vlan filtering at SPAN destination port."
+
+    GROUP           smonExtensions4Group
+    DESCRIPTION
+        "The smonExtensions4Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        SPAN session concept."
+
+    GROUP           smonExtensions5Group
+    DESCRIPTION
+        "The smonExtensions5Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        local and remote SPAN."
+
+    GROUP           smonExtensions6Group
+    DESCRIPTION
+        "The smonExtensions6Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613]."
+
+    GROUP           smonExtensions7Group
+    DESCRIPTION
+        "The smonExtensions7Group is mandatory for systems which
+        implement the SMON-MIB [RFC 2613] and require reflector
+        port."
+
+    GROUP           rmonSampleConfigGroup
+    DESCRIPTION
+        "The rmonSampleConfigGroup is mandatory for systems which
+        implement RMON instrumentation based on statistical sampling
+        techniques."
+
+    GROUP           rmonAlarmConfigGroup
+    DESCRIPTION
+        "The rmonAlarmConfigGroupRev1 is not mandatory for systems which
+        do not support RMON alarm controls as an extension to
+        RMON-MIB."
+
+    GROUP           rmonAlarmCapacityGroup
+    DESCRIPTION
+        "The rmonAlarmCapacityGroup is not mandatory for systems which
+        do not support RMON/HCRMON alarm controls as an extension to
+        RMON-MIB/HC-ALARM-MIB."
+
+    GROUP           smonExtensions8Group
+    DESCRIPTION
+        "The smonExtensions8Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and support
+        additional configuration at SPAN destination port."
+
+    GROUP           crcSpanSessionGroup
+    DESCRIPTION
+        "The crcSpanSessionGroup is mandatory for systems which
+        implement SPAN."
+
+    GROUP           crcERSpanSessionGroupRev1
+    DESCRIPTION
+        "The crcERSpanSessionGroupRev1 is mandatory for systems
+        which implement ERSPAN."
+
+    GROUP           crcERSpanIFGroup
+    DESCRIPTION
+        "The crcERSpanIFGroup is mandatory for systems which
+        implement ERSAPN."
+
+    GROUP           crcSpanDstPermitListGroup
+    DESCRIPTION
+        "The crcSpanDstPermitListGroup is mandatory for systems
+        which implement SPAN destination port permit list."
+
+    GROUP           smonExtensions9Group
+    DESCRIPTION
+        "The smonExtensions8Group is mandatory only for systems
+        which implement the SMON-MIB [RFC 2613] and SPAN session
+        description."
+
+    GROUP           crcERSpanIFOptionGroup
+    DESCRIPTION
+        "The crcERSpanIFGroup is mandatory for systems which
+        support ERSPAN destination port receiving incoming
+        traffic."
+
+    GROUP           crcSpanEgressReplicationGroup
+    DESCRIPTION
+        "The crcSpanEgressReplicationGroup is mandatory for
+        systems which support SPAN egress replication mode
+        operation."
+
+    GROUP           crcSpanCapacityGroup
+    DESCRIPTION
+        "The crcSpanCapacityGroup is mandatory for systems which
+        provide SPAN capacity information."
+
+    OBJECT          portCopyHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          portCopyDestHiVlanMask
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations
+        which do not support VLAN IDs greater than 2047."
+
+    OBJECT          rmonSamplingEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          portCopyInpktVlan
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "This object is not mandatory for implementations which
+        do not support portCopyOption's inpkts bit being set."
+
+    OBJECT          crcSpanSessionEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required for SPAN session that
+        can't be disabled."
+
+    OBJECT          crcERSpanIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+
+    OBJECT          crcSrcERSpanOrigIpType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1)."
+    ::= { ciscoRmonConfigCompliances 11 }
+
+rmon2ExtensionsGroup OBJECT-GROUP
+    OBJECTS         { rmonTimeFilterMode }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing configuration extensions
+        for the RMON2-MIB module."
+    ::= { ciscoRmonConfigGroups 1 }
+
+smonExtensionsGroup OBJECT-GROUP
+    OBJECTS         {
+                        portCopyLoVlanMask,
+                        portCopyHiVlanMask
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing configuration extensions
+        for the SMON-MIB module."
+    ::= { ciscoRmonConfigGroups 2 }
+
+rmonSampleConfigGroup OBJECT-GROUP
+    OBJECTS         { rmonSamplingEnabled }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing configuration extensions
+        for RMON agent implementations which support statistical 
+        sampling techniques."
+    ::= { ciscoRmonConfigGroups 3 }
+
+smonExtensions2Group OBJECT-GROUP
+    OBJECTS         {
+                        portCopyDestLoVlanMask,
+                        portCopyDestHiVlanMask
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing additional port copy
+        configuration for destination vlan filtering for the 
+        SMON-MIB module."
+    ::= { ciscoRmonConfigGroups 4 }
+
+smonExtensions3Group OBJECT-GROUP
+    OBJECTS         { portCopyOption }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing additional port copy
+        configuration extensions at destination port for the 
+        SMON-MIB module. This group is deprecated by 
+        smonExtensions8Group."
+    ::= { ciscoRmonConfigGroups 5 }
+
+smonExtensions4Group OBJECT-GROUP
+    OBJECTS         {
+                        portCopySessionNo,
+                        portCopyRemoveSrc
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing additional port copy
+        configuration extensions for agent that supports SPAN
+        session concept."
+    ::= { ciscoRmonConfigGroups 6 }
+
+smonExtensions5Group OBJECT-GROUP
+    OBJECTS         { portCopySessionType }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing additional port copy
+        configuration extensions for agent that supports local
+        and remote SPAN."
+    ::= { ciscoRmonConfigGroups 7 }
+
+smonExtensions6Group OBJECT-GROUP
+    OBJECTS         {
+                        portCopyMaxIngressSessions,
+                        portCopyMaxEgressSessions
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing additional port copy
+        information for the SMON-MIB module."
+    ::= { ciscoRmonConfigGroups 8 }
+
+smonExtensions7Group OBJECT-GROUP
+    OBJECTS         {
+                        portCopySessionType,
+                        portCopyReflectorPort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing additional port copy
+        configuration extensions for agent that supports reflector 
+        port for SPAN session."
+    ::= { ciscoRmonConfigGroups 9 }
+
+rmonAlarmConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        rmonMaxAlarms,
+                        rmonAlarmEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing additional RMON
+        configurations to control number alarms and to enable/disable
+        alarms in the alarmTable in RMON-MIB."
+    ::= { ciscoRmonConfigGroups 10 }
+
+smonExtensions8Group OBJECT-GROUP
+    OBJECTS         {
+                        portCopyOption,
+                        portCopyInpktVlan
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing additional port copy
+        configuration extensions for agent that supports ingress
+        traffic at destination port for the SPAN session."
+    ::= { ciscoRmonConfigGroups 11 }
+
+crcSpanSessionGroup OBJECT-GROUP
+    OBJECTS         {
+                        crcSpanSessionType,
+                        crcSpanSessionEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing SPAN session information."
+    ::= { ciscoRmonConfigGroups 12 }
+
+crcERSpanSessionGroup OBJECT-GROUP
+    OBJECTS         {
+                        crcERSpanSessionType,
+                        crcERSpanSessionDescr,
+                        crcERSpanEncapID,
+                        crcERSpanIpType,
+                        crcERSpanIp,
+                        crcSrcERSpanIpTTL,
+                        crcSrcERSpanDscpOrPrec,
+                        crcSrcERSpanIpPrec,
+                        crcSrcERSpanIpDscp,
+                        crcERSpanIpVRF,
+                        crcSrcERSpanLoVlanMask,
+                        crcSrcERSpanHiVlanMask,
+                        crcSrcERSpanOrigIpType,
+                        crcSrcERSpanOrigIp,
+                        crcDstERSpanOption,
+                        crcERSpanSessionRowStatus
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing ERSPAN session information."
+    ::= { ciscoRmonConfigGroups 13 }
+
+crcERSpanIFGroup OBJECT-GROUP
+    OBJECTS         {
+                        crcERSpanIFDirection,
+                        crcERSpanIFRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing ERSPAN copy source or
+        copy destination information."
+    ::= { ciscoRmonConfigGroups 14 }
+
+crcSpanDstPermitListGroup OBJECT-GROUP
+    OBJECTS         {
+                        crcSpanDstPermitListEnabled,
+                        crcSpanDstPermitListRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects used to control selection of
+        destination port information."
+    ::= { ciscoRmonConfigGroups 15 }
+
+smonExtensions9Group OBJECT-GROUP
+    OBJECTS         { crcSpanSessionDescr }
+    STATUS          current
+    DESCRIPTION
+        "Providing SPAN session description information."
+    ::= { ciscoRmonConfigGroups 16 }
+
+crcERSpanIFOptionGroup OBJECT-GROUP
+    OBJECTS         { crcERSpanIFOption }
+    STATUS          current
+    DESCRIPTION
+        "Providing additional port copy configuration extensions
+        for agent that supports ingress traffic at destination
+        port for the ERSPAN session."
+    ::= { ciscoRmonConfigGroups 17 }
+
+crcERSpanSessionGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        crcERSpanSessionType,
+                        crcERSpanSessionDescr,
+                        crcERSpanEncapID,
+                        crcERSpanIpType,
+                        crcERSpanIp,
+                        crcSrcERSpanIpTTL,
+                        crcSrcERSpanDscpOrPrec,
+                        crcSrcERSpanIpPrec,
+                        crcSrcERSpanIpDscp,
+                        crcERSpanIpVRF,
+                        crcSrcERSpanLoVlanMask,
+                        crcSrcERSpanHiVlanMask,
+                        crcSrcERSpanOrigIpType,
+                        crcSrcERSpanOrigIp,
+                        crcERSpanSessionRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing ERSPAN session information."
+    ::= { ciscoRmonConfigGroups 18 }
+
+crcSpanEgressReplicationGroup OBJECT-GROUP
+    OBJECTS         {
+                        crcSpanEgressReplicationMode,
+                        crcSpanEgressReplicationOperMode
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing SPAN egress packets
+        replication mode information."
+    ::= { ciscoRmonConfigGroups 19 }
+
+crcSpanCapacityGroup OBJECT-GROUP
+    OBJECTS         {
+                        crcSpanCapacityShared,
+                        crcSpanMaxSession,
+                        crcSpanUsedSession,
+                        crcSpanSharedSource,
+                        crcSpanSharedDestination
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing SPAN capacity information."
+    ::= { ciscoRmonConfigGroups 20 }
+
+rmonAlarmCapacityGroup OBJECT-GROUP
+    OBJECTS         {
+                        rmonConfiguredAlarms,
+                        rmonConfiguredHcAlarms
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing additional RMON,HCRMON
+        configurations details about alarms in the alarmTable in RMON-MIB
+        and hcalarms in cHcAlarmTable in HCALARM-MIB"
+    ::= { ciscoRmonConfigGroups 21 }
+
+END
+
+
+

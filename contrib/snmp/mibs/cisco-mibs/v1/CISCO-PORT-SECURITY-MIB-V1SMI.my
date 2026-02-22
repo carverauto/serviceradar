@@ -1,0 +1,1515 @@
+-- MIB file created 12-May-2009 10:16:13, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-PORT-SECURITY-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-PORT-SECURITY-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ifIndex, ifName
+            FROM IF-MIB
+    TruthValue, MacAddress, RowStatus
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    vtpVlanName
+            FROM CISCO-VTP-MIB
+    VlanIndex
+            FROM Q-BRIDGE-MIB
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoPortSecurityMIB OBJECT IDENTIFIER ::= { ciscoMgmt 315 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200905080000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Services
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA 95134
+--            USA
+--    
+--            Tel: +1 800 553-NETS
+--    E-mail: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    The MIB module for managing Cisco Port Security.
+--  RevDate
+--    200905080000Z
+--  RevDescr
+--    Update description of cpsIfMaxSecureMacAddr object.
+--  RevDate
+--    200505040000Z
+--  RevDescr
+--    Obsolete cpsIfVlanTable and replace it with
+--            cpsIfMultiVlanTable.
+--           
+--            Add cpsExtInterfaceGroup1 and 
+--            cpsIfVlanSecureNotificationGroup.
+--  RevDate
+--    200503120000Z
+--  RevDescr
+--    Change description in cpsIfSecureLastMacAddress.
+--  RevDate
+--    200408070000Z
+--  RevDescr
+--    Added cpsTrunkSecureMacAddrViolation.
+--    Expanded on the description of 
+--    cpsSecureMacAddrViolation.
+--    Created the NOTIFICATION-GROUP
+--    cpsTrunkSecureNotificationGroup.
+--  RevDate
+--    200403080000Z
+--  RevDescr
+--    Adding cpsGlobalClearSecureMacAddresses,
+--            cpsIfClearSecureMacAddresses, 
+--            cpsIfInvalidSrcRateLimitEnable,
+--            cpsIfInvalidSrcRateLimitValue
+--            cpsIfStickyEnable,
+--            cpsIfVlanTable, cpsInterfaceGroup2,
+--            ciscoPortSecurityMIBCompliance2 and
+--            cpsInterfaceGroup2.
+--    Deprecating cpsIfClearSecureAddresses,
+--                ciscoPortSecurityMIBCompliance1
+--                and cpsInterfaceGroup1.
+--  RevDate
+--    200402100000Z
+--  RevDescr
+--    Deprecated cpsSecureMacAddressTable.
+--     Adding cpsIfVlanSecureMacAddrTable.
+--  RevDate
+--    200307010000Z
+--  RevDescr
+--    Deprecated the ciscoPortSecurityMIBCompliance.
+--     Adding ciscoPortSecurityMIBCompliance1.
+--     Adding cpsUnicastFloodingInterfaceGroup
+--     and cpsShutdownTimeoutInterfaceGroup.
+--  RevDate
+--    200302240000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoPortSecurityMIBNotifs OBJECT IDENTIFIER ::= { ciscoPortSecurityMIB 0 }
+ciscoPortSecurityMIBObjects OBJECT IDENTIFIER ::= { ciscoPortSecurityMIB 1 }
+ciscoPortSecurityMIBConform OBJECT IDENTIFIER ::= { ciscoPortSecurityMIB 2 }
+cpsGlobalObjects OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBObjects 1 }
+cpsInterfaceObjects OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBObjects 2 }
+cpsInterfaceNotifs OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBNotifs 0 }
+ciscoPortSecurityMIBCompliances OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBConform 1 }
+ciscoPortSecurityMIBGroups OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBConform 2 }
+
+ClearSecureMacAddrType ::= INTEGER {
+        --?? enum value of zero may cause problems
+        done(0),
+        dynamic(1),
+        static(2),
+        sticky(3),
+        all(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This are the different type of secure mac addresses
+--    which user is allowed to delete globally or 
+--    per interface.
+--    When the address deletion is in progress
+--    GET request will not show any values which
+--    were set using SET operation.
+--         
+--    done(0) - This the value which is always returned 
+--              in a GET request when the clear command has 
+--              completed or in progress.
+--              Setting this value to this object has
+--              no effect.
+--    dynamic(1) - All secure MAC addresses which are 
+--                 learned on the switch.
+--    static(2) - All secure MAC addresses which are
+--                configured by user.
+--    sticky(3) -  All secure MAC addresses which 
+--                 are learned and retained across 
+--                 reboots.
+--    all(4) - All the MAC addresses on the switch.
+
+cpsGlobalMaxSecureAddress OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of secure MAC addresses
+         allowed in the device."
+    ::= { cpsGlobalObjects 1 }
+
+cpsGlobalTotalSecureAddress OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of MAC addresses secured
+        in the device."
+    ::= { cpsGlobalObjects 2 }
+
+cpsGlobalPortSecurityEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The global control to enable or disable 
+        port security feature on the device."
+    ::= { cpsGlobalObjects 3 }
+
+cpsGlobalSNMPNotifRate OBJECT-TYPE
+    SYNTAX INTEGER(0..1000)
+--  Units
+--    notifs per second
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The global control to set the SNMP Notification
+         rate for port security feature. This object 
+         specifies the rate at which SNMP Notifications
+         are generated when cpsIfViolationAction 
+         selected is of the type 'dropNotify'.  
+         A value of 0 indicates that an SNMP Notification
+         is generated for every security violation."
+    ::= { cpsGlobalObjects 4 }
+
+cpsGlobalSNMPNotifControl OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Set to 'true' to enable global SNMP Notification
+        for port security feature.  Setting the object to
+        'false' will disable SNMP notifications even if 
+        the cpsIfViolationAction is set to 'dropNotify'
+        on an interface.  The default value is 'false'."
+    ::= { cpsGlobalObjects 5 }
+
+cpsGlobalClearSecureMacAddresses OBJECT-TYPE
+    SYNTAX ClearSecureMacAddrType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        done(0),
+--        dynamic(1),
+--        static(2),
+--        sticky(3),
+--        all(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects allows the user to delete 
+        secure MAC addresses based on the specified
+        type."
+    ::= { cpsGlobalObjects 6 }
+
+cpsIfConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpsIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of port security configuration entries.  
+        The number of entries is determined by the number of 
+        interfaces in the system that can support the 
+        port security feature.  Interfaces that are not 
+        port security capable will not be displayed 
+        in this Table.  This table includes interfaces 
+        on which port security parameters can be set even
+        if port security feature itself cannot be enabled 
+        due to conflict with other features."
+    ::= { cpsInterfaceObjects 1 }
+
+cpsIfConfigEntry OBJECT-TYPE
+    SYNTAX CpsIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry containing port security information for a 
+        particular interface."
+    INDEX { ifIndex }
+    ::= { cpsIfConfigTable 1 }
+
+CpsIfConfigEntry ::= SEQUENCE {
+    cpsIfPortSecurityEnable TruthValue,
+    cpsIfPortSecurityStatus INTEGER,
+    cpsIfMaxSecureMacAddr INTEGER,
+    cpsIfCurrentSecureMacAddrCount INTEGER,
+    cpsIfSecureMacAddrAgingTime INTEGER,
+    cpsIfSecureMacAddrAgingType INTEGER,
+    cpsIfStaticMacAddrAgingEnable TruthValue,
+    cpsIfViolationAction INTEGER,
+    cpsIfViolationCount Counter,
+    cpsIfSecureLastMacAddress MacAddress,
+    cpsIfClearSecureAddresses TruthValue,
+    cpsIfUnicastFloodingEnable TruthValue,
+    cpsIfShutdownTimeout Gauge,
+    cpsIfClearSecureMacAddresses ClearSecureMacAddrType,
+    cpsIfStickyEnable TruthValue,
+    cpsIfInvalidSrcRateLimitEnable TruthValue,
+    cpsIfInvalidSrcRateLimitValue INTEGER,
+    cpsIfSecureLastMacAddrVlanId VlanIndex
+    }
+
+cpsIfPortSecurityEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the port security feature
+        is enabled on an interface.  Upon setting this
+        object to 'true', the source MAC address that
+        does not match any cpsSecureMacAddress for the
+        given interface in cpsSecureMacAddressTable and
+        the value of cpsIfCurrentSecureMacAddrCount is
+        equal to cpsIfMaxSecureMacAddr, is considered 
+        as port security violation and an action as
+        specified in cpsIfViolationAction is taken on 
+        the interface.  The value of this object has no
+        effect when the value of 
+        cpsGlobalPortSecurityEnable is set to 'false'."
+    ::= { cpsIfConfigEntry 1 }
+
+cpsIfPortSecurityStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        secureup(1),
+        securedown(2),
+        shutdown(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the operational status
+        of the port security feature on an interface.
+        
+        secureup(1) - This indicates port security
+                      is operational.
+        securedown(2) - This indicates port security is
+                        not operational. This happens
+                        when port security is configured
+                        to be enabled but could not be
+                        enabled due to certain reasons
+                        such as conflict with other
+                        features.
+        shutdown(3) - This indicates that the port is
+                      shutdown due to port security
+                      violation when the object
+                      cpsIfViolationAction is of type
+                      'shutdown'."
+    ::= { cpsIfConfigEntry 2 }
+
+cpsIfMaxSecureMacAddr OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number (N) of MAC addresses to be
+        secured on the interface. The first N MAC
+        addresses learned or configured are made secured.
+        Changing this object value from N to M is not 
+        allowed if  M is smaller than N, and M is less 
+        than the value of cpsIfCurrentSecureMacAddrCount
+        on the interface. One way to change the number in
+        this case is by deleting sufficient number of 
+        secure mac addresses configured or learned on the
+        device. Also, some devices may choose to limit the
+        sum of this object value for all interfaces to 
+        less than or equal to cpsGlobalMaxSecureAddress."
+    ::= { cpsIfConfigEntry 3 }
+
+cpsIfCurrentSecureMacAddrCount OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of MAC addresses secured
+        on this interface."
+    ::= { cpsIfConfigEntry 4 }
+
+cpsIfSecureMacAddrAgingTime OBJECT-TYPE
+    SYNTAX INTEGER(0..1440)
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The interval in which the interface is
+        secured. After the expiration of the 
+        time, the corresponding cpsSecureMacAddressEntry
+        from the cpsSecureMacAddressTable will be
+        removed. If the value of this object is 0,
+        the aging mechanism is disabled."
+    ::= { cpsIfConfigEntry 5 }
+
+cpsIfSecureMacAddrAgingType OBJECT-TYPE
+    SYNTAX INTEGER {
+        absolute(1),
+        inactivity(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The aging type determines the way the 
+        secure MAC addresses are aged out.
+        absolute(1)   - all the secure MAC addresses 
+                        will be aged out after 
+                        cpsIfSecureMacAddrAgingTime 
+                        minutes since the time the
+                        secure MAC address is learned
+                        or configured.
+        inactivity(2) - all the secure MAC addresses 
+                        will age out and will be removed
+                        from the cpsSecureMacAddressTable
+                        only if there is no data traffic
+                        from the secure source MAC address
+                        for the specified time period."
+    ::= { cpsIfConfigEntry 6 }
+
+cpsIfStaticMacAddrAgingEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the secure MAC address aging
+        mechanism is enabled on static MAC address entries
+        in cpsSecureMacAddressTable.
+        Setting this object value to 'false' will cause
+        the static MAC addresses to remain in the
+        cpsSecureMacAddressTable regardless of the aging
+        time and type configured on the interface.
+        Setting this object value to 'true' will cause 
+        the static MAC addresses to be aged out from
+        cpsSecureMacAddressTable according to the aging
+        time and type specified on the interface."
+    ::= { cpsIfConfigEntry 7 }
+
+cpsIfViolationAction OBJECT-TYPE
+    SYNTAX INTEGER {
+        shutdown(1),
+        dropNotify(2),
+        drop(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Determines the action that the device will
+         take if the traffic matches the port security 
+         violation.
+        
+          shutdown(1)   - the interface will be forced to
+                          shut down.
+        
+          dropNotify(2) - the matched traffic will be 
+                          dropped and 
+                          cpsSecureMacAddrViolation 
+                          notification will be generated.
+        
+          drop(3)       - the matched traffic will be 
+                          dropped."
+    ::= { cpsIfConfigEntry 8 }
+
+cpsIfViolationCount OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of violations
+        occurred on a secure interface.  The counter will
+        be initialized to zero when the port security
+        feature is enabled on an interface. This MIB
+        object is only instantiated if the device can
+        provide this violation statistics on the
+        interface."
+    ::= { cpsIfConfigEntry 9 }
+
+cpsIfSecureLastMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the last MAC 
+        address that is seen on this interface.
+        
+        This object is also used as a variable in
+        the cpsSecureMacAddrViolation notification
+        to contain the value of the MAC address
+        which caused the violation."
+    ::= { cpsIfConfigEntry 10 }
+
+cpsIfClearSecureAddresses OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "Set to 'true' to delete all secure addresses on
+        this interface. Setting this object to 'false'
+        has no effect. This object always returns 'false'
+        when read."
+    ::= { cpsIfConfigEntry 11 }
+
+cpsIfUnicastFloodingEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Setting this object to true(1) will configure
+        the interface not to block unicast flooded 
+        traffic when the secure address count reaches the 
+        threshold.
+        Setting this object to false(2) will configure
+        the interface to block unicast flooded traffic 
+        when the secure address count reaches the 
+        threshold."
+    ::= { cpsIfConfigEntry 12 }
+
+cpsIfShutdownTimeout OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The interval in which the cpsIfPortSecurityStatus
+        may remain in shutdown(3). After the expiration of
+        the time, all the security configuration of this 
+        port is re-installed and the port is enabled. If 
+        the value of this object is 0, the port is shut 
+        down permanently."
+    ::= { cpsIfConfigEntry 13 }
+
+cpsIfClearSecureMacAddresses OBJECT-TYPE
+    SYNTAX ClearSecureMacAddrType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        done(0),
+--        dynamic(1),
+--        static(2),
+--        sticky(3),
+--        all(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects allows the user to delete 
+        secure MAC addresses based on the type specified."
+    ::= { cpsIfConfigEntry 14 }
+
+cpsIfStickyEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Set to 'true' to enable and 'false' to
+        disable Sticky port security feature on this
+        interface.  Enabling this feature allows the 
+        device to secure learned MAC addresses on this
+        interface permanently. In order to remove the
+        sticky addresses on this interface, user has to 
+        manually delete the sticky MAC address(es) or
+        disable the sticky feature itself. Manual deletion
+        of all addresses can be accomplished by
+        cpsIfClearSecureMacAddresses object. Manual 
+        of single address can be accomplished by
+        cpsIfVlanSecureMacAddrRowStatus object."
+    ::= { cpsIfConfigEntry 15 }
+
+cpsIfInvalidSrcRateLimitEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Set to 'true' to enable and 'false' to disable
+        rate limiting for invalid source MAC addresses 
+        received on this interface. Enabling this feature
+        will help to rate limit packets which comes with
+        invalid src MAC address on this interface."
+    ::= { cpsIfConfigEntry 16 }
+
+cpsIfInvalidSrcRateLimitValue OBJECT-TYPE
+    SYNTAX INTEGER(-1..1000)
+--  Units
+--    Packets per second
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If cpsIfInvalidSrcRateLimitEnable is set to 
+        'true' then this value is used to limit the 
+        rate at which packets with invalid source MAC     
+        addresses are processed on this interface.  Upon 
+        exceeding the rate, the port is shutdown. If 
+        cpsIfInvalidSrcRateLimitEnable is set to 'false'
+        then this value will be -1."
+    ::= { cpsIfConfigEntry 17 }
+
+cpsIfSecureLastMacAddrVlanId OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the VLAN where the last
+        MAC address that is seen on this interface.
+        
+        This object is also used as a variable in
+        the cpsIfVlanSecureMacAddrViolation notification
+        to contain the value of the VLAN received the  
+        mac address which caused the violation."
+    ::= { cpsIfConfigEntry 18 }
+
+cpsSecureMacAddressTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpsSecureMacAddressEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A list of port security entries containing
+        the secure MAC address information."
+    ::= { cpsInterfaceObjects 2 }
+
+cpsSecureMacAddressEntry OBJECT-TYPE
+    SYNTAX CpsSecureMacAddressEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "Entry containing secure MAC address 
+        information for a particular interface.
+        A secure MAC address can be configured
+        by the user and can be added by the agent
+        when the device learns a new secured 
+        MAC address. 
+        Note that the secure MAC addresses can be
+        configured on an interface even if port 
+        security feature is disabled."
+    INDEX { ifIndex, cpsSecureMacAddress }
+    ::= { cpsSecureMacAddressTable 1 }
+
+CpsSecureMacAddressEntry ::= SEQUENCE {
+    cpsSecureMacAddress MacAddress,
+    cpsSecureMacAddrType INTEGER,
+    cpsSecureMacAddrRemainingAge INTEGER,
+    cpsSecureMacAddrRowStatus RowStatus
+    }
+
+cpsSecureMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "This object indicates a secure MAC
+        address configured or learned on an
+        interface."
+    ::= { cpsSecureMacAddressEntry 1 }
+
+cpsSecureMacAddrType OBJECT-TYPE
+    SYNTAX INTEGER {
+        static(1),
+        dynamic(2)
+        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This object indicates if the secure MAC address
+        is a configured (static) or learned (dynamic)
+        address on this interface."
+    ::= { cpsSecureMacAddressEntry 2 }
+
+cpsSecureMacAddrRemainingAge OBJECT-TYPE
+    SYNTAX INTEGER(0..1440)
+--  Units
+--    minutes
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This object indicates the remaining age 
+        of the secure MAC address if aging is 
+        enabled on that port. A value of 0 indicates
+        that aging is disabled for this MAC address
+        entry."
+    ::= { cpsSecureMacAddressEntry 3 }
+
+cpsSecureMacAddrRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "This object is a conceptual row entry that allows to add 
+         or delete entries to or from the cpsSecureMacAddressTable.
+        
+         1. When creating an entry in this table 'createAndGo' 
+         method is used and the value of this object is set to
+         'active'. Deactivation of an 'active' entry is not 
+         allowed.
+        
+         2. When deleting an entry in this table 'destroy' method
+         is used."
+    ::= { cpsSecureMacAddressEntry 4 }
+
+cpsIfVlanSecureMacAddrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpsIfVlanSecureMacAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of port security entries containing
+        the secure MAC address information.
+        
+        This table is simular to cpsSecureMacAddressTable
+        except that cpsIfVlanSecureVlanIndex is part of
+        the INDEX clause.
+        
+        This table is used to configure a secure MAC
+        address on either an access interface or trunking 
+        interface which support port security feature."
+    ::= { cpsInterfaceObjects 3 }
+
+cpsIfVlanSecureMacAddrEntry OBJECT-TYPE
+    SYNTAX CpsIfVlanSecureMacAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry containing secure MAC address
+        information for a particular interface.
+        A secure MAC address can be configured
+        by the user and can be added by the agent
+        when the device learns a new secure MAC address.
+        Note that the secure MAC addresses can be
+        configured on an interface even if the port
+        security feature is disabled."
+    INDEX { ifIndex, cpsIfVlanSecureMacAddress, cpsIfVlanSecureVlanIndex }
+    ::= { cpsIfVlanSecureMacAddrTable 1 }
+
+CpsIfVlanSecureMacAddrEntry ::= SEQUENCE {
+    cpsIfVlanSecureMacAddress MacAddress,
+    cpsIfVlanSecureVlanIndex VlanIndex,
+    cpsIfVlanSecureMacAddrType INTEGER,
+    cpsIfVlanSecureMacAddrRemainAge Gauge,
+    cpsIfVlanSecureMacAddrRowStatus RowStatus
+    }
+
+cpsIfVlanSecureMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates a secure MAC
+        address configured or learned on an
+        interface."
+    ::= { cpsIfVlanSecureMacAddrEntry 1 }
+
+cpsIfVlanSecureVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the vlan 
+         configured on an interface."
+    ::= { cpsIfVlanSecureMacAddrEntry 2 }
+
+cpsIfVlanSecureMacAddrType OBJECT-TYPE
+    SYNTAX INTEGER {
+        static(1),
+        dynamic(2),
+        sticky(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if the secure MAC address
+        is a configured 'static' or learned 'dynamic' or
+        learned and retained across reboots 'sticky'."
+    ::= { cpsIfVlanSecureMacAddrEntry 3 }
+
+cpsIfVlanSecureMacAddrRemainAge OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    minutes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the remaining age
+        of the secure MAC address if aging is
+        enabled on that port. A value of 0 indicates
+        that aging is disabled for this MAC address
+        entry."
+    ::= { cpsIfVlanSecureMacAddrEntry 4 }
+
+cpsIfVlanSecureMacAddrRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is a conceptual row entry that allows adding
+         or deleting entries to or from the 
+         cpsIfVlanSecureMacAddressTable.
+        
+         1. When creating an entry in this table the 'createAndGo'
+         method is used and the value of this object is set to
+         'active'. Deactivation of an 'active' entry is not
+         allowed.
+        
+         2. When deleting an entry in this table 'destroy' method
+         is used."
+    ::= { cpsIfVlanSecureMacAddrEntry 5 }
+
+cpsIfVlanTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpsIfVlanEntry
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "Each entry in this table represents
+        port-security information for each vlan 
+        that is allowed on trunk interface.
+        
+        The number of entries is determined by 
+        the number of allowed VLANs on trunk 
+        interface in the system .
+        
+        An Entry in the table gets created when
+        a vlan becomes allowed and gets deleted 
+        when a vlan becomes disallowed on a trunk 
+        port.
+        
+        User cannot create new entries in this 
+        table, but can only read and modify
+        existing entries.
+        
+        This table is obsolete and replaced with
+        cpsIfMultiVlanTable."
+    ::= { cpsInterfaceObjects 4 }
+
+cpsIfVlanEntry OBJECT-TYPE
+    SYNTAX CpsIfVlanEntry
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "Entry containing port security information for
+        a particular VLAN within a trunk port."
+    INDEX { ifIndex, cpsIfVlanIndex }
+    ::= { cpsIfVlanTable 1 }
+
+CpsIfVlanEntry ::= SEQUENCE {
+    cpsIfVlanIndex VlanIndex,
+    cpsIfVlanMaxSecureMacAddr Gauge,
+    cpsIfVlanCurSecureMacAddrCount Gauge
+    }
+
+cpsIfVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "The ID of a VLAN within this trunk port."
+    REFERENCE
+        "IEEE 802.1Q/D11 Section 9.3.2.3"
+    ::= { cpsIfVlanEntry 1 }
+
+cpsIfVlanMaxSecureMacAddr OBJECT-TYPE
+    SYNTAX Gauge(1..2147483647)
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "The maximum number of MAC addresses to
+        be secured in the VLAN indicated by 
+        cpsIfVlanIndex on this interface. 
+        
+        If cpsIfVlanMaxSecureMacAddr is not set,
+        its value is 1.
+        
+        If cpsIfVlanMaxSecureMacAddr is not set, then
+        the cpsIfMaxSecureMacAddr applies to this 
+        VLAN.  
+        
+        If cpsIfVlanMaxSecureMacAddr is set
+        and is less than cpsIfMaxSecureMacAddr, then
+        the cpsIfVlanMaxSecureMacAddr applies to this
+        VLAN.
+        
+        If cpsIfVlanMaxSecureMacAddr is set
+        and is greater than cpsIfMaxSecureMacAddr, then 
+        the cpsIfMaxSecureMacAddr applies to this
+        VLAN."
+    ::= { cpsIfVlanEntry 2 }
+
+cpsIfVlanCurSecureMacAddrCount OBJECT-TYPE
+    SYNTAX Gauge(0..2147483647)
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "The current number of MAC addresses secured
+        in the VLAN indicated by cpsIfVlanIndex on this
+        interface."
+    ::= { cpsIfVlanEntry 3 }
+
+cpsIfMultiVlanTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpsIfMultiVlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table represents port-security
+         information such as the maximum value of secured
+         mac address allowed, the current number of secure
+         mac address applied on a VLAN that is allowed on 
+         multi-vlan interface as well as a mechanism to
+         clear the secure mac address on such VLANs."
+    ::= { cpsInterfaceObjects 5 }
+
+cpsIfMultiVlanEntry OBJECT-TYPE
+    SYNTAX CpsIfMultiVlanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry containing port security information for
+         a particular VLAN within a multi-vlan port. When
+         secured mac addresses are learned or configured on
+         such interface denoted by ifIndex and an allowed VLAN
+         in this interface denoted by cpsIfMultiVlanIndex,
+         an entry will be automatically created in this table.
+        
+         If there is no corresponding entry in this table 
+         for a specific interface and VLAN, the maximum number
+         of secured MAC addresses allowed in such interface
+         and VLAN will be limited in the manner which the device
+         limits the aggregate maximum number of secured MAC
+         address allowed in this specific interface."
+    INDEX { ifIndex, cpsIfMultiVlanIndex }
+    ::= { cpsIfMultiVlanTable 1 }
+
+CpsIfMultiVlanEntry ::= SEQUENCE {
+    cpsIfMultiVlanIndex VlanIndex,
+    cpsIfMultiVlanMaxSecureMacAddr Gauge,
+    cpsIfMultiVlanSecureMacAddrCount Gauge,
+    cpsIfMultiVlanClearSecureMacAddr ClearSecureMacAddrType,
+    cpsIfMultiVlanRowStatus RowStatus
+    }
+
+cpsIfMultiVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The VLAN ID of an allowed VLAN for this multi-vlan port."
+    REFERENCE
+        "IEEE 802.1Q/D11 Section 9.3.2.3"
+    ::= { cpsIfMultiVlanEntry 1 }
+
+cpsIfMultiVlanMaxSecureMacAddr OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number (N) of MAC addresses to be secured
+        in the VLAN indicated by cpsIfMultiVlanIndex object on
+        this interface. 
+        
+        Setting the value of this object to zero indicates that
+        there is no specific restriction on the maximum number
+        of MAC adddress to be secured for this particular VLAN 
+        in this interface. In this case, the maximum number of
+        secured MAC addresses allowed in this VLAN will be limited
+        in the manner which the device limits the aggregate maximum
+        number of secured MAC address allowed in this interface.  
+        
+        Changing this object value from N to M (M is greater
+        than 0) is not allowed if M is smaller than N, and M is
+        less than the value of cpsIfMultiVlanSecureMacAddrCount
+        on this VLAN. One way to change the number in this case
+        is by deleting sufficient number of secure mac addresses
+        configured or learned on the VLAN. 
+        
+        If cpsIfMultiVlanMaxSecureMacAddr is less than
+        cpsIfMaxSecureMacAddr, then the aggregate maximum number
+        of secure mac address allowed in this interface is limited
+        by the value of cpsIfMaxSecureMacAddr, and the maximum
+        number of secure mac address allowed in this VLAN for this
+        interface is the value of cpsIfMultiVlanMaxSecureMacAddr
+        object.
+         
+        If cpsIfMultiVlanMaxSecureMacAddr is greater than
+        cpsIfMaxSecureMacAddr, then this object value does not
+        have any effect. The aggregate maximum number of secure mac
+        address allowed in all VLANs for this interface is limited
+        by the value of cpsIfMaxSecureMacAddr object."
+    DEFVAL { 1 }
+    ::= { cpsIfMultiVlanEntry 2 }
+
+cpsIfMultiVlanSecureMacAddrCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of MAC addresses secured in the VLAN
+        indicated by cpsIfMultiVlanIndex object on this interface."
+    ::= { cpsIfMultiVlanEntry 3 }
+
+cpsIfMultiVlanClearSecureMacAddr OBJECT-TYPE
+    SYNTAX ClearSecureMacAddrType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        done(0),
+--        dynamic(1),
+--        static(2),
+--        sticky(3),
+--        all(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects allows the user to delete secure MAC addresses
+        based on the type specified per interface per VLAN."
+    DEFVAL { done }
+    ::= { cpsIfMultiVlanEntry 4 }
+
+cpsIfMultiVlanRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used to manage the creation and deletion
+        of row in this table. It only supports 'active', 'destroy',
+        and 'createAndGo' value. 
+                    
+        Entry in the table gets created by setting 
+        cpsIfMultiVlanRowStatus object to 'createAndGo'.
+        Entry in this table gets deleted by setting
+        cpsIfMultiVlanRowStatus object to 'destroy' or
+        when a VLAN indicated by cpsIfMultiVlanIndex object
+        becomes disallowed on a multi-vlan port. 
+        
+        If the value of cpsIfMultiVlanSecureMacAddrCount object
+        in the same row is greater than zero, this entry cannot
+        be deleted. 
+        
+        Value of cpsIfMultiVlanMaxSecureMacAddr object can be
+        modified when the value of this RowStatus object is
+        'active'."
+    ::= { cpsIfMultiVlanEntry 5 }
+
+cpsSecureMacAddrViolation TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoPortSecurityMIBNotifs
+    VARIABLES {
+        ifIndex, ifName, cpsIfSecureLastMacAddress }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The address violation notification is generated
+         when port security address violation is detected
+         on a secure non-trunk, access interface (that carries
+        a single vlan) and the cpsIfViolationAction is set to
+        'dropNotify'."
+    ::= 1
+
+cpsTrunkSecureMacAddrViolation TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoPortSecurityMIBNotifs
+    VARIABLES {
+        ifName, vtpVlanName, cpsIfSecureLastMacAddress }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "The address violation notification is generated when port
+        security address violation is detected on a secure trunk
+        or a multi-vlan interface and the cpsIfViolationAction is
+               set to 'dropNotify'."
+    ::= 2
+
+cpsIfVlanSecureMacAddrViolation TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoPortSecurityMIBNotifs
+    VARIABLES {
+        ifName, cpsIfSecureLastMacAddrVlanId, 
+        cpsIfSecureLastMacAddress }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The address violation notification is generated
+         when port security address violation is detected
+         on a multi-vlan interface and the cpsIfViolationAction
+         is set to 'dropNotify'."
+    ::= 3
+
+cpsGlobalGroup OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for use with the Port
+--    Security feature.
+--  objects
+--    cpsGlobalMaxSecureAddress, cpsGlobalTotalSecureAddress, 
+--    cpsGlobalPortSecurityEnable, cpsGlobalSNMPNotifRate, 
+--    cpsGlobalSNMPNotifControl
+
+cpsInterfaceGroup OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    ********* THIS GROUP IS DEPRECATED **********
+--    A collection of objects for use with the Port
+--    Security feature.
+--  objects
+--    cpsIfPortSecurityEnable, cpsIfPortSecurityStatus, 
+--    cpsIfMaxSecureMacAddr, cpsIfCurrentSecureMacAddrCount, 
+--    cpsIfSecureMacAddrAgingType, cpsIfSecureMacAddrAgingTime, 
+--    cpsIfStaticMacAddrAgingEnable, cpsIfViolationAction, 
+--    cpsIfViolationCount, cpsIfClearSecureAddresses, 
+--    cpsSecureMacAddrType, cpsSecureMacAddrRemainingAge, 
+--    cpsSecureMacAddrRowStatus
+
+cpsExtInterfaceGroup OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the additional
+--    information for the Port Security feature.
+--  objects
+--    cpsIfSecureLastMacAddress
+
+cpsUnicastFloodingInterfaceGroup OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the 
+--    unicast flooding information for the 
+--    Port Security feature.
+--  objects
+--    cpsIfUnicastFloodingEnable
+
+cpsShutdownTimeoutInterfaceGroup OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the 
+--    shutdown timeout information for the
+--    Port Security feature.
+--  objects
+--    cpsIfShutdownTimeout
+
+cpsIfVlanSecureMacAddrGroup OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for use with the Port
+--    Security feature.
+--  objects
+--    cpsIfVlanSecureMacAddrType, cpsIfVlanSecureMacAddrRemainAge, 
+--    cpsIfVlanSecureMacAddrRowStatus
+
+cpsInterfaceGroup1 OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    ********* THIS GROUP IS DEPRECATED **********
+--    A collection of objects for use with the Port
+--    Security configuration.
+--  objects
+--    cpsIfPortSecurityEnable, cpsIfPortSecurityStatus, 
+--    cpsIfMaxSecureMacAddr, cpsIfCurrentSecureMacAddrCount, 
+--    cpsIfSecureMacAddrAgingType, cpsIfSecureMacAddrAgingTime, 
+--    cpsIfStaticMacAddrAgingEnable, cpsIfViolationAction, 
+--    cpsIfViolationCount, cpsIfClearSecureAddresses
+
+cpsExtConfigInterfaceGroup OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    ********* THIS GROUP IS DEPRECATED **********
+--    A collection of objects providing the additional
+--    information for the Port Security feature.
+--  objects
+--    cpsIfShutdownTimeout, cpsIfUnicastFloodingEnable
+
+cpsIfVlanGroup OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    obsolete
+--  Descr
+--    A collection of objects providing additional trunk
+--    VLAN information for the Port Security feature on a
+--    given interface.
+--  objects
+--    cpsIfVlanMaxSecureMacAddr, cpsIfVlanCurSecureMacAddrCount
+
+cpsGlobalClearAddressGroup OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for clearing addresses
+--    on the device.
+--  objects
+--    cpsGlobalClearSecureMacAddresses
+
+cpsInterfaceGroup2 OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 13 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for use with the Port
+--    Security configuration.
+--  objects
+--    cpsIfPortSecurityEnable, cpsIfPortSecurityStatus, 
+--    cpsIfMaxSecureMacAddr, cpsIfCurrentSecureMacAddrCount, 
+--    cpsIfSecureMacAddrAgingType, cpsIfSecureMacAddrAgingTime, 
+--    cpsIfStaticMacAddrAgingEnable, cpsIfViolationAction, 
+--    cpsIfViolationCount, cpsIfClearSecureMacAddresses, 
+--    cpsIfInvalidSrcRateLimitEnable, cpsIfInvalidSrcRateLimitValue, 
+--    cpsIfStickyEnable
+
+cpsIfMultiVlanGroup OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 15 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing additional per 
+--    interface per VLAN port security feature information
+--    on a multi-vlan interface.
+--  objects
+--    cpsIfMultiVlanMaxSecureMacAddr, 
+--    cpsIfMultiVlanSecureMacAddrCount, 
+--    cpsIfMultiVlanClearSecureMacAddr, cpsIfMultiVlanRowStatus
+
+cpsExtInterfaceGroup1 OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 17 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the information of
+--    the VLAN-id for the last MAC address seen on the 
+--    interface.
+--  objects
+--    cpsIfSecureLastMacAddrVlanId
+
+cpsNotificationGroup OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 4 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications for use 
+--    with the Port Security feature.
+--  notifications
+--    cpsSecureMacAddrViolation
+
+cpsTrunkSecureNotificationGroup OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 14 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of trunk or multi-vlan port related
+--    notifications for use with the port-security feature.
+--  notifications
+--    cpsTrunkSecureMacAddrViolation
+
+cpsIfVlanSecureNotificationGroup OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBGroups 16 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of trunk or multi-vlan port related
+--    notifications for use with the port-security feature.
+--  notifications
+--    cpsIfVlanSecureMacAddrViolation
+
+ciscoPortSecurityMIBCompliance OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the Port Security MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cpsGlobalGroup
+--   MandGroup
+--    cpsInterfaceGroup
+--   OptGroup
+--    cpsExtInterfaceGroup
+--   OptGroup
+--    cpsNotificationGroup
+--   OptGroup
+--    cpsExtConfigInterfaceGroup
+--   ObjVar
+--    cpsGlobalPortSecurityEnable
+--   ObjVar
+--    cpsGlobalSNMPNotifRate
+--   ObjVar
+--    cpsGlobalSNMPNotifControl
+--   ObjVar
+--    cpsIfSecureMacAddrAgingType
+--   ObjVar
+--    cpsIfViolationAction
+--   ObjVar
+--    cpsIfViolationCount
+--   ObjVar
+--    cpsIfStaticMacAddrAgingEnable
+--   ObjVar
+--    cpsIfSecureLastMacAddress
+--   ObjVar
+--    cpsIfClearSecureAddresses
+
+ciscoPortSecurityMIBCompliance1 OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the Port Security MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cpsGlobalGroup
+--   MandGroup
+--    cpsInterfaceGroup1
+--   MandGroup
+--    cpsIfVlanSecureMacAddrGroup
+--   OptGroup
+--    cpsExtInterfaceGroup
+--   OptGroup
+--    cpsNotificationGroup
+--   OptGroup
+--    cpsUnicastFloodingInterfaceGroup
+--   OptGroup
+--    cpsShutdownTimeoutInterfaceGroup
+--   ObjVar
+--    cpsGlobalPortSecurityEnable
+--   ObjVar
+--    cpsGlobalSNMPNotifRate
+--   ObjVar
+--    cpsGlobalSNMPNotifControl
+--   ObjVar
+--    cpsIfSecureMacAddrAgingType
+--   ObjVar
+--    cpsIfViolationAction
+--   ObjVar
+--    cpsIfViolationCount
+--   ObjVar
+--    cpsIfStaticMacAddrAgingEnable
+--   ObjVar
+--    cpsIfSecureLastMacAddress
+--   ObjVar
+--    cpsIfClearSecureAddresses
+
+ciscoPortSecurityMIBCompliance2 OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    obsolete
+--  Descr
+--    The compliance statement for the Port Security MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cpsGlobalGroup
+--   MandGroup
+--    cpsInterfaceGroup2
+--   MandGroup
+--    cpsIfVlanSecureMacAddrGroup
+--   OptGroup
+--    cpsExtInterfaceGroup
+--   OptGroup
+--    cpsNotificationGroup
+--   OptGroup
+--    cpsUnicastFloodingInterfaceGroup
+--   OptGroup
+--    cpsShutdownTimeoutInterfaceGroup
+--   ObjVar
+--    cpsGlobalPortSecurityEnable
+--   ObjVar
+--    cpsGlobalSNMPNotifRate
+--   ObjVar
+--    cpsGlobalSNMPNotifControl
+--   ObjVar
+--    cpsIfSecureMacAddrAgingType
+--   ObjVar
+--    cpsIfViolationAction
+--   ObjVar
+--    cpsIfViolationCount
+--   ObjVar
+--    cpsIfStaticMacAddrAgingEnable
+--   ObjVar
+--    cpsIfSecureLastMacAddress
+--   OptGroup
+--    cpsIfVlanGroup
+--   OptGroup
+--    cpsGlobalClearAddressGroup
+--   ObjVar
+--    cpsGlobalClearSecureMacAddresses
+--   ObjVar
+--    cpsIfClearSecureMacAddresses
+
+ciscoPortSecurityMIBCompliance3 OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    obsolete
+--  Descr
+--    The compliance statement for the Port Security MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cpsGlobalGroup
+--   MandGroup
+--    cpsInterfaceGroup2
+--   MandGroup
+--    cpsIfVlanSecureMacAddrGroup
+--   OptGroup
+--    cpsExtInterfaceGroup
+--   OptGroup
+--    cpsNotificationGroup
+--   OptGroup
+--    cpsUnicastFloodingInterfaceGroup
+--   OptGroup
+--    cpsShutdownTimeoutInterfaceGroup
+--   ObjVar
+--    cpsGlobalPortSecurityEnable
+--   ObjVar
+--    cpsGlobalSNMPNotifRate
+--   ObjVar
+--    cpsGlobalSNMPNotifControl
+--   ObjVar
+--    cpsIfSecureMacAddrAgingType
+--   ObjVar
+--    cpsIfViolationAction
+--   ObjVar
+--    cpsIfViolationCount
+--   ObjVar
+--    cpsIfStaticMacAddrAgingEnable
+--   ObjVar
+--    cpsIfSecureLastMacAddress
+--   OptGroup
+--    cpsIfVlanGroup
+--   OptGroup
+--    cpsGlobalClearAddressGroup
+--   ObjVar
+--    cpsGlobalClearSecureMacAddresses
+--   ObjVar
+--    cpsIfClearSecureMacAddresses
+--   OptGroup
+--    cpsTrunkSecureNotificationGroup
+
+ciscoPortSecurityMIBCompliance4 OBJECT IDENTIFIER ::= { ciscoPortSecurityMIBCompliances 5 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the Port Security MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cpsGlobalGroup
+--   MandGroup
+--    cpsInterfaceGroup2
+--   MandGroup
+--    cpsIfVlanSecureMacAddrGroup
+--   OptGroup
+--    cpsExtInterfaceGroup
+--   OptGroup
+--    cpsNotificationGroup
+--   OptGroup
+--    cpsUnicastFloodingInterfaceGroup
+--   OptGroup
+--    cpsShutdownTimeoutInterfaceGroup
+--   ObjVar
+--    cpsGlobalPortSecurityEnable
+--   ObjVar
+--    cpsGlobalSNMPNotifRate
+--   ObjVar
+--    cpsGlobalSNMPNotifControl
+--   ObjVar
+--    cpsIfSecureMacAddrAgingType
+--   ObjVar
+--    cpsIfViolationAction
+--   ObjVar
+--    cpsIfViolationCount
+--   ObjVar
+--    cpsIfStaticMacAddrAgingEnable
+--   ObjVar
+--    cpsIfSecureLastMacAddress
+--   OptGroup
+--    cpsIfMultiVlanGroup
+--   OptGroup
+--    cpsGlobalClearAddressGroup
+--   ObjVar
+--    cpsGlobalClearSecureMacAddresses
+--   ObjVar
+--    cpsIfClearSecureMacAddresses
+--   OptGroup
+--    cpsIfVlanSecureNotificationGroup
+--   OptGroup
+--    cpsExtInterfaceGroup1
+
+
+END
+

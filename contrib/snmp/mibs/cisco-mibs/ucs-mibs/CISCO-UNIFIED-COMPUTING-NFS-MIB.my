@@ -1,0 +1,1202 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-NFS-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- NFS management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-NFS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsConditionRemoteInvRslt,
+    CucsFsmCompletion,
+    CucsFsmFlags,
+    CucsFsmFsmStageStatus,
+    CucsNfsClientConfigState,
+    CucsNfsDefAdminState,
+    CucsNfsMntAdminState,
+    CucsNfsMntOperState,
+    CucsNfsMountDefFsmCurrentFsm,
+    CucsNfsMountDefFsmStageName,
+    CucsNfsMountDefFsmTaskItem,
+    CucsNfsMountInstFsmCurrentFsm,
+    CucsNfsMountInstFsmStageName,
+    CucsNfsMountInstFsmTaskItem,
+    CucsNfsPurpose,
+    CucsPolicyPolicyOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsNfsObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        NFS management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 67 }
+
+cucsNfsEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsNfsEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS nfs:Ep managed object table"
+    ::= { cucsNfsObjects 1 }
+
+cucsNfsEpEntry OBJECT-TYPE
+    SYNTAX           CucsNfsEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsNfsEpTable table."
+    INDEX { cucsNfsEpInstanceId }
+    ::= { cucsNfsEpTable 1 }
+
+CucsNfsEpEntry ::= SEQUENCE {
+    cucsNfsEpInstanceId                                              CucsManagedObjectId,
+    cucsNfsEpDn                                                      CucsManagedObjectDn,
+    cucsNfsEpRn                                                      SnmpAdminString
+}
+
+cucsNfsEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsNfsEpEntry 1 }
+
+cucsNfsEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:Ep:dn managed object property"
+    ::= { cucsNfsEpEntry 2 }
+
+cucsNfsEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:Ep:rn managed object property"
+    ::= { cucsNfsEpEntry 3 }
+
+cucsNfsMountDefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsNfsMountDefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef managed object table"
+    ::= { cucsNfsObjects 2 }
+
+cucsNfsMountDefEntry OBJECT-TYPE
+    SYNTAX           CucsNfsMountDefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsNfsMountDefTable table."
+    INDEX { cucsNfsMountDefInstanceId }
+    ::= { cucsNfsMountDefTable 1 }
+
+CucsNfsMountDefEntry ::= SEQUENCE {
+    cucsNfsMountDefInstanceId                                        CucsManagedObjectId,
+    cucsNfsMountDefDn                                                CucsManagedObjectDn,
+    cucsNfsMountDefRn                                                SnmpAdminString,
+    cucsNfsMountDefAdminState                                        CucsNfsDefAdminState,
+    cucsNfsMountDefDescr                                             SnmpAdminString,
+    cucsNfsMountDefFltAggr                                           Unsigned64,
+    cucsNfsMountDefFsmDescr                                          SnmpAdminString,
+    cucsNfsMountDefFsmPrev                                           SnmpAdminString,
+    cucsNfsMountDefFsmProgr                                          Gauge32,
+    cucsNfsMountDefFsmRmtInvErrCode                                  Gauge32,
+    cucsNfsMountDefFsmRmtInvErrDescr                                 SnmpAdminString,
+    cucsNfsMountDefFsmRmtInvRslt                                     CucsConditionRemoteInvRslt,
+    cucsNfsMountDefFsmStageDescr                                     SnmpAdminString,
+    cucsNfsMountDefFsmStamp                                          DateAndTime,
+    cucsNfsMountDefFsmStatus                                         SnmpAdminString,
+    cucsNfsMountDefFsmTry                                            Gauge32,
+    cucsNfsMountDefIntId                                             SnmpAdminString,
+    cucsNfsMountDefLocalDir                                          SnmpAdminString,
+    cucsNfsMountDefName                                              SnmpAdminString,
+    cucsNfsMountDefPolicyLevel                                       Gauge32,
+    cucsNfsMountDefPolicyOwner                                       CucsPolicyPolicyOwner,
+    cucsNfsMountDefPurpose                                           CucsNfsPurpose,
+    cucsNfsMountDefRemoteDir                                         SnmpAdminString,
+    cucsNfsMountDefServer                                            SnmpAdminString
+}
+
+cucsNfsMountDefInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsNfsMountDefEntry 1 }
+
+cucsNfsMountDefDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:dn managed object property"
+    ::= { cucsNfsMountDefEntry 2 }
+
+cucsNfsMountDefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:rn managed object property"
+    ::= { cucsNfsMountDefEntry 3 }
+
+cucsNfsMountDefAdminState OBJECT-TYPE
+    SYNTAX       CucsNfsDefAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:adminState managed object property"
+    ::= { cucsNfsMountDefEntry 4 }
+
+cucsNfsMountDefDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:descr managed object property"
+    ::= { cucsNfsMountDefEntry 5 }
+
+cucsNfsMountDefFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:fltAggr managed object property"
+    ::= { cucsNfsMountDefEntry 6 }
+
+cucsNfsMountDefFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:fsmDescr managed object property"
+    ::= { cucsNfsMountDefEntry 7 }
+
+cucsNfsMountDefFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:fsmPrev managed object property"
+    ::= { cucsNfsMountDefEntry 8 }
+
+cucsNfsMountDefFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:fsmProgr managed object property"
+    ::= { cucsNfsMountDefEntry 9 }
+
+cucsNfsMountDefFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:fsmRmtInvErrCode managed object property"
+    ::= { cucsNfsMountDefEntry 10 }
+
+cucsNfsMountDefFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:fsmRmtInvErrDescr managed object property"
+    ::= { cucsNfsMountDefEntry 11 }
+
+cucsNfsMountDefFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:fsmRmtInvRslt managed object property"
+    ::= { cucsNfsMountDefEntry 12 }
+
+cucsNfsMountDefFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:fsmStageDescr managed object property"
+    ::= { cucsNfsMountDefEntry 13 }
+
+cucsNfsMountDefFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:fsmStamp managed object property"
+    ::= { cucsNfsMountDefEntry 14 }
+
+cucsNfsMountDefFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:fsmStatus managed object property"
+    ::= { cucsNfsMountDefEntry 15 }
+
+cucsNfsMountDefFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:fsmTry managed object property"
+    ::= { cucsNfsMountDefEntry 16 }
+
+cucsNfsMountDefIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:intId managed object property"
+    ::= { cucsNfsMountDefEntry 17 }
+
+cucsNfsMountDefLocalDir OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:localDir managed object property"
+    ::= { cucsNfsMountDefEntry 18 }
+
+cucsNfsMountDefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:name managed object property"
+    ::= { cucsNfsMountDefEntry 19 }
+
+cucsNfsMountDefPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:policyLevel managed object property"
+    ::= { cucsNfsMountDefEntry 20 }
+
+cucsNfsMountDefPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:policyOwner managed object property"
+    ::= { cucsNfsMountDefEntry 21 }
+
+cucsNfsMountDefPurpose OBJECT-TYPE
+    SYNTAX       CucsNfsPurpose
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:purpose managed object property"
+    ::= { cucsNfsMountDefEntry 22 }
+
+cucsNfsMountDefRemoteDir OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:remoteDir managed object property"
+    ::= { cucsNfsMountDefEntry 23 }
+
+cucsNfsMountDefServer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDef:server managed object property"
+    ::= { cucsNfsMountDefEntry 24 }
+
+cucsNfsMountDefFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsNfsMountDefFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsm managed object table"
+    ::= { cucsNfsObjects 3 }
+
+cucsNfsMountDefFsmEntry OBJECT-TYPE
+    SYNTAX           CucsNfsMountDefFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsNfsMountDefFsmTable table."
+    INDEX { cucsNfsMountDefFsmInstanceId }
+    ::= { cucsNfsMountDefFsmTable 1 }
+
+CucsNfsMountDefFsmEntry ::= SEQUENCE {
+    cucsNfsMountDefFsmInstanceId                                     CucsManagedObjectId,
+    cucsNfsMountDefFsmDn                                             CucsManagedObjectDn,
+    cucsNfsMountDefFsmRn                                             SnmpAdminString,
+    cucsNfsMountDefFsmCompletionTime                                 DateAndTime,
+    cucsNfsMountDefFsmCurrentFsm                                     CucsNfsMountDefFsmCurrentFsm,
+    cucsNfsMountDefFsmDescrData                                      SnmpAdminString,
+    cucsNfsMountDefFsmFsmStatus                                      CucsFsmFsmStageStatus,
+    cucsNfsMountDefFsmProgress                                       Gauge32,
+    cucsNfsMountDefFsmRmtErrCode                                     Gauge32,
+    cucsNfsMountDefFsmRmtErrDescr                                    SnmpAdminString,
+    cucsNfsMountDefFsmRmtRslt                                        CucsConditionRemoteInvRslt
+}
+
+cucsNfsMountDefFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsNfsMountDefFsmEntry 1 }
+
+cucsNfsMountDefFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsm:dn managed object property"
+    ::= { cucsNfsMountDefFsmEntry 2 }
+
+cucsNfsMountDefFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsm:rn managed object property"
+    ::= { cucsNfsMountDefFsmEntry 3 }
+
+cucsNfsMountDefFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsm:completionTime managed object property"
+    ::= { cucsNfsMountDefFsmEntry 4 }
+
+cucsNfsMountDefFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsNfsMountDefFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsm:currentFsm managed object property"
+    ::= { cucsNfsMountDefFsmEntry 5 }
+
+cucsNfsMountDefFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsm:descr managed object property"
+    ::= { cucsNfsMountDefFsmEntry 6 }
+
+cucsNfsMountDefFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsm:fsmStatus managed object property"
+    ::= { cucsNfsMountDefFsmEntry 7 }
+
+cucsNfsMountDefFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsm:progress managed object property"
+    ::= { cucsNfsMountDefFsmEntry 8 }
+
+cucsNfsMountDefFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsm:rmtErrCode managed object property"
+    ::= { cucsNfsMountDefFsmEntry 9 }
+
+cucsNfsMountDefFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsm:rmtErrDescr managed object property"
+    ::= { cucsNfsMountDefFsmEntry 10 }
+
+cucsNfsMountDefFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsm:rmtRslt managed object property"
+    ::= { cucsNfsMountDefFsmEntry 11 }
+
+cucsNfsMountDefFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsNfsMountDefFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmStage managed object table"
+    ::= { cucsNfsObjects 4 }
+
+cucsNfsMountDefFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsNfsMountDefFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsNfsMountDefFsmStageTable table."
+    INDEX { cucsNfsMountDefFsmStageInstanceId }
+    ::= { cucsNfsMountDefFsmStageTable 1 }
+
+CucsNfsMountDefFsmStageEntry ::= SEQUENCE {
+    cucsNfsMountDefFsmStageInstanceId                                CucsManagedObjectId,
+    cucsNfsMountDefFsmStageDn                                        CucsManagedObjectDn,
+    cucsNfsMountDefFsmStageRn                                        SnmpAdminString,
+    cucsNfsMountDefFsmStageDescrData                                 SnmpAdminString,
+    cucsNfsMountDefFsmStageLastUpdateTime                            DateAndTime,
+    cucsNfsMountDefFsmStageName                                      CucsNfsMountDefFsmStageName,
+    cucsNfsMountDefFsmStageOrder                                     Gauge32,
+    cucsNfsMountDefFsmStageRetry                                     Gauge32,
+    cucsNfsMountDefFsmStageStageStatus                               CucsFsmFsmStageStatus
+}
+
+cucsNfsMountDefFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsNfsMountDefFsmStageEntry 1 }
+
+cucsNfsMountDefFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmStage:dn managed object property"
+    ::= { cucsNfsMountDefFsmStageEntry 2 }
+
+cucsNfsMountDefFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmStage:rn managed object property"
+    ::= { cucsNfsMountDefFsmStageEntry 3 }
+
+cucsNfsMountDefFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmStage:descr managed object property"
+    ::= { cucsNfsMountDefFsmStageEntry 4 }
+
+cucsNfsMountDefFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsNfsMountDefFsmStageEntry 5 }
+
+cucsNfsMountDefFsmStageName OBJECT-TYPE
+    SYNTAX       CucsNfsMountDefFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmStage:name managed object property"
+    ::= { cucsNfsMountDefFsmStageEntry 6 }
+
+cucsNfsMountDefFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmStage:order managed object property"
+    ::= { cucsNfsMountDefFsmStageEntry 7 }
+
+cucsNfsMountDefFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmStage:retry managed object property"
+    ::= { cucsNfsMountDefFsmStageEntry 8 }
+
+cucsNfsMountDefFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmStage:stageStatus managed
+        object property"
+    ::= { cucsNfsMountDefFsmStageEntry 9 }
+
+cucsNfsMountDefFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsNfsMountDefFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmTask managed object table"
+    ::= { cucsNfsObjects 5 }
+
+cucsNfsMountDefFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsNfsMountDefFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsNfsMountDefFsmTaskTable table."
+    INDEX { cucsNfsMountDefFsmTaskInstanceId }
+    ::= { cucsNfsMountDefFsmTaskTable 1 }
+
+CucsNfsMountDefFsmTaskEntry ::= SEQUENCE {
+    cucsNfsMountDefFsmTaskInstanceId                                 CucsManagedObjectId,
+    cucsNfsMountDefFsmTaskDn                                         CucsManagedObjectDn,
+    cucsNfsMountDefFsmTaskRn                                         SnmpAdminString,
+    cucsNfsMountDefFsmTaskCompletion                                 CucsFsmCompletion,
+    cucsNfsMountDefFsmTaskFlags                                      CucsFsmFlags,
+    cucsNfsMountDefFsmTaskItem                                       CucsNfsMountDefFsmTaskItem,
+    cucsNfsMountDefFsmTaskSeqId                                      Gauge32
+}
+
+cucsNfsMountDefFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsNfsMountDefFsmTaskEntry 1 }
+
+cucsNfsMountDefFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmTask:dn managed object property"
+    ::= { cucsNfsMountDefFsmTaskEntry 2 }
+
+cucsNfsMountDefFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmTask:rn managed object property"
+    ::= { cucsNfsMountDefFsmTaskEntry 3 }
+
+cucsNfsMountDefFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmTask:completion managed object property"
+    ::= { cucsNfsMountDefFsmTaskEntry 4 }
+
+cucsNfsMountDefFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmTask:flags managed object property"
+    ::= { cucsNfsMountDefFsmTaskEntry 5 }
+
+cucsNfsMountDefFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsNfsMountDefFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmTask:item managed object property"
+    ::= { cucsNfsMountDefFsmTaskEntry 6 }
+
+cucsNfsMountDefFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountDefFsmTask:seqId managed object property"
+    ::= { cucsNfsMountDefFsmTaskEntry 7 }
+
+cucsNfsMountInstTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsNfsMountInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst managed object table"
+    ::= { cucsNfsObjects 6 }
+
+cucsNfsMountInstEntry OBJECT-TYPE
+    SYNTAX           CucsNfsMountInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsNfsMountInstTable table."
+    INDEX { cucsNfsMountInstInstanceId }
+    ::= { cucsNfsMountInstTable 1 }
+
+CucsNfsMountInstEntry ::= SEQUENCE {
+    cucsNfsMountInstInstanceId                                       CucsManagedObjectId,
+    cucsNfsMountInstDn                                               CucsManagedObjectDn,
+    cucsNfsMountInstRn                                               SnmpAdminString,
+    cucsNfsMountInstAdminState                                       CucsNfsMntAdminState,
+    cucsNfsMountInstClientConfigState                                CucsNfsClientConfigState,
+    cucsNfsMountInstDefDn                                            SnmpAdminString,
+    cucsNfsMountInstFsmDescr                                         SnmpAdminString,
+    cucsNfsMountInstFsmPrev                                          SnmpAdminString,
+    cucsNfsMountInstFsmProgr                                         Gauge32,
+    cucsNfsMountInstFsmRmtInvErrCode                                 Gauge32,
+    cucsNfsMountInstFsmRmtInvErrDescr                                SnmpAdminString,
+    cucsNfsMountInstFsmRmtInvRslt                                    CucsConditionRemoteInvRslt,
+    cucsNfsMountInstFsmStageDescr                                    SnmpAdminString,
+    cucsNfsMountInstFsmStamp                                         DateAndTime,
+    cucsNfsMountInstFsmStatus                                        SnmpAdminString,
+    cucsNfsMountInstFsmTry                                           Gauge32,
+    cucsNfsMountInstLocalDir                                         SnmpAdminString,
+    cucsNfsMountInstName                                             SnmpAdminString,
+    cucsNfsMountInstOperState                                        CucsNfsMntOperState,
+    cucsNfsMountInstPurpose                                          CucsNfsPurpose,
+    cucsNfsMountInstRemoteDir                                        SnmpAdminString,
+    cucsNfsMountInstServer                                           SnmpAdminString
+}
+
+cucsNfsMountInstInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsNfsMountInstEntry 1 }
+
+cucsNfsMountInstDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:dn managed object property"
+    ::= { cucsNfsMountInstEntry 2 }
+
+cucsNfsMountInstRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:rn managed object property"
+    ::= { cucsNfsMountInstEntry 3 }
+
+cucsNfsMountInstAdminState OBJECT-TYPE
+    SYNTAX       CucsNfsMntAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:adminState managed object property"
+    ::= { cucsNfsMountInstEntry 4 }
+
+cucsNfsMountInstClientConfigState OBJECT-TYPE
+    SYNTAX       CucsNfsClientConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:clientConfigState managed
+        object property"
+    ::= { cucsNfsMountInstEntry 5 }
+
+cucsNfsMountInstDefDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:defDn managed object property"
+    ::= { cucsNfsMountInstEntry 6 }
+
+cucsNfsMountInstFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:fsmDescr managed object property"
+    ::= { cucsNfsMountInstEntry 7 }
+
+cucsNfsMountInstFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:fsmPrev managed object property"
+    ::= { cucsNfsMountInstEntry 8 }
+
+cucsNfsMountInstFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:fsmProgr managed object property"
+    ::= { cucsNfsMountInstEntry 9 }
+
+cucsNfsMountInstFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:fsmRmtInvErrCode managed object property"
+    ::= { cucsNfsMountInstEntry 10 }
+
+cucsNfsMountInstFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:fsmRmtInvErrDescr managed
+        object property"
+    ::= { cucsNfsMountInstEntry 11 }
+
+cucsNfsMountInstFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:fsmRmtInvRslt managed object property"
+    ::= { cucsNfsMountInstEntry 12 }
+
+cucsNfsMountInstFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:fsmStageDescr managed object property"
+    ::= { cucsNfsMountInstEntry 13 }
+
+cucsNfsMountInstFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:fsmStamp managed object property"
+    ::= { cucsNfsMountInstEntry 14 }
+
+cucsNfsMountInstFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:fsmStatus managed object property"
+    ::= { cucsNfsMountInstEntry 15 }
+
+cucsNfsMountInstFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:fsmTry managed object property"
+    ::= { cucsNfsMountInstEntry 16 }
+
+cucsNfsMountInstLocalDir OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:localDir managed object property"
+    ::= { cucsNfsMountInstEntry 17 }
+
+cucsNfsMountInstName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:name managed object property"
+    ::= { cucsNfsMountInstEntry 18 }
+
+cucsNfsMountInstOperState OBJECT-TYPE
+    SYNTAX       CucsNfsMntOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:operState managed object property"
+    ::= { cucsNfsMountInstEntry 19 }
+
+cucsNfsMountInstPurpose OBJECT-TYPE
+    SYNTAX       CucsNfsPurpose
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:purpose managed object property"
+    ::= { cucsNfsMountInstEntry 20 }
+
+cucsNfsMountInstRemoteDir OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:remoteDir managed object property"
+    ::= { cucsNfsMountInstEntry 21 }
+
+cucsNfsMountInstServer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInst:server managed object property"
+    ::= { cucsNfsMountInstEntry 22 }
+
+cucsNfsMountInstFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsNfsMountInstFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsm managed object table"
+    ::= { cucsNfsObjects 7 }
+
+cucsNfsMountInstFsmEntry OBJECT-TYPE
+    SYNTAX           CucsNfsMountInstFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsNfsMountInstFsmTable table."
+    INDEX { cucsNfsMountInstFsmInstanceId }
+    ::= { cucsNfsMountInstFsmTable 1 }
+
+CucsNfsMountInstFsmEntry ::= SEQUENCE {
+    cucsNfsMountInstFsmInstanceId                                    CucsManagedObjectId,
+    cucsNfsMountInstFsmDn                                            CucsManagedObjectDn,
+    cucsNfsMountInstFsmRn                                            SnmpAdminString,
+    cucsNfsMountInstFsmCompletionTime                                DateAndTime,
+    cucsNfsMountInstFsmCurrentFsm                                    CucsNfsMountInstFsmCurrentFsm,
+    cucsNfsMountInstFsmDescrData                                     SnmpAdminString,
+    cucsNfsMountInstFsmFsmStatus                                     CucsFsmFsmStageStatus,
+    cucsNfsMountInstFsmProgress                                      Gauge32,
+    cucsNfsMountInstFsmRmtErrCode                                    Gauge32,
+    cucsNfsMountInstFsmRmtErrDescr                                   SnmpAdminString,
+    cucsNfsMountInstFsmRmtRslt                                       CucsConditionRemoteInvRslt
+}
+
+cucsNfsMountInstFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsNfsMountInstFsmEntry 1 }
+
+cucsNfsMountInstFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsm:dn managed object property"
+    ::= { cucsNfsMountInstFsmEntry 2 }
+
+cucsNfsMountInstFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsm:rn managed object property"
+    ::= { cucsNfsMountInstFsmEntry 3 }
+
+cucsNfsMountInstFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsm:completionTime managed
+        object property"
+    ::= { cucsNfsMountInstFsmEntry 4 }
+
+cucsNfsMountInstFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsNfsMountInstFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsm:currentFsm managed object property"
+    ::= { cucsNfsMountInstFsmEntry 5 }
+
+cucsNfsMountInstFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsm:descr managed object property"
+    ::= { cucsNfsMountInstFsmEntry 6 }
+
+cucsNfsMountInstFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsm:fsmStatus managed object property"
+    ::= { cucsNfsMountInstFsmEntry 7 }
+
+cucsNfsMountInstFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsm:progress managed object property"
+    ::= { cucsNfsMountInstFsmEntry 8 }
+
+cucsNfsMountInstFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsm:rmtErrCode managed object property"
+    ::= { cucsNfsMountInstFsmEntry 9 }
+
+cucsNfsMountInstFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsm:rmtErrDescr managed object property"
+    ::= { cucsNfsMountInstFsmEntry 10 }
+
+cucsNfsMountInstFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsm:rmtRslt managed object property"
+    ::= { cucsNfsMountInstFsmEntry 11 }
+
+cucsNfsMountInstFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsNfsMountInstFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmStage managed object table"
+    ::= { cucsNfsObjects 8 }
+
+cucsNfsMountInstFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsNfsMountInstFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsNfsMountInstFsmStageTable table."
+    INDEX { cucsNfsMountInstFsmStageInstanceId }
+    ::= { cucsNfsMountInstFsmStageTable 1 }
+
+CucsNfsMountInstFsmStageEntry ::= SEQUENCE {
+    cucsNfsMountInstFsmStageInstanceId                               CucsManagedObjectId,
+    cucsNfsMountInstFsmStageDn                                       CucsManagedObjectDn,
+    cucsNfsMountInstFsmStageRn                                       SnmpAdminString,
+    cucsNfsMountInstFsmStageDescrData                                SnmpAdminString,
+    cucsNfsMountInstFsmStageLastUpdateTime                           DateAndTime,
+    cucsNfsMountInstFsmStageName                                     CucsNfsMountInstFsmStageName,
+    cucsNfsMountInstFsmStageOrder                                    Gauge32,
+    cucsNfsMountInstFsmStageRetry                                    Gauge32,
+    cucsNfsMountInstFsmStageStageStatus                              CucsFsmFsmStageStatus
+}
+
+cucsNfsMountInstFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsNfsMountInstFsmStageEntry 1 }
+
+cucsNfsMountInstFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmStage:dn managed object property"
+    ::= { cucsNfsMountInstFsmStageEntry 2 }
+
+cucsNfsMountInstFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmStage:rn managed object property"
+    ::= { cucsNfsMountInstFsmStageEntry 3 }
+
+cucsNfsMountInstFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmStage:descr managed object property"
+    ::= { cucsNfsMountInstFsmStageEntry 4 }
+
+cucsNfsMountInstFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsNfsMountInstFsmStageEntry 5 }
+
+cucsNfsMountInstFsmStageName OBJECT-TYPE
+    SYNTAX       CucsNfsMountInstFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmStage:name managed object property"
+    ::= { cucsNfsMountInstFsmStageEntry 6 }
+
+cucsNfsMountInstFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmStage:order managed object property"
+    ::= { cucsNfsMountInstFsmStageEntry 7 }
+
+cucsNfsMountInstFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmStage:retry managed object property"
+    ::= { cucsNfsMountInstFsmStageEntry 8 }
+
+cucsNfsMountInstFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmStage:stageStatus managed
+        object property"
+    ::= { cucsNfsMountInstFsmStageEntry 9 }
+
+cucsNfsMountInstFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsNfsMountInstFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmTask managed object table"
+    ::= { cucsNfsObjects 9 }
+
+cucsNfsMountInstFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsNfsMountInstFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsNfsMountInstFsmTaskTable table."
+    INDEX { cucsNfsMountInstFsmTaskInstanceId }
+    ::= { cucsNfsMountInstFsmTaskTable 1 }
+
+CucsNfsMountInstFsmTaskEntry ::= SEQUENCE {
+    cucsNfsMountInstFsmTaskInstanceId                                CucsManagedObjectId,
+    cucsNfsMountInstFsmTaskDn                                        CucsManagedObjectDn,
+    cucsNfsMountInstFsmTaskRn                                        SnmpAdminString,
+    cucsNfsMountInstFsmTaskCompletion                                CucsFsmCompletion,
+    cucsNfsMountInstFsmTaskFlags                                     CucsFsmFlags,
+    cucsNfsMountInstFsmTaskItem                                      CucsNfsMountInstFsmTaskItem,
+    cucsNfsMountInstFsmTaskSeqId                                     Gauge32
+}
+
+cucsNfsMountInstFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsNfsMountInstFsmTaskEntry 1 }
+
+cucsNfsMountInstFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmTask:dn managed object property"
+    ::= { cucsNfsMountInstFsmTaskEntry 2 }
+
+cucsNfsMountInstFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmTask:rn managed object property"
+    ::= { cucsNfsMountInstFsmTaskEntry 3 }
+
+cucsNfsMountInstFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmTask:completion managed
+        object property"
+    ::= { cucsNfsMountInstFsmTaskEntry 4 }
+
+cucsNfsMountInstFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmTask:flags managed object property"
+    ::= { cucsNfsMountInstFsmTaskEntry 5 }
+
+cucsNfsMountInstFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsNfsMountInstFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmTask:item managed object property"
+    ::= { cucsNfsMountInstFsmTaskEntry 6 }
+
+cucsNfsMountInstFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nfs:MountInstFsmTask:seqId managed object property"
+    ::= { cucsNfsMountInstFsmTaskEntry 7 }
+
+END

@@ -1,0 +1,1076 @@
+-- MIB file created 27-May-2008 13:49:28, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IETF-DHCP-SERVER-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IETF-DHCP-SERVER-EXT-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TimeStamp, TimeInterval, TruthValue
+            FROM SNMPv2-TC-v1
+    InetAddressIPv4
+            FROM INET-ADDRESS-MIB
+    ifName, ifIndex
+            FROM IF-MIB
+    cDhcpv4ServerSubnetAddress, cDhcpv4ServerClientPhysicalAddress, 
+    cDhcpv4ServerSubnetFreeAddresses, 
+    cDhcpv4ServerSubnetFreeAddrLowThreshold, 
+    cDhcpv4ServerSubnetFreeAddrHighThreshold
+            FROM CISCO-IETF-DHCP-SERVER-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoIetfDhcpSrvExtMIB OBJECT IDENTIFIER ::= { ciscoExperiment 122 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200703151200Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-dhcp-mib@cisco.com
+--  Descr
+--    The MIB module is an extension of the Cisco IETF
+--    Dynamic Host Configuration protocol (DHCP) MIB.
+--  RevDate
+--    200703151200Z
+--  RevDescr
+--    Added cDhcpv4SrvExtSubnetTable, cDhcpv4ServerDefaultRouterAddress,
+--    cDhcpv4ServerSubnetStartAddress, cDhcpv4ServerSubnetEndAddress.
+--    
+--    Added cDhcpv4SrvIfCfgTable, cDhcpv4ServerIfLeaseLimitDefault,
+--    cDhcpv4ServerIfLeaseLimit.
+--    
+--    Added 3 new notifications:
+--    - cDhcpv4ServerIfLeaseLimitExceeded
+--    - cDhcpv4ServerSubnetFreeAddressLow
+--    - cDhcpv4ServerSubnetFreeAddressHigh
+--    
+--    Added 3 new notification control objects:
+--    - cDhcpv4ServerIfLeaseLimitEnable
+--    - cDhcpv4ServerSubnetFreeAddressLowEnable
+--    - cDhcpv4ServerSubnetFreeAddressHighEnable
+--    
+--    Added OBJECT-GROUP:
+--    - cDhcpv4SrvExtNotifyGroup
+--    
+--    Added cDhcpv4SrvExtComplianceRev1 MODULE-COMPLIANCE
+--  RevDate
+--    200505041200Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoIetfDhcpv4SrvExtMIBNotifs OBJECT IDENTIFIER ::= { ciscoIetfDhcpSrvExtMIB 0 }
+ciscoIetfDhcpv4SrvExtMIBObjects OBJECT IDENTIFIER ::= { ciscoIetfDhcpSrvExtMIB 1 }
+ciscoIetfDhcpv4SrvExtMIBConform OBJECT IDENTIFIER ::= { ciscoIetfDhcpSrvExtMIB 2 }
+cDhcpv4SrvExtSystem OBJECT IDENTIFIER ::= { ciscoIetfDhcpv4SrvExtMIBObjects 1 }
+cDhcpv4ExtCounters OBJECT IDENTIFIER ::= { ciscoIetfDhcpv4SrvExtMIBObjects 2 }
+cDhcpv4IntervalCounters OBJECT IDENTIFIER ::= { ciscoIetfDhcpv4SrvExtMIBObjects 3 }
+cDhcpv4FailoverCounters OBJECT IDENTIFIER ::= { ciscoIetfDhcpv4SrvExtMIBObjects 4 }
+cDhcpv4FailoverIntervalCounters OBJECT IDENTIFIER ::= { ciscoIetfDhcpv4SrvExtMIBObjects 5 }
+cDhcpv4CfgObjects OBJECT IDENTIFIER ::= { ciscoIetfDhcpv4SrvExtMIBObjects 6 }
+cDhcpv4SrvExtNotifyPrefix OBJECT IDENTIFIER ::= { ciscoIetfDhcpv4SrvExtMIBNotifs 2 }
+cDhcpv4SrvExtNotify OBJECT IDENTIFIER ::= { cDhcpv4SrvExtNotifyPrefix 0 }
+cDhcpv4SrvExtCompliances OBJECT IDENTIFIER ::= { ciscoIetfDhcpv4SrvExtMIBConform 1 }
+cDhcpv4SrvExtGroups OBJECT IDENTIFIER ::= { ciscoIetfDhcpv4SrvExtMIBConform 2 }
+
+cDhcpv4SrvStartTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time when the process supporting this server was started."
+    ::= { cDhcpv4SrvExtSystem 1 }
+
+cDhcpv4SrvResetTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time when the process supporting this server was last
+        reinitialized. This indicates the time when a server reload or
+        start was executed. At server startup this time is the same as 
+        cDhcpv4SrvStartTime."
+    ::= { cDhcpv4SrvExtSystem 2 }
+
+cDhcpv4LeaseQueries OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of DHCPLEASEQUERY packets received."
+    ::= { cDhcpv4ExtCounters 1 }
+
+cDhcpv4StatisticsResetTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time the server statistics counters were last reinitialized;
+        the statistics counters are reinitialized by a reset command, 
+        server reload, or server start; note also that any configuration
+        change to reporting interval requires a server reload to take 
+        effect, which will reinitialize the statistics counters. If 
+        statistics are never reset, this time will equal 
+        cDhcpv4SrvResetTime, which may also equal cDhcpv4SrvStartTime, 
+        if the server was never reloaded."
+    ::= { cDhcpv4ExtCounters 2 }
+
+cDhcpv4FOPacketsRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total total number of failover packets received."
+    ::= { cDhcpv4FailoverCounters 1 }
+
+cDhcpv4FOBindingUpdsRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total total number of failover DHCPBNDUPD packets received."
+    ::= { cDhcpv4FailoverCounters 2 }
+
+cDhcpv4FOBindingAcksRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of failover DHCPBNDACK packets received."
+    ::= { cDhcpv4FailoverCounters 3 }
+
+cDhcpv4FOBindingNaksRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of failover DHCPBNDNAK packets received."
+    ::= { cDhcpv4FailoverCounters 4 }
+
+cDhcpv4FOPoolRequestsRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of failover DHCPPOOLREQ packets received."
+    ::= { cDhcpv4FailoverCounters 5 }
+
+cDhcpv4FOPollsRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of failover DHCPPOLL packets received."
+    ::= { cDhcpv4FailoverCounters 6 }
+
+cDhcpv4FOUpdateRequestsRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of failover DHCPUPDATEREQ packets received."
+    ::= { cDhcpv4FailoverCounters 7 }
+
+cDhcpv4FOUpdateDoneRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of failover DHCPUPDATEDONE packets received."
+    ::= { cDhcpv4FailoverCounters 8 }
+
+cDhcpv4FOPacketsSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of failover packets sent."
+    ::= { cDhcpv4FailoverCounters 9 }
+
+cDhcpv4FOBindingUpdatesSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of DHCPBNDUPD packets sent."
+    ::= { cDhcpv4FailoverCounters 10 }
+
+cDhcpv4FOBindingAcksSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of DHCPBNDACKS packets sent."
+    ::= { cDhcpv4FailoverCounters 11 }
+
+cDhcpv4FOBindingNaksSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of DHCPBNDNAK packets sent."
+    ::= { cDhcpv4FailoverCounters 12 }
+
+cDhcpv4FOPoolResponsesSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of DHCPPOOLRESP packets sent."
+    ::= { cDhcpv4FailoverCounters 13 }
+
+cDhcpv4FOPollsSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of DHCPPOLL packets sent during
+        reporting interval."
+    ::= { cDhcpv4FailoverCounters 14 }
+
+cDhcpv4FOUpdateRequestsSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of DHCPUPDATEREQ packets sent during reporting
+        interval."
+    ::= { cDhcpv4FailoverCounters 15 }
+
+cDhcpv4FOUpdateDoneSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of DHCPUPDATEDONE packets sent during reporting
+        interval."
+    ::= { cDhcpv4FailoverCounters 16 }
+
+cDhcpv4FOPacketsDropped OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of failover packets dropped during reporting
+        interval."
+    ::= { cDhcpv4FailoverCounters 17 }
+
+cDhcpv4IntDiscovers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPDISCOVER (option 53 with value 1) packets
+        received during the reporting interval."
+    REFERENCE
+        "RFC2131; RFC2132, section 9.6."
+    ::= { cDhcpv4IntervalCounters 1 }
+
+cDhcpv4IntOffers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPOFFER (option 53 with value 2) packets
+        sent during the reporting interval."
+    REFERENCE
+        "RFC2131; RFC2132, section 9.6."
+    ::= { cDhcpv4IntervalCounters 2 }
+
+cDhcpv4IntRequests OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPREQUEST (option 53 with value 3) packets
+        received during the reporting interval."
+    REFERENCE
+        "RFC2131; RFC2132, section 9.6."
+    ::= { cDhcpv4IntervalCounters 3 }
+
+cDhcpv4IntDeclines OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPDECLINE (option 53 with value 4) packets
+        received during the reporting interval."
+    REFERENCE
+        "RFC2131; RFC2132, section 9.6."
+    ::= { cDhcpv4IntervalCounters 4 }
+
+cDhcpv4IntAcks OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPACK (option 53 with value 5) packets sent
+        during the reporting interval."
+    REFERENCE
+        "RFC2131; RFC2132, section 9.6."
+    ::= { cDhcpv4IntervalCounters 5 }
+
+cDhcpv4IntNaks OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPNACK (option 53 with value 6) packets sent
+        during the reporting interval."
+    REFERENCE
+        "RFC2131; RFC2132, section 9.6."
+    ::= { cDhcpv4IntervalCounters 6 }
+
+cDhcpv4IntReleases OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPRELEASE (option 53 with value 7) packets
+        received during the reporting interval."
+    REFERENCE
+        "RFC2131; RFC2132, section 9.6."
+    ::= { cDhcpv4IntervalCounters 7 }
+
+cDhcpv4IntInforms OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPINFORM (option 53 with value 8) packets
+        received during the reporting interval."
+    REFERENCE
+        "RFC2131; RFC2132, section 9.6."
+    ::= { cDhcpv4IntervalCounters 8 }
+
+cDhcpv4IntLeaseQueries OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of DHCPLEASEQUERY packets received during
+        the reporting interval."
+    ::= { cDhcpv4IntervalCounters 9 }
+
+cDhcpv4IntReqBuffersInUse OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    buffers
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of request buffers in use during the
+        reporting interval."
+    ::= { cDhcpv4IntervalCounters 10 }
+
+cDhcpv4IntRespBuffersInUse OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    buffers
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of response buffers in use at the end of the
+        reporting interval."
+    ::= { cDhcpv4IntervalCounters 11 }
+
+cDhcpv4IntEndTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time when the server last calculated the sample statistics."
+    ::= { cDhcpv4IntervalCounters 12 }
+
+cDhcpv4IntDeltaTime OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The interval in seconds over which the server last calculated
+        the sample interval statistics. This is the configured reporting
+        interval and the statistics are reset since the last 
+        cDhcpv4IntEndTime."
+    ::= { cDhcpv4IntervalCounters 13 }
+
+cDhcpv4FOIntPacketsRcvd OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failover packets received during the reporting
+        interval."
+    ::= { cDhcpv4FailoverIntervalCounters 1 }
+
+cDhcpv4FOIntBindingUpdsRcvd OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failover DHCPBNDUPD packets received during
+        the reporting interval."
+    ::= { cDhcpv4FailoverIntervalCounters 2 }
+
+cDhcpv4FOIntBindingAcksRcvd OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failover DHCPBNDACK packets received during
+        the reporting interval."
+    ::= { cDhcpv4FailoverIntervalCounters 3 }
+
+cDhcpv4FOIntBindingNaksRcvd OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failover DHCPBNDNAK packets received during
+        reporting interval."
+    ::= { cDhcpv4FailoverIntervalCounters 4 }
+
+cDhcpv4FOIntPoolRequestsRcvd OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failover DHCPPOOLREQ packets received during
+        the reporting interval."
+    ::= { cDhcpv4FailoverIntervalCounters 5 }
+
+cDhcpv4FOIntPollsRcvd OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failover DHCPPOLL packets received during
+        the reporting interval."
+    ::= { cDhcpv4FailoverIntervalCounters 6 }
+
+cDhcpv4FOIntUpdateReqsRcvd OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failover DHCPUPDATEREQ packets received during
+        the reporting interval."
+    ::= { cDhcpv4FailoverIntervalCounters 7 }
+
+cDhcpv4FOIntUpdateDoneRcvd OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failover DHCPUPDATEDONE packets received during
+        the reporting interval."
+    ::= { cDhcpv4FailoverIntervalCounters 8 }
+
+cDhcpv4FOIntPacketsSent OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failover packets sent during the
+        reporting interval."
+    ::= { cDhcpv4FailoverIntervalCounters 9 }
+
+cDhcpv4FOIntBindingUpdsSent OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPBNDUPD packets sent during the reporting
+        interval."
+    ::= { cDhcpv4FailoverIntervalCounters 10 }
+
+cDhcpv4FOIntBindingAcksSent OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPBNDACKS packets sent during the reporting
+        interval."
+    ::= { cDhcpv4FailoverIntervalCounters 11 }
+
+cDhcpv4FOIntBindingNaksSent OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPBNDNAK packets sent during the reporting
+        interval."
+    ::= { cDhcpv4FailoverIntervalCounters 12 }
+
+cDhcpv4FOIntPoolResponsesSent OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPPOOLRESP packets sent during the reporting
+        interval."
+    ::= { cDhcpv4FailoverIntervalCounters 13 }
+
+cDhcpv4FOIntPollsSent OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPPOLL packets sent during the
+        reporting interval."
+    ::= { cDhcpv4FailoverIntervalCounters 14 }
+
+cDhcpv4FOIntUpdateReqsSent OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPUPDATEREQ packets sent during the reporting
+        interval."
+    ::= { cDhcpv4FailoverIntervalCounters 15 }
+
+cDhcpv4FOIntUpdateDoneSent OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DHCPUPDATEDONE packets sent during the reporting
+        interval."
+    ::= { cDhcpv4FailoverIntervalCounters 16 }
+
+cDhcpv4FOIntPacketsDropped OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failover packets dropped during the reporting
+        interval."
+    ::= { cDhcpv4FailoverIntervalCounters 17 }
+
+cDhcpv4FOIntEndTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time when the server last calculated the interval
+        statistics."
+    ::= { cDhcpv4FailoverIntervalCounters 18 }
+
+cDhcpv4FOIntDeltaTime OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The interval in seconds over which the server last calculated
+        the sample interval statistics. This is the configured reporting 
+        interval and the statistics are reset since the last 
+        cDhcpv4IntEndTime."
+    ::= { cDhcpv4FailoverIntervalCounters 19 }
+
+cDhcpv4ConfigIntervalSample OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configures the sample time for the various interval counters."
+    ::= { cDhcpv4CfgObjects 1 }
+
+cDhcpv4SrvExtSubnetTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CDhcpv4SrvExtSubnetEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table augments the cDhcpv4ServerSubnetTable."
+    ::= { cDhcpv4CfgObjects 2 }
+
+cDhcpv4SrvExtSubnetEntry OBJECT-TYPE
+    SYNTAX CDhcpv4SrvExtSubnetEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry contains additional subnet information not defined in
+        cDhcpv4ServerSubnetEntry."
+    INDEX { cDhcpv4ServerSubnetAddress }
+-- Augments cDhcpv4ServerSubnetEntry FROM CISCO-IETF-DHCP-SERVER-MIB
+    ::= { cDhcpv4SrvExtSubnetTable 1 }
+
+CDhcpv4SrvExtSubnetEntry ::= SEQUENCE {
+    cDhcpv4ServerDefaultRouterAddress InetAddressIPv4,
+    cDhcpv4ServerSubnetStartAddress InetAddressIPv4,
+    cDhcpv4ServerSubnetEndAddress InetAddressIPv4
+    }
+
+cDhcpv4ServerDefaultRouterAddress OBJECT-TYPE
+    SYNTAX InetAddressIPv4
+--    Rsyntax OCTET STRING(SIZE(4))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The default router IPv4 address in this subnet."
+    ::= { cDhcpv4SrvExtSubnetEntry 1 }
+
+cDhcpv4ServerSubnetStartAddress OBJECT-TYPE
+    SYNTAX InetAddressIPv4
+--    Rsyntax OCTET STRING(SIZE(4))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IPv4 address of the first address in the subnet.  The
+        value of cDhcpv4ServerSubnetStartAddress MUST be less than or 
+        equal to the value of cDhcpv4ServerSubnetEndAddress."
+    ::= { cDhcpv4SrvExtSubnetEntry 2 }
+
+cDhcpv4ServerSubnetEndAddress OBJECT-TYPE
+    SYNTAX InetAddressIPv4
+--    Rsyntax OCTET STRING(SIZE(4))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IPv4 address of the last address in the subnet.  The value
+        of cDhcpv4ServerSubnetEndAddress MUST be greater than or equal 
+        to the value of cDhcpv4ServerSubnetStartAddress."
+    ::= { cDhcpv4SrvExtSubnetEntry 3 }
+
+cDhcpv4ServerIfLeaseLimitEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if the DHCP module should
+        generate 'cDhcpv4ServerIfLeaseLimitExceeded' 
+        notifications.
+        
+        If value of this object is 'true', then the notification 
+        is generated when the number of leases offered to DHCP 
+        clients behind an interface is reached based on per 
+        limit lease configuration command.
+        
+        If it is 'false', the notification is not generated."
+    DEFVAL { false }
+    ::= { cDhcpv4CfgObjects 3 }
+
+cDhcpv4ServerSubnetFreeAddressLowEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if the DHCP module should
+        generate 'cDhcpv4ServerSubnetFreeAddressLow' notifications.
+        
+        If value of this object is 'true', then the notification is 
+        generated when the number of available IPv4 addresses for 
+        a particular subnet has fallen below the value of 
+        cDhcpv4ServerSubnetFreeAddrLowThreshold for that subnet.
+        
+        If it is 'false', the notification is not generated."
+    DEFVAL { false }
+    ::= { cDhcpv4CfgObjects 4 }
+
+cDhcpv4ServerSubnetFreeAddressHighEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if the DHCP module should
+        generate 'cDhcpv4ServerSubnetFreeAddressHigh' notifications.
+        
+        If value of this object is 'true', then the notification is 
+        generated when the number of available IPv4 addresses for 
+        a particular subnet has fallen below the value of 
+        cDhcpv4ServerSubnetFreeAddrHighThreshold for that subnet.
+        
+        If it is 'false', the notification is not generated."
+    DEFVAL { false }
+    ::= { cDhcpv4CfgObjects 5 }
+
+cDhcpv4ServerIfLeaseLimitDefault OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The default number of Dynamic Host Configuration Protocol (DHCP)
+        clients allowed for an interface.  Refer to 
+        'cDhcpv4ServerIfLeaseLimit'."
+    ::= { cDhcpv4CfgObjects 6 }
+
+cDhcpv4SrvIfCfgTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CDhcpv4SrvIfCfgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of the DHCP interface configuration data maintained by
+        the server."
+    ::= { cDhcpv4CfgObjects 7 }
+
+cDhcpv4SrvIfCfgEntry OBJECT-TYPE
+    SYNTAX CDhcpv4SrvIfCfgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry consists of the DHCP configuration data applied to the
+        interface."
+    INDEX { ifIndex }
+    ::= { cDhcpv4SrvIfCfgTable 1 }
+
+CDhcpv4SrvIfCfgEntry ::= SEQUENCE {
+    cDhcpv4ServerIfLeaseLimit Gauge
+    }
+
+cDhcpv4ServerIfLeaseLimit OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Dynamic Host Configuration Protocol (DHCP) clients
+        allowed for an interface.  The value of this object is equal to 
+        the value of the 'cDhcpv4ServerIfLeaseLimitDefault' for the 
+        interface that does not have the interface lease limit 
+        configuration.  The value of the 'cDhcpv4ServerIfLeaseLimit' 
+        object reflects the lease limit on that interface (whether 
+        it's configured with a value specifically for that interface or
+        if the value of 'cDhcpv4ServerIfLeaseLimitDefault' applies).
+        
+        When this lease limit is reached or exceeded, the 
+        cDhcpv4ServerIfLeaseLimitExceeded notification will be 
+        generated if cDhcpv4ServerIfLeaseLimitEnable is enabled."
+    ::= { cDhcpv4SrvIfCfgEntry 1 }
+
+cDhcpv4ServerIfLeaseLimitExceeded TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cDhcpv4SrvExtNotifyPrefix
+    VARIABLES {
+        ifName, cDhcpv4ServerClientPhysicalAddress, 
+        cDhcpv4ServerIfLeaseLimit }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification indicates when a client has attempted to obtain
+        a lease and the lease was not granted because the number of leases 
+        granted to clients on the receiving interface is equal to 
+        cDhcpv4ServerIfLeaseLimit."
+    ::= 1
+
+cDhcpv4ServerSubnetFreeAddressLow TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cDhcpv4SrvExtNotifyPrefix
+    VARIABLES {
+        cDhcpv4ServerSubnetFreeAddresses, 
+        cDhcpv4ServerSubnetFreeAddrLowThreshold }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification indicates that the number of available IPv4
+        addresses for a particular subnet has fallen below the 
+        corresponding value of cDhcpv4ServerSubnetFreeAddrLowThreshold 
+        for that shared network."
+    ::= 2
+
+cDhcpv4ServerSubnetFreeAddressHigh TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cDhcpv4SrvExtNotifyPrefix
+    VARIABLES {
+        cDhcpv4ServerSubnetFreeAddresses, 
+        cDhcpv4ServerSubnetFreeAddrHighThreshold }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification indicates that the number of available IPv4
+        addresses for a particular subnet has risen above the 
+        corresponding value of cDhcpv4ServerSubnetFreeAddrHighThreshold 
+        for that shared network."
+    ::= 3
+
+cDhcpv4SrvExtSystemObjects OBJECT IDENTIFIER ::= { cDhcpv4SrvExtGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing overall system information
+--    for a DHCPv4 server.
+--  objects
+--    cDhcpv4SrvStartTime, cDhcpv4SrvResetTime
+
+cDhcpv4ExtCountersGroup OBJECT IDENTIFIER ::= { cDhcpv4SrvExtGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of extension objects providing counter values for
+--    a DHCPv4 server.
+--  objects
+--    cDhcpv4LeaseQueries, cDhcpv4StatisticsResetTime
+
+cDhcpv4CountersIntervalGroup OBJECT IDENTIFIER ::= { cDhcpv4SrvExtGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of extension objects providing interval counter
+--    values for a DHCPv4 server.
+--  objects
+--    cDhcpv4IntDiscovers, cDhcpv4IntOffers, cDhcpv4IntRequests, 
+--    cDhcpv4IntDeclines, cDhcpv4IntAcks, cDhcpv4IntNaks, 
+--    cDhcpv4IntInforms, cDhcpv4IntLeaseQueries, cDhcpv4IntReleases, 
+--    cDhcpv4IntRespBuffersInUse, cDhcpv4IntReqBuffersInUse, 
+--    cDhcpv4IntEndTime, cDhcpv4IntDeltaTime
+
+cDhcpv4FOCountersGroup OBJECT IDENTIFIER ::= { cDhcpv4SrvExtGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing failover counter values for
+--    a DHCPv4 server.
+--  objects
+--    cDhcpv4FOPacketsRcvd, cDhcpv4FOBindingUpdsRcvd, 
+--    cDhcpv4FOBindingAcksRcvd, cDhcpv4FOBindingNaksRcvd, 
+--    cDhcpv4FOPoolRequestsRcvd, cDhcpv4FOPollsRcvd, 
+--    cDhcpv4FOUpdateRequestsRcvd, cDhcpv4FOUpdateDoneRcvd, 
+--    cDhcpv4FOPacketsSent, cDhcpv4FOBindingUpdatesSent, 
+--    cDhcpv4FOBindingAcksSent, cDhcpv4FOBindingNaksSent, 
+--    cDhcpv4FOPoolResponsesSent, cDhcpv4FOPollsSent, 
+--    cDhcpv4FOUpdateRequestsSent, cDhcpv4FOUpdateDoneSent, 
+--    cDhcpv4FOPacketsDropped
+
+cDhcpv4FOCountersIntervalGroup OBJECT IDENTIFIER ::= { cDhcpv4SrvExtGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing failover interval counter
+--    values for a DHCPv4 server.
+--  objects
+--    cDhcpv4FOIntPacketsRcvd, cDhcpv4FOIntBindingUpdsRcvd, 
+--    cDhcpv4FOIntBindingAcksRcvd, cDhcpv4FOIntBindingNaksRcvd, 
+--    cDhcpv4FOIntPoolRequestsRcvd, cDhcpv4FOIntPollsRcvd, 
+--    cDhcpv4FOIntUpdateReqsRcvd, cDhcpv4FOIntUpdateDoneRcvd, 
+--    cDhcpv4FOIntPacketsSent, cDhcpv4FOIntBindingUpdsSent, 
+--    cDhcpv4FOIntBindingAcksSent, cDhcpv4FOIntBindingNaksSent, 
+--    cDhcpv4FOIntPoolResponsesSent, cDhcpv4FOIntPollsSent, 
+--    cDhcpv4FOIntUpdateReqsSent, cDhcpv4FOIntUpdateDoneSent, 
+--    cDhcpv4FOIntPacketsDropped, cDhcpv4FOIntEndTime, 
+--    cDhcpv4FOIntDeltaTime
+
+cDhcpv4CfgObjectsGroup OBJECT IDENTIFIER ::= { cDhcpv4SrvExtGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects providing configuration information for a DHCPv4 server.
+--  objects
+--    cDhcpv4ConfigIntervalSample, 
+--    cDhcpv4ServerDefaultRouterAddress, 
+--    cDhcpv4ServerSubnetStartAddress, 
+--    cDhcpv4ServerSubnetEndAddress, 
+--    cDhcpv4ServerIfLeaseLimitEnable, 
+--    cDhcpv4ServerSubnetFreeAddressLowEnable, 
+--    cDhcpv4ServerSubnetFreeAddressHighEnable, 
+--    cDhcpv4ServerIfLeaseLimitDefault, cDhcpv4ServerIfLeaseLimit
+
+cDhcpv4SrvExtNotifyGroup OBJECT IDENTIFIER ::= { cDhcpv4SrvExtGroups 7 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Notifications belonging to the cDhcpv4SrvExtNotify group.
+--  notifications
+--    cDhcpv4ServerIfLeaseLimitExceeded, 
+--    cDhcpv4ServerSubnetFreeAddressLow, 
+--    cDhcpv4ServerSubnetFreeAddressHigh
+
+cDhcpv4SrvExtCompliance OBJECT IDENTIFIER ::= { cDhcpv4SrvExtCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    This group describes the requirements for conformance to the
+--    DHCP Server extension MIB.  A DHCPv4 server implementation is 
+--    only required to support IPv4 addresses.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cDhcpv4SrvExtSystemObjects
+--   MandGroup
+--    cDhcpv4ExtCountersGroup
+--   MandGroup
+--    cDhcpv4CountersIntervalGroup
+--   MandGroup
+--    cDhcpv4FOCountersGroup
+--   MandGroup
+--    cDhcpv4FOCountersIntervalGroup
+--   OptGroup
+--    cDhcpv4CfgObjectsGroup
+--   ObjVar
+--    cDhcpv4ConfigIntervalSample
+
+cDhcpv4SrvExtComplianceRev1 OBJECT IDENTIFIER ::= { cDhcpv4SrvExtCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    This group describes the requirements for conformance to the
+--    DHCP Server extension MIB.  A DHCPv4 server implementation is 
+--    only required to support IPv4 addresses.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cDhcpv4SrvExtSystemObjects
+--   OptGroup
+--    cDhcpv4ExtCountersGroup
+--   OptGroup
+--    cDhcpv4CountersIntervalGroup
+--   OptGroup
+--    cDhcpv4FOCountersGroup
+--   OptGroup
+--    cDhcpv4FOCountersIntervalGroup
+--   OptGroup
+--    cDhcpv4CfgObjectsGroup
+--   OptGroup
+--    cDhcpv4SrvExtNotifyGroup
+--   ObjVar
+--    cDhcpv4ConfigIntervalSample
+--   ObjVar
+--    cDhcpv4ServerDefaultRouterAddress
+--   ObjVar
+--    cDhcpv4ServerIfLeaseLimitEnable
+--   ObjVar
+--    cDhcpv4ServerSubnetFreeAddressLowEnable
+--   ObjVar
+--    cDhcpv4ServerSubnetFreeAddressHighEnable
+--   ObjVar
+--    cDhcpv4ServerIfLeaseLimitDefault
+--   ObjVar
+--    cDhcpv4ServerIfLeaseLimit
+
+
+END
+

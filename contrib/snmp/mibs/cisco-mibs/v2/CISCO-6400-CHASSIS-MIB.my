@@ -1,0 +1,1459 @@
+-- **********************************************************************
+-- CISCO-6400-CHASSIS-MIB.my:	Cisco 6400 Chassis MIB file.
+--
+-- Aug 1998, Eric Chen
+--
+-- Copyright (c) 1998-1999, 2000, 2001 by cisco Systems, Inc.
+-- All rights reserved.
+-- **********************************************************************
+--
+CISCO-6400-CHASSIS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+	MODULE-IDENTITY,
+        OBJECT-TYPE,
+        NOTIFICATION-TYPE,
+        Counter32,
+        Integer32
+		FROM SNMPv2-SMI
+
+        TEXTUAL-CONVENTION,
+	RowStatus,
+        DisplayString
+        	FROM SNMPv2-TC
+
+	ifIndex
+       		FROM IF-MIB
+
+	MODULE-COMPLIANCE, OBJECT-GROUP
+       		FROM SNMPv2-CONF
+
+	ciscoExperiment
+		FROM CISCO-SMI;
+
+cisco6400ChassisMIB	MODULE-IDENTITY
+	LAST-UPDATED	"200110220000Z"
+	ORGANIZATION    "Cisco Systems, Inc."
+	CONTACT-INFO
+		"	Cisco Systems
+			Customer Service
+
+		Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+ 
+                   Tel: +1 800 553-NETS
+ 
+                E-mail: cs-atm@cisco.com"
+	DESCRIPTION
+		"Add nrpSwitchoverAlarm,
+		     nrpSecondaryFailureAlarm,
+		     nrpSecondaryRemovedAlarm, and
+		     nrpMismatchAlarm."
+	REVISION	"200110220000Z"
+	DESCRIPTION
+		"Add nrpBootUpAlarm. Deprecated cisco6400ChassisMIBCompliance
+		 and cisco6400RedundantGroup.  Created cisco6400ChassisMIBCompliance
+		 and cisco6400RedundantGroup2."
+	REVISION	"200105101234Z"
+	DESCRIPTION
+		"Add diskAlarm and imageAlarm."
+	REVISION	"200009251234Z"
+	DESCRIPTION
+		"6400 Chassis MIB."
+	REVISION	"9903220000Z"
+	DESCRIPTION
+		"Add Signal Fail BER."
+	REVISION	"9808050000Z"
+	DESCRIPTION
+		"Update chassis alarm threshold setup range & main-cpu auto-sync
+		 flags."
+	REVISION	"9712100000Z"
+	DESCRIPTION
+		"Initial version of this MIB module."
+	::= { ciscoExperiment 27 }
+
+APSEventStatus ::= TEXTUAL-CONVENTION
+        STATUS    current
+        DESCRIPTION
+        "APS event status of APS channel."
+        SYNTAX     INTEGER {	good(1),
+				noHardware(2),
+				doNotRevert(3),
+				manualSwitch(4),
+				signgalDegrade(5),
+				forceSwitch(6),
+				lockOut(7),
+				adminDown(8)
+                                }
+
+
+cisco6400ChassisMIBObjects OBJECT IDENTIFIER ::= { cisco6400ChassisMIB 1 }
+c64RedundantGroup OBJECT IDENTIFIER ::= { cisco6400ChassisMIBObjects 1 }
+c64ChassisGroup OBJECT IDENTIFIER ::= { cisco6400ChassisMIBObjects 2 }
+
+-- the main-cpu group
+c64MainCPUConfigAutoSync	OBJECT-TYPE
+ 	SYNTAX		Integer32(0..65535)
+	MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION     "This object is an OR bit mask indicating various
+			 auto-sync configuration:
+
+			 Bit 0, if set, indicates that standard syncable
+				objects are set for auto-sync. The standard
+				set of objects may evolve from software release
+				to release. In release 1, this set is 
+				startup-config, bootvar and config-register.
+				This flag is independent to the other flag
+				settings described below.
+			 Bit 1, if set, indicates startup-config is set for
+				auto-sync
+			 Bit 2. if set, indicates running-config is set for
+				auto-sync. This flag is not supported in
+				revison 1.
+			 Bit 3, if set, indicates bootvar is set for auto-sync
+			 Bit 4, if set, indicates config-register is set for
+				auto-sync. 
+			 Bit 5..31, are reserved for future expansion. Setting
+				any bit in this range will have no effect."
+	::= { c64RedundantGroup 1 }
+
+c64MainCPUSwitchOver	OBJECT-TYPE
+	SYNTAX		INTEGER {
+				ok(1),
+				forceOver(2)
+				}
+	MAX-ACCESS	read-write
+	STATUS		current
+	DESCRIPTION	"This object, when read always return a value of
+			 ok(1).
+
+			 Setting this object to forceOver(2) will have:
+
+			 For a redundant NSP-A|B, force them to exchange the
+			 primary and secondary roles. The primary NSP will
+			 be reloaded."
+	::= { c64RedundantGroup 2 }
+
+-- the slot group
+c64SlotConfigTable	OBJECT-TYPE
+	SYNTAX		SEQUENCE OF C64SlotConfigEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"A list of redundant slot-pair entries.
+
+			 A managment station that wish to create the redundancy
+			 entry other than NSP should perform the following
+			 steps:
+			
+			 Get the ciscoLS1010ModuleIndex from
+		 	 ciscoLS1010ModuleTable which are mapped to the
+			 corresponding pair of the physical slots to be
+			 configured for redundancy.
+
+			 Use the pair of the ciscoLS1010ModuleIndex 
+			 and a unique entry index to create table entry.
+			 Only the adjacent slots can be configured for
+			 redundancy."
+	::= { c64RedundantGroup 3 }
+
+c64SlotConfigEntry	OBJECT-TYPE
+	SYNTAX		C64SlotConfigEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION 	"Entry containing information for a particular pair
+			 of redundant slots. The object value of
+			 c64Slot1Index & c64Slot2Index refer to
+                         the pair of ciscoLS1010ModuleIndex in
+			 ciscoLS1010ModuleTable to be configured as redundant."
+
+	INDEX		{ c64SlotConfigModule1Index,
+			  c64SlotConfigModule2Index}
+	::= { c64SlotConfigTable 1 }
+
+C64SlotConfigEntry ::= SEQUENCE {
+			c64SlotConfigModule1Index
+				INTEGER,
+			c64SlotConfigModule2Index
+				INTEGER,
+			c64Slot1Name
+				DisplayString,
+			c64Slot2Name
+				DisplayString,
+			c64SlotConfigPrefIndex
+				INTEGER,
+			c64SlotSwitchOver
+				INTEGER,
+			c64SlotConfigStatus
+				RowStatus
+			}
+
+c64SlotConfigModule1Index OBJECT-TYPE
+	SYNTAX		INTEGER (1..15)
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"This object specify the first slot in the pair of
+                         slots to be configured for the redundacy. Its value
+ 			 is obtained from ciscoLS1010ModuleIndex in
+                         ciscoLS1010ModuleTable."
+	::= { c64SlotConfigEntry 1 }
+
+c64SlotConfigModule2Index OBJECT-TYPE
+	SYNTAX		INTEGER (1..15)
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"This object specify the second slot in the pair of
+                         slots to be configured for the redundacy. Its value
+                         is the obtained from ciscoLS1010ModuleIndex in
+	 	         ciscoLS1010ModuleTable."
+	::= { c64SlotConfigEntry 2 }
+
+c64Slot1Name 	OBJECT-TYPE
+	SYNTAX		DisplayString
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"Name of slot#1 in the pair of slots
+			 configured to redundant."
+	::= { c64SlotConfigEntry 3 }
+
+c64Slot2Name 	OBJECT-TYPE
+	SYNTAX		DisplayString
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"Name of slot#2 in the pair of slots
+			 configured to redundant."
+	::= { c64SlotConfigEntry 4 }
+
+c64SlotConfigPrefIndex	OBJECT-TYPE
+	SYNTAX		INTEGER {
+				  primarySlot(1),
+				  secondarySlot(2)
+				}
+	MAX-ACCESS	read-create
+	STATUS		deprecated
+	DESCRIPTION	"This object specify which slot in the pair
+			 of redundancy to be used as prefer slot.
+
+			 The value of:
+
+		 	 primarySlot(1) is telling the system use the slot
+				referred by c64Slot1Index as preferred slot.
+
+			 secondarySlot(2) is to use the slot referred by
+			 	c64Slot2Index.
+
+			 The default is primarySlot(1).
+			 
+			 The slot prefer feature is removed and the 
+			 the object is deprecated"
+	::= { c64SlotConfigEntry 5 }
+
+c64SlotSwitchOver	OBJECT-TYPE
+	SYNTAX		INTEGER { ok(1), forceOver(2) }
+	MAX-ACCESS	read-create
+	STATUS		current
+	DESCRIPTION	"This object, when read always return a value of
+			 ok(1).
+
+			 Setting this object to forceOver(2) will have:
+
+			 For a redundant NRP slot pair, force them
+                         to exchange the primary and secondary roles.
+
+		         For a redundant carrier slot pair, force both
+                         the subslots (line cards) to exchange the
+                         primary(working) and secondary(protection) roles."
+	::= { c64SlotConfigEntry 6 }
+
+c64SlotConfigStatus 	OBJECT-TYPE
+	SYNTAX		RowStatus
+	MAX-ACCESS	read-create
+	STATUS		current
+	DESCRIPTION	"The status object for the c64SlotTable entry."
+	::= { c64SlotConfigEntry 7 }
+
+
+-- the subslot group
+
+c64SubSlotConfigTable	OBJECT-TYPE
+	SYNTAX		SEQUENCE OF C64SubSlotConfigEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"A list of redundant subslot pair entries.
+		
+			 A managment station that wish to create the
+			 subslot redundancy entry should perform the
+			 following steps:
+
+			 Get the ciscoLS1010ModuleIndex &
+			 ciscoLS1010SubModuleIndex from
+			 ciscoLS1010SubModuleTable which are mapped to the
+			 corresponding pair of the physical sub-slots to be
+			 configured for the redundancy.
+
+			 Use the pair of the ciscoLS1010ModuleIndex &
+			 ciscoLS1010SubModuleIndex and an unique entry index
+			 to create table entry. Only the adjacent sub-slots
+			 can be configured for redundancy."
+	::= { c64RedundantGroup 5 }
+
+c64SubSlotConfigEntry	OBJECT-TYPE
+	SYNTAX		C64SubSlotConfigEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION 	"Entry containing information for a particular pair
+			 of redundant subslots."
+	INDEX		{ c64SubSlotConfigModule1Index,
+			  c64SubSlotConfigSubModule1Index,
+			  c64SubSlotConfigModule2Index,
+			  c64SubSlotConfigSubModule2Index,
+			  c64SubSlotRedundantIndex }
+
+	::= { c64SubSlotConfigTable 1 }
+
+C64SubSlotConfigEntry ::= SEQUENCE {
+			c64SubSlotRedundantIndex
+				INTEGER,
+			c64SubSlotConfigModule1Index
+				INTEGER,
+			c64SubSlotConfigSubModule1Index
+				INTEGER,
+			c64SubSlotConfigModule2Index
+				INTEGER,
+			c64SubSlotConfigSubModule2Index
+				INTEGER,
+			c64SubSlot1Name
+				DisplayString,
+			c64SubSlot2Name
+				DisplayString,
+			c64SubSlotConfigPrefIndex
+				INTEGER,
+                        c64SubSlotSwitchOver
+                                INTEGER,
+			c64SubSlotConfigStatus
+				RowStatus
+			}
+
+c64SubSlotRedundantIndex	OBJECT-TYPE
+	SYNTAX		INTEGER (1..65535)
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"An arbitrary integer-value to uniquely identify
+			 a redundant slot pair. This  value must remain
+			 constant while the NSP is running. It is not
+			 guarenteed to be constant between reboots or
+			 switchover of the NSP."
+	::= { c64SubSlotConfigEntry 1 }
+
+c64SubSlotConfigModule1Index	OBJECT-TYPE
+	SYNTAX		INTEGER (1..15)
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"This object specify the first slot in the pair of
+			 sub-slots to be configured for the redundancy. Its
+			 value is obtained from the ciscoLS1010ModuleIndex in
+			 ciscoLS1010SubModuleTable."
+	::= { c64SubSlotConfigEntry 2 }
+
+c64SubSlotConfigSubModule1Index	OBJECT-TYPE
+	SYNTAX		INTEGER (0..1)
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"This object specify the first sub-slot in the pair
+			 of sub-slots to be configured for the redundancy. Its
+			 value is obtained from the ciscoLS1010SubModuleIndex 
+			 in ciscoLS1010SubModuleTable."
+	::= { c64SubSlotConfigEntry 3 }
+
+c64SubSlotConfigModule2Index	OBJECT-TYPE
+	SYNTAX		INTEGER (1..15)
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"This object specify the second slot in the pair of
+			 sub-slots to be configured for the redundancy. Its
+			 value is obtained from the ciscoLS1010ModuleIndex
+			 in ciscoLS1010SubModuleTable."
+	::= { c64SubSlotConfigEntry 4 }
+
+c64SubSlotConfigSubModule2Index	OBJECT-TYPE
+	SYNTAX		INTEGER (0..1)
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"This object specify the second sub-slot in the pair
+			 of sub-slots to be configured for the redundancy. Its
+			 value is obtained from the ciscoLS1010SubModuleIndex
+			 in ciscoLS1010SubModuleTable."
+	::= { c64SubSlotConfigEntry 5 }
+
+c64SubSlot1Name 	OBJECT-TYPE
+	SYNTAX		DisplayString
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object is to reflect the string name in the
+			 format of #/# for the sub-slot1 in the pair of
+			 redundancy. This is produced by agent when
+			 the table entry is created."
+	::= { c64SubSlotConfigEntry 6 }
+
+c64SubSlot2Name 	OBJECT-TYPE
+	SYNTAX		DisplayString
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object is to reflect the string name in the
+			 format of #/# for the sub-slot2 in the pair of 
+			 redundancy. This is produced by agent when table
+			 entry is created."
+	::= { c64SubSlotConfigEntry 7 }
+
+c64SubSlotConfigPrefIndex OBJECT-TYPE
+	SYNTAX		INTEGER {
+				primarySubslot(1),
+				secondarySubslot(2)
+			}
+	MAX-ACCESS	read-create
+	STATUS		deprecated
+	DESCRIPTION	"This object specify which sub-slot in the pair of
+			 redundancy to be used as prefer sub-slot.
+
+			 The value of:
+
+			 primarySubslot(1) is telling the system use the subslot
+			 	referred by c64SubSlotConfigModule1Index
+				and c64SubSlotConfigSubModule1Index as
+				preferred sub-slot.
+
+			 secondarySubslot(2) is to use the sub-slot referred by
+			 	c64SubSlotConfigModule2Index and
+			 	c64SubSlotConfigSubModule2Index.
+
+			 The default is primarySubslot(1).
+			
+			 The subslot prefer feature is removed and the object
+			 is deprecated"
+	::= { c64SubSlotConfigEntry 8 }
+
+c64SubSlotSwitchOver 	OBJECT-TYPE
+	SYNTAX		INTEGER { ok(1), forceOver(2) }
+	MAX-ACCESS	read-create
+	STATUS		current
+	DESCRIPTION	"This object, when read always return a value of
+			 ok(1). Setting this object to forceOver(2)
+			 will have the result of:
+
+			 For a redundant subslot card pair, force the
+			 current master and slave cards (for NRPs) or
+			 working and protection cards (for linecards) to
+			 exchange roles."
+	::= { c64SubSlotConfigEntry 9 }
+
+c64SubSlotConfigStatus	OBJECT-TYPE
+	SYNTAX		RowStatus
+	MAX-ACCESS	read-create
+	STATUS		current
+	DESCRIPTION	"The status object for c64SubSlotConfigTable
+			 entry. "
+	::= { c64SubSlotConfigEntry 10 }
+
+-- the port group
+
+c64PortConfigTable OBJECT-TYPE
+	SYNTAX		SEQUENCE OF C64PortConfigEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"A list of redundant port-pair entries.
+
+			 A management station that wish to create the
+			 redundant entry should perform the following
+			 steps:
+
+			 Get the ciscoLS1010ModuleIndex,
+				 ciscoLS1010SubModuleIndex and
+				 ciscoLS1010PortIndex
+			 from ciscoLS1010PortTable which are mapped to 
+			 the corresponding pair of the physical ports to
+			 be configured for the redundancy.
+
+			 Lookup the c64SubSlotConfigTable to see if
+			 the corresponding sub-slots has been configured
+			 for redundancy. If yes, get the entry's 
+			 c64SubSlotRedundantIndex. Otherwise the
+			 application should abort this port redundancy
+			 configuration.
+				 
+			 Use the c64SubSlotRedundantIndex value and
+			 ciscoLS1010ModuleIndex, ciscoLS1010SubModuleIndex and
+			 ciscoLS1010PortIndex to create table entry. Only
+			 the adjacent ports in the adjacent sub-slots can
+			 be configured for redundancy."
+	::= { c64RedundantGroup 6 }
+
+c64PortConfigEntry OBJECT-TYPE
+	SYNTAX		C64PortConfigEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"Entry containing information for a particual pair of
+			 redundant ports."
+	INDEX		{ c64PortConfigModule1Index,
+			  c64PortConfigSubModule1Index,
+			  c64PortConfigPort1Index,
+			  c64PortConfigModule2Index,
+			  c64PortConfigSubModule2Index,
+			  c64PortConfigPort2Index,
+			  c64SubSlotRedundantIndex
+			}
+	::= { c64PortConfigTable 1 }
+
+C64PortConfigEntry ::= SEQUENCE {
+		c64PortConfigModule1Index
+			INTEGER,
+		c64PortConfigSubModule1Index
+			INTEGER,
+		c64PortConfigPort1Index
+			INTEGER,
+		c64PortConfigModule2Index
+			INTEGER,
+		c64PortConfigSubModule2Index
+			INTEGER,
+		c64PortConfigPort2Index
+			INTEGER,
+		c64Port1Name
+			DisplayString,
+		c64Port2Name
+			DisplayString,
+		c64PortConfigPrefIndex
+			INTEGER,
+                c64PortSwitchOver
+                        INTEGER,
+		c64PortConfigStatus
+			RowStatus
+		}
+
+c64PortConfigModule1Index	OBJECT-TYPE
+	SYNTAX		INTEGER (1..15)
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"This object specify the first slot which contain
+			 the port to be configured as the redundancy pair.
+			 Its value is obtained from the ciscoLS1010ModuleIndex
+			 in ciscoLS1010PortTable."
+	::= { c64PortConfigEntry 1 }
+
+c64PortConfigSubModule1Index	OBJECT-TYPE
+	SYNTAX		INTEGER (0..1)
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"This object specify the first sub-slot which contain
+			 the port to be configured as the redundancy pair.
+                         Its value is obtained from ciscoLS1010SubModuleIndex
+			 in ciscoLS1010PortTable."
+	::= { c64PortConfigEntry 2 }
+
+c64PortConfigPort1Index	OBJECT-TYPE
+	SYNTAX		INTEGER (0..255)
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"This object specify the first port in the pair of
+			 ports to be configured for the redundancy. 
+                         Its value is obtained from ciscoLS1010PortIndex in
+                         ciscoLS1010PortTable."
+	::= { c64PortConfigEntry 3 }
+
+c64PortConfigModule2Index	OBJECT-TYPE
+	SYNTAX		INTEGER (1..15)
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"This object specify the second slot which contain
+			 the port to be configured as the redundancy pair.
+                         Its value is obtained from the ciscoLS1010ModuleIndex
+			 in ciscoLS1010PortTable."
+	::= { c64PortConfigEntry 4 }
+
+c64PortConfigSubModule2Index	OBJECT-TYPE
+	SYNTAX		INTEGER (0..1)
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"This object specify the second sub-slot which contain
+			 the port to be configured as the redundancy pair.
+                         Its value is obtained from the
+			 ciscoLS1010SubModuleIndex in ciscoLS1010PortTable."
+	::= { c64PortConfigEntry 5 }
+
+c64PortConfigPort2Index	OBJECT-TYPE
+	SYNTAX		INTEGER (0..255)
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"This object specify the second port in the pair of
+			 ports to be configured for the redundancy. 
+                         Its value is obtained from the ciscoLS1010PortIndex in
+                         ciscoLS1010PortTable."
+	::= { c64PortConfigEntry 6 }
+
+c64Port1Name 	OBJECT-TYPE
+	SYNTAX		DisplayString
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object is to reflect the string name in the
+			 format of #/#/# for the port1 in the pair of
+			 redundancy. This is produced by agent when the
+			 table entry is created."
+	::= { c64PortConfigEntry 7 }
+
+c64Port2Name 	OBJECT-TYPE
+	SYNTAX		DisplayString
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object is to reflect the string name in the
+			 format of #/#/# for the port2 in the pair of
+			 redundancy. This is produced by agent when the
+			 table entry is created."
+	::= { c64PortConfigEntry 8 }
+
+c64PortConfigPrefIndex	OBJECT-TYPE
+	SYNTAX		INTEGER {
+				primaryPort(1),
+				secondaryPort(2)
+			}
+	MAX-ACCESS	read-create
+	STATUS		current
+	DESCRIPTION	"This object specify which port in the pair of
+			 redundancy to be used as prefer port.
+
+			 The value of:
+
+			 primaryPort(1) is telling the system use the port
+				referred by c64PortConfigModule1Index,
+			    	c64PortConfigSubModule1Index and
+			    	c64PortConfigPort1Index as preferred port.
+		
+			 secondaryPort(2) is to use the port referred by
+			 	c64PortConfigModule2Index,
+			 	c64PortConfigSubModule2Index and
+			 	c64PortConfigPort2Index.
+
+			 The default is primaryPort(1)."
+	::= { c64PortConfigEntry 9 }
+
+c64PortSwitchOver	OBJECT-TYPE
+	SYNTAX		INTEGER { ok(1), forceOver(2) }
+	MAX-ACCESS	read-create
+	STATUS		current
+	DESCRIPTION	"This object, when read always return a value of
+			 ok(1). Setting this object to one of the acceptable
+			 values gives the following results:
+			 forceOver(2):	Force the current working and
+	                                protection ports to exchange roles."
+	::= { c64PortConfigEntry 10 }
+
+c64PortConfigStatus OBJECT-TYPE
+	SYNTAX		RowStatus
+	MAX-ACCESS	read-create
+	STATUS		current
+	DESCRIPTION	"The status object for c64PortConfigTable 
+			 entry."
+	::= { c64PortConfigEntry 11 }
+
+-- Sonet APS Config Table
+
+c64SonetAPSConfigTable OBJECT-TYPE
+	SYNTAX		SEQUENCE OF C64SonetAPSConfigEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"A table containing all instances of Sonet APS
+			 configuration informations. To configure any APS
+			 objects in this table, the corresponding subslots
+			 pair have to be already configured for redundancy."
+	::= { c64RedundantGroup 7 }
+
+c64SonetAPSConfigEntry OBJECT-TYPE
+	SYNTAX		C64SonetAPSConfigEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"Entry containing APS information for a particular
+			 interface."
+	INDEX		{ ifIndex }
+	::= { c64SonetAPSConfigTable 1 }
+
+C64SonetAPSConfigEntry ::= SEQUENCE {
+		c64SonetAPSMode
+			INTEGER,
+		c64SonetAPSBERThreshold
+			INTEGER,
+		c64SonetAPSSwitchCmd
+			INTEGER,
+		c64SonetAPSSFBERThreshold
+			INTEGER
+		}
+
+c64SonetAPSMode		OBJECT-TYPE
+	SYNTAX		INTEGER {
+				linear(1),
+				yCable(2),
+				disable(3)
+			}
+	MAX-ACCESS	read-create
+	STATUS		current
+	DESCRIPTION	"This object is used to set the APS mode on the
+			 corresponding interface referenced by ifIndex object.
+
+			 The value linear(1) is the APS mode of linear 1+1
+			 nonreverting and unidirectional. This only
+			 true APS mode supported in cisco6400 at FCS.
+
+			 The value yCable(2) is providing the port hardware
+			 redundancy but not transmission line redundancy and
+			 is not strictly an APS mode."
+	::= { c64SonetAPSConfigEntry 1 }
+
+c64SonetAPSBERThreshold	OBJECT-TYPE
+	SYNTAX		INTEGER (0..150000)
+	MAX-ACCESS	read-create
+	STATUS		current
+	DESCRIPTION	"This is object is used to set the Bit-Error-Rate
+			 threshold at which an APS request of priority
+			 'Signal Degrade' will be posted.
+
+			 Value of 0 to disable the threshold."
+	::= { c64SonetAPSConfigEntry 2 }
+
+c64SonetAPSSwitchCmd	OBJECT-TYPE
+	SYNTAX		INTEGER {
+				lockOut(1),
+				forceWorking(2),
+				forceProtect(3),
+				manualWorking(4),
+				manualProtect(5),
+				clear(6)
+			}
+	MAX-ACCESS	read-create
+	STATUS		current
+	DESCRIPTION	"This object when set except clear(4) is used to post
+			 an APS priority request. This request succeeds if no
+			 higher-priority request is posted.
+
+			 lockOut(1):
+				locks out the protection channel corresponding
+				to this entry
+			 forceWorking(2) & manualWorking(4):
+				post a request to switch away from the
+				working channel to protection channel of
+				this entry
+			 forceProtect(3) & manualProtect(5):
+				post a request to switch away from the 
+				protection channel to working channel of
+				this entry
+			 clear(6):
+				Clears all posted APS priority requests in
+				this channel."
+	::= { c64SonetAPSConfigEntry 3 }
+
+c64SonetAPSSFBERThreshold	OBJECT-TYPE
+	SYNTAX		INTEGER (3..5)
+	MAX-ACCESS	read-create
+	STATUS		current
+	DESCRIPTION	"This is object is used to set the Signal Fail 
+			 Bit-Error-Rate threshold at which an APS 
+			 request of priority 'Signal Fail' will be posted.
+			 3 => 10E-3, 4 => 10E-4, 5 => 10E-5"
+	::= { c64SonetAPSConfigEntry 4 }
+
+-- Sonet APS Stats Table
+
+c64SonetAPSStatsTable	OBJECT-TYPE
+	SYNTAX		SEQUENCE OF C64SonetAPSStatsEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"A table containing APS statistics and alarms
+			 information for each interface."
+	::= { c64RedundantGroup 8 }
+
+c64SonetAPSStatsEntry	OBJECT-TYPE
+	SYNTAX		C64SonetAPSStatsEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"A row in the c64SonetAPSStatsTable which corresponds
+			 to the statistics/alarms kept by a particular
+			 APS interface."
+	INDEX		{ ifIndex }
+	::= { c64SonetAPSStatsTable 1 }
+
+C64SonetAPSStatsEntry ::= SEQUENCE {
+			c64SonetAPSWorkSectionStatus
+				Integer32,
+			c64SonetAPSWorkLineStatus
+				Integer32,
+			c64SonetAPSWorkPathStatus
+				Integer32,
+			c64SonetAPSWorkSectionBIPE
+				Counter32,
+			c64SonetAPSWorkLineBIPE
+				Counter32,
+			c64SonetAPSWorkLineFEBE
+				Counter32,
+			c64SonetAPSWorkPathBIPE
+				Counter32,
+			c64SonetAPSWorkPathFEBE
+				Counter32,
+			c64SonetAPSWorkPortStatus
+				APSEventStatus,
+			c64SonetAPSProtectSectionStatus
+				Integer32,
+			c64SonetAPSProtectLineStatus
+				Integer32,
+			c64SonetAPSProtectPathStatus
+				Integer32,
+			c64SonetAPSProtectSectionBIPE
+				Counter32,
+			c64SonetAPSProtectLineBIPE
+				Counter32,
+			c64SonetAPSProtectLineFEBE
+				Counter32,
+			c64SonetAPSProtectPathBIPE
+				Counter32,
+			c64SonetAPSProtectPathFEBE
+				Counter32,
+			c64SonetAPSProtectPortStatus
+				APSEventStatus,
+			c64SonetAPSChannelStatus
+				APSEventStatus
+			}
+
+c64SonetAPSWorkSectionStatus OBJECT-TYPE
+	SYNTAX		Integer32(1..65535)
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This variable indicates the section level status of
+			 the working channel in APS. The
+			 c64SonetAPSWorkSectionStatus is a bit map represented
+			 as a sum of multiple alarms simultaneously. The
+			 sonetSectionNoDefect should be set if and only if no
+			 other flag is set.
+
+			 The various bit position are:
+				1	sonetSectionNoDefect
+				2	sonetSectionLOS
+				3	sonetSectionLOF
+				4	sonetBIPE(BIp-8)"
+	::= { c64SonetAPSStatsEntry 1 }
+
+c64SonetAPSWorkLineStatus OBJECT-TYPE
+	SYNTAX		Integer32(1..65535)
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This variable indicates the line level status of the
+			 working channel in APS. The
+			 c64SonetAPSWorkLineStatus is a bit map represented as
+			 a sum of multiple alarms simultaneously. The
+			 sonetLineNoDefect should be set if and only if no
+			 other flag is set.
+
+			 The various bit position are:
+				1	sonetLineNoDefect
+				2	sonetLineAIS
+				3	sonetLineRDI
+				4	sonetBIPE(BIP-8/24)
+				5	sonetFEBE"
+	::= { c64SonetAPSStatsEntry 2 }
+
+c64SonetAPSWorkPathStatus OBJECT-TYPE
+	SYNTAX		Integer32(1..65535)
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This variable indicates the path level status of the
+			 working channel in APS. The
+			 c64SonetAPSWorkPathStatus is a bit map represented as
+			 a sum of multiple alarms simultaneously. The
+			 sonetPathNoDefect should be set if and only if no
+			 other flag is set.
+
+			 The various bit position are:
+				1	sonetPathNoDefect
+				2	sonetPathSTSAIS
+				3	sonetPathSTSRDI
+				4	sonetPathSTSLOP
+				5 	sonetBIPE(BIP-8)
+				6	sonetFEBE
+				7	sonetPathUnequipped
+				8	sonetPathSignalLabelMismatch"
+	::= { c64SonetAPSStatsEntry 3 }
+
+c64SonetAPSWorkSectionBIPE  OBJECT-TYPE
+	SYNTAX		Counter32
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object counts the number of section BIP-8 errors
+			 in working channel."
+	::= { c64SonetAPSStatsEntry 4 }
+
+c64SonetAPSWorkLineBIPE	OBJECT-TYPE
+	SYNTAX		Counter32
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object counts the number of line BIP-8/24 errors
+			 in working channel."
+	::= { c64SonetAPSStatsEntry 5 }
+
+c64SonetAPSWorkLineFEBE	OBJECT-TYPE
+	SYNTAX		Counter32
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object counts the number of line
+			 far-end-block-errors in working channel."
+	::= { c64SonetAPSStatsEntry 6 }
+
+c64SonetAPSWorkPathBIPE	OBJECT-TYPE
+	SYNTAX		Counter32
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object counts the number of path BIP-8 errors
+			 in working channel."
+	::= { c64SonetAPSStatsEntry 7 }
+
+c64SonetAPSWorkPathFEBE	OBJECT-TYPE
+	SYNTAX		Counter32
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object counts the number of path
+			 far-end-block-errors in working channel."
+	::= { c64SonetAPSStatsEntry 8 }	
+
+c64SonetAPSWorkPortStatus	OBJECT-TYPE
+	SYNTAX		APSEventStatus
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object indicates the last aps event detected
+			 in working port."
+	::= { c64SonetAPSStatsEntry 9 }
+
+c64SonetAPSProtectSectionStatus OBJECT-TYPE
+	SYNTAX		Integer32(1..65535)
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This variable indicates the section level status of
+			 the protection channel in APS. The
+			 c64SonetAPSProtectSectionStatus is a bit map
+			 represented as a sum of multiple alarms simultaneously.
+			 The sonetSectionNoDefect should be set if and only if
+			 no other flag is set.
+
+			 The various bit position are:
+				1	sonetSectionNoDefect
+				2	sonetSectionLOS
+				4	sonetSectionLOF
+				8	sonetBIPE(BIp-8)"
+	::= { c64SonetAPSStatsEntry 10 }
+
+c64SonetAPSProtectLineStatus OBJECT-TYPE
+	SYNTAX		Integer32(1..65535)
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This variable indicates the line level status of the
+			 protection channel in APS. The
+			 c64SonetAPSProtectLineStatus is a bit map represented
+			 as a sum of multiple alarms simultaneously. The
+			 sonetLineNoDefect should be set if and only if no
+			 other flag is set.
+
+			 The various bit position are:
+				1	sonetLineNoDefect
+				2	sonetLineAIS
+				4	sonetLineRDI
+				8	sonetBIPE(BIP-8/24)
+				16	sonetFEBE"
+	::= { c64SonetAPSStatsEntry 11 }
+
+c64SonetAPSProtectPathStatus OBJECT-TYPE
+	SYNTAX		Integer32(1..65535)
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This variable indicates the path level status of the
+			 protection channel in APS. The
+			 c64SonetAPSProtectPathStatus is a bit map represented
+			 as a sum of multiple alarms simultaneously. The
+			 sonetPathNoDefect should be set if and only if no
+			 other flag is set.
+
+			 The various bit position are:
+				1	sonetPathNoDefect
+				2	sonetPathSTSLOP
+				4	sonetPathSTSAIS
+				8 	sonetBIPE(BIP-8)
+				16	sonetFEBE
+				32	sonetPathSTSRDI
+				64	sonetPathUnequipped
+				128	sonetPathSignalLabelMismatch"
+	::= { c64SonetAPSStatsEntry 12 }
+
+c64SonetAPSProtectSectionBIPE  OBJECT-TYPE
+	SYNTAX		Counter32
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object counts the number of section BIP-8 errors
+			 in protection channel."
+	::= { c64SonetAPSStatsEntry 13 }
+
+c64SonetAPSProtectLineBIPE	OBJECT-TYPE
+	SYNTAX		Counter32
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object counts the number of line BIP-8/24 errors
+			 in protection channel."
+	::= { c64SonetAPSStatsEntry 14 }
+
+c64SonetAPSProtectLineFEBE	OBJECT-TYPE
+	SYNTAX		Counter32
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object counts the number of line
+			 far-end-block-errors in protection channel."
+	::= { c64SonetAPSStatsEntry 15 }
+
+c64SonetAPSProtectPathBIPE	OBJECT-TYPE
+	SYNTAX		Counter32
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object counts the number of path BIP-8 errors
+			 in protection channel."
+	::= { c64SonetAPSStatsEntry 16 }
+
+c64SonetAPSProtectPathFEBE	OBJECT-TYPE
+	SYNTAX		Counter32
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object counts the number of path
+			 far-end-block-errors in protection channel."
+	::= { c64SonetAPSStatsEntry 17 }	
+
+c64SonetAPSProtectPortStatus	OBJECT-TYPE
+	SYNTAX		APSEventStatus
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object indicates the last aps event detected
+			 in protection port."
+	::= { c64SonetAPSStatsEntry 18 }
+
+c64SonetAPSChannelStatus	OBJECT-TYPE
+	SYNTAX		APSEventStatus
+	MAX-ACCESS      read-only
+	STATUS		current
+	DESCRIPTION	"This object indicates the last aps event detected in
+			 the APS channel."
+	::= { c64SonetAPSStatsEntry 19 }
+
+-- Telco alarms management objects
+
+c64TelcoAlarmMgmt OBJECT IDENTIFIER ::= { c64ChassisGroup 1 }
+
+c64ChassisFacilityAlarmStatus OBJECT-TYPE
+	SYNTAX		Integer32(0..65535)
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object is an OR bit mask indicating the 
+			 presence of critical/major/minor telco alarm:
+
+			 Bit 0, if set, indicates the presence of minor alarm
+			 Bit 1, if set, indicates the presence of major alarm
+			 Bit 2, if set, indicates the presence of critical alarm
+			"
+	::= { c64TelcoAlarmMgmt 1 }
+	
+c64ChassisClearAlarms OBJECT-TYPE
+	SYNTAX		INTEGER {
+				done(0),
+				all(1),
+				minor(2),
+				major(3),
+				critical(4)
+			}
+	MAX-ACCESS	read-write
+	STATUS		current
+	DESCRIPTION	"This object is used to clear all, major or minor alarms
+			 indication and reset the alarm contacts. When the
+			 clear command is done the value of this object will
+			 be set to done(0)."
+	::= { c64TelcoAlarmMgmt 2 } 
+
+c64ChassisTempIntakeMinorThreshold OBJECT-TYPE
+	SYNTAX		INTEGER (20..57)
+	MAX-ACCESS	read-write
+	STATUS		current
+	DESCRIPTION	"This object is used to set the intake minor
+			 temperature alarm threshold in degrees centigrade.
+			 The default value is ???."
+	::= { c64TelcoAlarmMgmt 3 }
+
+c64ChassisTempIntakeMajorThreshold OBJECT-TYPE
+	SYNTAX		INTEGER (20..57)
+	MAX-ACCESS	read-write
+	STATUS		current
+	DESCRIPTION	"This object is used to set the intake major
+			 temperature alarm threshold in degrees centigrade.
+			 The default value is ???."
+	::= { c64TelcoAlarmMgmt 4 }
+
+c64ChassisTempCoreMinorThreshold OBJECT-TYPE
+	SYNTAX		INTEGER (20..60)
+	MAX-ACCESS	read-write
+	STATUS		current
+	DESCRIPTION	"This object is used to set the core minor
+			 temperature alarm threshold in degrees centigrade.
+			 The default value is ???."
+	::= { c64TelcoAlarmMgmt 5 }
+
+c64ChassisTempCoreMajorThreshold OBJECT-TYPE
+	SYNTAX		INTEGER (20..60)
+	MAX-ACCESS	read-write
+	STATUS		current
+	DESCRIPTION	"This object is used to set the core major
+			 temperature alarm threshold in degrees centigrade.
+			 The default value is ???."
+	::= { c64TelcoAlarmMgmt 6 }
+
+c64ChassisTempThresholdAdmin	OBJECT-TYPE
+	SYNTAX		Integer32(0..65535) 
+	MAX-ACCESS	read-write
+	STATUS		current
+	DESCRIPTION	"This object is used to enable/disable various
+			 threshold limit.
+
+			 Bit 0, if set to 0 disable the intake minor threshold
+			        otherwise enable it.
+			 Bit 1, if set to 0 disable the intake major threshold
+				otherwise enable it.
+			 Bit 2, if set to 0 disable the core minor threshold
+				otherwise enable it.
+			 Bit 3, if set to 0 disable the core major threshold
+				otherwise enable it."
+	::= { c64TelcoAlarmMgmt 7 }
+
+-- Telco alarm status table
+c64ChassisAlarmTable	OBJECT-TYPE
+	SYNTAX		SEQUENCE OF C64ChassisAlarmEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"The table contains the current alarm status in the
+			 system."
+	::= { c64ChassisGroup 2 }
+
+c64ChassisAlarmEntry	OBJECT-TYPE
+	SYNTAX		C64ChassisAlarmEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION	"Entry containing alarm information occurred in the
+		 	 system."
+	INDEX		{ c64ChassisAlarmIndex }
+	::= { c64ChassisAlarmTable 1 }
+
+C64ChassisAlarmEntry ::= SEQUENCE {
+		c64ChassisAlarmIndex
+			INTEGER,
+		c64ChassisAlarmSource
+			DisplayString,
+		c64ChassisAlarmType
+			INTEGER,
+		c64ChassisAlarmSeverity
+			INTEGER,
+		c64ChassisAlarmACOStatus
+			INTEGER
+		}
+
+c64ChassisAlarmIndex	OBJECT-TYPE
+	SYNTAX		INTEGER (1..65535)
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"An arbitrary integer value to uniquely identify
+			 a alarm information entry."
+	::= { c64ChassisAlarmEntry 1 }
+
+c64ChassisAlarmSource	OBJECT-TYPE
+	SYNTAX		DisplayString
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object indicates the source of alarm. The
+			 variable will contain string in the following formats:
+
+			 'Chassis'	indicate the chassis alarms
+
+			 'Submodule'	indicate the submodule alarms
+
+			 'port@slot#/subslot#/port#'
+					indicate the port alarms.
+			 NMS app. will need to recognize the above three format
+			 in order to tell the alarm sources. The value other
+			 than the above three format cannot be allowed."
+	::= { c64ChassisAlarmEntry 2 }
+
+c64ChassisAlarmSeverity	OBJECT-TYPE
+	SYNTAX		INTEGER {
+				minor(1),
+				major(2),
+				critical(3)
+			}
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object indicates the severity of the alarm."
+	::= { c64ChassisAlarmEntry 4 }
+
+c64ChassisAlarmType 	OBJECT-TYPE
+	SYNTAX		INTEGER {
+				coreTemp(1),      -- Core temperature limit 
+				inletTemp(2),     -- Inlet temperature limit
+				totalFanFail(3),  -- Total fan failure
+				partialFanFail(4),-- Fan tray failure
+				fanMissing(5),    -- Fan missing
+				pem0Fail(6),      -- Power module 0 failure
+				pem1Fail(7),      -- Power module 1 failure
+				sonetLineFail(8), -- Sonet line failure, will be
+						  -- extended later on
+                                cardOIRAlarm(9),  -- Card OIR alarm for removal
+						  -- or wrong type insertion
+						  -- alarm
+				cardFail(10),	  -- Card failure alarm for
+						  -- non-redundant card failure,
+						  -- redundant primary card
+				cardPartialFail(11),
+						  -- Card partial failure alarm
+						  -- for redundancy secondary
+						  -- card failure
+                                linkDownAlarm(12),
+						  -- interface link down alarm
+                                networkClockAlarm(13),
+						  -- Network clock alarm
+				nrpSARFail(14),	  -- NRP SAR down
+				nrpPAMDataError(15),
+						  -- NRP driver, invalid PAM
+						  -- data or can't access
+				diskAlarm(16),    -- Primary and 
+						  -- secondary disk
+						  -- status (missing,
+						  -- not functional, 
+						  -- nearly full and 
+						  -- full)
+				imageAlarm(17),   -- no downloadable 
+						  -- image found for 
+						  -- slots
+				nrpBootUpAlarm(18),
+						  -- NRP not boot up
+
+				nrpSwitchoverAlarm(19),
+						  -- NRP redundant pair
+						  -- switchover
+
+				nrpSecondaryFailureAlarm(20),
+						  -- NRP redundant pair
+						  -- secondary failure
+
+				nrpSecondaryRemovedAlarm(21),
+						  -- NRP redundant pair
+						  -- secondary removed
+
+				nrpMismatchAlarm(22)
+						  -- NRP redundant pair
+						  -- mismatch types
+			}
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION	"This object indicates the type of alarm."
+	::= { c64ChassisAlarmEntry 3 }
+
+c64ChassisAlarmACOStatus OBJECT-TYPE
+        SYNTAX          INTEGER {
+				normal(1),
+				cutoff(2)
+			}
+        MAX-ACCESS      read-only
+        STATUS          current
+	DESCRIPTION	"This object indicates whether the audible/visible
+			 local alarm relay has been locally cut off for this
+			 particular alarm source.  When this status is 'normal',
+			 the alarm in this entry has closed the local
+			 audible/visible alarm relay contacts.  When this
+			 status is 'cutoff', the alarm in this entry initially
+			 closed the local relay contacts, but was suppressed by
+			 a local user pressing the external ACO button on the
+			 6400 NSP."
+	::= { c64ChassisAlarmEntry 5 }
+
+-- the following two OBJECT IDENTIFIERS are used to define SNMPv2 Notifications
+-- that are backward compatable with SNMPv1 Traps.
+
+cisco6400ChassisMIBNotificationPrefix OBJECT IDENTIFIER ::= { cisco6400ChassisMIB 2 }
+cisco6400ChassisMIBNotification OBJECT IDENTIFIER ::= { cisco6400ChassisMIBNotificationPrefix 0 }
+
+cisco6400ChassisFailureNotification NOTIFICATION-TYPE
+	OBJECTS {
+		c64ChassisFacilityAlarmStatus
+		}
+	STATUS  current
+	DESCRIPTION
+		"The notification signifies that the agent detects a change in
+		 the c64ChassisAlarmTable, the NMS application should start
+ 		 to poll the c64ChassisAlarmTable to get up-to-date alarm
+	 	 information."
+	::= { cisco6400ChassisMIBNotification 1 }
+
+-- confirmance information
+
+cisco6400ChassisMIBConformance		OBJECT IDENTIFIER ::= { cisco6400ChassisMIB 3 }
+cisco6400ChassisMIBCompliances		OBJECT IDENTIFIER ::= { cisco6400ChassisMIBConformance 1 }
+cisco6400ChassisMIBGroups		OBJECT IDENTIFIER ::= { cisco6400ChassisMIBConformance 2 }
+
+-- compliance statements
+
+-- cisco6400ChassisMIBCompliance  MODULE-COMPLIANCE 
+-- (deprecated:  moved to end of module)
+
+cisco6400ChassisMIBCompliance2 MODULE-COMPLIANCE
+	STATUS	current
+	DESCRIPTION
+		"The compliance statement for 6400s, used in Santa NSP, which
+		 implement the Cisco 6400 Chassis MIB"
+	MODULE	-- this module
+	MANDATORY-GROUPS {
+		cisco6400RedundantGroup2,
+		cisco6400ChassisMIBGroup
+		}
+	::= { cisco6400ChassisMIBCompliances 2 }
+
+-- units of conformance
+
+cisco6400RedundantGroup2 OBJECT-GROUP
+	OBJECTS {
+		c64MainCPUConfigAutoSync,
+		c64MainCPUSwitchOver,
+		c64Slot1Name,
+		c64Slot2Name,
+		c64SlotSwitchOver,
+		c64SlotConfigStatus,
+		c64SubSlot1Name,
+		c64SubSlot2Name,
+		c64SubSlotSwitchOver,
+		c64SubSlotConfigStatus,
+		c64Port1Name,
+		c64Port2Name,
+		c64PortConfigPrefIndex,
+		c64PortSwitchOver,
+		c64PortConfigStatus,
+		c64SonetAPSMode,
+		c64SonetAPSBERThreshold,
+		c64SonetAPSSwitchCmd,
+		c64SonetAPSSFBERThreshold,
+		c64SonetAPSWorkSectionStatus,
+		c64SonetAPSWorkLineStatus,
+		c64SonetAPSWorkPathStatus,
+		c64SonetAPSWorkSectionBIPE,
+		c64SonetAPSWorkLineBIPE,
+		c64SonetAPSWorkLineFEBE,
+		c64SonetAPSWorkPathBIPE,
+		c64SonetAPSWorkPathFEBE,
+		c64SonetAPSWorkPortStatus,
+		c64SonetAPSProtectSectionStatus,
+		c64SonetAPSProtectLineStatus,
+		c64SonetAPSProtectPathStatus,
+		c64SonetAPSProtectSectionBIPE,
+		c64SonetAPSProtectLineBIPE,
+		c64SonetAPSProtectLineFEBE,
+		c64SonetAPSProtectPathBIPE,
+		c64SonetAPSProtectPathFEBE,
+		c64SonetAPSProtectPortStatus,
+		c64SonetAPSChannelStatus
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects providing satan redundancy config.
+		 and information."
+	::= { cisco6400ChassisMIBGroups 3 }
+
+cisco6400ChassisMIBGroup OBJECT-GROUP
+	OBJECTS {
+		c64ChassisFacilityAlarmStatus,
+		c64ChassisClearAlarms,
+		c64ChassisTempIntakeMinorThreshold,
+		c64ChassisTempIntakeMajorThreshold,
+		c64ChassisTempCoreMinorThreshold,
+		c64ChassisTempCoreMajorThreshold,
+		c64ChassisTempThresholdAdmin,
+                c64ChassisAlarmIndex,
+                c64ChassisAlarmSource,
+                c64ChassisAlarmType,
+                c64ChassisAlarmSeverity,
+                c64ChassisAlarmACOStatus
+	}
+	STATUS current
+	DESCRIPTION
+		"A collection of objects providing santa telco alarm
+		 information."
+	::= { cisco6400ChassisMIBGroups 2 }
+
+-- Deprecated definitions
+
+cisco6400ChassisMIBCompliance MODULE-COMPLIANCE
+	STATUS	deprecated
+	DESCRIPTION
+		"The compliance statement for 6400s, used in Santa NSP, which
+		 implement the Cisco 6400 Chassis MIB.
+		   
+		 This compliance statement is deprecated as some objects were 
+		 deprecated in cisco6400RedundantGroup."
+	MODULE	-- this module
+	MANDATORY-GROUPS {
+		cisco6400RedundantGroup,
+		cisco6400ChassisMIBGroup
+		}
+	::= { cisco6400ChassisMIBCompliances 1 }
+
+-- units of conformance
+
+cisco6400RedundantGroup OBJECT-GROUP
+	OBJECTS {
+		c64MainCPUConfigAutoSync,
+		c64MainCPUSwitchOver,
+		c64Slot1Name,
+		c64Slot2Name,
+		c64SlotConfigPrefIndex,
+		c64SlotSwitchOver,
+		c64SlotConfigStatus,
+		c64SubSlot1Name,
+		c64SubSlot2Name,
+ 		c64SubSlotConfigPrefIndex,
+		c64SubSlotSwitchOver,
+		c64SubSlotConfigStatus,
+		c64Port1Name,
+		c64Port2Name,
+		c64PortConfigPrefIndex,
+		c64PortSwitchOver,
+		c64PortConfigStatus,
+		c64SonetAPSMode,
+		c64SonetAPSBERThreshold,
+		c64SonetAPSSwitchCmd,
+		c64SonetAPSSFBERThreshold,
+		c64SonetAPSWorkSectionStatus,
+		c64SonetAPSWorkLineStatus,
+		c64SonetAPSWorkPathStatus,
+		c64SonetAPSWorkSectionBIPE,
+		c64SonetAPSWorkLineBIPE,
+		c64SonetAPSWorkLineFEBE,
+		c64SonetAPSWorkPathBIPE,
+		c64SonetAPSWorkPathFEBE,
+		c64SonetAPSWorkPortStatus,
+		c64SonetAPSProtectSectionStatus,
+		c64SonetAPSProtectLineStatus,
+		c64SonetAPSProtectPathStatus,
+		c64SonetAPSProtectSectionBIPE,
+		c64SonetAPSProtectLineBIPE,
+		c64SonetAPSProtectLineFEBE,
+		c64SonetAPSProtectPathBIPE,
+		c64SonetAPSProtectPathFEBE,
+		c64SonetAPSProtectPortStatus,
+		c64SonetAPSChannelStatus
+	}
+	STATUS	deprecated
+	DESCRIPTION
+		"A collection of objects providing satan redundancy config.
+		 and information.
+		 This RFC 2155-level group was deprecated when the 
+		 c64SlotConfigPrefIndex and c64SubSlotConfigPrefIndex 
+		 objects were deprecated."
+	::= { cisco6400ChassisMIBGroups 1 }
+
+END

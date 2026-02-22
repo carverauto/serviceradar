@@ -1,0 +1,1754 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-PKI-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- PKI management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-PKI-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprAaaConfigState,
+    CfprAaaFqdnEnforceType,
+    CfprConditionRemoteInvRslt,
+    CfprFsmCompletion,
+    CfprFsmFlags,
+    CfprFsmFsmStageStatus,
+    CfprPkiCertRevokeMethod,
+    CfprPkiCertStatus,
+    CfprPkiEc,
+    CfprPkiEpFsmCurrentFsm,
+    CfprPkiEpFsmStageName,
+    CfprPkiEpFsmTaskItem,
+    CfprPkiImportActivity,
+    CfprPkiKeyringState,
+    CfprPkiModulus,
+    CfprPkiTpAutoImportImportControlStatus,
+    CfprPkiTransferState,
+    CfprPkiTransport,
+    CfprPkiTransportNoLocal,
+    CfprPkiType,
+    CfprPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprPkiObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        PKI management information model package"
+    ::= { ciscoFirepowerMIBObjects 61 }
+
+cfprPkiCertReqTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPkiCertReqEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq managed object table"
+    ::= { cfprPkiObjects 1 }
+
+cfprPkiCertReqEntry OBJECT-TYPE
+    SYNTAX           CfprPkiCertReqEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPkiCertReqTable table."
+    INDEX { cfprPkiCertReqInstanceId }
+    ::= { cfprPkiCertReqTable 1 }
+
+CfprPkiCertReqEntry ::= SEQUENCE {
+    cfprPkiCertReqInstanceId                                         CfprManagedObjectId,
+    cfprPkiCertReqDn                                                 CfprManagedObjectDn,
+    cfprPkiCertReqRn                                                 SnmpAdminString,
+    cfprPkiCertReqCountry                                            SnmpAdminString,
+    cfprPkiCertReqDns                                                SnmpAdminString,
+    cfprPkiCertReqEmail                                              SnmpAdminString,
+    cfprPkiCertReqIp                                                 SnmpAdminString,
+    cfprPkiCertReqIpA                                                InetAddressIPv4,
+    cfprPkiCertReqIpB                                                InetAddressIPv4,
+    cfprPkiCertReqIpv6                                               SnmpAdminString,
+    cfprPkiCertReqIpv6A                                              InetAddressIPv6,
+    cfprPkiCertReqIpv6B                                              InetAddressIPv6,
+    cfprPkiCertReqLocality                                           SnmpAdminString,
+    cfprPkiCertReqOrgName                                            SnmpAdminString,
+    cfprPkiCertReqOrgUnitName                                        SnmpAdminString,
+    cfprPkiCertReqPwd                                                SnmpAdminString,
+    cfprPkiCertReqReq                                                SnmpAdminString,
+    cfprPkiCertReqState                                              SnmpAdminString,
+    cfprPkiCertReqSubjName                                           SnmpAdminString
+}
+
+cfprPkiCertReqInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPkiCertReqEntry 1 }
+
+cfprPkiCertReqDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:dn managed object property"
+    ::= { cfprPkiCertReqEntry 2 }
+
+cfprPkiCertReqRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:rn managed object property"
+    ::= { cfprPkiCertReqEntry 3 }
+
+cfprPkiCertReqCountry OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:country managed object property"
+    ::= { cfprPkiCertReqEntry 4 }
+
+cfprPkiCertReqDns OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:dns managed object property"
+    ::= { cfprPkiCertReqEntry 5 }
+
+cfprPkiCertReqEmail OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:email managed object property"
+    ::= { cfprPkiCertReqEntry 6 }
+
+cfprPkiCertReqIp OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:ip managed object property"
+    ::= { cfprPkiCertReqEntry 7 }
+
+cfprPkiCertReqIpA OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:ipA managed object property"
+    ::= { cfprPkiCertReqEntry 8 }
+
+cfprPkiCertReqIpB OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:ipB managed object property"
+    ::= { cfprPkiCertReqEntry 9 }
+
+cfprPkiCertReqIpv6 OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:ipv6 managed object property"
+    ::= { cfprPkiCertReqEntry 10 }
+
+cfprPkiCertReqIpv6A OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:ipv6A managed object property"
+    ::= { cfprPkiCertReqEntry 11 }
+
+cfprPkiCertReqIpv6B OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:ipv6B managed object property"
+    ::= { cfprPkiCertReqEntry 12 }
+
+cfprPkiCertReqLocality OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:locality managed object property"
+    ::= { cfprPkiCertReqEntry 13 }
+
+cfprPkiCertReqOrgName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:orgName managed object property"
+    ::= { cfprPkiCertReqEntry 14 }
+
+cfprPkiCertReqOrgUnitName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:orgUnitName managed object property"
+    ::= { cfprPkiCertReqEntry 15 }
+
+cfprPkiCertReqPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:pwd managed object property"
+    ::= { cfprPkiCertReqEntry 16 }
+
+cfprPkiCertReqReq OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:req managed object property"
+    ::= { cfprPkiCertReqEntry 17 }
+
+cfprPkiCertReqState OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:state managed object property"
+    ::= { cfprPkiCertReqEntry 18 }
+
+cfprPkiCertReqSubjName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertReq:subjName managed object property"
+    ::= { cfprPkiCertReqEntry 19 }
+
+cfprPkiCertRevokeTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPkiCertRevokeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke managed object table"
+    ::= { cfprPkiObjects 8 }
+
+cfprPkiCertRevokeEntry OBJECT-TYPE
+    SYNTAX           CfprPkiCertRevokeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPkiCertRevokeTable table."
+    INDEX { cfprPkiCertRevokeInstanceId }
+    ::= { cfprPkiCertRevokeTable 1 }
+
+CfprPkiCertRevokeEntry ::= SEQUENCE {
+    cfprPkiCertRevokeInstanceId                                      CfprManagedObjectId,
+    cfprPkiCertRevokeDn                                              CfprManagedObjectDn,
+    cfprPkiCertRevokeRn                                              SnmpAdminString,
+    cfprPkiCertRevokeCertRevokeMethod                                CfprPkiCertRevokeMethod,
+    cfprPkiCertRevokeCertStatus                                      CfprPkiCertStatus,
+    cfprPkiCertRevokeCrl                                             SnmpAdminString,
+    cfprPkiCertRevokeCrlPollCount                                    Gauge32,
+    cfprPkiCertRevokeCrlPollFilename                                 SnmpAdminString,
+    cfprPkiCertRevokeCrlPollPeriod                                   Gauge32,
+    cfprPkiCertRevokeCrlPollPort                                     Gauge32,
+    cfprPkiCertRevokeCrlPollProtocol                                 CfprPkiTransportNoLocal,
+    cfprPkiCertRevokeCrlPollPwd                                      SnmpAdminString,
+    cfprPkiCertRevokeCrlPollRemotePath                               SnmpAdminString,
+    cfprPkiCertRevokeCrlPollServer                                   SnmpAdminString,
+    cfprPkiCertRevokeCrlPollUser                                     SnmpAdminString,
+    cfprPkiCertRevokeDescr                                           SnmpAdminString,
+    cfprPkiCertRevokeIntId                                           SnmpAdminString,
+    cfprPkiCertRevokeName                                            SnmpAdminString,
+    cfprPkiCertRevokePolicyLevel                                     Gauge32,
+    cfprPkiCertRevokePolicyOwner                                     CfprPolicyPolicyOwner
+}
+
+cfprPkiCertRevokeInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPkiCertRevokeEntry 1 }
+
+cfprPkiCertRevokeDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:dn managed object property"
+    ::= { cfprPkiCertRevokeEntry 2 }
+
+cfprPkiCertRevokeRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:rn managed object property"
+    ::= { cfprPkiCertRevokeEntry 3 }
+
+cfprPkiCertRevokeCertRevokeMethod OBJECT-TYPE
+    SYNTAX       CfprPkiCertRevokeMethod
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:certRevokeMethod
+        managed object property"
+    ::= { cfprPkiCertRevokeEntry 4 }
+
+cfprPkiCertRevokeCertStatus OBJECT-TYPE
+    SYNTAX       CfprPkiCertStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:certStatus managed
+        object property"
+    ::= { cfprPkiCertRevokeEntry 5 }
+
+cfprPkiCertRevokeCrl OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:crl managed object property"
+    ::= { cfprPkiCertRevokeEntry 6 }
+
+cfprPkiCertRevokeCrlPollCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:crlPollCount managed
+        object property"
+    ::= { cfprPkiCertRevokeEntry 7 }
+
+cfprPkiCertRevokeCrlPollFilename OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:crlPollFilename
+        managed object property"
+    ::= { cfprPkiCertRevokeEntry 8 }
+
+cfprPkiCertRevokeCrlPollPeriod OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:crlPollPeriod managed
+        object property"
+    ::= { cfprPkiCertRevokeEntry 9 }
+
+cfprPkiCertRevokeCrlPollPort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:crlPollPort managed
+        object property"
+    ::= { cfprPkiCertRevokeEntry 10 }
+
+cfprPkiCertRevokeCrlPollProtocol OBJECT-TYPE
+    SYNTAX       CfprPkiTransportNoLocal
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:crlPollProtocol
+        managed object property"
+    ::= { cfprPkiCertRevokeEntry 11 }
+
+cfprPkiCertRevokeCrlPollPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:crlPollPwd managed
+        object property"
+    ::= { cfprPkiCertRevokeEntry 12 }
+
+cfprPkiCertRevokeCrlPollRemotePath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:crlPollRemotePath
+        managed object property"
+    ::= { cfprPkiCertRevokeEntry 13 }
+
+cfprPkiCertRevokeCrlPollServer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:crlPollServer managed
+        object property"
+    ::= { cfprPkiCertRevokeEntry 14 }
+
+cfprPkiCertRevokeCrlPollUser OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:crlPollUser managed
+        object property"
+    ::= { cfprPkiCertRevokeEntry 15 }
+
+cfprPkiCertRevokeDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:descr managed object property"
+    ::= { cfprPkiCertRevokeEntry 16 }
+
+cfprPkiCertRevokeIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:intId managed object property"
+    ::= { cfprPkiCertRevokeEntry 17 }
+
+cfprPkiCertRevokeName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:name managed object property"
+    ::= { cfprPkiCertRevokeEntry 18 }
+
+cfprPkiCertRevokePolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:policyLevel managed
+        object property"
+    ::= { cfprPkiCertRevokeEntry 19 }
+
+cfprPkiCertRevokePolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:CertRevoke:policyOwner managed
+        object property"
+    ::= { cfprPkiCertRevokeEntry 20 }
+
+cfprPkiEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPkiEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep managed object table"
+    ::= { cfprPkiObjects 2 }
+
+cfprPkiEpEntry OBJECT-TYPE
+    SYNTAX           CfprPkiEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPkiEpTable table."
+    INDEX { cfprPkiEpInstanceId }
+    ::= { cfprPkiEpTable 1 }
+
+CfprPkiEpEntry ::= SEQUENCE {
+    cfprPkiEpInstanceId                                              CfprManagedObjectId,
+    cfprPkiEpDn                                                      CfprManagedObjectDn,
+    cfprPkiEpRn                                                      SnmpAdminString,
+    cfprPkiEpDescr                                                   SnmpAdminString,
+    cfprPkiEpFsmDescr                                                SnmpAdminString,
+    cfprPkiEpFsmPrev                                                 SnmpAdminString,
+    cfprPkiEpFsmProgr                                                Gauge32,
+    cfprPkiEpFsmRmtInvErrCode                                        Gauge32,
+    cfprPkiEpFsmRmtInvErrDescr                                       SnmpAdminString,
+    cfprPkiEpFsmRmtInvRslt                                           CfprConditionRemoteInvRslt,
+    cfprPkiEpFsmStageDescr                                           SnmpAdminString,
+    cfprPkiEpFsmStamp                                                DateAndTime,
+    cfprPkiEpFsmStatus                                               SnmpAdminString,
+    cfprPkiEpFsmTry                                                  Gauge32,
+    cfprPkiEpIntId                                                   SnmpAdminString,
+    cfprPkiEpName                                                    SnmpAdminString,
+    cfprPkiEpPolicyLevel                                             Gauge32,
+    cfprPkiEpPolicyOwner                                             CfprPolicyPolicyOwner
+}
+
+cfprPkiEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPkiEpEntry 1 }
+
+cfprPkiEpDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:dn managed object property"
+    ::= { cfprPkiEpEntry 2 }
+
+cfprPkiEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:rn managed object property"
+    ::= { cfprPkiEpEntry 3 }
+
+cfprPkiEpDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:descr managed object property"
+    ::= { cfprPkiEpEntry 4 }
+
+cfprPkiEpFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:fsmDescr managed object property"
+    ::= { cfprPkiEpEntry 5 }
+
+cfprPkiEpFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:fsmPrev managed object property"
+    ::= { cfprPkiEpEntry 6 }
+
+cfprPkiEpFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:fsmProgr managed object property"
+    ::= { cfprPkiEpEntry 7 }
+
+cfprPkiEpFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:fsmRmtInvErrCode managed object property"
+    ::= { cfprPkiEpEntry 8 }
+
+cfprPkiEpFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:fsmRmtInvErrDescr managed object property"
+    ::= { cfprPkiEpEntry 9 }
+
+cfprPkiEpFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:fsmRmtInvRslt managed object property"
+    ::= { cfprPkiEpEntry 10 }
+
+cfprPkiEpFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:fsmStageDescr managed object property"
+    ::= { cfprPkiEpEntry 11 }
+
+cfprPkiEpFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:fsmStamp managed object property"
+    ::= { cfprPkiEpEntry 12 }
+
+cfprPkiEpFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:fsmStatus managed object property"
+    ::= { cfprPkiEpEntry 13 }
+
+cfprPkiEpFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:fsmTry managed object property"
+    ::= { cfprPkiEpEntry 14 }
+
+cfprPkiEpIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:intId managed object property"
+    ::= { cfprPkiEpEntry 15 }
+
+cfprPkiEpName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:name managed object property"
+    ::= { cfprPkiEpEntry 16 }
+
+cfprPkiEpPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:policyLevel managed object property"
+    ::= { cfprPkiEpEntry 17 }
+
+cfprPkiEpPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Ep:policyOwner managed object property"
+    ::= { cfprPkiEpEntry 18 }
+
+cfprPkiEpFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPkiEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsm managed object table"
+    ::= { cfprPkiObjects 3 }
+
+cfprPkiEpFsmEntry OBJECT-TYPE
+    SYNTAX           CfprPkiEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPkiEpFsmTable table."
+    INDEX { cfprPkiEpFsmInstanceId }
+    ::= { cfprPkiEpFsmTable 1 }
+
+CfprPkiEpFsmEntry ::= SEQUENCE {
+    cfprPkiEpFsmInstanceId                                           CfprManagedObjectId,
+    cfprPkiEpFsmDn                                                   CfprManagedObjectDn,
+    cfprPkiEpFsmRn                                                   SnmpAdminString,
+    cfprPkiEpFsmCompletionTime                                       DateAndTime,
+    cfprPkiEpFsmCurrentFsm                                           CfprPkiEpFsmCurrentFsm,
+    cfprPkiEpFsmDescrData                                            SnmpAdminString,
+    cfprPkiEpFsmFsmStatus                                            CfprFsmFsmStageStatus,
+    cfprPkiEpFsmProgress                                             Gauge32,
+    cfprPkiEpFsmRmtErrCode                                           Gauge32,
+    cfprPkiEpFsmRmtErrDescr                                          SnmpAdminString,
+    cfprPkiEpFsmRmtRslt                                              CfprConditionRemoteInvRslt
+}
+
+cfprPkiEpFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPkiEpFsmEntry 1 }
+
+cfprPkiEpFsmDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsm:dn managed object property"
+    ::= { cfprPkiEpFsmEntry 2 }
+
+cfprPkiEpFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsm:rn managed object property"
+    ::= { cfprPkiEpFsmEntry 3 }
+
+cfprPkiEpFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsm:completionTime managed object property"
+    ::= { cfprPkiEpFsmEntry 4 }
+
+cfprPkiEpFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprPkiEpFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsm:currentFsm managed object property"
+    ::= { cfprPkiEpFsmEntry 5 }
+
+cfprPkiEpFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsm:descr managed object property"
+    ::= { cfprPkiEpFsmEntry 6 }
+
+cfprPkiEpFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsm:fsmStatus managed object property"
+    ::= { cfprPkiEpFsmEntry 7 }
+
+cfprPkiEpFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsm:progress managed object property"
+    ::= { cfprPkiEpFsmEntry 8 }
+
+cfprPkiEpFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsm:rmtErrCode managed object property"
+    ::= { cfprPkiEpFsmEntry 9 }
+
+cfprPkiEpFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsm:rmtErrDescr managed object property"
+    ::= { cfprPkiEpFsmEntry 10 }
+
+cfprPkiEpFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsm:rmtRslt managed object property"
+    ::= { cfprPkiEpFsmEntry 11 }
+
+cfprPkiEpFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPkiEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmStage managed object table"
+    ::= { cfprPkiObjects 4 }
+
+cfprPkiEpFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprPkiEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPkiEpFsmStageTable table."
+    INDEX { cfprPkiEpFsmStageInstanceId }
+    ::= { cfprPkiEpFsmStageTable 1 }
+
+CfprPkiEpFsmStageEntry ::= SEQUENCE {
+    cfprPkiEpFsmStageInstanceId                                      CfprManagedObjectId,
+    cfprPkiEpFsmStageDn                                              CfprManagedObjectDn,
+    cfprPkiEpFsmStageRn                                              SnmpAdminString,
+    cfprPkiEpFsmStageDescrData                                       SnmpAdminString,
+    cfprPkiEpFsmStageLastUpdateTime                                  DateAndTime,
+    cfprPkiEpFsmStageName                                            CfprPkiEpFsmStageName,
+    cfprPkiEpFsmStageOrder                                           Gauge32,
+    cfprPkiEpFsmStageRetry                                           Gauge32,
+    cfprPkiEpFsmStageStageStatus                                     CfprFsmFsmStageStatus
+}
+
+cfprPkiEpFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPkiEpFsmStageEntry 1 }
+
+cfprPkiEpFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmStage:dn managed object property"
+    ::= { cfprPkiEpFsmStageEntry 2 }
+
+cfprPkiEpFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmStage:rn managed object property"
+    ::= { cfprPkiEpFsmStageEntry 3 }
+
+cfprPkiEpFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmStage:descr managed object property"
+    ::= { cfprPkiEpFsmStageEntry 4 }
+
+cfprPkiEpFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprPkiEpFsmStageEntry 5 }
+
+cfprPkiEpFsmStageName OBJECT-TYPE
+    SYNTAX       CfprPkiEpFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmStage:name managed object property"
+    ::= { cfprPkiEpFsmStageEntry 6 }
+
+cfprPkiEpFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmStage:order managed object property"
+    ::= { cfprPkiEpFsmStageEntry 7 }
+
+cfprPkiEpFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmStage:retry managed object property"
+    ::= { cfprPkiEpFsmStageEntry 8 }
+
+cfprPkiEpFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmStage:stageStatus managed
+        object property"
+    ::= { cfprPkiEpFsmStageEntry 9 }
+
+cfprPkiEpFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPkiEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmTask managed object table"
+    ::= { cfprPkiObjects 5 }
+
+cfprPkiEpFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprPkiEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPkiEpFsmTaskTable table."
+    INDEX { cfprPkiEpFsmTaskInstanceId }
+    ::= { cfprPkiEpFsmTaskTable 1 }
+
+CfprPkiEpFsmTaskEntry ::= SEQUENCE {
+    cfprPkiEpFsmTaskInstanceId                                       CfprManagedObjectId,
+    cfprPkiEpFsmTaskDn                                               CfprManagedObjectDn,
+    cfprPkiEpFsmTaskRn                                               SnmpAdminString,
+    cfprPkiEpFsmTaskCompletion                                       CfprFsmCompletion,
+    cfprPkiEpFsmTaskFlags                                            CfprFsmFlags,
+    cfprPkiEpFsmTaskItem                                             CfprPkiEpFsmTaskItem,
+    cfprPkiEpFsmTaskSeqId                                            Gauge32
+}
+
+cfprPkiEpFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPkiEpFsmTaskEntry 1 }
+
+cfprPkiEpFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmTask:dn managed object property"
+    ::= { cfprPkiEpFsmTaskEntry 2 }
+
+cfprPkiEpFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmTask:rn managed object property"
+    ::= { cfprPkiEpFsmTaskEntry 3 }
+
+cfprPkiEpFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmTask:completion managed object property"
+    ::= { cfprPkiEpFsmTaskEntry 4 }
+
+cfprPkiEpFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmTask:flags managed object property"
+    ::= { cfprPkiEpFsmTaskEntry 5 }
+
+cfprPkiEpFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprPkiEpFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmTask:item managed object property"
+    ::= { cfprPkiEpFsmTaskEntry 6 }
+
+cfprPkiEpFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:EpFsmTask:seqId managed object property"
+    ::= { cfprPkiEpFsmTaskEntry 7 }
+
+cfprPkiImporterTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPkiImporterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer managed object table"
+    ::= { cfprPkiObjects 9 }
+
+cfprPkiImporterEntry OBJECT-TYPE
+    SYNTAX           CfprPkiImporterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPkiImporterTable table."
+    INDEX { cfprPkiImporterInstanceId }
+    ::= { cfprPkiImporterTable 1 }
+
+CfprPkiImporterEntry ::= SEQUENCE {
+    cfprPkiImporterInstanceId                                        CfprManagedObjectId,
+    cfprPkiImporterDn                                                CfprManagedObjectDn,
+    cfprPkiImporterRn                                                SnmpAdminString,
+    cfprPkiImporterAdminState                                        CfprPkiImportActivity,
+    cfprPkiImporterCertStatus                                        CfprPkiCertStatus,
+    cfprPkiImporterCrlSize                                           Gauge32,
+    cfprPkiImporterDescr                                             SnmpAdminString,
+    cfprPkiImporterFileName                                          SnmpAdminString,
+    cfprPkiImporterIntId                                             SnmpAdminString,
+    cfprPkiImporterName                                              SnmpAdminString,
+    cfprPkiImporterPolicyLevel                                       Gauge32,
+    cfprPkiImporterPolicyOwner                                       CfprPolicyPolicyOwner,
+    cfprPkiImporterPort                                              Gauge32,
+    cfprPkiImporterProtocol                                          CfprPkiTransport,
+    cfprPkiImporterPwd                                               SnmpAdminString,
+    cfprPkiImporterRemotePath                                        SnmpAdminString,
+    cfprPkiImporterServer                                            SnmpAdminString,
+    cfprPkiImporterTimeStamp                                         DateAndTime,
+    cfprPkiImporterTransferRate                                      INTEGER,
+    cfprPkiImporterTransferState                                     CfprPkiTransferState,
+    cfprPkiImporterUser                                              SnmpAdminString
+}
+
+cfprPkiImporterInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPkiImporterEntry 1 }
+
+cfprPkiImporterDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:dn managed object property"
+    ::= { cfprPkiImporterEntry 2 }
+
+cfprPkiImporterRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:rn managed object property"
+    ::= { cfprPkiImporterEntry 3 }
+
+cfprPkiImporterAdminState OBJECT-TYPE
+    SYNTAX       CfprPkiImportActivity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:adminState managed object property"
+    ::= { cfprPkiImporterEntry 4 }
+
+cfprPkiImporterCertStatus OBJECT-TYPE
+    SYNTAX       CfprPkiCertStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:certStatus managed object property"
+    ::= { cfprPkiImporterEntry 5 }
+
+cfprPkiImporterCrlSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:crlSize managed object property"
+    ::= { cfprPkiImporterEntry 6 }
+
+cfprPkiImporterDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:descr managed object property"
+    ::= { cfprPkiImporterEntry 7 }
+
+cfprPkiImporterFileName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:fileName managed object property"
+    ::= { cfprPkiImporterEntry 8 }
+
+cfprPkiImporterIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:intId managed object property"
+    ::= { cfprPkiImporterEntry 9 }
+
+cfprPkiImporterName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:name managed object property"
+    ::= { cfprPkiImporterEntry 10 }
+
+cfprPkiImporterPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:policyLevel managed object property"
+    ::= { cfprPkiImporterEntry 11 }
+
+cfprPkiImporterPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:policyOwner managed object property"
+    ::= { cfprPkiImporterEntry 12 }
+
+cfprPkiImporterPort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:port managed object property"
+    ::= { cfprPkiImporterEntry 13 }
+
+cfprPkiImporterProtocol OBJECT-TYPE
+    SYNTAX       CfprPkiTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:protocol managed object property"
+    ::= { cfprPkiImporterEntry 14 }
+
+cfprPkiImporterPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:pwd managed object property"
+    ::= { cfprPkiImporterEntry 15 }
+
+cfprPkiImporterRemotePath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:remotePath managed object property"
+    ::= { cfprPkiImporterEntry 16 }
+
+cfprPkiImporterServer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:server managed object property"
+    ::= { cfprPkiImporterEntry 17 }
+
+cfprPkiImporterTimeStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:timeStamp managed object property"
+    ::= { cfprPkiImporterEntry 18 }
+
+cfprPkiImporterTransferRate OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:transferRate managed
+        object property"
+    ::= { cfprPkiImporterEntry 19 }
+
+cfprPkiImporterTransferState OBJECT-TYPE
+    SYNTAX       CfprPkiTransferState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:transferState managed
+        object property"
+    ::= { cfprPkiImporterEntry 20 }
+
+cfprPkiImporterUser OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:Importer:user managed object property"
+    ::= { cfprPkiImporterEntry 21 }
+
+cfprPkiKeyRingTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPkiKeyRingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing managed object table"
+    ::= { cfprPkiObjects 6 }
+
+cfprPkiKeyRingEntry OBJECT-TYPE
+    SYNTAX           CfprPkiKeyRingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPkiKeyRingTable table."
+    INDEX { cfprPkiKeyRingInstanceId }
+    ::= { cfprPkiKeyRingTable 1 }
+
+CfprPkiKeyRingEntry ::= SEQUENCE {
+    cfprPkiKeyRingInstanceId                                         CfprManagedObjectId,
+    cfprPkiKeyRingDn                                                 CfprManagedObjectDn,
+    cfprPkiKeyRingRn                                                 SnmpAdminString,
+    cfprPkiKeyRingAdminState                                         CfprPkiKeyringState,
+    cfprPkiKeyRingCert                                               SnmpAdminString,
+    cfprPkiKeyRingCertStatus                                         CfprPkiCertStatus,
+    cfprPkiKeyRingConfigState                                        CfprAaaConfigState,
+    cfprPkiKeyRingConfigStatusMessage                                SnmpAdminString,
+    cfprPkiKeyRingDescr                                              SnmpAdminString,
+    cfprPkiKeyRingIntId                                              SnmpAdminString,
+    cfprPkiKeyRingKey                                                SnmpAdminString,
+    cfprPkiKeyRingModulus                                            CfprPkiModulus,
+    cfprPkiKeyRingName                                               SnmpAdminString,
+    cfprPkiKeyRingPolicyLevel                                        Gauge32,
+    cfprPkiKeyRingPolicyOwner                                        CfprPolicyPolicyOwner,
+    cfprPkiKeyRingRegen                                              TruthValue,
+    cfprPkiKeyRingTp                                                 SnmpAdminString,
+    cfprPkiKeyRingZeroized                                           TruthValue,
+    cfprPkiKeyRingEc                                                 CfprPkiEc,
+    cfprPkiKeyRingFqdnEnforce                                        CfprAaaFqdnEnforceType,
+    cfprPkiKeyRingType                                               CfprPkiType
+}
+
+cfprPkiKeyRingInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPkiKeyRingEntry 1 }
+
+cfprPkiKeyRingDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:dn managed object property"
+    ::= { cfprPkiKeyRingEntry 2 }
+
+cfprPkiKeyRingRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:rn managed object property"
+    ::= { cfprPkiKeyRingEntry 3 }
+
+cfprPkiKeyRingAdminState OBJECT-TYPE
+    SYNTAX       CfprPkiKeyringState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:adminState managed object property"
+    ::= { cfprPkiKeyRingEntry 4 }
+
+cfprPkiKeyRingCert OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:cert managed object property"
+    ::= { cfprPkiKeyRingEntry 5 }
+
+cfprPkiKeyRingCertStatus OBJECT-TYPE
+    SYNTAX       CfprPkiCertStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:certStatus managed object property"
+    ::= { cfprPkiKeyRingEntry 6 }
+
+cfprPkiKeyRingConfigState OBJECT-TYPE
+    SYNTAX       CfprAaaConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:configState managed object property"
+    ::= { cfprPkiKeyRingEntry 7 }
+
+cfprPkiKeyRingConfigStatusMessage OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:configStatusMessage
+        managed object property"
+    ::= { cfprPkiKeyRingEntry 8 }
+
+cfprPkiKeyRingDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:descr managed object property"
+    ::= { cfprPkiKeyRingEntry 9 }
+
+cfprPkiKeyRingIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:intId managed object property"
+    ::= { cfprPkiKeyRingEntry 10 }
+
+cfprPkiKeyRingKey OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:key managed object property"
+    ::= { cfprPkiKeyRingEntry 11 }
+
+cfprPkiKeyRingModulus OBJECT-TYPE
+    SYNTAX       CfprPkiModulus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:modulus managed object property"
+    ::= { cfprPkiKeyRingEntry 12 }
+
+cfprPkiKeyRingName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:name managed object property"
+    ::= { cfprPkiKeyRingEntry 13 }
+
+cfprPkiKeyRingPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:policyLevel managed object property"
+    ::= { cfprPkiKeyRingEntry 14 }
+
+cfprPkiKeyRingPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:policyOwner managed object property"
+    ::= { cfprPkiKeyRingEntry 15 }
+
+cfprPkiKeyRingRegen OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:regen managed object property"
+    ::= { cfprPkiKeyRingEntry 16 }
+
+cfprPkiKeyRingTp OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:tp managed object property"
+    ::= { cfprPkiKeyRingEntry 17 }
+
+cfprPkiKeyRingZeroized OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:zeroized managed object property"
+    ::= { cfprPkiKeyRingEntry 18 }
+
+cfprPkiKeyRingEc OBJECT-TYPE
+    SYNTAX       CfprPkiEc
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:ec managed object property"
+    ::= { cfprPkiKeyRingEntry 19 }
+
+cfprPkiKeyRingFqdnEnforce OBJECT-TYPE
+    SYNTAX       CfprAaaFqdnEnforceType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:fqdnEnforce managed object property"
+    ::= { cfprPkiKeyRingEntry 20 }
+
+cfprPkiKeyRingType OBJECT-TYPE
+    SYNTAX       CfprPkiType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:KeyRing:type managed object property"
+    ::= { cfprPkiKeyRingEntry 21 }
+
+cfprPkiTPTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPkiTPEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower pki:TP managed object table"
+    ::= { cfprPkiObjects 7 }
+
+cfprPkiTPEntry OBJECT-TYPE
+    SYNTAX           CfprPkiTPEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPkiTPTable table."
+    INDEX { cfprPkiTPInstanceId }
+    ::= { cfprPkiTPTable 1 }
+
+CfprPkiTPEntry ::= SEQUENCE {
+    cfprPkiTPInstanceId                                              CfprManagedObjectId,
+    cfprPkiTPDn                                                      CfprManagedObjectDn,
+    cfprPkiTPRn                                                      SnmpAdminString,
+    cfprPkiTPCertChain                                               SnmpAdminString,
+    cfprPkiTPCertStatus                                              CfprPkiCertStatus,
+    cfprPkiTPDescr                                                   SnmpAdminString,
+    cfprPkiTPFp                                                      SnmpAdminString,
+    cfprPkiTPIntId                                                   SnmpAdminString,
+    cfprPkiTPName                                                    SnmpAdminString,
+    cfprPkiTPNumCerts                                                Gauge32,
+    cfprPkiTPPolicyLevel                                             Gauge32,
+    cfprPkiTPPolicyOwner                                             CfprPolicyPolicyOwner,
+    cfprPkiTPCertChainDecode                                         SnmpAdminString
+}
+
+cfprPkiTPInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPkiTPEntry 1 }
+
+cfprPkiTPDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TP:dn managed object property"
+    ::= { cfprPkiTPEntry 2 }
+
+cfprPkiTPRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TP:rn managed object property"
+    ::= { cfprPkiTPEntry 3 }
+
+cfprPkiTPCertChain OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TP:certChain managed object property"
+    ::= { cfprPkiTPEntry 4 }
+
+cfprPkiTPCertStatus OBJECT-TYPE
+    SYNTAX       CfprPkiCertStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TP:certStatus managed object property"
+    ::= { cfprPkiTPEntry 5 }
+
+cfprPkiTPDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TP:descr managed object property"
+    ::= { cfprPkiTPEntry 6 }
+
+cfprPkiTPFp OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TP:fp managed object property"
+    ::= { cfprPkiTPEntry 7 }
+
+cfprPkiTPIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TP:intId managed object property"
+    ::= { cfprPkiTPEntry 8 }
+
+cfprPkiTPName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TP:name managed object property"
+    ::= { cfprPkiTPEntry 9 }
+
+cfprPkiTPNumCerts OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TP:numCerts managed object property"
+    ::= { cfprPkiTPEntry 10 }
+
+cfprPkiTPPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TP:policyLevel managed object property"
+    ::= { cfprPkiTPEntry 11 }
+
+cfprPkiTPPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TP:policyOwner managed object property"
+    ::= { cfprPkiTPEntry 12 }
+
+cfprPkiTPCertChainDecode OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TP:certChainDecode managed object property"
+    ::= { cfprPkiTPEntry 13 }
+
+cfprPkiTpAutoImportTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPkiTpAutoImportEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport managed object table"
+    ::= { cfprPkiObjects 10 }
+
+cfprPkiTpAutoImportEntry OBJECT-TYPE
+    SYNTAX           CfprPkiTpAutoImportEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPkiTpAutoImportTable table."
+    INDEX { cfprPkiTpAutoImportInstanceId }
+    ::= { cfprPkiTpAutoImportTable 1 }
+
+CfprPkiTpAutoImportEntry ::= SEQUENCE {
+    cfprPkiTpAutoImportInstanceId                                    CfprManagedObjectId,
+    cfprPkiTpAutoImportDn                                            CfprManagedObjectDn,
+    cfprPkiTpAutoImportRn                                            SnmpAdminString,
+    cfprPkiTpAutoImportCertStatus                                    CfprPkiCertStatus,
+    cfprPkiTpAutoImportDayRun                                        TruthValue,
+    cfprPkiTpAutoImportDescr                                         SnmpAdminString,
+    cfprPkiTpAutoImportImportControlStatus                           CfprPkiTpAutoImportImportControlStatus,
+    cfprPkiTpAutoImportImportStatus                                  TruthValue,
+    cfprPkiTpAutoImportImportTimeHour                                Gauge32,
+    cfprPkiTpAutoImportImportTimeMin                                 Gauge32,
+    cfprPkiTpAutoImportImportUrl                                     SnmpAdminString,
+    cfprPkiTpAutoImportIntId                                         SnmpAdminString,
+    cfprPkiTpAutoImportName                                          SnmpAdminString,
+    cfprPkiTpAutoImportNumExtractedTpAutoImport                      Gauge32,
+    cfprPkiTpAutoImportNumTpAutoImport                               Gauge32,
+    cfprPkiTpAutoImportPolicyLevel                                   Gauge32,
+    cfprPkiTpAutoImportPolicyOwner                                   CfprPolicyPolicyOwner,
+    cfprPkiTpAutoImportRetryCount                                    Gauge32,
+    cfprPkiTpAutoImportRetryDelay                                    Gauge32,
+    cfprPkiTpAutoImportTriggerRun                                    TruthValue
+}
+
+cfprPkiTpAutoImportInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPkiTpAutoImportEntry 1 }
+
+cfprPkiTpAutoImportDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:dn managed object property"
+    ::= { cfprPkiTpAutoImportEntry 2 }
+
+cfprPkiTpAutoImportRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:rn managed object property"
+    ::= { cfprPkiTpAutoImportEntry 3 }
+
+cfprPkiTpAutoImportCertStatus OBJECT-TYPE
+    SYNTAX       CfprPkiCertStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:certStatus managed
+        object property"
+    ::= { cfprPkiTpAutoImportEntry 4 }
+
+cfprPkiTpAutoImportDayRun OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:dayRun managed object property"
+    ::= { cfprPkiTpAutoImportEntry 5 }
+
+cfprPkiTpAutoImportDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:descr managed object property"
+    ::= { cfprPkiTpAutoImportEntry 6 }
+
+cfprPkiTpAutoImportImportControlStatus OBJECT-TYPE
+    SYNTAX       CfprPkiTpAutoImportImportControlStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:importControlStatus
+        managed object property"
+    ::= { cfprPkiTpAutoImportEntry 7 }
+
+cfprPkiTpAutoImportImportStatus OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:importStatus
+        managed object property"
+    ::= { cfprPkiTpAutoImportEntry 8 }
+
+cfprPkiTpAutoImportImportTimeHour OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:importTimeHour
+        managed object property"
+    ::= { cfprPkiTpAutoImportEntry 9 }
+
+cfprPkiTpAutoImportImportTimeMin OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:importTimeMin
+        managed object property"
+    ::= { cfprPkiTpAutoImportEntry 10 }
+
+cfprPkiTpAutoImportImportUrl OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:importUrl managed
+        object property"
+    ::= { cfprPkiTpAutoImportEntry 11 }
+
+cfprPkiTpAutoImportIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:intId managed object property"
+    ::= { cfprPkiTpAutoImportEntry 12 }
+
+cfprPkiTpAutoImportName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:name managed object property"
+    ::= { cfprPkiTpAutoImportEntry 13 }
+
+cfprPkiTpAutoImportNumExtractedTpAutoImport OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:numExtractedTpAutoImport
+        managed object property"
+    ::= { cfprPkiTpAutoImportEntry 14 }
+
+cfprPkiTpAutoImportNumTpAutoImport OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:numTpAutoImport
+        managed object property"
+    ::= { cfprPkiTpAutoImportEntry 15 }
+
+cfprPkiTpAutoImportPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:policyLevel managed
+        object property"
+    ::= { cfprPkiTpAutoImportEntry 16 }
+
+cfprPkiTpAutoImportPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:policyOwner managed
+        object property"
+    ::= { cfprPkiTpAutoImportEntry 17 }
+
+cfprPkiTpAutoImportRetryCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:retryCount managed
+        object property"
+    ::= { cfprPkiTpAutoImportEntry 18 }
+
+cfprPkiTpAutoImportRetryDelay OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:retryDelay managed
+        object property"
+    ::= { cfprPkiTpAutoImportEntry 19 }
+
+cfprPkiTpAutoImportTriggerRun OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pki:TpAutoImport:triggerRun managed
+        object property"
+    ::= { cfprPkiTpAutoImportEntry 20 }
+
+END

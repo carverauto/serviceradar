@@ -1,0 +1,206 @@
+-- *****************************************************************
+-- CISCO-H323-TC-MIB.my:  H.323 Textual Conventions 
+--
+-- Copyright (c) 1998, 1999, 2000 by Cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+--
+--
+--
+CISCO-H323-TC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS 
+
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+
+    ciscoExperiment
+    	FROM CISCO-SMI;
+
+ciscoH323TCMIB MODULE-IDENTITY
+    LAST-UPDATED "200003100000Z"
+    ORGANIZATION "Cisco Systems, Inc"
+    CONTACT-INFO
+	"        Cisco Systems
+	         Customer Service
+
+        Postal:  170 West Tasman Drive
+                 San Jose, CA  95134
+                 USA
+
+        Tel:    +1 800 553-NETS
+
+        E-mail: h323-support@cisco.com"
+	
+    DESCRIPTION
+	"The MIB Module defines a common set of Textual Conventions used
+	in mib modules supporting ITU-T H.323.0 and ITU-T H.225.0
+	Recommendations."
+    REVISION      "9810091200Z"
+    DESCRIPTION
+        "The initial version of the mib."
+    REVISION      "200003100000Z"
+    DESCRIPTION
+        "Removed CgkUtf8String as it is a duplicate definition of
+         SnmpAdminString."
+    ::= { ciscoExperiment 41 } 
+
+-- 
+--
+-- TEXTUAL Conventions
+
+CgkIA5String ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "128a"
+    STATUS  current
+    DESCRIPTION
+        "Corresponds to an IA5String."
+    SYNTAX OCTET STRING (SIZE (1..128))
+
+
+CgkE164String ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "128a"
+    STATUS  current
+    DESCRIPTION
+        "An IA5String limited to the character set '0123456789*#,.' "
+    SYNTAX OCTET STRING (SIZE (1..128))
+
+ 
+CgkTAddressTag ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "A tag to identify the type of the transport address contained 
+        in the TAddress data type.  The values correlate to the 
+        TransportAddress defined in the H.225.0 V2 ITU protocol
+        specification. The tag indicates how to interpret the value of
+        a TAddress data type defined in this specification.  All
+        TAddress values are in network byte order 
+
+                        TAddress size       TAddress contents
+                 ipv4      6 octets         IPv4 (4 octets), port (2 octets)
+                 ipv6     18                IPv6 (16), port (2)
+                 ipx      12                net (4), node (6), port (2)
+                 nsap     1-20              nsap(1-20)
+                 netbios  16                netbios(16)
+         "
+    SYNTAX    INTEGER {
+                  other(0),
+                  ipv4(1),
+                  ipv6(2),
+                  ipx(3),
+                  nsap(4)
+              }
+
+CgkNAddressTag ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+	"A tag to identify the type of the network address contained in the
+	CgkNAddress textual convention defined in this specification.  All
+	CgkNAddress values are in network byte order. 
+
+                        NAddress size
+                 ipv4      4 octets
+                 ipv6     16
+                 ipx      10                net (4), node (6)
+                 nsap     1-20              nsap(1-20)
+        "
+    SYNTAX    INTEGER {
+                  other(0),
+                  ipv4(1),
+                  ipv6(2),
+                  ipx(3),
+                  nsap(4)
+              }	     
+
+CgkNAddress ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+	"Denotes a network address.  An object defined with this syntax
+	must have a corresponding CgkNAddressTag object which identifies
+	the actual size and type."
+    SYNTAX    OCTET STRING (SIZE(1..128))	     
+
+
+CgkGlobalIdentifier ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "A 16 octet field containing a unique identifier.  The
+        identifier contains the following fields:
+        
+           60 bit       nanosecond time (octets 0-6, low 4 bits of octet 7)
+           4  bit       version  (hi 4 bits of octet 7)
+           3  octet     0 (a variant field)
+           1  octet     hi 2bits 0, low 6bits clock sequence.
+           6  octet     MAC Address 
+        
+        See Reference for generation of this value.
+        "
+    REFERENCE "ITU-T H225.0, Version 2 section 7.6"
+    SYNTAX    OCTET STRING(SIZE(16))
+
+
+CgkAliasTag::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION 
+        "A tag to identify the type of the Alias address contained in
+         the CgkAliasAddress data type.  The values correlate to the 
+         AliasAddress defined in the H.225.0 V2 ITU protocol specification. 
+         The tag indicates how to interpret the value of an AliasAddress 
+         data type defined in that specification.
+
+                              AliasAddress contents
+                 other        unknown
+                 e164         CgkE164String
+                 h323Id       CgkUtf8String
+                 urlId        CgkIA5String containing a URL
+                 transportId  CgkTAddressTag, TAddress
+                 emailId      CgkIA5String containing e-mail address
+                 partyNumber  contains PartyNumber (E164String)
+       "
+    SYNTAX    INTEGER {
+                other(0), 
+                e164(1),
+                h323Id(2),
+                urlId(3),
+                transportId(4),
+                emailId(5),
+                partyNumber(6)
+              }
+
+
+CgkAliasAddress ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "512a"     
+    STATUS       current
+    DESCRIPTION
+        "A data type corresponding to AliasAddress defined in H.225.0. 
+        The value of an object of this type has the syntax and
+        symantics identified by CgkAliasTag.  An object defined as
+        CgkAliasAddress must have a corresponding CgkAliasTag object."
+    REFERENCE 
+        "ITU-T H225.0 Version 2 ANNEX H - H.225.0 Message Syntax (ASN.1)"
+    SYNTAX    OCTET STRING (SIZE(1..512))
+
+
+CgkEndpointID ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "A CgkUtf8String corresponding to EndpointIdentifer defined
+        in H.225."
+    REFERENCE 
+        "ITU-T H225.0 Version 2 ANNEX H - H.225.0 Message Syntax (ASN.1)"
+    SYNTAX    OCTET STRING (SIZE(1..128))
+
+CgkGatekeeperID ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "A CgkUtf8String corresponding to GatekeeperIdentifier defined
+        in H.225."
+    REFERENCE 
+        "ITU-T H225.0 Version 2 ANNEX H - H.225.0 Message Syntax (ASN.1)"
+    SYNTAX    OCTET STRING (SIZE(1..128))
+
+
+END

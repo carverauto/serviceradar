@@ -1,0 +1,221 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-ORG-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- ORG management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-ORG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApOrgLevel,
+    CfprApOrgSrcMask
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApOrgObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        ORG management information model package"
+    ::= { ciscoFirepowerApMIBObjects 58 }
+
+cfprApOrgOrgTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApOrgOrgEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower org:Org managed object table"
+    ::= { cfprApOrgObjects 1 }
+
+cfprApOrgOrgEntry OBJECT-TYPE
+    SYNTAX           CfprApOrgOrgEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApOrgOrgTable table."
+    INDEX { cfprApOrgOrgInstanceId }
+    ::= { cfprApOrgOrgTable 1 }
+
+CfprApOrgOrgEntry ::= SEQUENCE {
+    cfprApOrgOrgInstanceId                                           CfprApManagedObjectId,
+    cfprApOrgOrgDn                                                   CfprApManagedObjectDn,
+    cfprApOrgOrgRn                                                   SnmpAdminString,
+    cfprApOrgOrgDescr                                                SnmpAdminString,
+    cfprApOrgOrgFltAggr                                              Unsigned64,
+    cfprApOrgOrgLevel                                                CfprApOrgLevel,
+    cfprApOrgOrgName                                                 SnmpAdminString,
+    cfprApOrgOrgPermAccess                                           TruthValue
+}
+
+cfprApOrgOrgInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApOrgOrgEntry 1 }
+
+cfprApOrgOrgDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower org:Org:dn managed object property"
+    ::= { cfprApOrgOrgEntry 2 }
+
+cfprApOrgOrgRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower org:Org:rn managed object property"
+    ::= { cfprApOrgOrgEntry 3 }
+
+cfprApOrgOrgDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower org:Org:descr managed object property"
+    ::= { cfprApOrgOrgEntry 4 }
+
+cfprApOrgOrgFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower org:Org:fltAggr managed object property"
+    ::= { cfprApOrgOrgEntry 5 }
+
+cfprApOrgOrgLevel OBJECT-TYPE
+    SYNTAX       CfprApOrgLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower org:Org:level managed object property"
+    ::= { cfprApOrgOrgEntry 6 }
+
+cfprApOrgOrgName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower org:Org:name managed object property"
+    ::= { cfprApOrgOrgEntry 7 }
+
+cfprApOrgOrgPermAccess OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower org:Org:permAccess managed object property"
+    ::= { cfprApOrgOrgEntry 8 }
+
+cfprApOrgSourceMaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApOrgSourceMaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower org:SourceMask managed object table"
+    ::= { cfprApOrgObjects 2 }
+
+cfprApOrgSourceMaskEntry OBJECT-TYPE
+    SYNTAX           CfprApOrgSourceMaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApOrgSourceMaskTable table."
+    INDEX { cfprApOrgSourceMaskInstanceId }
+    ::= { cfprApOrgSourceMaskTable 1 }
+
+CfprApOrgSourceMaskEntry ::= SEQUENCE {
+    cfprApOrgSourceMaskInstanceId                                    CfprApManagedObjectId,
+    cfprApOrgSourceMaskDn                                            CfprApManagedObjectDn,
+    cfprApOrgSourceMaskRn                                            SnmpAdminString,
+    cfprApOrgSourceMaskMask                                          CfprApOrgSrcMask
+}
+
+cfprApOrgSourceMaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApOrgSourceMaskEntry 1 }
+
+cfprApOrgSourceMaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower org:SourceMask:dn managed object property"
+    ::= { cfprApOrgSourceMaskEntry 2 }
+
+cfprApOrgSourceMaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower org:SourceMask:rn managed object property"
+    ::= { cfprApOrgSourceMaskEntry 3 }
+
+cfprApOrgSourceMaskMask OBJECT-TYPE
+    SYNTAX       CfprApOrgSrcMask
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower org:SourceMask:mask managed object property"
+    ::= { cfprApOrgSourceMaskEntry 4 }
+
+END

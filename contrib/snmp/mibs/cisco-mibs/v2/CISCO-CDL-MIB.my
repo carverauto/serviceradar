@@ -1,0 +1,1371 @@
+-- *****************************************************************
+-- CISCO-CDL-MIB.my: Cisco Converged Data Link MIB file
+--
+-- May 2002, Sameer Merchant, Mickey Spiegel and Sonal Maheshwari
+--
+-- Copyright (c) 2002, 2003 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-CDL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE,
+    NOTIFICATION-TYPE, Counter32,
+    Counter64, Unsigned32                    FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION, 
+    TimeStamp, TruthValue                    FROM SNMPv2-TC
+    MODULE-COMPLIANCE, OBJECT-GROUP,
+    NOTIFICATION-GROUP                       FROM SNMPv2-CONF
+    ciscoExperiment                          FROM CISCO-SMI
+    ifIndex                                  FROM IF-MIB;
+
+ciscoCdlMIB MODULE-IDENTITY
+    LAST-UPDATED   "200210020000Z" -- 10/02/2002
+    ORGANIZATION   "Cisco Systems, Inc."
+    CONTACT-INFO   "Cisco Systems
+                    Customer Service
+
+                    Postal: 170 W Tasman Drive
+                    San Jose, CA 95134
+
+                    Tel: +1 800 553-NETS
+
+                    E-mail: cs-dwdm@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects to manage Converged Data Link
+        (CDL).
+
+        CDL provides OAM&P (Operation, Administration, Maintenance and
+        Provisioning) in Ethernet packet-based optical networks without
+        a SONET/SDH layer.
+
+        The CDL functionality can be divided into the following
+        categories:
+
+        APS/Defect Indications:
+           The CDL frame carries defect indication bits and provides
+           signalling mechanism support for automatic protection
+           switching.
+
+        Message Channel:
+           The message channel is used to carry control (e.g. routing,
+           signalling) and management traffic.
+
+        Packet-by-packet multiplexing of multiple data flows:
+           CDL uses one or two octets to identify the elementary 
+           packet stream that this packet belongs to. This allows 
+           more than one elementary packet stream to share the 
+           bandwidth on a CDL enabled interface.
+
+        This MIB defines objects to manage Defect Indications and the
+        Packet-by-packet Multiplexing feature.
+
+        The CDL Message channel is modeled as a separate interface and
+        should be controlled using the IF-MIB and other MIBs for
+        managing IP. This MIB does not provide a mechanism to manage
+        the CDL message channel.
+
+        APS configuration and monitoring can be done using the
+        CISCO-APS-MIB and CISCO-APS-EXT-MIB.
+        "
+    REVISION        "200210020000Z" -- 10/02/2002
+    DESCRIPTION
+        "Second version of this MIB module.
+ 
+         The following new counters have been added -
+             coCdlFromCdlNetEthernetCRC
+             coCdlFromCdlNetEthernetCRCOvrflw
+             coCdlFromCdlNetHCEthernetCRC
+         " 
+    REVISION       "200205300000Z" -- 05/30/2002
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoExperiment 88 }
+
+coCdlMIBNotifications    OBJECT IDENTIFIER ::= { ciscoCdlMIB 0 }
+coCdlMIBObjects          OBJECT IDENTIFIER ::= { ciscoCdlMIB 1 }
+coCdlMIBConformance      OBJECT IDENTIFIER ::= { ciscoCdlMIB 3 }
+
+-- Textual Conventions
+
+CoCdlAggDefectIndStatus ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This reflects the status of the aggregate defect indication
+        bits, i.e., those defect indication bits defined to reflect the
+        protection hop and aggregate path status in the CDL OAM field.
+        The status of the end-to-end backward defect indication bit
+        (BDI-E) is not included, since this status may vary for each
+        elementary packet stream present at a CDL enabled interface.
+
+        (MSB)                (LSB)
+         7  6  5  4  3  2  1  0
+        +----------------------+
+        |                      |
+        +----------------------+
+                        |  |  |
+                        |  |  +-- FDI-H  hop-by-hop forward defect
+                        |  |             indication
+                        |  +----- BDI-H  hop-by-hop backward defect
+                        |                indication
+                        +-------- FDI-E  end-to-end (aggregate path)
+                                         forward defect indication
+
+        A bit value of '1' indicates the presence of a defect.
+        A bit value of '0' indicates the absence of a defect.
+
+        "
+    SYNTAX BITS {
+                hopByHopForwardDefect(0),
+                hopByHopBackwardDefect(1),
+                endToEndAggPathForwardDefect(2)
+           }
+
+CoCdlFlowDefectIndStatus ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This reflects the status of the CDL flow defect indications.
+
+        The end-to-end path forward defect indication is implicit,
+        i.e. it is not signalled using a bit. An end-to-end path forward
+        defect is inferred when no CDL Ethernet or Idle packets with a
+        given CDL flow identifier value are received over a
+        pre-determined length of time.
+
+        The end-to-end path backward defect indication is signalled
+        using one of the CDL Defect Indication bits in the CDL OAM
+        field.
+
+        (MSB)                (LSB)
+         7  6  5  4  3  2  1  0
+        +----------------------+
+        |                      |
+        +----------------------+
+                           |  |
+                           |  +-- implicit end-to-end path forward
+                           |               defect indication
+                           +----- BDI-E    end-to-end path backward
+                                           defect indication
+
+        A bit value of '1' indicates the presence of a defect.
+        A bit value of '0' indicates the absence of a defect.
+
+        "
+    SYNTAX BITS { 
+                endToEndPathImplicitFwdDefect(0),
+                endToEndPathBackwardDefect(1)
+           }
+
+
+CoCdlNodeBehavior ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "A network element can take on one of three roles for each CDL
+        enabled interface:
+            endOfHop
+            endOfAggPath
+            cdlRegenerator
+
+        endOfHop: Indicates that this network element acts as a CDL
+            Hop Terminating Network Element but not as a CDL Aggregate
+            Path Terminating Network Element, at this interface.  A CDL
+            Hop Terminating Network Element is a network element that
+            terminates (generates in one direction and consumes in
+            another direction) OAM information associated with a Hop
+            at an interface.
+
+            A network element will be designated a Hop Terminating
+            Network Element at an interface only if it meets one of the
+            following conditions:
+
+            (1) It is an Aggregate Path Terminating Network Element,
+
+            (2) It carries out Hop-by-hop Automatic Protection
+                Switching (APS), or
+
+            (3) It has been configured to be a Hop Terminating Network
+                Element.  This may be desirable at administrative
+                boundaries between networks, for example, in order to
+                limit the span of the hop-by-hop backward defect
+                indication to the interface between the two networks.
+
+        endOfAggPath: Indicates that this network element acts as a
+            CDL Aggregate Path Terminating Network Element that
+            terminates (generates in one direction and consumes in
+            another direction) OAM information associated with an
+            Aggregate Path (as well as OAM information associated with
+            a Hop), at this interface.
+
+            A network element will be designated an Aggregate Path
+            Terminating network element at an interface only if it:
+
+            (1) applies/removes the CDL Ethernet encapsulation, or
+
+            (2) demultiplexes the arriving aggregate packet stream
+                into elementary packet streams, and multiplexes two
+                or more elementary packet streams into the departing
+                packet stream.
+
+        cdlRegenerator:
+            A CDL Regenerator transmits a regenerated input packet
+            stream. It monitors integrity of the CDL header and
+            generates CDL alarms (FDI-H) if the incoming packet stream
+            fails. It also terminates the CDL Message Channel.
+        "
+    SYNTAX INTEGER {
+               endOfAggPath(1),
+               endOfHop(2),
+               cdlRegenerator(3)
+           }
+
+CoCdlFlowIdentifier ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "A CDL Flow Identifier value that is used to differentiate
+        one elementary packet stream from other elementary packet
+        streams carried on a CDL enabled interface. This value is
+        carried in the CDL header of packets belonging to 
+        this elementary packet stream.
+        "
+    SYNTAX Unsigned32 (0..65535)
+
+-- MIB Object Definitions
+
+coCdlBaseGroup          OBJECT IDENTIFIER ::= { coCdlMIBObjects 1 }
+coCdlFlowTermGroup      OBJECT IDENTIFIER ::= { coCdlMIBObjects 2 }
+
+-- CDL Capable Interface Table
+
+coCdlIntfTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CoCdlIntfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table provides objects to configure and monitor CDL on an
+        Ethernet interface.
+        "
+    ::= { coCdlBaseGroup 1 }
+
+coCdlIntfEntry OBJECT-TYPE
+    SYNTAX      CoCdlIntfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry in the CDL Interface Table, providing objects to
+        configure and monitor CDL on an Ethernet interface.
+
+        An entry exists for each CDL capable Ethernet interface.
+        "
+    INDEX { ifIndex }
+    ::= { coCdlIntfTable 1 }
+
+CoCdlIntfEntry ::=
+    SEQUENCE {
+        coCdlAdminStatus               TruthValue,
+        coCdlForceEndOfHop             TruthValue,
+        coCdlNodeBehavior              CoCdlNodeBehavior,
+        coCdlRxAggDefectIndCurrStatus  CoCdlAggDefectIndStatus,
+        coCdlRxAggDefectIndLastChange  TimeStamp,
+        coCdlTxAggDefectIndCurrStatus  CoCdlAggDefectIndStatus,
+        coCdlTxAggDefectIndLastChange  TimeStamp,
+        coCdlTransmitMaxFlowIdentifier CoCdlFlowIdentifier,
+        coCdlReceiveMaxFlowIdentifier  CoCdlFlowIdentifier,
+        coCdlRxHeaderCRCError          Counter32,
+        coCdlRxHeaderCRCErrorOverflow  Counter32,
+        coCdlHCRxHeaderCRCError        Counter64,
+        coCdlRxInvalidFlowID           Counter32,
+        coCdlRxInvalidFlowIDOverflow   Counter32,
+        coCdlHCRxInvalidFlowID         Counter64,
+        coCdlRxNonCdlPackets           Counter32,
+        coCdlRxNonCdlPacketsOverflow   Counter32,
+        coCdlHCRxNonCdlPackets         Counter64
+    }
+
+coCdlAdminStatus OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Enables/disables CDL on this interface. 
+        When this object is set to 'true', CDL is enabled on 
+        this interface. When this object is set to 'false', 
+        CDL is disabled on this interface.
+
+        When CDL is enabled, the following actions are taken:
+        1) When a non-CDL packet is progressed to this interface for
+           transmission, the Ethernet packet is modified to carry the
+           CDL header. Similarly, when a received packet is progressed
+           from this interface to a non-CDL interface, the CDL header
+           is removed from the Ethernet packet.
+        2) Processing of CDL defect indications is activated.
+        3) The CDL Message Channel used to carry control (e.g. routing,
+           signalling) and management traffic is activated. The SNMP
+           agent creates an interface that represents the CDL Message
+           Channel. The interface representing the CDL Message Channel
+           is shown as a higher layer interface, with ifType
+           'propPointToPointSerial', residing above this CDL enabled
+           interface in the ifStackTable in the IF-MIB.
+        4) The CDL APS Channel is activated, if supported and APS is
+           configured for this interface.
+        5) Transport of multiple data flows (i.e. packet-by-packet
+           multiplexing) is activated, if this capability is supported
+           on this interface.
+
+        When CDL is disabled, only traditional (non-CDL) Ethernet
+        packets are transported, all packets on this interface are
+        treated as one Ethernet data flow, and the interface
+        representing the CDL message channel is deleted.
+        "
+    ::= { coCdlIntfEntry 1 }
+
+coCdlForceEndOfHop OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "When set to 'true', this object forces CDL Hop Terminating
+        behavior at this interface. A CDL Hop Terminating Network
+        Element terminates (generates in one direction and consumes in
+        another direction) hop-by-hop CDL Defect Indications at an
+        interface.
+
+        When this object is set to 'false', this network element may
+        still act as a CDL Hop Terminating Network Element at this
+        interface, if either
+        1) Automatic Protection Switching (APS) has been configured for
+           this interface, or
+        2) this network element is an Aggregate Path Terminating
+           Network Element at this interface.
+
+        It is recommended to force CDL Hop Terminating behavior at
+        administrative boundaries. This ensures that the hop-by-hop
+        CDL Defect Indications (FDI-H and BDI-H) between two
+        administrative domains reflect only errors that occur between
+        the domains, even if APS is not configured for this interface.
+        "
+    DEFVAL { false }
+    ::= { coCdlIntfEntry 2 }
+
+coCdlNodeBehavior OBJECT-TYPE
+    SYNTAX      CoCdlNodeBehavior
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the current CDL defect indication
+        behavior of this network element, at this interface. A network
+        element can take on one of three roles at a CDL enabled
+        interface: Aggregate Path Terminating Network Element
+        (endOfAggPath), Hop Terminating Network Element (endOfHop), or
+        CDL Regenerator.
+        "
+    ::= { coCdlIntfEntry 3 }
+
+coCdlRxAggDefectIndCurrStatus OBJECT-TYPE
+    SYNTAX      CoCdlAggDefectIndStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object reflects the current status of the CDL Defect
+        Indication bits received on this interface.
+        "
+    ::= { coCdlIntfEntry 4 }
+
+coCdlRxAggDefectIndLastChange OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the value of sysUpTime at the last time
+        there was a change in the value of
+        coCdlRxAggDefectIndCurrStatus.
+        "
+    ::= { coCdlIntfEntry 5 }
+
+coCdlTxAggDefectIndCurrStatus OBJECT-TYPE
+    SYNTAX      CoCdlAggDefectIndStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object reflects the current status of the CDL Defect
+        Indication bits transmitted on this interface.
+        "
+    ::= { coCdlIntfEntry 6 }
+
+coCdlTxAggDefectIndLastChange OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the value of sysUpTime at the last time
+        there was a change in the value of
+        coCdlTxAggDefectIndCurrStatus.
+        "
+    ::= { coCdlIntfEntry 7 }
+
+coCdlTransmitMaxFlowIdentifier OBJECT-TYPE
+    SYNTAX      CoCdlFlowIdentifier
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "A CDL enabled interface can aggregate packet streams
+        (called elementary packet streams) from multiple interfaces.
+        CDL uses one or two octets to identify the elementary packet 
+        stream that this packet belongs to (called the flow identifier).
+
+        This object identifies the maximum value that can be assigned
+        to the CDL flow identifier for a packet transmitted on this
+        interface.
+        "
+    ::= { coCdlIntfEntry 8 }
+
+coCdlReceiveMaxFlowIdentifier OBJECT-TYPE
+    SYNTAX      CoCdlFlowIdentifier
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "A CDL enabled interface can aggregate packet streams
+        (called elementary packet streams) from multiple interfaces.
+        CDL uses one or two octets to identify the elementary packet 
+        stream that this packet belongs to (called the flow identifier).
+
+        This object identifies the maximum value that can be assigned
+        to the CDL flow identifier for a packet received on this
+        interface.
+        "
+    ::= { coCdlIntfEntry 9 }
+
+coCdlRxHeaderCRCError OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of CDL frames received with CDL Header CRC errors.
+
+        This object represents the lower word value of the counter
+        associated with the number of CDL header CRC errors
+        encountered in the receive direction.
+
+        NOTE: The object coCdlRxHeaderCRCErrorOverflow contains the
+        higher 32 bits of this counter value. SNMP v2c or v3 managers
+        can use the coCdlHCRxHeaderCRCError object directly which is a
+        64 bit counter.
+        "
+    ::= { coCdlIntfEntry 10 }
+
+coCdlRxHeaderCRCErrorOverflow OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object represents the higher word value of the counter
+        associated with the number of CDL Header CRC errors
+        encountered in the receive direction.
+
+        NOTE: The object coCdlRxHecError contains the lower 32 bits of
+        this counter value. If the error count is greater than
+        4,294,967,295, the higher word value will be stored in this
+        object. SNMP v2c or v3 managers can use the
+        coCdlHCRxHeaderCRCError object directly which is a 64 bit
+        counter.
+        "
+    ::= { coCdlIntfEntry 11 }
+
+coCdlHCRxHeaderCRCError OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of CDL frames received with CDL Header CRC errors.
+
+        This is a High Capacity (64 bit) version of the
+        coCdlRxHeaderCRCError counter.
+        "
+    ::= { coCdlIntfEntry 12 }
+
+coCdlRxInvalidFlowID OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object counts the number of CDL Flow Identifier lookup
+        errors in the receive direction. When a CDL interface
+        multiplexes/demultiplexes more than one elementary packet
+        stream, it uses the flow identifier in the CDL header. This
+        error counter is incremented when a flow identifier value
+        received on this interface does not map to any of the
+        elementary packet streams demultiplexed by this interface.
+
+        This object represents the lower word value of the counter
+        associated with the number of CDL Flow Identifier lookup errors
+        encountered in the receive direction.
+
+        NOTE: The object coCdlRxInvalidFlowIDOverflow contains the
+        higher 32 bits of this counter value. SNMP v2c or v3 managers
+        can use the coCdlHCRxInvalidFlowID object directly which is a
+        64 bit counter.
+        "
+    ::= { coCdlIntfEntry 13 }
+
+coCdlRxInvalidFlowIDOverflow OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object represents the higher word value of the counter
+        associated with the number of CDL Flow Identifier lookup errors
+        encountered in the receive direction.
+
+        NOTE: The object coCdlRxInvalidFlowID contains the lower 32
+        bits of this counter value. If the error count is greater than
+        4,294,967,295, the higher word value will be stored in this
+        object. SNMP v2c or v3 managers can use the
+        coCdlHCRxInvalidFlowID object directly which is a 64 bit
+        counter.
+        "
+    ::= { coCdlIntfEntry 14 }
+
+coCdlHCRxInvalidFlowID OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object counts the number of CDL Flow Identifier lookup
+        errors in the receive direction. When a CDL interface
+        multiplexes/demultiplexes more than one elementary packet
+        stream, it uses the flow identifier in the CDL header. This
+        error counter is incremented when a flow identifier value
+        received on this interface does not map to any of the
+        elementary packet streams demultiplexed by this interface.
+
+        This is a High Capacity (64 bit) version of the
+        coCdlRxInvalidFlowID counter.
+        "
+    ::= { coCdlIntfEntry 15 }
+
+coCdlRxNonCdlPackets OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object counts the number of packets received without 
+        a CDL header on this interface.  This counter is 
+        incremented only when CDL is enabled on this interface.
+
+        This object represents the lower word value of the counter
+        associated with the number of packets received without a CDL
+        header on this interface.
+
+        NOTE: The object coCdlRxNonCdlPacketsOverflow contains the
+        higher 32 bits of this counter value. SNMP v2c or v3 managers
+        can use the coCdlHCRxNonCdlPackets object directly which is a
+        64 bit counter.
+        "
+    ::= { coCdlIntfEntry 16 }
+
+coCdlRxNonCdlPacketsOverflow OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object represents the higher word value of the counter
+        associated with the number of packets received without a CDL
+        header on this interface.
+
+        NOTE: The object coCdlRxNonCdlPackets contains the lower 32
+        bits of this counter value. If the error count is greater than
+        4,294,967,295, the higher word value will be stored in this
+        object. SNMP v2c or v3 managers can use the
+        coCdlHCRxNonCdlPackets object directly which is a 64 bit
+        counter.
+        "
+    ::= { coCdlIntfEntry 17 }
+
+coCdlHCRxNonCdlPackets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object counts the number of packets received without
+        a CDL header on this interface. This counter is
+        incremented only when CDL is enabled on this interface.
+
+        This is a High Capacity (64 bit) version of the
+        coCdlRxNonCdlPackets counter.
+        "
+    ::= { coCdlIntfEntry 18 }
+
+-- CDL Defect Indication Control Objects
+
+coCdlDefectIndNotifyEnable OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    disabled(1),
+                    enabledAtTerminatingInterfaces(2),
+                    enabledAtAllInterfaces(3)
+                }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object indicates whether a change in the received CDL
+        Defect Indications, including the implicit end-to-end path
+        defect indication as well as the CDL defect indication bits in
+        the CDL OAM field, causes a notification to be generated.
+
+        disabled: Received CDL aggregate defect indication bit changes
+            do not cause coCdlRxAggDefectIndChange notifications to be
+            generated, and CDL flow defect indication changes from the
+            CDL network at path terminating interfaces do not cause
+            coCdlFromCdlNetFlowDIChange notifications to be generated.
+
+        enabledAtTerminatingInterfaces: A coCdlRxAggDefectIndChange
+            notification is generated whenever
+            - the received hop-by-hop forward defect indication (FDI-H)
+              or the received hop-by-hop backward defect indication bit
+              (BDI-H) changes at a hop terminating interface, or
+            - the received end-to-end (aggregate path) defect
+              indication bit (FDI-E) changes at an aggregate path
+              terminating interface.
+            A coCdlFromCdlNetFlowDIChange notification is generated
+            whenever a CDL flow defect indication, i.e. implicit
+            end-to-end path forward defect indication or end-to-end
+            path backward defect indication bit, from the CDL network
+            changes at a path terminating interface.
+
+        enabledAtAllInterfaces: a coCdlRxAggDefectIndChange
+            notification is generated whenever a received CDL aggregate
+            defect indication bit changes on any interface, and a
+            coCdlFromCdlNetFlowDIChange notification is generated
+            whenever a CDL flow defect indication, i.e. implicit
+            end-to-end path forward defect indication or end-to-end
+            path backward defect indication bit, from the CDL network
+            changes at a path terminating interface.
+
+        To minimize the probability of prematurely reacting to
+        momentary signal variations, a soak time may be incorporated
+        into the notification in the following manner. A notification
+        is generated after a defect is first detected, when the defect
+        persists for a period of time that exceeds the set soak
+        interval specified by coCdlDefectIndSetSoakInterval. A
+        notification is generated after a defect stops being detected,
+        when the defect does not appear over a period of time that
+        exceeds the clear soak interval specified by
+        coCdlDefectIndClearSoakInterval.
+
+        When changes in CDL defect indications are received for
+        multiple interfaces within a short time span, notifications
+        should be deferred so that each notification is generated at
+        least one coCdlDINotifyThrottleInterval after the previous
+        notification.
+        "
+    DEFVAL { disabled }
+    ::= { coCdlBaseGroup 2 }
+
+coCdlDefectIndSetSoakInterval OBJECT-TYPE
+    SYNTAX      Unsigned32 (100..60000)
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "To minimize the probability of prematurely reacting to
+        momentary signal variations, a soak time may be incorporated
+        into the defect indications. The indication is set when the
+        defect persists for a period of time that exceeds the set soak
+        interval.
+        "
+    DEFVAL { 2500 }
+    ::= { coCdlBaseGroup 3 }
+
+coCdlDefectIndClearSoakInterval OBJECT-TYPE
+    SYNTAX      Unsigned32 (100..60000)
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "To minimize the probability of prematurely reacting to
+        momentary signal variations, a soak time may be incorporated
+        into the defect indications. The indication is cleared when no
+        defect occurs over a period of time that exceeds the clear soak
+        interval.
+        "
+    DEFVAL { 10000 }
+    ::= { coCdlBaseGroup 4 }
+
+coCdlDINotifyThrottleInterval OBJECT-TYPE
+    SYNTAX      Unsigned32 (100..60000)
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The minimum time interval between generation of successive
+        CDL defect indication 'notification-events' by this agent. A
+        'notification-event' is the transmission of a single trap or
+        inform PDU to a list of notification destinations.
+
+        If more than one change occurs within a short time span, for
+        for example if hop-by-hop forward defect indications are
+        received for multiple interfaces, then notification-events
+        for these changes should be deferred by the agent so that each
+        notification-event occurs at least one throttle interval after
+        the previous notification-event. At the end of each throttle
+        interval, one notification-event should be generated if the
+        current defect indication state on any interface is different
+        from the last state indicated in a notification-event. In such
+        a case, another throttle interval is started immediately.
+        "
+    DEFVAL { 1000 }
+    ::= { coCdlBaseGroup 5 }
+
+-- Flow Termination Objects
+
+coCdlFlowTermTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CoCdlFlowTermEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains objects used to manage logical or physical
+        interfaces representing elementary packet streams at the point
+        where the CDL path defect indications are terminated.
+        Typically, this is a point where the CDL Ethernet encapsulation
+        is applied and removed. This can also be a point between a part
+        of the CDL network that supports packet-by-packet multiplexing,
+        and a part of the CDL network that does not support
+        packet-by-packet multiplexing.
+
+        Several elementary packet streams (from multiple logical or
+        physical path terminating interfaces) may be multiplexed into
+        an aggregate packet stream before being transmitted out of this
+        network element, towards the rest of the CDL network.
+
+          (1)   +---------------+
+         ------>|\              | Aggregate CDL packet stream
+           :    | +----------\  |
+         ------>|-------------==|======> towards CDL network
+           :    | +----------/  | (A)
+         ------>|/              |
+          (N)   +---------------+
+
+        In the figure above, interface 'A' aggregates the elementary
+        packet streams from interfaces '1' through 'N'. A row in this
+        table exists for each path terminating interface carrying an
+        elementary packet stream. In the figure above, these interfaces
+        are labeled '1' through 'N'.
+
+        The relationship between the aggregating interface 'A' and an
+        interface carrying an elementary packet stream is not specified
+        in this table. It could be derived from the ifstackTable, or
+        from a cross connect MIB supported by the platform, or from any
+        other means suitable to the platform.
+        "
+    ::= { coCdlFlowTermGroup 1 }
+
+coCdlFlowTermEntry OBJECT-TYPE
+    SYNTAX      CoCdlFlowTermEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry that contains objects used to manage a logical or
+        physical interface representing a single elementary packet
+        stream at the point where the CDL path defect indications are
+        terminated. Typically, this is a point where the CDL Ethernet
+        encapsulation is applied and removed. This can also be a point
+        between a part of the CDL network that supports
+        packet-by-packet multiplexing, and a part of the CDL network
+        that does not support packet-by-packet multiplexing.
+
+        This interface may have ifType value other than
+        'ethernetCsmacd', if traffic from a non-Ethernet protocol is
+        received on this interface and then encapsulated (or otherwise
+        interworked) in Ethernet and then CDL, before being progressed
+        into the CDL network.
+        "
+    INDEX { ifIndex }
+    ::= { coCdlFlowTermTable 1 }
+
+CoCdlFlowTermEntry ::=
+    SEQUENCE {
+        coCdlFromCdlNetFlowIdentifier       CoCdlFlowIdentifier,
+        coCdlToCdlNetFlowIdentifier         CoCdlFlowIdentifier,
+        coCdlFromCdlNetFlowDICurrStatus     CoCdlFlowDefectIndStatus,
+        coCdlFromCdlNetFlowDILastChange     TimeStamp,
+        coCdlToCdlNetFlowDICurrStatus       CoCdlFlowDefectIndStatus,
+        coCdlToCdlNetFlowDILastChange       TimeStamp,
+        coCdlFromCdlNetEthernetCRC          Counter32,
+        coCdlFromCdlNetEthernetCRCOvrflw    Counter32, 
+        coCdlFromCdlNetHCEthernetCRC        Counter64
+    }
+
+coCdlFromCdlNetFlowIdentifier OBJECT-TYPE
+    SYNTAX      CoCdlFlowIdentifier
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the flow identifier value received from
+        the CDL network that identifies this elementary packet stream
+        at this interface.
+
+        Note that if CDL is not enabled on this interface, this
+        represents the flow identifier value passed to this interface
+        from the cross connect fabric.  If the cross connect fabric
+        does not map the flow identifier value for this elementary
+        packet stream, this is the value passed from the CDL
+        aggregation interface on the other side of the cross connect.
+        "
+    ::= { coCdlFlowTermEntry 1 }
+
+coCdlToCdlNetFlowIdentifier OBJECT-TYPE
+    SYNTAX      CoCdlFlowIdentifier
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the flow identifier value set in CDL
+        packets in this elementary packet stream that are progressed
+        from this interface towards the CDL network.
+
+        Note that if CDL is not enabled on this interface, this
+        represents the flow identifier value passed to the fabric
+        that cross connects this packet stream onto a CDL aggregation
+        interface.
+        "
+    ::= { coCdlFlowTermEntry 2 }
+
+coCdlFromCdlNetFlowDICurrStatus OBJECT-TYPE
+    SYNTAX      CoCdlFlowDefectIndStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object reflects the current status of the CDL flow defect
+        indications received from the CDL network, at this interface.
+
+        Note that the end-to-end path forward defect indication is
+        implicit, i.e. it is not signalled using a bit. An end-to-end
+        path forward defect is inferred when no CDL Ethernet or Idle
+        packets are received with the flow identifier value specified
+        by coCdlFromCdlNetFlowIdentifier, over a pre-determined length
+        of time.
+        "
+    ::= { coCdlFlowTermEntry 3 }
+
+coCdlFromCdlNetFlowDILastChange OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the value of sysUpTime at the last time
+        there was a change in the value of
+        coCdlFromCdlNetFlowDICurrStatus.
+        "
+    ::= { coCdlFlowTermEntry 4 }
+
+coCdlToCdlNetFlowDICurrStatus OBJECT-TYPE
+    SYNTAX      CoCdlFlowDefectIndStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object reflects the current status of the CDL flow defect
+        indications progressed towards the CDL network from this
+        interface.
+
+        Note that the end-to-end path forward defect indication is
+        implicit, i.e. it is not signalled using a bit. An end-to-end
+        path forward defect is indicated by stopping transmission of
+        CDL Ethernet and Idle packets with the flow identifier value
+        specified by coCdlToCdlNetFlowIdentifier.
+        "
+    ::= { coCdlFlowTermEntry 5 }
+
+coCdlToCdlNetFlowDILastChange OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the value of sysUpTime at the last time
+        there was a change in the value of
+        coCdlToCdlNetFlowDICurrStatus.
+        "
+    ::= { coCdlFlowTermEntry 6 }
+
+coCdlFromCdlNetEthernetCRC OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object represents the lower word value of the counter
+        that provides a count of Ethernet packets with CRC
+        errors, for an elementary packet stream, at the point where
+        the CDL header is removed. When Ethernet is used as an
+        encapsulation for transport of non-Ethernet protocols, this
+        is the number of Ethernet CRC errors, before the Ethernet
+        encapsulation is removed and the resulting traffic for the
+        underlying protocol is transmitted out this interface.
+
+        NOTE: The object coCdlFromCdlNetEthernetCRCOvrflw contains the
+        higher 32 bits of this counter value. SNMP v2c or v3 managers
+        can use the coCdlFromCdlNetHCEthernetCRC object directly which
+        is a 64 bit counter.
+        "
+    ::= { coCdlFlowTermEntry 7 }
+
+coCdlFromCdlNetEthernetCRCOvrflw OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object represents the higher word value of the counter
+        that provides a count of Ethernet packets with CRC
+        errors, for an elementary packet stream, at the point where
+        the CDL header is removed. When Ethernet is used as an
+        encapsulation for transport of non-Ethernet protocols, this
+        is the number of Ethernet CRC errors, before the Ethernet
+        encapsulation is removed and the resulting traffic for the
+        underlying protocol is transmitted out this interface.
+
+        NOTE: The object coCdlFromCdlNetEthernetCRC contains the
+        lower 32 bits of this counter value. SNMP v2c or v3 managers
+        can use the coCdlFromCdlNetHCEthernetCRC object directly which
+        is a 64 bit counter.
+        "
+    ::= { coCdlFlowTermEntry 8 }
+
+coCdlFromCdlNetHCEthernetCRC OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object provides a count of Ethernet packets with CRC
+        errors, for an elementary packet stream, at the point where
+        the CDL header is removed. When Ethernet is used as an
+        encapsulation for transport of non-Ethernet protocols, this
+        is the number of Ethernet CRC errors, before the Ethernet
+        encapsulation is removed and the resulting traffic for the
+        underlying protocol is transmitted out this interface.
+
+        This is a High Capacity (64 bit) version of the
+        coCdlFromCdlNetEthernetCRC counter. 
+        "
+    ::= { coCdlFlowTermEntry 9 }
+
+
+-- CDL Notifications
+
+
+coCdlRxAggDefectIndChange NOTIFICATION-TYPE
+    OBJECTS     { coCdlRxAggDefectIndCurrStatus,
+                  coCdlRxAggDefectIndLastChange
+                }
+    STATUS      current
+    DESCRIPTION
+        "This notification is sent when the value of the hop-by-hop
+        forward defect indication (FDI-H), hop-by-hop backward defect
+        indication (BDI-H), or end-to-end (aggregate path) forward
+        defect indication (FDI-E) bit received on an interface changes.
+
+        To minimize the probability of prematurely reacting to
+        momentary signal variations, a soak time may be incorporated
+        into the notification in the following manner. A notification
+        is generated after a defect is first detected, when the defect
+        persists for a period of time that exceeds the set soak
+        interval specified by coCdlDefectIndSetSoakInterval. A
+        notification is generated after a defect stops being detected,
+        when the defect does not appear over a period of time that
+        exceeds the clear soak interval specified by
+        coCdlDefectIndClearSoakInterval.
+
+        When changes in CDL defect indications are received for
+        multiple interfaces within a short time span, notifications
+        should be deferred so that each notification is generated at
+        least one coCdlDINotifyThrottleInterval after the previous
+        notification.
+        "
+    ::= { coCdlMIBNotifications 1 }
+
+coCdlFromCdlNetFlowDIChange NOTIFICATION-TYPE
+    OBJECTS     { coCdlFromCdlNetFlowDICurrStatus,
+                  coCdlFromCdlNetFlowDILastChange
+                }
+    STATUS      current
+    DESCRIPTION
+        "This notification is sent when the value of the received
+        end-to-end path forward defect indication or the received
+        end-to-end path backward defect indication changes.
+
+        Note that the end-to-end path forward defect indication is
+        implicit, i.e. it is not signalled using a bit. An end-to-end
+        path forward defect is inferred when no CDL Ethernet or Idle
+        packets are received over a pre-determined length of time.
+
+        To minimize the probability of prematurely reacting to
+        momentary signal variations, a soak time may be incorporated
+        into the notification in the following manner. A notification
+        is generated after a defect is first detected, when the defect
+        persists for a period of time that exceeds the set soak
+        interval specified by coCdlDefectIndSetSoakInterval. A
+        notification is generated after a defect stops being detected,
+        when the defect does not appear over a period of time that
+        exceeds the clear soak interval specified by
+        coCdlDefectIndClearSoakInterval.
+
+        When changes in CDL defect indications are received for
+        multiple interfaces within a short time span, notifications
+        should be deferred so that each notification is generated at
+        least one coCdlDINotifyThrottleInterval after the previous
+        notification.
+        "
+    ::= { coCdlMIBNotifications 2 }
+
+-- Conformance Information
+
+coCdlMIBCompliances OBJECT IDENTIFIER
+    ::= { coCdlMIBConformance 1 }
+
+coCdlMIBGroups OBJECT IDENTIFIER
+    ::= { coCdlMIBConformance 2 }
+
+coCdlMIBCompliance MODULE-COMPLIANCE
+    STATUS      deprecated
+    DESCRIPTION
+        "The Compliance statement for the Cisco CDL MIB."
+    MODULE -- this module
+        MANDATORY-GROUPS { coCdlMIBBaseGroup, coCdlDIAggMandatoryGroup,
+                          coCdlDIAggNotifGroup }
+
+        OBJECT coCdlAdminStatus
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the presence of CDL is
+            configurable on an Ethernet interface.
+            "
+
+        OBJECT coCdlDINotifyThrottleInterval
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the notify throttle 
+            interval is configurable. 
+            "
+
+        OBJECT coCdlDefectIndSetSoakInterval 
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the set soak interval 
+            is configurable. 
+            "
+   
+        OBJECT coCdlDefectIndClearSoakInterval 
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the clear soak interval 
+            is configurable. 
+            "
+
+        GROUP coCdlDIConfigGroup
+        DESCRIPTION
+            "This group is required when CDL defect indication behavior
+            is configurable.
+            "
+
+        OBJECT coCdlForceEndOfHop
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the node behavior is
+            configurable.
+            "
+
+        GROUP coCdlMIBFlowIdGroup
+        DESCRIPTION
+            "This group is required when the network element supports
+            transport of CDL aggregate packet streams consisting of
+            multiple elementary packet streams.
+            "
+
+        OBJECT coCdlTransmitMaxFlowIdentifier
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the maximum transmitted
+            flow identifier value is configurable.
+            "
+
+        OBJECT coCdlReceiveMaxFlowIdentifier
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the maximum received
+            flow identifier value is configurable.
+            "
+
+        GROUP coCdlMIBFlowTermGroup
+        DESCRIPTION
+            "This group is required when the network element supports
+            termination of CDL packet-by-packet multiplexing, i.e.,
+            either the network element supports CDL packet-by-packet
+            multiplexing and can apply/remove the CDL Ethernet
+            encapsulation, or the network element contains interfaces
+            that support packet-by-packet multiplexing as well as
+            interfaces that do not support packet-by-packet
+            multiplexing.
+            "
+
+        OBJECT coCdlToCdlNetFlowIdentifier
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the interface supports
+            configuration of the flow identifier value progressed
+            towards the CDL network.
+            "
+
+        OBJECT coCdlFromCdlNetFlowIdentifier
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the interface supports
+            configuration of the flow identifier value received from
+            the CDL network.
+            "
+
+        GROUP coCdlDIFlowNotifGroup
+        DESCRIPTION
+            "This group is required when the network element supports
+            termination of CDL packet-by-packet multiplexing, i.e.,
+            either the network element supports CDL packet-by-packet
+            multiplexing and can apply/remove the CDL Ethernet
+            encapsulation, or the network element contains interfaces
+            that support packet-by-packet multiplexing as well as
+            interfaces that do not support packet-by-packet
+            multiplexing.
+            "
+
+    ::= { coCdlMIBCompliances 1 }
+
+
+coCdlMIBCompliance2 MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The Compliance statement for the Cisco CDL MIB."
+    MODULE -- this module
+        MANDATORY-GROUPS { coCdlMIBBaseGroup, coCdlDIAggMandatoryGroup,
+                           coCdlDIAggNotifGroup }
+
+        OBJECT coCdlAdminStatus
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the presence of CDL is
+            configurable on an Ethernet interface.
+            "
+
+        OBJECT coCdlDINotifyThrottleInterval
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the notify throttle
+            interval is configurable.
+            "
+
+        OBJECT coCdlDefectIndSetSoakInterval
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the set soak interval
+            is configurable.
+            "
+
+        OBJECT coCdlDefectIndClearSoakInterval
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the clear soak interval
+            is configurable.
+            "
+
+        GROUP coCdlDIConfigGroup
+        DESCRIPTION
+            "This group is required when CDL defect indication behavior
+            is configurable.
+            "
+
+        OBJECT coCdlForceEndOfHop
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the node behavior is
+            configurable.
+            "
+
+        GROUP coCdlMIBFlowIdGroup
+        DESCRIPTION
+            "This group is required when the network element supports
+            transport of CDL aggregate packet streams consisting of
+            multiple elementary packet streams.
+            "
+
+        OBJECT coCdlTransmitMaxFlowIdentifier
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the maximum transmitted
+            flow identifier value is configurable.
+            "
+
+        OBJECT coCdlReceiveMaxFlowIdentifier
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the maximum received
+            flow identifier value is configurable.
+            "
+
+        GROUP coCdlMIBFlowTerm2Group
+        DESCRIPTION
+            "This group is required when the network element supports
+            termination of CDL packet-by-packet multiplexing, i.e.,
+            either the network element supports CDL packet-by-packet
+            multiplexing and can apply/remove the CDL Ethernet
+            encapsulation, or the network element contains interfaces
+            that support packet-by-packet multiplexing as well as
+            interfaces that do not support packet-by-packet
+            multiplexing.
+            "
+
+        OBJECT coCdlToCdlNetFlowIdentifier
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the interface supports
+            configuration of the flow identifier value progressed
+            towards the CDL network.
+            "
+
+        OBJECT coCdlFromCdlNetFlowIdentifier
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "Write access is required only when the interface supports
+            configuration of the flow identifier value received from
+            the CDL network.
+            "
+
+        GROUP coCdlDIFlowNotifGroup
+        DESCRIPTION
+            "This group is required when the network element supports
+            termination of CDL packet-by-packet multiplexing, i.e.,
+            either the network element supports CDL packet-by-packet
+            multiplexing and can apply/remove the CDL Ethernet
+            encapsulation, or the network element contains interfaces
+            that support packet-by-packet multiplexing as well as
+            interfaces that do not support packet-by-packet
+            multiplexing.
+            "
+
+    ::= { coCdlMIBCompliances 2 }
+
+
+-- Units of Conformance
+
+coCdlMIBBaseGroup OBJECT-GROUP
+    OBJECTS {
+        coCdlAdminStatus,
+        coCdlNodeBehavior,
+        coCdlRxHeaderCRCError,
+        coCdlRxHeaderCRCErrorOverflow,
+        coCdlHCRxHeaderCRCError,
+        coCdlRxNonCdlPackets,
+        coCdlRxNonCdlPacketsOverflow,
+        coCdlHCRxNonCdlPackets
+    }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects used to control and monitor CDL on an
+        Ethernet interface.
+        "
+    ::= { coCdlMIBGroups 1 }
+
+coCdlMIBFlowIdGroup OBJECT-GROUP
+    OBJECTS {
+        coCdlTransmitMaxFlowIdentifier,
+        coCdlReceiveMaxFlowIdentifier,
+        coCdlRxInvalidFlowID,
+        coCdlRxInvalidFlowIDOverflow,
+        coCdlHCRxInvalidFlowID
+    }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects used to manage packet-by-packet
+        multiplexing on a CDL enabled interface.
+        "
+    ::= { coCdlMIBGroups 2 }
+
+coCdlMIBFlowTermGroup OBJECT-GROUP
+    OBJECTS {
+        coCdlFromCdlNetFlowIdentifier,
+        coCdlToCdlNetFlowIdentifier,
+        coCdlFromCdlNetFlowDICurrStatus,
+        coCdlFromCdlNetFlowDILastChange,
+        coCdlToCdlNetFlowDICurrStatus,
+        coCdlToCdlNetFlowDILastChange
+    }
+    STATUS      deprecated
+    DESCRIPTION
+        "A collection of objects to configure and monitor the status of
+        elementary packet streams at path terminating interfaces.
+        "
+    ::= { coCdlMIBGroups 3 }
+
+coCdlDIConfigGroup  OBJECT-GROUP
+    OBJECTS {
+        coCdlForceEndOfHop
+    }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects to configure CDL aggregate defect
+        indication behavior.
+        "
+    ::= { coCdlMIBGroups 4 }
+
+coCdlDIAggMandatoryGroup OBJECT-GROUP
+    OBJECTS {
+        coCdlRxAggDefectIndCurrStatus,
+        coCdlRxAggDefectIndLastChange,
+        coCdlTxAggDefectIndCurrStatus,
+        coCdlTxAggDefectIndLastChange,
+        coCdlDefectIndNotifyEnable,
+        coCdlDefectIndSetSoakInterval,
+        coCdlDefectIndClearSoakInterval,
+        coCdlDINotifyThrottleInterval
+    }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects to monitor CDL aggregate defect
+        indications.
+        "
+    ::= { coCdlMIBGroups 5 }
+
+coCdlDIAggNotifGroup NOTIFICATION-GROUP
+    NOTIFICATIONS {
+        coCdlRxAggDefectIndChange
+    }
+    STATUS      current
+    DESCRIPTION
+        "A collection of notifications for CDL aggregate defect
+        indications.
+        "
+    ::= { coCdlMIBGroups 6 }
+
+coCdlDIFlowNotifGroup NOTIFICATION-GROUP
+    NOTIFICATIONS {
+        coCdlFromCdlNetFlowDIChange
+    }
+    STATUS      current
+    DESCRIPTION
+        "A collection of notifications for CDL flow defect indications.
+        "
+    ::= { coCdlMIBGroups 7 }
+
+coCdlMIBFlowTerm2Group OBJECT-GROUP
+    OBJECTS {
+        coCdlFromCdlNetFlowIdentifier,
+        coCdlToCdlNetFlowIdentifier,
+        coCdlFromCdlNetFlowDICurrStatus,
+        coCdlFromCdlNetFlowDILastChange,
+        coCdlToCdlNetFlowDICurrStatus,
+        coCdlToCdlNetFlowDILastChange,
+        coCdlFromCdlNetEthernetCRC,
+        coCdlFromCdlNetEthernetCRCOvrflw,
+        coCdlFromCdlNetHCEthernetCRC
+    }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects to configure and monitor the status of
+        elementary packet streams at path terminating interfaces.
+        "
+    ::= { coCdlMIBGroups 8 }
+
+
+END

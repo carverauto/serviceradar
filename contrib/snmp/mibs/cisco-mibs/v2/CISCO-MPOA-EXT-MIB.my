@@ -1,0 +1,302 @@
+-- *****************************************************************
+-- An extension to the ATM Forum MPOA MIB for Cisco propietary objects
+--
+-- September 1999, Srikanth Kilaru
+-- Copyright (c) 1997, 1999, 2000 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+
+CISCO-MPOA-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE    FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP FROM SNMPv2-CONF
+        ciscoMgmt                       FROM CISCO-SMI
+        mpcIndex, mpsIndex              FROM MPOA-MIB
+        RowStatus                       FROM SNMPv2-TC
+        InterfaceIndex                  FROM IF-MIB
+        VpiInteger, VciInteger          FROM LAN-EMULATION-CLIENT-MIB
+        AtmAddress                      FROM ATM-FORUM-TC-MIB
+        ;
+
+ciscoMpoaExtMIB MODULE-IDENTITY
+        LAST-UPDATED "200001101230Z"
+        ORGANIZATION "Cisco Systems, Inc."
+        CONTACT-INFO
+                   "       Cisco Systems
+                           Customer Service
+
+                   Postal: 170 W Tasman Drive
+                           San Jose, CA  95134
+                           USA
+
+                      Tel: +1 800 553-NETS
+
+                   E-mail: cs-atm@cisco.com"
+        DESCRIPTION
+                "This MIB module is a Cisco extension to the ATM
+                Forum's MPOA MIB. This MIB module consists of object
+                groups to retrieve information about MPOA shortcut
+                VCCs and to bind MPOA entities (MPC & MPS) to physical
+                interfaces."
+        REVISION     "200001101230Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+-- have to verify with CANA for the following number
+        ::= { ciscoMgmt 99999 }
+
+
+
+ciscoMpoaExtMIBObjects  OBJECT IDENTIFIER ::= { ciscoMpoaExtMIB 1 }
+
+cMpcExtShortcutVCC OBJECT IDENTIFIER ::= 
+        { ciscoMpoaExtMIBObjects 1 }
+
+cMpcExtShortcutVCCTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CMpcExtShortcutVCCEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An extension to the mpcConfig table in the
+                MPOA-MIB. This table identifies the VCI and VPI of
+                each shortcut that is setup by an MPC.
+                A shortcut is a VCC that is setup between the Ingress
+                and Egress MPC."
+        ::= {  cMpcExtShortcutVCC 1 }
+
+cMpcExtShortcutVCCEntry OBJECT-TYPE
+        SYNTAX        CMpcExtShortcutVCCEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+        "Entries in the table for the shortcut VCCs setup by an MPC."
+        INDEX {mpcIndex, cmpcSCVpi, cmpcSCVci}
+        ::= { cMpcExtShortcutVCCTable 1 }
+
+CMpcExtShortcutVCCEntry ::= SEQUENCE {
+        cmpcSCVpi         VpiInteger,
+        cmpcSCVci         VciInteger,
+        cmpcDestAtmAddr   AtmAddress
+       }
+
+cmpcSCVpi OBJECT-TYPE
+        SYNTAX      VpiInteger
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+        "The VPI of the shortcut VCC setup by the MPC specified by MPC
+        index. The destination of the shortcut VCC is specified by 
+        cmpcDestAtmAddr."
+        ::= { cMpcExtShortcutVCCEntry 1 }
+
+cmpcSCVci OBJECT-TYPE
+        SYNTAX      VciInteger
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+        "The VCI of the shortcut VCC setup by the MPC specified by the
+        MPC index. The destination of the shortcut VCC is specified by
+        cmpcDestAtmAddr."
+        ::= { cMpcExtShortcutVCCEntry 2 }
+
+cmpcDestAtmAddr OBJECT-TYPE
+        SYNTAX      AtmAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+        "The ATM address of the destination of this shortcut VCC."
+        ::= { cMpcExtShortcutVCCEntry 3 }
+
+--
+-- Table to identify the binding of a MPC to an interface.
+-- ifIndex to be specified has to be that of a physical interface.
+--
+
+cMpcInterface OBJECT IDENTIFIER ::= 
+        { ciscoMpoaExtMIBObjects 2 }
+
+cMpcInterfaceMappingTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CMpcInterfaceMappingEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+        "Table that contains information about the MPC <-->
+        interface binding."
+        ::= { cMpcInterface  1 }
+
+cMpcInterfaceMappingEntry OBJECT-TYPE
+        SYNTAX        CMpcInterfaceMappingEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+        "Each row in this table specifies the interface (by ifIndex) 
+        to which an MPC (specified by mpcIndex) is bound.
+        Creation of an MPC does not create an entry in this table.
+        After successfully creating an MPC, the MPC has to be bound to
+        an interface in order to create an entry in this table."
+        INDEX { mpcIndex }
+        ::= { cMpcInterfaceMappingTable 1 }
+
+CMpcInterfaceMappingEntry ::= SEQUENCE 
+        {
+                cMpcInterfaceMappingIndex     InterfaceIndex, 
+                cMpcInterfaceMappingRowStatus RowStatus 
+        }
+
+cMpcInterfaceMappingIndex OBJECT-TYPE
+        SYNTAX        InterfaceIndex
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+        "The Interface (specified by  the cMpcInterfaceMappingIndex) 
+        to which the MPS (specified by mpcIndex) is bound to. 
+        This interface has to be an ATM physical interface."    
+        ::= { cMpcInterfaceMappingEntry 1 }
+
+cMpcInterfaceMappingRowStatus OBJECT-TYPE
+        SYNTAX      RowStatus
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+        "Row status of the row in the mapping table. 
+        Specifying a 'valid' value for the cMpcInterfaceMappingIndex 
+        (interface index of an ATM physical interface) in the set
+        operation, along with a value of 4 (createAndGo) for the 
+        cMpcInterfaceMappingRowStatus, will bind the MPC specified by mpcIndex
+        to the specified physical interface and create a row entry in
+        this table."
+        ::= { cMpcInterfaceMappingEntry 2 }
+
+--
+-- Table to identify the binding of a MPS to an interface.
+-- ifIndex to be specified has to be that of a physical interface.
+--
+
+cMpsInterface OBJECT IDENTIFIER ::= 
+        { ciscoMpoaExtMIBObjects 3 }
+
+cMpsInterfaceMappingTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CMpsInterfaceMappingEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+        "Table that contains information about the MPS <-->
+        interface binding."
+        ::= { cMpsInterface  1 }
+
+cMpsInterfaceMappingEntry OBJECT-TYPE
+        SYNTAX        CMpsInterfaceMappingEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+        "Each row in this table specifies the interface (by ifIndex) 
+        to which an MPS (specified by mpsIndex) is bound.
+        Creation of an MPS does not create an entry in this table.
+        After successfully creating an MPS, the MPS has to be bound to
+        an interface in order to create an entry in this table."
+        INDEX { mpsIndex }
+        ::= { cMpsInterfaceMappingTable 1 }
+
+CMpsInterfaceMappingEntry ::= SEQUENCE 
+        { 
+                cMpsInterfaceMappingIndex     InterfaceIndex,
+                cMpsInterfaceMappingRowStatus RowStatus 
+        }
+
+cMpsInterfaceMappingIndex OBJECT-TYPE
+        SYNTAX        InterfaceIndex
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+        "The Interface (specified by  the cMpsInterfaceMappingIndex) 
+        to which the MPS (specified by mpsIndex) is bound to. 
+        This interface has to be an ATM physical interface."
+        ::= { cMpsInterfaceMappingEntry 1 }
+        
+cMpsInterfaceMappingRowStatus OBJECT-TYPE
+        SYNTAX      RowStatus
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+        "Row status of the row in the mapping table. 
+        Specifying a 'valid' value for the cMpsInterfaceMappingIndex 
+        (interface index of an ATM physical interface) in the set
+        operation, along with a value of 4 (createAndGo) for the 
+        cMpsInterfaceMappingRowStatus, will bind the MPS specified by mpsIndex
+        to the specified physical interface and create a row entry in
+        this table.
+        Similarly, specifying a value of 6 (destroy) for the 
+        cMpsInterfaceMappingRowStatus, along with the mpsIndex of the
+        MPS, will detach the specified MPS from the physical
+        interface(i.e. if it is already attached)."
+        ::= { cMpsInterfaceMappingEntry 2 }
+
+
+-- Notifications
+
+ciscoMpoaExtMIBNotificationPrefix OBJECT IDENTIFIER ::= 
+        { ciscoMpoaExtMIB 2 }
+ciscoMpoaExtMIBNotifications OBJECT IDENTIFIER ::= 
+        { ciscoMpoaExtMIBNotificationPrefix 0 }
+-- none
+
+-- conformance information
+
+ciscoMpoaExtMIBConformance
+                OBJECT IDENTIFIER ::= { ciscoMpoaExtMIB 3 }
+ciscoMpoaExtMIBCompliances
+                OBJECT IDENTIFIER ::= { ciscoMpoaExtMIBConformance 1 }
+ciscoMpoaExtMIBGroups
+                OBJECT IDENTIFIER ::= { ciscoMpoaExtMIBConformance 2 }
+
+
+-- compliance statements
+
+ciscoMpoaExtMIBCompliance MODULE-COMPLIANCE
+        STATUS        current
+        DESCRIPTION
+                "This module should be implemented by all Cisco
+                 devices supporting MPOA Clients."
+        MODULE        -- this module
+        MANDATORY-GROUPS
+                { ciscoMpoaExtShorcutVCCMIBGroup, 
+                  ciscoMpoaExtMpcInterfaceMappingGroup,
+                  ciscoMpoaExtMpsInterfaceMappingGroup
+                }
+        ::= { ciscoMpoaExtMIBCompliances 1 }
+
+-- units of conformance
+
+ciscoMpoaExtShorcutVCCMIBGroup OBJECT-GROUP
+        OBJECTS       { 
+                        cmpcDestAtmAddr
+                      }
+        STATUS        current
+        DESCRIPTION
+                "A collection of objects related to identifying
+                a shorcut VCC setup by an MPC."
+        ::= { ciscoMpoaExtMIBGroups 1 }
+
+ciscoMpoaExtMpcInterfaceMappingGroup OBJECT-GROUP
+        OBJECTS       { cMpcInterfaceMappingIndex, 
+                        cMpcInterfaceMappingRowStatus 
+                      }
+        STATUS        current
+        DESCRIPTION
+                "A collection of objects related to identify the
+                interface to which an MPC is bound to."
+        ::= { ciscoMpoaExtMIBGroups 2 }
+
+
+ciscoMpoaExtMpsInterfaceMappingGroup OBJECT-GROUP
+        OBJECTS       { cMpsInterfaceMappingIndex, 
+                        cMpsInterfaceMappingRowStatus 
+                      }
+        STATUS        current
+        DESCRIPTION
+                "A collection of objects related to identify the
+                interface to which an MPS is bound to."
+        ::= { ciscoMpoaExtMIBGroups 3 }
+
+END

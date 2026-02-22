@@ -1,0 +1,233 @@
+-- MIB file created 02-Jul-2010 11:00:32, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CDSTV-BWMGR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CDSTV-BWMGR-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    InetPortNumber, InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    TimeIntervalSec
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoCdstvBwmgrMIB OBJECT IDENTIFIER ::= { ciscoMgmt 749 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201006240000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-cds@cisco.com
+--  Descr
+--    This MIB module defines Bandwidth Manager configuration objects
+--    that facilitate the management of the Cisco Content Delivery
+--    System for TV (CDS-TV) product family.
+--    
+--    CDS-TV is a suite of products and software applications
+--    providing ingest, storage, caching, streaming, playout and
+--    on-demand delivery of video to television or set-top-box
+--    clients.
+--    
+--    The Bandwidth Manager runs on the master streamer and keeps
+--    track of allocated streams and VOD network resources.
+--    
+--    Abbreviations:
+--    
+--    CCP     Cache Control Protocol
+--    CDS     Content Delivery System
+--    CORBA   Common Object Request Broker Architecture 
+--    ISA     Interactive Services Architecture
+--    ISV     Integrated Streamer-Vault
+--    FSI     File Service Interface
+--    FTP     File Transfer Protocol
+--    MPEG    Motion Picture Experts Group
+--    MSA     Managed Services Architecture
+--    RTSP    Real-Time Streaming Protocol
+--    SOAP    Simple Object Access Protocol
+--    STB     Set-Top Box
+--    VOD     Video On-Demand
+--    
+--    Common terms:
+--    
+--    Catcher: Device responsible for receiving content (typically via
+--    satellite dishes and antennae) from content providers or from a
+--    Headend-In-The-Sky. 
+--    
+--    Content Ingest: Acquisition of content from a source such as a
+--    catcher or an FTP server for storing it locally and making it
+--    available to streamers as needed.
+--    
+--    Device Roles:
+--    
+--    Vault: Content delivery application responsible for ingesting
+--    and storing video content and making it available to streamers
+--    and/or caching nodes.
+--    
+--    Caching Nodes: Content delivery application responsible for
+--    caching content from vault (using CCP) and then streaming
+--    content out to streamers over HTTP or CCP.
+--    
+--    Streamer: Content delivery application responsible for streaming
+--    video out to STB's.
+--    
+--    ISV: Content delivery application capable of acting as both a
+--    vault and as a streamer in a single device.
+--  RevDate
+--    201006240000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoCdstvBWMgrMIBNotifs OBJECT IDENTIFIER ::= { ciscoCdstvBwmgrMIB 0 }
+ciscoCdstvBWMgrMIBObjects OBJECT IDENTIFIER ::= { ciscoCdstvBwmgrMIB 1 }
+ciscoCdstvBWMgrMIBConform OBJECT IDENTIFIER ::= { ciscoCdstvBwmgrMIB 2 }
+ciscoCdstvBWMgrMIBCompliances OBJECT IDENTIFIER ::= { ciscoCdstvBWMgrMIBConform 1 }
+ciscoCdstvBWMgrMIBGroups OBJECT IDENTIFIER ::= { ciscoCdstvBWMgrMIBConform 2 }
+
+cdstvBWMgrAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of address used by the Bandwidth
+        Manager. 
+        
+        The address is specified by cdstvBWMgrAddress."
+    ::= { ciscoCdstvBWMgrMIBObjects 1 }
+
+cdstvBWMgrAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the address used by the Bandwidth
+        Manager. The type of the address is specified by
+        cdstvBWMgrAddressType."
+    ::= { ciscoCdstvBWMgrMIBObjects 2 }
+
+cdstvBWMgrPort OBJECT-TYPE
+    SYNTAX InetPortNumber(0..65535)
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the port number to listen on for incoming
+        connections from the RTSP server."
+    DEFVAL { 7791 }
+    ::= { ciscoCdstvBWMgrMIBObjects 3 }
+
+cdstvBWMgrDatabaseThreadPool OBJECT-TYPE
+    SYNTAX Gauge(1..10000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the maximum number of threads in the
+        database connection pool."
+    DEFVAL { 10 }
+    ::= { ciscoCdstvBWMgrMIBObjects 4 }
+
+cdstvBWMgrServerThreadPool OBJECT-TYPE
+    SYNTAX Gauge(1..10000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the maximum number of threads in the
+        Bandwidth Manager server pool that are used to process RTSP
+        requests for the duration of the connection."
+    DEFVAL { 5 }
+    ::= { ciscoCdstvBWMgrMIBObjects 5 }
+
+cdstvBWMgrSyncThreadPool OBJECT-TYPE
+    SYNTAX Gauge(1..10000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the maximum number of threads available
+        to synchronize sessions with the RTSP during a synchronization
+        operation."
+    ::= { ciscoCdstvBWMgrMIBObjects 6 }
+
+cdstvBWMgrSyncAlarm OBJECT-TYPE
+    SYNTAX TimeIntervalSec(2400..4294967295)
+--    Rsyntax Gauge(2400..4294967295)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies how often the synchronization alarm is
+        triggered. The alarm is generated if the synchronization between
+        RTSP client and server (typically, streamer and back-office, but
+        varies by CDS deployment environment) fails. Note that this does
+        not generate an SNMP notification."
+    DEFVAL { 864000 }
+    ::= { ciscoCdstvBWMgrMIBObjects 7 }
+
+ciscoCdstvBWMgrMIBMainObjectGroup OBJECT IDENTIFIER ::= { ciscoCdstvBWMgrMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provide status of bandwidth
+--    manager configuration.
+--  objects
+--    cdstvBWMgrAddress, cdstvBWMgrPort, 
+--    cdstvBWMgrDatabaseThreadPool, cdstvBWMgrServerThreadPool, 
+--    cdstvBWMgrSyncThreadPool, cdstvBWMgrSyncAlarm, 
+--    cdstvBWMgrAddressType
+
+ciscoCdstvBWMgrMIBCompliance OBJECT IDENTIFIER ::= { ciscoCdstvBWMgrMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the entities which
+--    implement the Cisco CDS TV Bandwidth Manager MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoCdstvBWMgrMIBMainObjectGroup
+--   ObjVar
+--    cdstvBWMgrAddressType
+--   ObjVar
+--    cdstvBWMgrAddress
+--   ObjVar
+--    cdstvBWMgrPort
+--   ObjVar
+--    cdstvBWMgrDatabaseThreadPool
+--   ObjVar
+--    cdstvBWMgrServerThreadPool
+--   ObjVar
+--    cdstvBWMgrSyncThreadPool
+--   ObjVar
+--    cdstvBWMgrSyncAlarm
+
+
+END
+

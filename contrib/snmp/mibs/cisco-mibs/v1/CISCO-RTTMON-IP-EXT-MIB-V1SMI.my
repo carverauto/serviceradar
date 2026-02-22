@@ -1,0 +1,796 @@
+-- MIB file created 26-Aug-2008 17:39:56, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-RTTMON-IP-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-RTTMON-IP-EXT-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    IPv6FlowLabelOrAny
+            FROM IPV6-FLOW-LABEL-MIB
+    DscpOrAny
+            FROM DIFFSERV-DSCP-TC
+    rttMonCtrlAdminIndex, rttMonCtrlAdminIndex, 
+    rttMonEchoPathAdminHopIndex, rttMonCtrlAdminIndex, 
+    rttMonStatsCaptureStartTimeIndex, rttMonStatsCapturePathIndex, 
+    rttMonStatsCaptureHopIndex, rttMonLpdGrpStatsGroupIndex, 
+    rttMonLpdGrpStatsStartTimeIndex, rttMonCtrlAdminIndex, 
+    rttMonCtrlAdminIndex, rttMonHistoryCollectionLifeIndex, 
+    rttMonHistoryCollectionBucketIndex, 
+    rttMonHistoryCollectionSampleIndex
+            FROM CISCO-RTTMON-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoRttMonIPExtMIB OBJECT IDENTIFIER ::= { ciscoMgmt 572 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200608020000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems, Inc.
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA 95134
+--    
+--    Tel: +1 800 553 NETS
+--    Email: cs-ipsla@cisco.com
+--  Descr
+--    This MIB contains extensions to tables in CISCO-RTTMON-MIB
+--    to support IP-layer extensions, specifically IPv6 addresses 
+--    and other information related to IPv6 and other IP information
+--  RevDate
+--    200608020000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+crttMonIPExtObjects OBJECT IDENTIFIER ::= { ciscoRttMonIPExtMIB 1 }
+ciscoRttMonIPExtMibConformance OBJECT IDENTIFIER ::= { ciscoRttMonIPExtMIB 2 }
+ciscoRttMonIPExtMibCompliances OBJECT IDENTIFIER ::= { ciscoRttMonIPExtMibConformance 1 }
+ciscoRttMonIPExtMibGroups OBJECT IDENTIFIER ::= { ciscoRttMonIPExtMibConformance 2 }
+
+crttMonIPEchoAdminTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CrttMonIPEchoAdminEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An extension of the rttMonEchoAdminTable, defined in
+        the CISCO-RTTMON-MIB, which provides the additional
+        capability of recording the addresses as IPv6 addresses,
+        plus other IPv6 and IP layer extension information"
+    ::= { crttMonIPExtObjects 1 }
+
+crttMonIPEchoAdminEntry OBJECT-TYPE
+    SYNTAX CrttMonIPEchoAdminEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of additional objects needed for IPv6 addresses."
+    INDEX { rttMonCtrlAdminIndex }
+-- Augments rttMonEchoAdminEntry FROM CISCO-RTTMON-MIB
+    ::= { crttMonIPEchoAdminTable 1 }
+
+CrttMonIPEchoAdminEntry ::= SEQUENCE {
+    crttMonIPEchoAdminTargetAddrType InetAddressType,
+    crttMonIPEchoAdminTargetAddress InetAddress,
+    crttMonIPEchoAdminSourceAddrType InetAddressType,
+    crttMonIPEchoAdminSourceAddress InetAddress,
+    crttMonIPEchoAdminNameServerAddrType InetAddressType,
+    crttMonIPEchoAdminNameServerAddress InetAddress,
+    crttMonIPEchoAdminLSPSelAddrType InetAddressType,
+    crttMonIPEchoAdminLSPSelAddress InetAddress,
+    crttMonIPEchoAdminDscp DscpOrAny,
+    crttMonIPEchoAdminFlowLabel IPv6FlowLabelOrAny
+    }
+
+crttMonIPEchoAdminTargetAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An enumerated value which specifies the address type 
+        of the target. 
+        This object must be used along with the
+        crttMonIPEchoAdminTargetAddress
+        object as it identifies the address family of the
+        address specified by that object. If the value
+        of crttMonIPEchoAdminTargetAddress is a zero-length
+        string (e.g., because an IPv4 address is specified by 
+        rttMonEchoAdminTargetAddress), this object contains
+        the value 'unknown'."
+--    DEFVAL { unknown }
+    ::= { crttMonIPEchoAdminEntry 1 }
+
+crttMonIPEchoAdminTargetAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string which specifies the address of the target. 
+        This object, in conjunction with the
+        crttMonIPEchoAdminTargetAddrType object, 
+        may be used to specify either an IPv6 or an IPv4 address and 
+        is an alternative to the rttMonEchoAdminTargetAddress object,
+        which may only specify an IPv4 address. In case the target is
+        a V4  IP address then both crttMonIPEchoAdminTargetAddrType/
+        crttMonIPEchoAdminTargetAddress AND 
+        rttMonEchoAdminTargetAddress may be used to specify it so long 
+        as both try to specify the
+        same V4 IP address. Alternatively only one of 
+        rttMonEchoAdminTargetAddress
+        OR crttMonIPEchoAdminTargetAddrType/
+        crttMonIPEchoAdminTargetAddress may be used to specify the 
+        V4 IP address, in which case the other may either not be
+        instantiated or contain a zero length string.
+        In case the the target is a V6 IP address
+        then only crttMonIPEchoAdminTargetAddrType/
+        crttMonIPEchoAdminTargetAddress must be used and 
+        rttMonEchoAdminTargetAddress may not be instantiated or
+        may have a zero length string."
+    DEFVAL { "" }
+    ::= { crttMonIPEchoAdminEntry 2 }
+
+crttMonIPEchoAdminSourceAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An enumerated value which specifies the address type 
+        of the source.
+        This object must be used along with the
+        crttMonIPEchoAdminSourceAddress
+        object as it identifies the address family of the
+        address specified by that object. If the value
+        of crttMonIPEchoAdminSourceAddress is a zero-length
+        string (e.g., because an IPv4 address is specified by 
+        rttMonEchoAdminSourceAddress), this object contains
+        the value 'unknown'."
+--    DEFVAL { unknown }
+    ::= { crttMonIPEchoAdminEntry 3 }
+
+crttMonIPEchoAdminSourceAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string which specifies the address of the target. 
+         This object, together with the 
+         crttMonIPEchoAdminSourceAddrType object,
+         may be used to specify either an IPv6 or an IPv4 address and 
+         is an alternative to the rttMonEchoAdminSourceAddress
+         object, which
+         may only specify an IPv4 address. In case the target is a V4
+         IP address then both crttMonIPEchoAdminSourceAddrType/
+         crttMonIPEchoAdminSourceAddress AND 
+         rttMonEchoAdminSourceAddress
+         may be used to specify it so long as both try to specify the
+         same V4 IP address. Alternatively only one of
+         rttMonEchoAdminSourceAddress
+         OR crttMonIPEchoAdminSourceAddrType/
+         crttMonIPEchoAdminSourceAddress may be used to specify the
+         V4 IP address, in which case the other may either not be
+         instantiated or contain a zero length string.
+         In case the the target is a V6 IP address
+         then only crttMonIPEchoAdminSourceAddrType/
+         crttMonIPEchoAdminSourceAddress must be used and
+         rttMonEchoAdminSourceAddress may not be instantiated or
+         may have a zero length string."
+    DEFVAL { "" }
+    ::= { crttMonIPEchoAdminEntry 4 }
+
+crttMonIPEchoAdminNameServerAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An enumerated value which specifies the address type 
+         of the target.
+         This object must be used along with the
+         crttMonIPEchoAdminNameServerAddress
+         object as it identifies the address family of the
+         address specified by that object. If the value
+         of crttMonIPEchoAdminNameServerAddress is a zero-length
+         string (e.g., because an IPv4 address is specified by 
+         rttMonEchoAdminNameServer), this object contains
+         the value 'unknown'."
+--    DEFVAL { unknown }
+    ::= { crttMonIPEchoAdminEntry 5 }
+
+crttMonIPEchoAdminNameServerAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string which specifies the address of the target. This object,
+         together with the crttMonIPEchoAdminNameServerAddrType object,
+         may be used to specify either an IPv6 or an IPv4 address and is
+         an alternative to the rttMonEchoAdminNameServer object, which
+         can only specify an IPv4. In case the target is a V4
+         IP address then both crttMonIPEchoAdminNameServerAddrType/
+         crttMonIPEchoAdminNameServerAddress AND 
+         rttMonEchoAdminNameServer
+         may be used to specify it so long as both try to specify the
+         same V4 IP address. Alternatively only one of
+         rttMonEchoAdminNameServer
+         OR crttMonIPEchoAdminNameServerAddrType/
+         crttMonIPEchoAdminNameServerAddress may be used to specify the
+         V4 IP address, in which case the other may either not be
+         instantiated or contain a zero length string.
+         In case the the target is a V6 IP address
+         then only crttMonIPEchoAdminNameServerAddrType/
+         crttMonIPEchoAdminNameServerAddress must be used and
+         rttMonEchoAdminNameServer may not be instantiated or
+         may have a zero length string."
+    DEFVAL { "" }
+    ::= { crttMonIPEchoAdminEntry 6 }
+
+crttMonIPEchoAdminLSPSelAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An enumerated value which specifies the address type 
+         of the target.
+         This object must be used along with the
+         crttMonIPEchoAdminLSPSelAddress
+         object as it identifies the address family of the
+         address specified by that object. If the value
+         of crttMonIPEchoAdminLSPSelAddress is a zero-length
+         string (e.g., because an IPv4 address is specified by 
+         rttMonEchoAdminLSPSelector), this object contains
+         the value 'unknown'."
+--    DEFVAL { unknown }
+    ::= { crttMonIPEchoAdminEntry 7 }
+
+crttMonIPEchoAdminLSPSelAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string which specifies the address of the LSP Selector. 
+         This object, in conjunction with the 
+         crttMonIPEchoAdminLSPSelAddrType object,
+         may be used to specify either an IPv6 or an IPv4 address and is
+         an alternative to the rttMonEchoAdminLSPSelector object, which
+         can only specify an IPv4 address.In case the target is a V4
+         IP address then both crttMonIPEchoAdminLSPSelAddrType/
+         crttMonIPEchoAdminLSPSelAddress AND rttMonEchoAdminLSPSelector
+         may be used to specify it so long as both try to specify the
+         same V4 IP address. Alternatively only one of
+         rttMonEchoAdminLSPSelector
+         OR crttMonIPEchoAdminLSPSelAddrType/
+         crttMonIPEchoAdminLSPSelAddress may be used to specify the
+         V4 IP address, in which case the other may either not be
+         instantiated or contain a zero length string.
+         In case the the target is a V6 IP address
+         then only crttMonIPEchoAdminLSPSelAddrType/
+         crttMonIPEchoAdminLSPSelAddress must be used and
+         rttMonEchoAdminLSPSelector may not be instantiated or
+         may have a zero length string."
+    DEFVAL { "" }
+    ::= { crttMonIPEchoAdminEntry 8 }
+
+crttMonIPEchoAdminDscp OBJECT-TYPE
+    SYNTAX DscpOrAny
+--    Rsyntax INTEGER(-1|0..63)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The DSCP value (either an IPv4 TOS octet or an IPv6 Traffic
+         Class octet) to be set in outgoing packets."
+    DEFVAL { -1 }
+    ::= { crttMonIPEchoAdminEntry 9 }
+
+crttMonIPEchoAdminFlowLabel OBJECT-TYPE
+    SYNTAX IPv6FlowLabelOrAny
+--    Rsyntax INTEGER(-1|0..1048575)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Flow Label in an IPv6 packet header."
+    REFERENCE
+        "Section 6 of RFC 2460"
+    ::= { crttMonIPEchoAdminEntry 10 }
+
+crttMonIPLatestRttOperTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CrttMonIPLatestRttOperEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An extension of the rttMonLatestRttOperTable, defined in
+        the CISCO-RTTMON-MIB, which provides the additional
+        capability of specifying IPv6 addresses."
+    ::= { crttMonIPExtObjects 2 }
+
+crttMonIPLatestRttOperEntry OBJECT-TYPE
+    SYNTAX CrttMonIPLatestRttOperEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of objects required to support IPv6 addresses. "
+    INDEX { rttMonCtrlAdminIndex }
+-- Augments rttMonCtrlAdminEntry FROM CISCO-RTTMON-MIB
+    ::= { crttMonIPLatestRttOperTable 1 }
+
+CrttMonIPLatestRttOperEntry ::= SEQUENCE {
+    crttMonIPLatestRttOperAddressType InetAddressType,
+    crttMonIPLatestRttOperAddress InetAddress
+    }
+
+crttMonIPLatestRttOperAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An enumerated value which specifies the address type 
+         of the target.
+         This object must be used along with the
+         crttMonIPLatestRttOperAddress
+         object as it identifies the address family of the
+         address specified by that object. If the value
+         of crttMonIPLatestRttOperAddress is a zero-length
+         string (e.g., because an IPv4 address is specified by 
+         rttMonLatestRttOperAddress), this object contains
+         the value 'unknown'."
+--    DEFVAL { unknown }
+    ::= { crttMonIPLatestRttOperEntry 1 }
+
+crttMonIPLatestRttOperAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string which specifies the address of the target. This object,
+         together with the crttMonIPLatestRttOperAddressType object,
+         may be used to specify either an IPv6 or an IPv4 address and is
+         an alternative to the rttMonLatestRttOperAddress object, which
+         can only specify an IPv4 address. In case the target is a V4
+         IP address then both crttMonIPLatestRttOperAddressType/
+         crttMonIPLatestRttOperAddress AND rttMonLatestRttOperAddress
+         may be used to specify it so long as both try to specify the
+         same V4 IP address. Alternatively only one of
+         rttMonLatestRttOperAddress
+         OR crttMonIPLatestRttOperAddressType/
+         crttMonIPLatestRttOperAddress may be used to specify the
+         V4 IP address, in which case the other may either not be
+         instantiated or contain a zero length string.
+         In case the the target is a V6 IP address
+         then only crttMonIPLatestRttOperAddressType/
+         crttMonIPLatestRttOperAddress must be used and
+         rttMonLatestRttOperAddress may not be instantiated or
+         may have a zero length string."
+    DEFVAL { "" }
+    ::= { crttMonIPLatestRttOperEntry 2 }
+
+crttMonIPEchoPathAdminTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CrttMonIPEchoPathAdminEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An extension of the rttMonEchoPathAdminTable, defined in
+        the CISCO-RTTMON-MIB, which provides the additional
+        capability of recording the hops as IPv6 addresses."
+    ::= { crttMonIPExtObjects 3 }
+
+crttMonIPEchoPathAdminEntry OBJECT-TYPE
+    SYNTAX CrttMonIPEchoPathAdminEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of additional objects needed for IPv6 addresses."
+    INDEX { rttMonCtrlAdminIndex, rttMonEchoPathAdminHopIndex }
+-- Augments rttMonEchoPathAdminEntry FROM CISCO-RTTMON-MIB
+    ::= { crttMonIPEchoPathAdminTable 1 }
+
+CrttMonIPEchoPathAdminEntry ::= SEQUENCE {
+    crttMonIPEchoPathAdminHopAddrType InetAddressType,
+    crttMonIPEchoPathAdminHopAddress InetAddress
+    }
+
+crttMonIPEchoPathAdminHopAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An enumerated value which specifies the address type 
+         of the hop.
+         This object must be used along with the
+         crttMonIPEchoPathAdminHopAddress
+         object as it identifies the address family of the
+         address specified by that object. If the value
+         of crttMonIPEchoPathAdminHopAddress is a zero-length
+         string (e.g., because an IPv4 address is specified by 
+         rttMonEchoPathAdminHopAddress), this object contains
+         the value 'unknown'."
+--    DEFVAL { unknown }
+    ::= { crttMonIPEchoPathAdminEntry 1 }
+
+crttMonIPEchoPathAdminHopAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string which specifies the address of the hop. This object,
+         together with the crttMonIPEchoPathAdminHopAddrType object, 
+         may be used to specify either an IPv6 or an IPv4 address and is 
+         an alternative to the 
+         rttMonEchoPathAdminHopAddress object, which
+         can only specify an IPv4 address. In case the target is a V4
+         IP address then both crttMonIPEchoPathAdminHopAddrType/
+         crttMonIPEchoPathAdminHopAddress AND 
+         rttMonEchoPathAdminHopAddress
+         may be used to specify it so long as both try to specify the
+         same V4 IP address. Alternatively only one of
+         rttMonEchoPathAdminHopAddress
+         OR crttMonIPEchoPathAdminHopAddrType/
+         crttMonIPEchoPathAdminHopAddress may be used to specify the
+         V4 IP address, in which case the other may either not be
+         instantiated or contain a zero length string.
+         In case the the target is a V6 IP address
+         then only crttMonIPEchoPathAdminHopAddrType/
+         crttMonIPEchoPathAdminHopAddress must be used and
+         rttMonEchoPathAdminHopAddress may not be instantiated or
+         may have a zero length string."
+    DEFVAL { "" }
+    ::= { crttMonIPEchoPathAdminEntry 2 }
+
+crttMonIPStatsCollectTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CrttMonIPStatsCollectEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An extension of the rttMonStatsCollectTable, defined in
+        the CISCO-RTTMON-MIB, which provides the additional
+        capability of specifying the collection address as an
+        IPv6 address."
+    ::= { crttMonIPExtObjects 4 }
+
+crttMonIPStatsCollectEntry OBJECT-TYPE
+    SYNTAX CrttMonIPStatsCollectEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of additional objects needed for IPv6 addresses."
+    INDEX { rttMonCtrlAdminIndex, rttMonStatsCaptureStartTimeIndex, rttMonStatsCapturePathIndex, rttMonStatsCaptureHopIndex }
+-- Augments rttMonStatsCollectEntry FROM CISCO-RTTMON-MIB
+    ::= { crttMonIPStatsCollectTable 1 }
+
+CrttMonIPStatsCollectEntry ::= SEQUENCE {
+    crttMonIPStatsCollectAddressType InetAddressType,
+    crttMonIPStatsCollectAddress InetAddress
+    }
+
+crttMonIPStatsCollectAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An enumerated value which specifies the address type 
+         of the target.
+         This object must be used along with the
+         crttMonIPStatsCollectAddress
+         object as it identifies the address family of the
+         address specified by that object. If the value
+         of crttMonIPStatsCollectAddress is a zero-length
+         string (e.g., because an IPv4 address is specified by 
+         rttMonStatsCollectAddress), this object contains
+         the value 'unknown'."
+--    DEFVAL { unknown }
+    ::= { crttMonIPStatsCollectEntry 1 }
+
+crttMonIPStatsCollectAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A string which specifies the address of the collection target. 
+         This object, in conjunction with the 
+         crttMonIPStatsCollectAddressType object,
+         may be used to specify either an IPv6 or an IPv4 address and is
+         an alternative to the rttMonStatsCollectAddress object, which
+         can only specify an IPv4 address. In case the target is a V4
+         IP address then both crttMonIPStatsCollectAddressType/
+         crttMonIPStatsCollectAddress AND rttMonStatsCollectAddress
+         may be used to specify it so long as both try to specify the
+         same V4 IP address. Alternatively only one of
+         rttMonStatsCollectAddress
+         OR crttMonIPStatsCollectAddressType/
+         crttMonIPStatsCollectAddress may be used to specify the
+         V4 IP address, in which case the other may either not be
+         instantiated or contain a zero length string.
+         In case the the target is a V6 IP address
+         then only crttMonIPStatsCollectAddressType/
+         crttMonIPStatsCollectAddress must be used and
+         rttMonStatsCollectAddress may not be instantiated or
+         may have a zero length string."
+    DEFVAL { "" }
+    ::= { crttMonIPStatsCollectEntry 2 }
+
+crttMonIPLpdGrpStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CrttMonIPLpdGrpStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An extension of the rttMonLpdGrpStatsTable, defined in
+        the CISCO-RTTMON-MIB, which provides the additional
+        capability of specifying the target PE address as an
+        IPv6 address."
+    ::= { crttMonIPExtObjects 5 }
+
+crttMonIPLpdGrpStatsEntry OBJECT-TYPE
+    SYNTAX CrttMonIPLpdGrpStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of additional objects needed for IPv6 addresses."
+    INDEX { rttMonLpdGrpStatsGroupIndex, rttMonLpdGrpStatsStartTimeIndex }
+-- Augments rttMonLpdGrpStatsEntry FROM CISCO-RTTMON-MIB
+    ::= { crttMonIPLpdGrpStatsTable 1 }
+
+CrttMonIPLpdGrpStatsEntry ::= SEQUENCE {
+    crttMonIPLpdGrpStatsTargetPEAddrType InetAddressType,
+    crttMonIPLpdGrpStatsTargetPEAddr InetAddress
+    }
+
+crttMonIPLpdGrpStatsTargetPEAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An enumerated value which specifies the address type 
+         of the target.
+         This object must be used along with the
+         crttMonIPLpdGrpStatsTargetPEAddr
+         object as it identifies the address family of the
+         address specified by that object. If the value
+         of crttMonIPLpdGrpStatsTargetPEAddr is a zero-length
+         string (e.g., because an IPv4 address is specified by 
+         rttMonLpdGrpStatsTargetPE), this object contains
+         the value 'unknown'."
+--    DEFVAL { unknown }
+    ::= { crttMonIPLpdGrpStatsEntry 1 }
+
+crttMonIPLpdGrpStatsTargetPEAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A string which specifies the address of the target PE. 
+         This object, in conjunction with the 
+         crttMonIPLpdGrpStatsTargetPEAddrType object,
+         may be used to specify either an IPv6 or an IPv4 address and is
+         an alternative to the rttMonLpdGrpStatsTargetPE object, which
+         can only specify an IPv4 address. In case the target is a V4
+         IP address then both crttMonIPLpdGrpStatsTargetPEAddrType/
+         crttMonIPLpdGrpStatsTargetPEAddr AND rttMonLpdGrpStatsTargetPE
+         may be used to specify it so long as both try to specify the
+         same V4 IP address. Alternatively only one of
+         rttMonLpdGrpStatsTargetPE
+         OR crttMonIPLpdGrpStatsTargetPEAddrType/
+         crttMonIPLpdGrpStatsTargetPEAddr may be used to specify the
+         V4 IP address, in which case the other may either not be
+         instantiated or contain a zero length string.
+         In case the the target is a V6 IP address
+         then only crttMonIPLpdGrpStatsTargetPEAddrType/
+         crttMonIPLpdGrpStatsTargetPEAddr must be used and
+         rttMonLpdGrpStatsTargetPE may not be instantiated or
+         may have a zero length string."
+    DEFVAL { "" }
+    ::= { crttMonIPLpdGrpStatsEntry 2 }
+
+crttMonIPHistoryCollectionTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CrttMonIPHistoryCollectionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An extension of the rttMonHistoryCollectionTable, defined in
+        the CISCO-RTTMON-MIB, which provides the additional
+        capability of specifying the target address as an
+        IPv6 address."
+    ::= { crttMonIPExtObjects 6 }
+
+crttMonIPHistoryCollectionEntry OBJECT-TYPE
+    SYNTAX CrttMonIPHistoryCollectionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of additional objects needed for IPv6 addresses."
+    INDEX { rttMonCtrlAdminIndex, rttMonHistoryCollectionLifeIndex, rttMonHistoryCollectionBucketIndex, rttMonHistoryCollectionSampleIndex }
+-- Augments rttMonHistoryCollectionEntry FROM CISCO-RTTMON-MIB
+    ::= { crttMonIPHistoryCollectionTable 1 }
+
+CrttMonIPHistoryCollectionEntry ::= SEQUENCE {
+    crttMonIPHistoryCollectionAddrType InetAddressType,
+    crttMonIPHistoryCollectionAddress InetAddress
+    }
+
+crttMonIPHistoryCollectionAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An enumerated value which specifies the address type 
+         of the target.
+         This object must be used along with the
+         crttMonIPHistoryCollectionAddress
+         object as it identifies the address family of the
+         address specified by that object. If the value
+         of crttMonIPHistoryCollectionAddress is a zero-length
+         string (e.g., because an IPv4 address is specified by 
+         rttMonHistoryCollectionAddress), this object contains
+         the value 'unknown'."
+--    DEFVAL { unknown }
+    ::= { crttMonIPHistoryCollectionEntry 1 }
+
+crttMonIPHistoryCollectionAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A string which specifies the address of the target. 
+         This object, in conjunction with the 
+         crttMonIPHistoryCollectionAddrType object,
+         may be used to specify either an IPv6 or an IPv4 address and is
+         an alternative to the 
+         rttMonHistoryCollectionAddress object, which
+         can only specify an IPv4 address. In case the target is a V4
+         IP address then both crttMonIPHistoryCollectionAddrType/
+         crttMonIPHistoryCollectionAddress AND 
+         rttMonHistoryCollectionAddress
+         may be used to specify it so long as both try to specify the
+         same V4 IP address. Alternatively only one of
+         rttMonHistoryCollectionAddress
+         OR crttMonIPHistoryCollectionAddrType/
+         crttMonIPHistoryCollectionAddress may be used to specify the
+         V4 IP address, in which case the other may either not be
+         instantiated or contain a zero length string.
+         In case the the target is a V6 IP address
+         then only crttMonIPHistoryCollectionAddrType/
+         crttMonIPHistoryCollectionAddress must be used and
+         rttMonHistoryCollectionAddress may not be instantiated or
+         may have a zero length string."
+    DEFVAL { "" }
+    ::= { crttMonIPHistoryCollectionEntry 2 }
+
+ciscoIPExtCtrlGroupRev1 OBJECT IDENTIFIER ::= { ciscoRttMonIPExtMibGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that were added to enhance the
+--    functionality of the RTT application to support other
+--    IP layer extensions like IPv6,
+--    specifically IPv6 addresses and other information.
+--  objects
+--    crttMonIPEchoAdminTargetAddrType, 
+--    crttMonIPEchoAdminTargetAddress, 
+--    crttMonIPEchoAdminSourceAddrType, 
+--    crttMonIPEchoAdminSourceAddress, 
+--    crttMonIPEchoAdminNameServerAddrType, 
+--    crttMonIPEchoAdminNameServerAddress, 
+--    crttMonIPEchoAdminLSPSelAddrType, 
+--    crttMonIPEchoAdminLSPSelAddress, crttMonIPEchoAdminDscp, 
+--    crttMonIPEchoAdminFlowLabel, 
+--    crttMonIPLatestRttOperAddressType, 
+--    crttMonIPLatestRttOperAddress, 
+--    crttMonIPEchoPathAdminHopAddrType, 
+--    crttMonIPEchoPathAdminHopAddress, 
+--    crttMonIPStatsCollectAddressType, 
+--    crttMonIPStatsCollectAddress, 
+--    crttMonIPLpdGrpStatsTargetPEAddrType, 
+--    crttMonIPLpdGrpStatsTargetPEAddr, 
+--    crttMonIPHistoryCollectionAddrType, 
+--    crttMonIPHistoryCollectionAddress
+
+ciscoRttMonIPExtMibComplianceRev1 OBJECT IDENTIFIER ::= { ciscoRttMonIPExtMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for new MIB extensions for
+--     supporting IPv6 addresses and other IP-layer extensions
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoIPExtCtrlGroupRev1
+
+
+END
+

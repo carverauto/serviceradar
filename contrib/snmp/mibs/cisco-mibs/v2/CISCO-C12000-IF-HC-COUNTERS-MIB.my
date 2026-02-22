@@ -1,0 +1,208 @@
+-- *****************************************************************
+-- CISCO-C12000-IF-HC-COUNTERS-MIB.my
+--
+-- May 1998, Anke Dosedal
+--
+-- Copyright (c) 1998 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+-- This mib was created to address the need to retrieve certain High
+-- Capacity (ie 64 bit) counters for a special GSR branch of IOS 
+-- which does not support SNMPv2c. This mib will allow ifHCInOctets, 
+-- ifHCInUcastPkts, ifHCOutOctets, and ifHCOutUcastPkts to each be
+-- be represented as two 32 bit objects.  One object will represent 
+-- the upper 32 bits and the other the lower 32 bits. In order to 
+-- get a correct representation of the 64 bit number, the 
+-- corresponding 32 bit objects, upper and lower 32 bits, should be 
+-- requested in the same PDU. It is important to note that this mib 
+-- will ONLY be supported in the 11.2GS version of IOS and will NOT 
+-- be ported to any later version.
+ 
+CISCO-C12000-IF-HC-COUNTERS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE,
+    Counter32
+            FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+            FROM SNMPv2-CONF
+    ciscoExperiment
+            FROM CISCO-SMI
+    ifIndex
+            FROM IF-MIB;
+
+ciscoC12000IfHcCountersMIB MODULE-IDENTITY
+        LAST-UPDATED    "9805270000Z"
+	ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+ 
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+ 
+                   Tel: +1 800 553-NETS
+ 
+                E-mail: cs-snmp@cisco.com"
+        DESCRIPTION
+                "A MIB module to describe and store IF-MIB High 
+		Capacity (ie 64 bit) Counters as two 32 bit 
+		objects. This mib will ONLY be supported in the 
+		11.2GS version of IOS and will NOT be ported to 
+		any later versions."
+	::= { ciscoExperiment 31 }
+
+cHCCounterMIBObjects OBJECT IDENTIFIER ::= { ciscoC12000IfHcCountersMIB 1 }
+
+cHCCounterTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CHCCounterEntry
+	MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+		"A table containing the High Capacity Counter 
+		information in the IF-MIB in two 32 bit fields."
+	::= { cHCCounterMIBObjects 1 }
+
+cHCCounterEntry OBJECT-TYPE
+	SYNTAX    CHCCounterEntry
+	MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+		"High Capacity Counter information for each 
+		interface in the IF-MIB."
+	INDEX	{ ifIndex }
+	::= { cHCCounterTable 1 }
+
+CHCCounterEntry ::=
+	SEQUENCE {
+	    cHCCounterIfInOctetsUpper		Counter32,
+	    cHCCounterIfInOctetsLower		Counter32,
+	    cHCCounterIfInUcastPktsUpper	Counter32,
+	    cHCCounterIfInUcastPktsLower	Counter32,
+	    cHCCounterIfOutOctetsUpper		Counter32,
+	    cHCCounterIfOutOctetsLower		Counter32,
+	    cHCCounterIfOutUcastPktsUpper	Counter32,
+	    cHCCounterIfOutUcastPktsLower	Counter32
+	}
+
+cHCCounterIfInOctetsUpper OBJECT-TYPE
+	SYNTAX      Counter32
+	MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The upper 32 bits of ifHCInOctets as described in the 
+	    IF-MIB."
+	::= { cHCCounterEntry 1 }
+
+cHCCounterIfInOctetsLower OBJECT-TYPE
+	SYNTAX      Counter32
+	MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The lower 32 bits of ifHCInOctets as described in the 
+	    IF-MIB."
+	::= { cHCCounterEntry 2 }
+
+cHCCounterIfInUcastPktsUpper OBJECT-TYPE
+	SYNTAX      Counter32
+	MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The upper 32 bits of ifHCInUcastPkts as described in the 
+	    IF-MIB."
+	::= { cHCCounterEntry 3 }
+
+cHCCounterIfInUcastPktsLower OBJECT-TYPE
+	SYNTAX      Counter32
+	MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The lower 32 bits of ifHCInUcastPkts as described in the 
+	    IF-MIB."
+	::= { cHCCounterEntry 4 }
+
+cHCCounterIfOutOctetsUpper OBJECT-TYPE
+	SYNTAX      Counter32
+	MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The upper 32 bits of ifHCOutOctets as described in the 
+	    IF-MIB."
+	::= { cHCCounterEntry 5 }
+
+cHCCounterIfOutOctetsLower OBJECT-TYPE
+	SYNTAX      Counter32
+	MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The lower 32 bits of ifHCOutOctets as described in the 
+	    IF-MIB."
+	::= { cHCCounterEntry 6 }
+
+cHCCounterIfOutUcastPktsUpper OBJECT-TYPE
+	SYNTAX      Counter32
+	MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The upper 32 bits of ifHCOutUcastPkts as described in the 
+	    IF-MIB."
+	::= { cHCCounterEntry 7 }
+
+cHCCounterIfOutUcastPktsLower OBJECT-TYPE
+	SYNTAX      Counter32
+	MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The lower 32 bits of ifHCOutUcastPkts as described in the 
+	    IF-MIB."
+	::= { cHCCounterEntry 8 }
+
+-- notification information
+
+ciscoHCCountersMIBNotifications OBJECT IDENTIFIER ::= { ciscoC12000IfHcCountersMIB 2 }
+
+-- (no notifications are currently defined)
+
+-- conformance information
+
+ciscoHCCountersMIBConformance OBJECT IDENTIFIER ::= { ciscoC12000IfHcCountersMIB 3 }
+ciscoHCCountersMIBCompliances OBJECT IDENTIFIER ::= { ciscoHCCountersMIBConformance 1 }
+ciscoHCCountersMIBGroups      OBJECT IDENTIFIER ::= { ciscoHCCountersMIBConformance 2 }
+
+-- compliance statements
+
+ciscoHCCountersMIBCompliance MODULE-COMPLIANCE
+      STATUS    current
+      DESCRIPTION
+                "The compliance statement for entities which implement
+                the Cisco HC Counter MIB. This mib will ONLY be 
+		supported in the 11.2GS version of IOS and will NOT be 
+		ported to any later versions."
+      MODULE    -- this module
+                MANDATORY-GROUPS { ciscoHCCountersMIBGroup }
+      ::= { ciscoHCCountersMIBCompliances 1 }
+
+-- units of conformance
+ 
+ciscoHCCountersMIBGroup OBJECT-GROUP
+      OBJECTS {
+	        cHCCounterIfInOctetsUpper,
+	        cHCCounterIfInOctetsLower,
+	        cHCCounterIfInUcastPktsUpper,
+	        cHCCounterIfInUcastPktsLower,
+	        cHCCounterIfOutOctetsUpper,
+	        cHCCounterIfOutOctetsLower,
+	        cHCCounterIfOutUcastPktsUpper,
+	        cHCCounterIfOutUcastPktsLower
+	}
+      STATUS    current
+      DESCRIPTION
+        "A collection of objects providing the HC Counter capability.
+	These objects will ONLY be supported in the 11.2GS version of 
+	IOS and will NOT be ported to any later versions."
+      ::= { ciscoHCCountersMIBGroups 1 }
+
+END

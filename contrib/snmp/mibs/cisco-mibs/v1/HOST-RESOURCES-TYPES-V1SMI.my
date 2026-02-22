@@ -1,0 +1,445 @@
+-- MIB file created 28-Oct-2010 14:58:40, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+HOST-RESOURCES-TYPES DEFINITIONS ::= BEGIN
+
+-- From file: "HOST-RESOURCES-TYPES.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    hrMIBAdminInfo, hrStorage, hrDevice
+            FROM HOST-RESOURCES-MIB;
+
+hostResourcesTypesModule OBJECT IDENTIFIER ::= { hrMIBAdminInfo 4 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200003060000Z
+--  OrgName
+--    IETF Host Resources MIB Working Group
+--  ContactInfo
+--    Steve Waldbusser
+--    Postal: Lucent Technologies, Inc.
+--            1213 Innsbruck Dr.
+--            Sunnyvale, CA 94089
+--            USA
+--    Phone: 650-318-1251
+--    Fax:   650-318-1633
+--    Email: waldbusser@ins.com
+--    
+--    In addition, the Host Resources MIB mailing list is dedicated
+--    to discussion of this MIB. To join the mailing list, send a
+--    request message to hostmib-request@andrew.cmu.edu. The mailing
+--    list address is hostmib@andrew.cmu.edu.
+--  Descr
+--    This MIB module registers type definitions for
+--    storage types, device types, and file system types.
+--    
+--    After the initial revision, this module will be
+--    maintained by IANA.
+--  RevDate
+--    200003060000Z
+--  RevDescr
+--    The original version of this module, published as RFC
+--    2790.
+
+hrStorageTypes  OBJECT IDENTIFIER ::= { hrStorage 1 }
+hrDeviceTypes   OBJECT IDENTIFIER ::= { hrDevice 1 }
+hrFSTypes       OBJECT IDENTIFIER ::= { hrDevice 9 }
+
+hrStorageOther OBJECT IDENTIFIER ::= { hrStorageTypes 1 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The storage type identifier used when no other defined
+--    type is appropriate.
+
+hrStorageRam OBJECT IDENTIFIER ::= { hrStorageTypes 2 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The storage type identifier used for RAM.
+
+hrStorageVirtualMemory OBJECT IDENTIFIER ::= { hrStorageTypes 3 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The storage type identifier used for virtual memory,
+--    temporary storage of swapped or paged memory.
+
+hrStorageFixedDisk OBJECT IDENTIFIER ::= { hrStorageTypes 4 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The storage type identifier used for non-removable
+--    rigid rotating magnetic storage devices.
+
+hrStorageRemovableDisk OBJECT IDENTIFIER ::= { hrStorageTypes 5 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The storage type identifier used for removable rigid
+--    rotating magnetic storage devices.
+
+hrStorageFloppyDisk OBJECT IDENTIFIER ::= { hrStorageTypes 6 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The storage type identifier used for non-rigid rotating
+--    magnetic storage devices.
+
+hrStorageCompactDisc OBJECT IDENTIFIER ::= { hrStorageTypes 7 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The storage type identifier used for read-only rotating
+--    optical storage devices.
+
+hrStorageRamDisk OBJECT IDENTIFIER ::= { hrStorageTypes 8 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The storage type identifier used for a file system that
+--    is stored in RAM.
+
+hrStorageFlashMemory OBJECT IDENTIFIER ::= { hrStorageTypes 9 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The storage type identifier used for flash memory.
+
+hrStorageNetworkDisk OBJECT IDENTIFIER ::= { hrStorageTypes 10 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The storage type identifier used for a
+--    networked file system.
+
+hrDeviceOther OBJECT IDENTIFIER ::= { hrDeviceTypes 1 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used when no other defined
+--    type is appropriate.
+
+hrDeviceUnknown OBJECT IDENTIFIER ::= { hrDeviceTypes 2 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used when the device type is
+--    unknown.
+
+hrDeviceProcessor OBJECT IDENTIFIER ::= { hrDeviceTypes 3 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a CPU.
+
+hrDeviceNetwork OBJECT IDENTIFIER ::= { hrDeviceTypes 4 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a network interface.
+
+hrDevicePrinter OBJECT IDENTIFIER ::= { hrDeviceTypes 5 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a printer.
+
+hrDeviceDiskStorage OBJECT IDENTIFIER ::= { hrDeviceTypes 6 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a disk drive.
+
+hrDeviceVideo OBJECT IDENTIFIER ::= { hrDeviceTypes 10 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a video device.
+
+hrDeviceAudio OBJECT IDENTIFIER ::= { hrDeviceTypes 11 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for an audio device.
+
+hrDeviceCoprocessor OBJECT IDENTIFIER ::= { hrDeviceTypes 12 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a co-processor.
+
+hrDeviceKeyboard OBJECT IDENTIFIER ::= { hrDeviceTypes 13 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a keyboard device.
+
+hrDeviceModem OBJECT IDENTIFIER ::= { hrDeviceTypes 14 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a modem.
+
+hrDeviceParallelPort OBJECT IDENTIFIER ::= { hrDeviceTypes 15 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a parallel port.
+
+hrDevicePointing OBJECT IDENTIFIER ::= { hrDeviceTypes 16 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a pointing device
+--    (e.g., a mouse).
+
+hrDeviceSerialPort OBJECT IDENTIFIER ::= { hrDeviceTypes 17 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a serial port.
+
+hrDeviceTape OBJECT IDENTIFIER ::= { hrDeviceTypes 18 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a tape storage device.
+
+hrDeviceClock OBJECT IDENTIFIER ::= { hrDeviceTypes 19 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a clock device.
+
+hrDeviceVolatileMemory OBJECT IDENTIFIER ::= { hrDeviceTypes 20 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a volatile memory
+--    storage device.
+
+hrDeviceNonVolatileMemory OBJECT IDENTIFIER ::= { hrDeviceTypes 21 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The device type identifier used for a non-volatile memory
+--    
+--    storage device.
+
+hrFSOther OBJECT IDENTIFIER ::= { hrFSTypes 1 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used when no other
+--    defined type is appropriate.
+
+hrFSUnknown OBJECT IDENTIFIER ::= { hrFSTypes 2 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used when the type of
+--    file system is unknown.
+
+hrFSBerkeleyFFS OBJECT IDENTIFIER ::= { hrFSTypes 3 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    Berkeley Fast File System.
+
+hrFSSys5FS OBJECT IDENTIFIER ::= { hrFSTypes 4 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    System V File System.
+
+hrFSFat OBJECT IDENTIFIER ::= { hrFSTypes 5 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for
+--    DOS's FAT file system.
+
+hrFSHPFS OBJECT IDENTIFIER ::= { hrFSTypes 6 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for OS/2's
+--    High Performance File System.
+
+hrFSHFS OBJECT IDENTIFIER ::= { hrFSTypes 7 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    Macintosh Hierarchical File System.
+
+hrFSMFS OBJECT IDENTIFIER ::= { hrFSTypes 8 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    Macintosh File System.
+
+hrFSNTFS OBJECT IDENTIFIER ::= { hrFSTypes 9 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    Windows NT File System.
+
+hrFSVNode OBJECT IDENTIFIER ::= { hrFSTypes 10 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    VNode File System.
+
+hrFSJournaled OBJECT IDENTIFIER ::= { hrFSTypes 11 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    Journaled File System.
+
+hrFSiso9660 OBJECT IDENTIFIER ::= { hrFSTypes 12 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    ISO 9660 File System for CD's.
+
+hrFSRockRidge OBJECT IDENTIFIER ::= { hrFSTypes 13 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    RockRidge File System for CD's.
+
+hrFSNFS OBJECT IDENTIFIER ::= { hrFSTypes 14 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    NFS File System.
+
+hrFSNetware OBJECT IDENTIFIER ::= { hrFSTypes 15 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    Netware File System.
+
+hrFSAFS OBJECT IDENTIFIER ::= { hrFSTypes 16 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    Andrew File System.
+
+hrFSDFS OBJECT IDENTIFIER ::= { hrFSTypes 17 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    OSF DCE Distributed File System.
+
+hrFSAppleshare OBJECT IDENTIFIER ::= { hrFSTypes 18 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    AppleShare File System.
+
+hrFSRFS OBJECT IDENTIFIER ::= { hrFSTypes 19 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    RFS File System.
+
+hrFSDGCFS OBJECT IDENTIFIER ::= { hrFSTypes 20 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    Data General DGCFS.
+
+hrFSBFS OBJECT IDENTIFIER ::= { hrFSTypes 21 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    SVR4 Boot File System.
+
+hrFSFAT32 OBJECT IDENTIFIER ::= { hrFSTypes 22 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    Windows FAT32 File System.
+
+hrFSLinuxExt2 OBJECT IDENTIFIER ::= { hrFSTypes 23 }
+-- OBJECT-IDENTITY
+--  Status
+--    mandatory
+--  Descr
+--    The file system type identifier used for the
+--    Linux EXT2 File System.
+
+
+END
+

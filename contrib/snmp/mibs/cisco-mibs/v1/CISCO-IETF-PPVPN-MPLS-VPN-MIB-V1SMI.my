@@ -1,0 +1,89 @@
+-- MIB file created 03-Sep-2010 11:40:39, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IETF-PPVPN-MPLS-VPN-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IETF-PPVPN-MPLS-VPN-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    mplsVpnVrfPerfCurrNumRoutes, mplsVpnVrfConfHighRouteThreshold
+            FROM MPLS-VPN-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoMplsVpnMIB OBJECT IDENTIFIER ::= { ciscoExperiment 999 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200304171200Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--            Cisco Systems, Inc.
+--      Postal: Customer Service
+--              170 W Tasman Drive
+--              San Jose, CA  95134
+--             USA
+--         Tel: +1 800 553-NETS
+--      Email: cs-snmp@cisco.com
+--             ch-mpls-mib-team@cisco.com 
+--  Descr
+--    This MIB is an extension of the MPLS-VPN-MIB.  It contains a new
+--    notification, mplsNumVrfRouteMaxThreshCleared, which was added with 
+--    MPLS-VPN-MIB-DRAFT-05.
+--  RevDate
+--    200304171200Z
+--  RevDescr
+--    Shorten names of identifiers and change name of the mib to from
+--     CISCO-MPLS-VPN-MIB to CISCO-IETF-PPVPN-MPLS-VPN-MIB.
+
+cMplsVpnNotifs  OBJECT IDENTIFIER ::= { ciscoMplsVpnMIB 0 }
+cMplsVpnObjects OBJECT IDENTIFIER ::= { ciscoMplsVpnMIB 1 }
+cMplsVpnConform OBJECT IDENTIFIER ::= { ciscoMplsVpnMIB 2 }
+cMplsVpnCompliances OBJECT IDENTIFIER ::= { cMplsVpnConform 1 }
+cMplsVpnGroups  OBJECT IDENTIFIER ::= { cMplsVpnConform 2 }
+
+cMplsNumVrfRouteMaxThreshCleared TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoMplsVpnMIB
+    VARIABLES {
+        mplsVpnVrfPerfCurrNumRoutes, 
+        mplsVpnVrfConfHighRouteThreshold }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated only after the number of routes
+         contained by the specified VRF reaches or attempts to exceed
+         the maximum allowed value as indicated by
+         mplsVrfMaxRouteThreshold, and then falls below this value. The
+         emission of this notification informs the operator that the
+         error condition has been cleared without the operator having to
+         query the device."
+    ::= 1
+
+cMplsVpnNotificationGroup OBJECT IDENTIFIER ::= { cMplsVpnGroups 1 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects required for CISCO MPLS VPN notifications.
+--  notifications
+--    cMplsNumVrfRouteMaxThreshCleared
+
+cMplsVpnCompliance OBJECT IDENTIFIER ::= { cMplsVpnCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Compliance statement for agents that support the CISCO
+--     MPLS VPN MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cMplsVpnNotificationGroup
+
+
+END
+

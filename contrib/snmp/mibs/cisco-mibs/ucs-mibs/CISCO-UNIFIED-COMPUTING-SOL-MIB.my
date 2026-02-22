@@ -1,0 +1,413 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-SOL-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- SOL management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-SOL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsPolicyPolicyOwner,
+    CucsSolAdminState,
+    CucsSolSpeed
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsSolObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        SOL management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 43 }
+
+cucsSolConfigTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSolConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sol:Config managed object table"
+    ::= { cucsSolObjects 1 }
+
+cucsSolConfigEntry OBJECT-TYPE
+    SYNTAX           CucsSolConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSolConfigTable table."
+    INDEX { cucsSolConfigInstanceId }
+    ::= { cucsSolConfigTable 1 }
+
+CucsSolConfigEntry ::= SEQUENCE {
+    cucsSolConfigInstanceId                                          CucsManagedObjectId,
+    cucsSolConfigDn                                                  CucsManagedObjectDn,
+    cucsSolConfigRn                                                  SnmpAdminString,
+    cucsSolConfigAdminState                                          CucsSolAdminState,
+    cucsSolConfigDescr                                               SnmpAdminString,
+    cucsSolConfigIntId                                               SnmpAdminString,
+    cucsSolConfigName                                                SnmpAdminString,
+    cucsSolConfigSpeed                                               CucsSolSpeed,
+    cucsSolConfigPolicyLevel                                         Gauge32,
+    cucsSolConfigPolicyOwner                                         CucsPolicyPolicyOwner
+}
+
+cucsSolConfigInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSolConfigEntry 1 }
+
+cucsSolConfigDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Config:dn managed object property"
+    ::= { cucsSolConfigEntry 2 }
+
+cucsSolConfigRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Config:rn managed object property"
+    ::= { cucsSolConfigEntry 3 }
+
+cucsSolConfigAdminState OBJECT-TYPE
+    SYNTAX       CucsSolAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Config:adminState managed object property"
+    ::= { cucsSolConfigEntry 4 }
+
+cucsSolConfigDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Config:descr managed object property"
+    ::= { cucsSolConfigEntry 5 }
+
+cucsSolConfigIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Config:intId managed object property"
+    ::= { cucsSolConfigEntry 6 }
+
+cucsSolConfigName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Config:name managed object property"
+    ::= { cucsSolConfigEntry 7 }
+
+cucsSolConfigSpeed OBJECT-TYPE
+    SYNTAX       CucsSolSpeed
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Config:speed managed object property"
+    ::= { cucsSolConfigEntry 8 }
+
+cucsSolConfigPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Config:policyLevel managed object property"
+    ::= { cucsSolConfigEntry 9 }
+
+cucsSolConfigPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Config:policyOwner managed object property"
+    ::= { cucsSolConfigEntry 10 }
+
+cucsSolIfTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSolIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sol:If managed object table"
+    ::= { cucsSolObjects 2 }
+
+cucsSolIfEntry OBJECT-TYPE
+    SYNTAX           CucsSolIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSolIfTable table."
+    INDEX { cucsSolIfInstanceId }
+    ::= { cucsSolIfTable 1 }
+
+CucsSolIfEntry ::= SEQUENCE {
+    cucsSolIfInstanceId                                              CucsManagedObjectId,
+    cucsSolIfDn                                                      CucsManagedObjectDn,
+    cucsSolIfRn                                                      SnmpAdminString,
+    cucsSolIfAdminState                                              CucsSolAdminState,
+    cucsSolIfDescr                                                   SnmpAdminString,
+    cucsSolIfIntId                                                   SnmpAdminString,
+    cucsSolIfName                                                    SnmpAdminString,
+    cucsSolIfSpeed                                                   CucsSolSpeed,
+    cucsSolIfPolicyLevel                                             Gauge32,
+    cucsSolIfPolicyOwner                                             CucsPolicyPolicyOwner
+}
+
+cucsSolIfInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSolIfEntry 1 }
+
+cucsSolIfDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:If:dn managed object property"
+    ::= { cucsSolIfEntry 2 }
+
+cucsSolIfRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:If:rn managed object property"
+    ::= { cucsSolIfEntry 3 }
+
+cucsSolIfAdminState OBJECT-TYPE
+    SYNTAX       CucsSolAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:If:adminState managed object property"
+    ::= { cucsSolIfEntry 4 }
+
+cucsSolIfDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:If:descr managed object property"
+    ::= { cucsSolIfEntry 5 }
+
+cucsSolIfIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:If:intId managed object property"
+    ::= { cucsSolIfEntry 6 }
+
+cucsSolIfName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:If:name managed object property"
+    ::= { cucsSolIfEntry 7 }
+
+cucsSolIfSpeed OBJECT-TYPE
+    SYNTAX       CucsSolSpeed
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:If:speed managed object property"
+    ::= { cucsSolIfEntry 8 }
+
+cucsSolIfPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:If:policyLevel managed object property"
+    ::= { cucsSolIfEntry 9 }
+
+cucsSolIfPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:If:policyOwner managed object property"
+    ::= { cucsSolIfEntry 10 }
+
+cucsSolPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSolPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sol:Policy managed object table"
+    ::= { cucsSolObjects 3 }
+
+cucsSolPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsSolPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSolPolicyTable table."
+    INDEX { cucsSolPolicyInstanceId }
+    ::= { cucsSolPolicyTable 1 }
+
+CucsSolPolicyEntry ::= SEQUENCE {
+    cucsSolPolicyInstanceId                                          CucsManagedObjectId,
+    cucsSolPolicyDn                                                  CucsManagedObjectDn,
+    cucsSolPolicyRn                                                  SnmpAdminString,
+    cucsSolPolicyAdminState                                          CucsSolAdminState,
+    cucsSolPolicyDescr                                               SnmpAdminString,
+    cucsSolPolicyIntId                                               SnmpAdminString,
+    cucsSolPolicyName                                                SnmpAdminString,
+    cucsSolPolicySpeed                                               CucsSolSpeed,
+    cucsSolPolicyPolicyLevel                                         Gauge32,
+    cucsSolPolicyPolicyOwner                                         CucsPolicyPolicyOwner,
+    cucsSolPolicyPropAcl                                             Unsigned64
+}
+
+cucsSolPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSolPolicyEntry 1 }
+
+cucsSolPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Policy:dn managed object property"
+    ::= { cucsSolPolicyEntry 2 }
+
+cucsSolPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Policy:rn managed object property"
+    ::= { cucsSolPolicyEntry 3 }
+
+cucsSolPolicyAdminState OBJECT-TYPE
+    SYNTAX       CucsSolAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Policy:adminState managed object property"
+    ::= { cucsSolPolicyEntry 4 }
+
+cucsSolPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Policy:descr managed object property"
+    ::= { cucsSolPolicyEntry 5 }
+
+cucsSolPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Policy:intId managed object property"
+    ::= { cucsSolPolicyEntry 6 }
+
+cucsSolPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Policy:name managed object property"
+    ::= { cucsSolPolicyEntry 7 }
+
+cucsSolPolicySpeed OBJECT-TYPE
+    SYNTAX       CucsSolSpeed
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Policy:speed managed object property"
+    ::= { cucsSolPolicyEntry 8 }
+
+cucsSolPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Policy:policyLevel managed object property"
+    ::= { cucsSolPolicyEntry 9 }
+
+cucsSolPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Policy:policyOwner managed object property"
+    ::= { cucsSolPolicyEntry 10 }
+
+cucsSolPolicyPropAcl OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sol:Policy:propAcl managed object property"
+    ::= { cucsSolPolicyEntry 11 }
+
+END

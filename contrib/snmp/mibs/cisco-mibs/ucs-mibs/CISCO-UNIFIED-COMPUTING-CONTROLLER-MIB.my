@@ -1,0 +1,363 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-CONTROLLER-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- CONTROLLER management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-CONTROLLER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB;
+
+cucsControllerObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        CONTROLLER management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 83 }
+
+cucsControllerHaControllerTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsControllerHaControllerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS controller:HaController managed object table"
+    ::= { cucsControllerObjects 5 }
+
+cucsControllerHaControllerEntry OBJECT-TYPE
+    SYNTAX           CucsControllerHaControllerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsControllerHaControllerTable table."
+    INDEX { cucsControllerHaControllerInstanceId }
+    ::= { cucsControllerHaControllerTable 1 }
+
+CucsControllerHaControllerEntry ::= SEQUENCE {
+    cucsControllerHaControllerInstanceId                             CucsManagedObjectId,
+    cucsControllerHaControllerDn                                     CucsManagedObjectDn,
+    cucsControllerHaControllerRn                                     SnmpAdminString,
+    cucsControllerHaControllerTrigElectionFlag                       TruthValue
+}
+
+cucsControllerHaControllerInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsControllerHaControllerEntry 1 }
+
+cucsControllerHaControllerDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:HaController:dn managed object property"
+    ::= { cucsControllerHaControllerEntry 2 }
+
+cucsControllerHaControllerRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:HaController:rn managed object property"
+    ::= { cucsControllerHaControllerEntry 3 }
+
+cucsControllerHaControllerTrigElectionFlag OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:HaController:trigElectionFlag
+        managed object property"
+    ::= { cucsControllerHaControllerEntry 4 }
+
+cucsControllerMgmtDbCheckPolTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsControllerMgmtDbCheckPolEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS controller:MgmtDbCheckPol managed object table"
+    ::= { cucsControllerObjects 8 }
+
+cucsControllerMgmtDbCheckPolEntry OBJECT-TYPE
+    SYNTAX           CucsControllerMgmtDbCheckPolEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsControllerMgmtDbCheckPolTable table."
+    INDEX { cucsControllerMgmtDbCheckPolInstanceId }
+    ::= { cucsControllerMgmtDbCheckPolTable 1 }
+
+CucsControllerMgmtDbCheckPolEntry ::= SEQUENCE {
+    cucsControllerMgmtDbCheckPolInstanceId                           CucsManagedObjectId,
+    cucsControllerMgmtDbCheckPolDn                                   CucsManagedObjectDn,
+    cucsControllerMgmtDbCheckPolRn                                   SnmpAdminString,
+    cucsControllerMgmtDbCheckPolHealthCheckInterval                  Gauge32,
+    cucsControllerMgmtDbCheckPolInternalBackupInterval               Gauge32,
+    cucsControllerMgmtDbCheckPolLastIntegrityCheckTime               DateAndTime,
+    cucsControllerMgmtDbCheckPolLastInternalBackupTime               DateAndTime,
+    cucsControllerMgmtDbCheckPolResetCorruptCount                    TruthValue,
+    cucsControllerMgmtDbCheckPolTriggerHealthCheck                   TruthValue
+}
+
+cucsControllerMgmtDbCheckPolInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsControllerMgmtDbCheckPolEntry 1 }
+
+cucsControllerMgmtDbCheckPolDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:MgmtDbCheckPol:dn managed object property"
+    ::= { cucsControllerMgmtDbCheckPolEntry 2 }
+
+cucsControllerMgmtDbCheckPolRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:MgmtDbCheckPol:rn managed object property"
+    ::= { cucsControllerMgmtDbCheckPolEntry 3 }
+
+cucsControllerMgmtDbCheckPolHealthCheckInterval OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:MgmtDbCheckPol:healthCheckInterval
+        managed object property"
+    ::= { cucsControllerMgmtDbCheckPolEntry 4 }
+
+cucsControllerMgmtDbCheckPolInternalBackupInterval OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:MgmtDbCheckPol:internalBackupInterval
+        managed object property"
+    ::= { cucsControllerMgmtDbCheckPolEntry 5 }
+
+cucsControllerMgmtDbCheckPolLastIntegrityCheckTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:MgmtDbCheckPol:lastIntegrityCheckTime
+        managed object property"
+    ::= { cucsControllerMgmtDbCheckPolEntry 6 }
+
+cucsControllerMgmtDbCheckPolLastInternalBackupTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:MgmtDbCheckPol:lastInternalBackupTime
+        managed object property"
+    ::= { cucsControllerMgmtDbCheckPolEntry 7 }
+
+cucsControllerMgmtDbCheckPolResetCorruptCount OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:MgmtDbCheckPol:resetCorruptCount
+        managed object property"
+    ::= { cucsControllerMgmtDbCheckPolEntry 8 }
+
+cucsControllerMgmtDbCheckPolTriggerHealthCheck OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:MgmtDbCheckPol:triggerHealthCheck
+        managed object property"
+    ::= { cucsControllerMgmtDbCheckPolEntry 9 }
+
+cucsControllerOperationalVersionHolderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsControllerOperationalVersionHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS controller:OperationalVersionHolder
+        managed object table"
+    ::= { cucsControllerObjects 6 }
+
+cucsControllerOperationalVersionHolderEntry OBJECT-TYPE
+    SYNTAX           CucsControllerOperationalVersionHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsControllerOperationalVersionHolderTable table."
+    INDEX { cucsControllerOperationalVersionHolderInstanceId }
+    ::= { cucsControllerOperationalVersionHolderTable 1 }
+
+CucsControllerOperationalVersionHolderEntry ::= SEQUENCE {
+    cucsControllerOperationalVersionHolderInstanceId                 CucsManagedObjectId,
+    cucsControllerOperationalVersionHolderDn                         CucsManagedObjectDn,
+    cucsControllerOperationalVersionHolderRn                         SnmpAdminString,
+    cucsControllerOperationalVersionHolderSerial                     SnmpAdminString
+}
+
+cucsControllerOperationalVersionHolderInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsControllerOperationalVersionHolderEntry 1 }
+
+cucsControllerOperationalVersionHolderDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:OperationalVersionHolder:dn
+        managed object property"
+    ::= { cucsControllerOperationalVersionHolderEntry 2 }
+
+cucsControllerOperationalVersionHolderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:OperationalVersionHolder:rn
+        managed object property"
+    ::= { cucsControllerOperationalVersionHolderEntry 3 }
+
+cucsControllerOperationalVersionHolderSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:OperationalVersionHolder:serial
+        managed object property"
+    ::= { cucsControllerOperationalVersionHolderEntry 4 }
+
+cucsControllerPreferedVersionHolderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsControllerPreferedVersionHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS controller:PreferedVersionHolder managed object table"
+    ::= { cucsControllerObjects 7 }
+
+cucsControllerPreferedVersionHolderEntry OBJECT-TYPE
+    SYNTAX           CucsControllerPreferedVersionHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsControllerPreferedVersionHolderTable table."
+    INDEX { cucsControllerPreferedVersionHolderInstanceId }
+    ::= { cucsControllerPreferedVersionHolderTable 1 }
+
+CucsControllerPreferedVersionHolderEntry ::= SEQUENCE {
+    cucsControllerPreferedVersionHolderInstanceId                    CucsManagedObjectId,
+    cucsControllerPreferedVersionHolderDn                            CucsManagedObjectDn,
+    cucsControllerPreferedVersionHolderRn                            SnmpAdminString,
+    cucsControllerPreferedVersionHolderInUse                         TruthValue,
+    cucsControllerPreferedVersionHolderSerial                        SnmpAdminString
+}
+
+cucsControllerPreferedVersionHolderInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsControllerPreferedVersionHolderEntry 1 }
+
+cucsControllerPreferedVersionHolderDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:PreferedVersionHolder:dn
+        managed object property"
+    ::= { cucsControllerPreferedVersionHolderEntry 2 }
+
+cucsControllerPreferedVersionHolderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:PreferedVersionHolder:rn
+        managed object property"
+    ::= { cucsControllerPreferedVersionHolderEntry 3 }
+
+cucsControllerPreferedVersionHolderInUse OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:PreferedVersionHolder:inUse
+        managed object property"
+    ::= { cucsControllerPreferedVersionHolderEntry 4 }
+
+cucsControllerPreferedVersionHolderSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS controller:PreferedVersionHolder:serial
+        managed object property"
+    ::= { cucsControllerPreferedVersionHolderEntry 5 }
+
+END

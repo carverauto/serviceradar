@@ -1,0 +1,219 @@
+-- *****************************************************************
+-- CISCO-IPSLA-TC-MIB.my:  IP SLA Textual Conventions MIB file
+
+-- December 2006, Katherine Yang
+
+-- Copyright (c) 2006 by cisco Systems, Inc.
+-- All rights reserved.
+
+-- *****************************************************************
+
+
+CISCO-IPSLA-TC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoIpSlaTCMIB MODULE-IDENTITY
+    LAST-UPDATED    "200703230000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems, Inc.
+            Customer Service 
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+
+            Tel: +1 800 553 NETS
+            Email: cs-ipsla@cisco.com"
+
+    DESCRIPTION
+            "This MIB contains textual conventions used by
+             CISCO IPSLA MIBs.
+
+            Acronyms:
+              FEC: Forward Equivalence Class
+              LPD: Label Path Discovery
+              LSP: Label Switched Path
+              MPLS: Multi Protocol Label Switching
+              RTT: Round Trip Time
+              SAA: Service Assurance Agent
+              SLA: Service Level Agreement
+              VPN: Virtual Private Network
+              ICPIF: Calculated Planning Impairment Factor"
+
+    REVISION        "200703230000Z"
+    DESCRIPTION
+            "Initial version of this MIB module."
+
+    ::= { ciscoMgmt 624 }
+
+-- Textual Conventions
+
+
+-- Operation type textual convention
+
+IpSlaOperType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+           "Specifies the type of IP SLA operation to be performed.
+
+            icmpEcho(1)   -  The value 'icmpEcho' will cause the
+                             IP SLA application to  perform a timed 
+                             ICMP echo request/response operation.
+
+           
+            udpEcho(2)    -  The value 'udpEcho' will cause the IP SLA 
+                             application to perform a timed udp packet 
+                             send/receive operation. 
+
+            tcpConnect(3) -  The value 'tcpConnect' will cause the IP 
+                             SLA application to perform a timed TCP 
+                             connect operation. 
+
+            udpJitter(4)  -  The value 'udpjitter' will cause the IP
+                             SLA application to perform delay variance
+                             analysis using UDP timestamp packets. 
+            
+            icmpjitter(5) -  The value 'icmpjitter' will cause the IP 
+                             SLA application to perform delay variance 
+                             analysis using ICMP timestamp packets."
+
+    SYNTAX          INTEGER {
+                        icmpEcho(1),
+                        udpEcho(2),
+                        tcpConnect(3),
+                        udpJitter(4),
+                        icmpJitter(5)
+                    }
+
+
+IpSlaCodecType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+            "Specifies the IP SLA codec type to be used with the UDP 
+            jitter operation. The following codec types are defined:
+
+            notApplicable(0)     - no CodecType is defined
+
+            g711ulaw(1)          - uses G.711 U Law 64000 bps
+
+            g711alaw(2)          - uses G.711 A Law 64000 bps
+
+            g729a(3)             - uses G.729 8000 bps"
+
+    SYNTAX          INTEGER {
+                        notApplicable(0),
+                        g711ulaw(1),
+                        g711alaw(2),
+                        g729a(3)
+                    }
+
+
+
+IpSlaReactVar ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+            "The following are specific reaction variables for an
+            IP SLA operation to react upon:
+
+             rtt(1)            - Round Trip Time
+
+             jitterSDAvg(2)    - Jitter average from source to
+                                 destination  
+
+             jitterDSAvg(3)    - Jitter average from destination 
+                                 to source  
+
+             packetLossSD(4)   - Packet loss from source to 
+                                 destination 
+ 
+             packetLossDS(5)   - Packet loss from destination 
+                                 to source 
+ 
+             mos(6)            - Mean Opinion Score  
+
+             timeout(7)        - Timeout of the operation
+
+             connectionLoss(8) - Connection failed to the destination
+
+             verifyError(9)    - Data corruption occurs
+
+             jitterAvg(10)     - Jitter average in both directions
+
+             icpif(11)         - Calculated Planning Impairment Factor
+
+             packetMIA(12)     - Missed packets in operation
+
+             packetLateArrival(13)   - Packets arriving late
+
+             packetOutOfSequence(14) - Packets arriving out of sequence
+
+             maxOfPositiveSD(15)     - Maximum positive jitter from
+                                       source to destination
+
+             maxOfNegativeSD(16)     - Maximum negative jitter from
+                                       source to destination
+
+             maxOfPositiveDS(17)     - Maximum positive jitter from
+                                       destination to source
+
+             maxOfNegativeDS(18)     - Maximum negative jitter from
+                                       destination to source.
+
+             successivePacketLoss(19)- Successive packet dropped 
+ 
+             maxOfLatencyDS(20)      - Maximum Latency from
+                                       Destination to Source
+
+             maxOfLatencySD(21)      - Maximum Latency from Source 
+                                       to Destination
+
+             latencyDSAvg(22)        - Latency average from Destination 
+                                       to Source
+
+             latencySDAvg(23)        - Latency average from Source 
+                                       to Destination
+
+             packetLoss(24)          - Packets loss in both directions"
+
+    SYNTAX          INTEGER {
+                        rtt(1),
+                        jitterSDAvg(2),
+                        jitterDSAvg(3),
+                        packetLossSD(4),
+                        packetLossDS(5),
+                        mos(6),
+                        timeout(7),
+                        connectionLoss(8),
+                        verifyError(9),
+                        jitterAvg(10),
+                        icpif(11),
+                        packetMIA(12),
+                        packetLateArrival(13),
+                        packetOutOfSequence(14),
+                        maxOfPositiveSD(15),
+                        maxOfNegativeSD(16),
+                        maxOfPositiveDS(17),
+                        maxOfNegativeDS(18),
+                        successivePacketLoss(19),
+                        maxOfLatencyDS(20),
+                        maxOfLatencySD(21),
+                        latencyDSAvg(22),
+                        latencySDAvg(23),
+                        packetLoss(24)
+                    }
+END
+
+
+
+
+

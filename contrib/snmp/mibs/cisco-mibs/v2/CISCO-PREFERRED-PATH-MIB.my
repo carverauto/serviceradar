@@ -1,0 +1,1119 @@
+-- *********************************************************************
+-- CISCO-PREFERRED-PATH-MIB.my: Preferred Path MIB
+--
+-- March 2006, Shekher Bulusu
+--
+-- Copyright (c) 2006 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+
+ 
+CISCO-PREFERRED-PATH-MIB  DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE,
+        NOTIFICATION-TYPE,
+        Unsigned32                        FROM    SNMPv2-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP,
+        NOTIFICATION-GROUP                FROM    SNMPv2-CONF
+        TruthValue, TEXTUAL-CONVENTION, 
+        RowStatus, StorageType            FROM    SNMPv2-TC
+        InterfaceIndexOrZero,
+        InterfaceIndex                    FROM    IF-MIB
+        FcAddressId, VsanIndex            FROM    CISCO-ST-TC
+        ciscoMgmt                         FROM    CISCO-SMI
+        notifyVsanIndex                   FROM    CISCO-VSAN-MIB;
+
+ciscoPrefPathMIB  MODULE-IDENTITY
+        LAST-UPDATED    "200610261444Z"
+        ORGANIZATION    "Cisco Systems Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+                Tel:    +1 800 553-NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+                "The MIB module for the management of
+                 preferred path. This MIB enables managers
+                 to configure and monitor Preferred Path
+                 parameters. 
+                 
+                 Preferred path provides a method of routing
+                 traffic over the selected paths, not necessarily
+                 the preferred shortest path as chosen by routing 
+                 protocols such as FSPF. This kind of control allows
+                 users to choose shortest paths based on
+                 characteristics, such as frames received on a
+                 selected interface or frames with selected source
+                 FC-ID. This feature allows users to ensure paths
+                 seperation between switches for different traffic
+                 between a host and a target.
+                 
+                 Glossary:
+                 
+                   FC-ID   - Fibre Channel Identifier.
+                   
+                   VSAN    - Virtual Storage Area Network.
+
+                   fcroute - Fibre Channel route to host or target.
+
+                   FSPF    - Fibre Shortest Path First.
+                   
+                   IVR     - Inter-VSAN Routing."
+        REVISION "200610261444Z" 
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 592 }
+
+ciscoPrefPathMIBNotifs      OBJECT IDENTIFIER
+                            ::= { ciscoPrefPathMIB 0 }
+ciscoPrefPathMIBObjects     OBJECT IDENTIFIER
+                            ::= { ciscoPrefPathMIB 1 }
+ciscoPrefPathMIBConform     OBJECT IDENTIFIER
+                            ::= { ciscoPrefPathMIB 2 }
+ciscoPrefPathConfiguration  OBJECT IDENTIFIER
+                            ::= { ciscoPrefPathMIBObjects 1 }
+ciscoPrefPathInformation    OBJECT IDENTIFIER
+                            ::= { ciscoPrefPathMIBObjects 2 }
+
+-- Textual Conventions
+
+CiscoPrefPathFcAddrMask ::= TEXTUAL-CONVENTION
+        STATUS        current
+        DESCRIPTION
+                "A mask to be associated with an FC-ID.
+
+                 full       - Represents a mask for the full
+                              FC-ID (0xFFFFFF).
+                              
+                 domainArea - Represents a mask only for
+                              domain and area fields of the
+                              FC-ID (0xFFFF00).
+                              
+                 domain     - Represents a mask only for the
+                              domain field of the FC-ID. 
+                              (0xFF0000).
+
+                 noMask     - No masking."
+        SYNTAX  INTEGER {
+                   full(1),
+                   domainArea(2),
+                   domain(3),
+                   noMask(4)
+                }
+
+CiscoPrefPathStatus ::= TEXTUAL-CONVENTION
+        STATUS  current
+        DESCRIPTION
+                "A status of preferred path route map match
+                 and set entries.
+                 
+                 unknown - Unknown or undefined (error) state.
+
+                 active  - Indicates that the entry is
+                           active.
+                              
+                 pending - Indicates that the entry is
+                           pending. Next fcroute-map or route
+                           activation will put the state to
+                           active.
+                              
+                 deleted - State indicating that the active
+                           entry was deleted. Next activation
+                           will remove the entry.
+                              
+                 changed - State indicating that the active
+                           entry was changed or modified.
+                           Next activation will apply the
+                           changes and move the state to active."
+
+        SYNTAX  INTEGER {
+                   unknown(1),
+                   active(2),
+                   pending(3),
+                   deleted(4),
+                   changed(5)
+                }
+
+CiscoPrefPathIvrNextHopVsanId ::= TEXTUAL-CONVENTION
+        STATUS  current
+        DESCRIPTION
+                "IVR next hop VSAN ID. The value of zero means
+                 no IVR next hop VSAN is available."
+        SYNTAX  Unsigned32 (0..4093)
+
+CiscoPrefPathPreferenceLevel ::= TEXTUAL-CONVENTION
+        STATUS  current
+        DESCRIPTION
+                "Metric or cost of the preferred path."
+        SYNTAX  Unsigned32 (1..255)
+
+-- Route-map Table
+
+cPrefPathRouteMapTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CPrefPathRouteMapEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table allows users to configure and monitor
+                 the preferred path fcroute-map parameters on all
+                 the VSANs configured on the local switch.
+                
+                 A fcroute-map can be created per VSAN. For each
+                 fcroute-map users can create multiple routes which
+                 are identified by a route ID. Within each route
+                 there can be multiple flows which are configured
+                 using the cPrefPathRouteMapMatchTable table and 
+                 the corresponding outgoing interface for a route
+                 can be configured using the 
+                 cPrefPathRouteMapSetTable table.
+
+                 This table is the top-level table which is used to
+                 configure the fcroute-map indexed by VSAN ID
+                 and a route within a fcroute-map indexed by the
+                 route ID of the route.
+                 
+                 Entries in this table are created and deleted
+                 using the cPrefPathRouteMapRowStatus object.
+                 
+                 To create a row in this table, a manager must
+                 set the cPrefPathRouteMapRowStatus object
+                 to 'createAndGo' or 'createAndWait'. This will 
+                 create a route within a fcroute-map. There is
+                 no need to configure instances of other 
+                 corresponding columns -
+                 cPrefPathRouteMapIntfPrefStrict, 
+                 cPrefPathRouteMapRouteActive,
+                 cPrefPathRouteMapActive in order to make the
+                 newly created row to active.
+                 
+                 To delete a row in this table, a manager must
+                 set the cPrefPathRouteMapRowStatus object
+                 to 'destroy'. This will delete a route within a
+                 fcroute-map."
+        ::= { ciscoPrefPathConfiguration 1 }
+
+cPrefPathRouteMapEntry OBJECT-TYPE
+        SYNTAX        CPrefPathRouteMapEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "A conceptual row in the cPrefPathRouteMapTable.
+                 There is an entry in this table for each
+                 route within a fcroute-map."
+        INDEX { cPrefPathRouteMapVsanIndex,
+                cPrefPathRouteMapRouteIndex }
+        ::= { cPrefPathRouteMapTable 1 }
+
+CPrefPathRouteMapEntry ::= SEQUENCE {
+        cPrefPathRouteMapVsanIndex                 VsanIndex,
+        cPrefPathRouteMapRouteIndex                Unsigned32,
+        cPrefPathRouteMapIntfPrefStrict            TruthValue,
+        cPrefPathRouteMapRouteActive               TruthValue,
+        cPrefPathRouteMapActive                    TruthValue, 
+        cPrefPathRouteMapStorageType               StorageType,
+        cPrefPathRouteMapRowStatus                 RowStatus
+}
+
+cPrefPathRouteMapVsanIndex OBJECT-TYPE
+        SYNTAX        VsanIndex
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "The VSAN ID of this fcroute-map." 
+       ::= { cPrefPathRouteMapEntry 1 }
+
+cPrefPathRouteMapRouteIndex OBJECT-TYPE
+        SYNTAX        Unsigned32 (1..2048)
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An arbitrary integer value which identifies a 
+                 route in this fcroute-map."
+        ::= { cPrefPathRouteMapEntry 2 }
+
+cPrefPathRouteMapIntfPrefStrict OBJECT-TYPE
+        SYNTAX        TruthValue 
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "This object allows to change the way
+                 the preferred path selection logic would
+                 select the preferred path.
+                 
+                 Setting this object to 'true' will make the
+                 preferred path to select the outgoing interface
+                 strictly based on the preference set using the 
+                 cPrefPathRMapSetIntfPref. When this object is set 
+                 to 'false', then the preferred path selection logic
+                 will perform selection only when the current 
+                 outgoing interface goes down."
+        DEFVAL { false }
+        ::= { cPrefPathRouteMapEntry 3 }
+
+cPrefPathRouteMapRouteActive OBJECT-TYPE
+        SYNTAX        TruthValue
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "This object allows to activate/de-activate
+                 the route within a fcroute-map.
+                 
+                 If value of this object is set to 'true', then
+                 route will be activated. If set to 'false', then
+                 the route will be de-activated.
+
+                 After the route is activated, any incremental
+                 updates or changes made to the match or set criteria
+                 would require this object to be set to 'true' again
+                 (re-activation)."
+        DEFVAL { false }
+        ::= { cPrefPathRouteMapEntry 4 }
+
+cPrefPathRouteMapActive OBJECT-TYPE
+        SYNTAX        TruthValue
+        MAX-ACCESS    read-create
+        STATUS        deprecated
+        DESCRIPTION
+                "This object allows to activate/de-activate all the 
+                 routes within a fcroute-map.
+                 
+                 If value of this object is set to 'true', then all
+                 the routes within this fcroute-map will be activated.
+                 If set to 'false', then all routes within this 
+                 fcroute-map will be de-activated.
+                 
+                 After the fcroute-map is activated, any incremental
+                 updates or changes made to the match or set criteria
+                 would require this object to be set to 'true' again
+                 (re-activation)."
+        DEFVAL { false }
+        ::= { cPrefPathRouteMapEntry 5 }
+
+cPrefPathRouteMapStorageType OBJECT-TYPE
+        SYNTAX         StorageType
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+                "The storage type for this conceptual row.
+
+                 Conceptual rows having the value 'permanent'
+                 need not allow write-access to any columnar
+                 objects in the row."
+        DEFVAL { volatile }
+        ::= { cPrefPathRouteMapEntry 6 }
+
+cPrefPathRouteMapRowStatus OBJECT-TYPE
+        SYNTAX        RowStatus
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "The status of this conceptual row.
+                
+                 There is no need to configure instances of other 
+                 corresponding columnar objects in order to make the
+                 newly created row to active.
+                 
+                 Instances of all other corresponding columns can be
+                 modified for an active row."
+        ::= { cPrefPathRouteMapEntry 7 }
+
+-- Route-Map Global Table
+
+cPrefPathRouteMapGlobalTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CPrefPathRouteMapGlobalEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table allows users to configure and monitor
+                 the preferred path fcroute-map global parameters.
+                
+                 Entries in this table are automatically created
+                 when the first route in a fcroute-map is created
+                 using the cPrefPathRouteMapTable table.
+
+                 An entry is deleted automatically from this table
+                 if either:
+                 - The last route in a fcroute-map is removed using 
+                   the cPrefPathRouteMapTable table.
+                        or
+                 - The corresponding VSAN is deleted using the 
+                   vsanTable table (Defined in CISCO-VSAN-MIB)."
+        ::= { ciscoPrefPathConfiguration 2 }
+
+cPrefPathRouteMapGlobalEntry OBJECT-TYPE
+        SYNTAX        CPrefPathRouteMapGlobalEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "A row in the cPrefPathRouteMapGlobalTable table.
+                 There is an entry in this table for each
+                 fcroute-map created."
+        INDEX { cPrefPathRouteMapVsanIndex }
+        ::= { cPrefPathRouteMapGlobalTable 1 }
+
+CPrefPathRouteMapGlobalEntry ::= SEQUENCE {
+        cPrefPathRouteMapGlobalActive     INTEGER
+}
+
+cPrefPathRouteMapGlobalActive OBJECT-TYPE
+        SYNTAX        INTEGER {
+                        all(1),
+                        partial(2),
+                        none(3)
+                      }
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION
+                "This object allows to activate/de-activate all the 
+                 routes within a fcroute-map.
+
+                 This object is read-write for the values of 'all'
+                 and 'none', but cannot be set to 'partial'.
+                 
+                 If this object is set to 'all', then all the routes
+                 within this fcroute-map will be activated.
+
+                 If this object is set to 'none', then all routes
+                 within this fcroute-map will be de-activated.
+                 
+                 The value of 'partial' indicates that not all of
+                 the routes within this fcroute-map are active.
+                 This happens when some of the routes within this
+                 fcroute-map is de-activated by using
+                 cPrefPathRouteMapRouteActive object.
+
+                 After the fcroute-map is activated, any incremental
+                 updates or changes made to the match or set criteria
+                 would require this object to be set to 'all' again
+                 (re-activation)."
+        DEFVAL { none }
+        ::= { cPrefPathRouteMapGlobalEntry 1 }
+
+-- Route-Map Match Table
+        
+cPrefPathRouteMapMatchTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CPrefPathRouteMapMatchEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table allows to configure and monitor
+                 the match criteria for a route within a 
+                 fcroute-map created using the 
+                 cPrefPathRouteMapTable table. 
+                
+                 Each match criteria allows user to classify a
+                 traffic flow based on the the incoming frame's
+                 source FC-ID and destination FC-ID match.
+                
+                 Each entry in this table is indexed by the 
+                  - cPrefPathRouteMapVsanIndex 
+                  - cPrefPathRouteMapRouteIndex 
+                  - cPrefPathRMapMatchSrcAddr 
+                  - cPrefPathRMapMatchSrcAddrMask 
+                  - cPrefPathRMapMatchSrcIntf 
+                  - cPrefPathRMapMatchDstAddr 
+                  - cPrefPathRMapMatchDstAddrMask 
+
+                 Note that any changes or updates made to the match
+                 criteria would require the corresponding route
+                 or the corresponding fcroute-map to be activated
+                 again.
+                
+                 Entries in this table are created and deleted
+                 using the cPrefPathRMapMatchRowStatus object.
+                 
+                 To create a row in this table, a manager must
+                 set the cPrefPathRMapMatchRowStatus object
+                 to 'createAndGo' or 'createAndWait'. This will 
+                 create a match criteria for a route within a 
+                 fcroute-map. 
+
+                 To delete a row in this table, a manager must
+                 set the cPrefPathRMapMatchRowStatus object
+                 to 'destroy'. 
+                 
+                 This table is dependent on cPrefPathRouteMapTable 
+                 table. The association between this table and 
+                 cPrefPathRouteMapTable table is through the common
+                 indices - cPrefPathRouteMapRouteIndex and
+                 cPrefPathRouteMapVsanIndex.
+                 
+                 All the entries in this table with the indices - 
+                 cPrefPathRouteMapVsanIndex and
+                 cPrefPathRouteMapRouteIndex is in fact the match
+                 criteria or the flows associated with the route
+                 within a fcroute-map for a VSAN, which are created
+                 and activated using the cPrefPathRouteMapTable table.
+                 
+                 When the row corresponding to indices -
+                 cPrefPathRouteMapVsanIndex and 
+                 cPrefPathRouteMapRouteIndex in
+                 the cPrefPathRouteMapTable is destroyed then all
+                 the rows in this table with those indices will be
+                 destroyed."
+                
+        ::= { ciscoPrefPathConfiguration 3 }
+
+cPrefPathRouteMapMatchEntry OBJECT-TYPE
+        SYNTAX        CPrefPathRouteMapMatchEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An entry (conceptual row) in this table.
+                 There is an entry in this table for each
+                 match criteria of a route within a
+                 fcroute-map."
+        INDEX { cPrefPathRouteMapVsanIndex,
+                cPrefPathRouteMapRouteIndex,
+                cPrefPathRMapMatchSrcAddr,
+                cPrefPathRMapMatchSrcAddrMask,
+                cPrefPathRMapMatchSrcIntf,
+                cPrefPathRMapMatchDstAddr,
+                cPrefPathRMapMatchDstAddrMask }
+        ::= { cPrefPathRouteMapMatchTable 1 }
+
+CPrefPathRouteMapMatchEntry ::= SEQUENCE {
+        cPrefPathRMapMatchSrcAddr         FcAddressId,
+        cPrefPathRMapMatchSrcAddrMask     CiscoPrefPathFcAddrMask,
+        cPrefPathRMapMatchSrcIntf         InterfaceIndexOrZero,
+        cPrefPathRMapMatchDstAddr         FcAddressId,
+        cPrefPathRMapMatchDstAddrMask     CiscoPrefPathFcAddrMask,
+        cPrefPathRMapMatchRowStatus       RowStatus
+}
+
+cPrefPathRMapMatchSrcAddr OBJECT-TYPE
+        SYNTAX        FcAddressId
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "The FC-ID which need to be matched with source 
+                 address in a frame for the flow classification."
+        ::= { cPrefPathRouteMapMatchEntry 1 }
+
+cPrefPathRMapMatchSrcAddrMask OBJECT-TYPE
+        SYNTAX        CiscoPrefPathFcAddrMask
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This object represents the mask associated with
+                 the source address represented by 
+                 cPrefPathRMapMatchSrcAddr.
+
+                 The value of this object is meaningful only
+                 if the corresponding instance of
+                 cPrefPathRMapMatchSrcAddr contains a valid FC-ID."
+        ::= { cPrefPathRouteMapMatchEntry 2 }
+
+cPrefPathRMapMatchSrcIntf OBJECT-TYPE
+        SYNTAX        InterfaceIndexOrZero
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This object represents an interface on the
+                 local device on which a frame should arrive
+                 for flow classification.
+
+                 The value of 0 indicates that source interface
+                 match is not selected."
+        ::= { cPrefPathRouteMapMatchEntry 3 }
+
+cPrefPathRMapMatchDstAddr OBJECT-TYPE
+        SYNTAX        FcAddressId
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "The FC-ID which need to be matched with
+                destination address in a frame for flow 
+                classification."
+        ::= { cPrefPathRouteMapMatchEntry 4 }
+
+cPrefPathRMapMatchDstAddrMask OBJECT-TYPE
+        SYNTAX        CiscoPrefPathFcAddrMask
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This object represents the mask associated with
+                 the destination address represented by 
+                 cPrefPathRMapMatchDstAddr.
+
+                 The value of this object is meaningful only if the
+                 corresponding instance of cPrefPathRMapMatchDstAddr
+                 contains a valid FC-ID."
+        ::= { cPrefPathRouteMapMatchEntry 5 }
+
+cPrefPathRMapMatchRowStatus OBJECT-TYPE
+        SYNTAX        RowStatus
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "The status of this conceptual row.
+
+                 There is no need to configure instances of other 
+                 corresponding columnar objects in order to make the
+                 newly created row to active.
+                 
+                 Instances of all other corresponding columns can be
+                 modified for an active row."
+        ::= { cPrefPathRouteMapMatchEntry 6 }
+
+-- Route-Map Set Table
+        
+cPrefPathRouteMapSetTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CPrefPathRouteMapSetEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table allows to configure and monitor
+                 the set criteria for a route within a
+                 fcroute-map created using the
+                 cPrefPathRouteMapTable table. 
+                
+                 Each set criteria allows user to setup an action
+                 on the classified or matched traffic flow created
+                 using the cPrefPathRouteMapMatchTable table.
+                 
+                 Each set criteria allows user to setup an outgoing
+                 interface, and associate it with a preference level.
+                 Preference level indicates the priority of the
+                 interface during the selection in case multiple
+                 outgoing interfaces are configured.
+                 
+                 Match criteria configured using the
+                 cPrefPathRouteMapMatchTable table for a route
+                 within a fcroute-map and the set criteria
+                 (this table) configured for the same route within
+                 a fcroute-map go together as (match, set) pair.
+                 Which means that those matched traffic
+                 flows will be forwarded or routed via the interface
+                 selected based on the preference level in the set
+                 criteria (this table).
+
+                 Each entry in this table is indexed by the 
+                  - cPrefPathRouteMapVsanIndex 
+                  - cPrefPathRouteMapRouteIndex 
+                  - cPrefPathRMapSetIntfPref         
+
+                 Note any changes or updates made to the set
+                 criteria would require the corresponding route
+                 or the corresponding fcroute-map to be activated
+                 again.
+                
+                 Entries in this table are created and deleted
+                 using the cPrefPathRMapSetRowStatus object.
+                 
+                 To create a row in this table, a manager must
+                 set the cPrefPathRMapSetRowStatus object
+                 to 'createAndGo' or 'createAndWait'. This will 
+                 create a set criteria for a route within a
+                 fcroute-map. It is required to configure instances
+                 of cPrefPathRMapSetIntf column before or
+                 concurrently in order to make the newly created
+                 row to active. 
+
+                 To delete a row in this table, a manager must
+                 set the cPrefPathRMapSetRowStatus object
+                 to 'destroy'. 
+                 
+                 This table is dependent on cPrefPathRouteMapTable
+                 table. The association between this table and the
+                 cPrefPathRouteMapTable table is through the common
+                 indices - cPrefPathRouteMapVsanIndex and
+                 cPrefPathRouteMapVsanIndex. All the entries in this
+                 table with the indices - cPrefPathRouteMapVsanIndex
+                 and cPrefPathRouteMapRouteIndex is in fact the set
+                 criteria associated with the route within a
+                 fcroute-map, which are created and activated in the
+                 cPrefPathRouteMapTable Table.
+                 
+                 When the row corresponding to indices -
+                 cPrefPathRouteMapVsanIndex and 
+                 cPrefPathRouteMapRouteIndex in
+                 the cPrefPathRouteMapTable is destroyed then all
+                 the rows in this table with those indices will be
+                 destroyed."
+        ::= { ciscoPrefPathConfiguration 4 }
+
+cPrefPathRouteMapSetEntry OBJECT-TYPE
+        SYNTAX        CPrefPathRouteMapSetEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An entry (conceptual row) in this table.
+                 There is an entry in this table for each
+                 set criteria of a route within a fcroute-map."
+        INDEX { cPrefPathRouteMapVsanIndex,
+                cPrefPathRouteMapRouteIndex,
+                cPrefPathRMapSetIntfPref }
+        ::= { cPrefPathRouteMapSetTable 1 }
+
+CPrefPathRouteMapSetEntry ::= SEQUENCE {
+        cPrefPathRMapSetIntfPref          CiscoPrefPathPreferenceLevel,
+        cPrefPathRMapSetIntf              InterfaceIndex,
+        cPrefPathRMapSetIvrNextHopVsanId  CiscoPrefPathIvrNextHopVsanId,
+        cPrefPathRMapSetRowStatus         RowStatus
+}
+
+cPrefPathRMapSetIntfPref OBJECT-TYPE
+        SYNTAX        CiscoPrefPathPreferenceLevel
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "Preference level, which indicates the metric
+                 or cost, associated with the
+                 cPrefPathRMapSetIntf outgoing interface.
+
+                 The lower the number the higher the preference."
+        ::= { cPrefPathRouteMapSetEntry 1 }
+        
+cPrefPathRMapSetIntf OBJECT-TYPE
+        SYNTAX        InterfaceIndex 
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "This object represents an interface on the
+                 local device on which the matched or classified
+                 frame will be forwarded."
+        ::= { cPrefPathRouteMapSetEntry 2 }
+
+cPrefPathRMapSetIvrNextHopVsanId  OBJECT-TYPE
+        SYNTAX        CiscoPrefPathIvrNextHopVsanId
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "This object represents the IVR next hop VSAN ID."
+        DEFVAL { 0 }
+        ::= { cPrefPathRouteMapSetEntry 3 }
+
+cPrefPathRMapSetRowStatus OBJECT-TYPE
+        SYNTAX        RowStatus
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+                "The status of this conceptual row.
+
+                 It is required to configure instances of
+                 cPrefPathRMapSetIntf column before or concurrently
+                 in order to make the newly created row to active.
+
+                 Instances of all other corresponding columns can be
+                 modified for an active row."
+        ::= { cPrefPathRouteMapSetEntry 4 }
+
+-- Preferred Path Route Information Table
+
+cPrefPathRouteMapInfoTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CPrefPathRouteMapInfoEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table contains information of the 
+                 'preferred path' that is currently active and 
+                 selected for a route within a fcroute-map.
+                 The 'preferred path' is the selected preference
+                 level, and its associated interface which will be
+                 the outgoing interface for traffic that are
+                 classified using the match criteria in that
+                 particular indexed fcroute-map route. 
+
+                 Each entry in this table is indexed by 
+                  - cPrefPathRouteMapVsanIndex 
+                  - cPrefPathRouteMapRouteIndex 
+
+                 For each route in a fcroute-map, preferred path
+                 selects a preference level (the lower the number
+                 the higher the preference) per VSAN based on link
+                 status of interface associated with the
+                 preference level. This table contains the
+                 information of the selected preference level."
+        ::= { ciscoPrefPathInformation 1 }
+
+cPrefPathRouteMapInfoEntry OBJECT-TYPE
+        SYNTAX        CPrefPathRouteMapInfoEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An entry which contains information about 
+                 the preferred path of a route within a
+                 fcroute-map."
+        INDEX { cPrefPathRouteMapVsanIndex,
+                cPrefPathRouteMapRouteIndex }
+        ::= { cPrefPathRouteMapInfoTable 1 }
+
+CPrefPathRouteMapInfoEntry ::= SEQUENCE {
+        cPrefPathRMapSelectedPref         CiscoPrefPathPreferenceLevel,
+        cPrefPathRMapSelectedIntf         InterfaceIndex,
+        cPrefPathRMapSelIvrNextHopVsanId  CiscoPrefPathIvrNextHopVsanId
+}
+
+cPrefPathRMapSelectedPref OBJECT-TYPE
+        SYNTAX        CiscoPrefPathPreferenceLevel
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The selected preference level."
+        ::= { cPrefPathRouteMapInfoEntry 1 }
+
+cPrefPathRMapSelectedIntf OBJECT-TYPE
+        SYNTAX        InterfaceIndex 
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "This object represents an interface on the
+                 local device which is selected to forward
+                 the classified or matched flow."
+        ::= { cPrefPathRouteMapInfoEntry 2 }
+
+cPrefPathRMapSelIvrNextHopVsanId  OBJECT-TYPE
+        SYNTAX        CiscoPrefPathIvrNextHopVsanId
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "This object represents the IVR next hop VSAN ID."
+        ::= { cPrefPathRouteMapInfoEntry 3 }
+
+-- Route-Map Match Info Table
+        
+cPrefPathRouteMapMatchInfoTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CPrefPathRouteMapMatchInfoEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table allows to monitor the status of the 
+                 the match criteria of the route within a 
+                 fcroute-map that are activated using the
+                 cPrefPathRouteMapGlobalActive or
+                 cPrefPathRouteMapRouteActive objects.
+                 
+                 Each match criteria entry in this table is indexed
+                 by 
+                  - cPrefPathRouteMapVsanIndex 
+                  - cPrefPathRouteMapRouteIndex 
+                  - cPrefPathRMapMatchSrcAddr 
+                  - cPrefPathRMapMatchSrcAddrMask 
+                  - cPrefPathRMapMatchSrcIntf  
+                  - cPrefPathRMapMatchDstAddr 
+                  - cPrefPathRMapMatchDstAddrMask"
+        ::= { ciscoPrefPathInformation 2 }
+
+cPrefPathRouteMapMatchInfoEntry OBJECT-TYPE
+        SYNTAX        CPrefPathRouteMapMatchInfoEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An entry which contains information about the
+                 match criteria of an 'active' route within a
+                 fcroute-map."
+        INDEX { cPrefPathRouteMapVsanIndex,
+                cPrefPathRouteMapRouteIndex,
+                cPrefPathRMapMatchSrcAddr,
+                cPrefPathRMapMatchSrcAddrMask,
+                cPrefPathRMapMatchSrcIntf,
+                cPrefPathRMapMatchDstAddr,
+                cPrefPathRMapMatchDstAddrMask }
+        ::= { cPrefPathRouteMapMatchInfoTable 1 }
+
+CPrefPathRouteMapMatchInfoEntry ::= SEQUENCE {
+        cPrefPathRMapMatchStatus          CiscoPrefPathStatus  
+}
+
+cPrefPathRMapMatchStatus OBJECT-TYPE
+        SYNTAX        CiscoPrefPathStatus 
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The status of the indexed match entry."
+        ::= { cPrefPathRouteMapMatchInfoEntry 1 }
+
+-- Route-Map Set Info Table
+        
+cPrefPathRouteMapSetInfoTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CPrefPathRouteMapSetInfoEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table allows to monitor the status of the 
+                 the set criteria of the route within a 
+                 fcroute-map that are activated using the
+                 cPrefPathRouteMapGlobalActive or
+                 cPrefPathRouteMapRouteActive objects.
+
+                 Each entry in this table is indexed by 
+                  - cPrefPathRouteMapVsanIndex 
+                  - cPrefPathRouteMapRouteIndex 
+                  - cPrefPathRMapSetIntfPref."
+        ::= { ciscoPrefPathInformation 3 }
+
+cPrefPathRouteMapSetInfoEntry OBJECT-TYPE
+        SYNTAX        CPrefPathRouteMapSetInfoEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "An entry which contains information about the
+                 set criteria of an 'active' route within a
+                 fcroute-map."
+        INDEX { cPrefPathRouteMapVsanIndex,
+                cPrefPathRouteMapRouteIndex,
+                cPrefPathRMapSetIntfPref }
+        ::= { cPrefPathRouteMapSetInfoTable 1 }
+
+CPrefPathRouteMapSetInfoEntry ::= SEQUENCE {
+        cPrefPathRouteMapSetInfoIntf  InterfaceIndex,
+        cPrefPathRouteMapSetInfoIvrNextHopVId  
+                                      CiscoPrefPathIvrNextHopVsanId,
+        cPrefPathRouteMapSetStatus    CiscoPrefPathStatus 
+}
+
+cPrefPathRouteMapSetInfoIntf OBJECT-TYPE
+        SYNTAX        InterfaceIndex
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "This object represents an interface on the
+                 local device on which the matched or classified
+                 frame will be forwarded."
+        ::= { cPrefPathRouteMapSetInfoEntry 1 }
+
+cPrefPathRouteMapSetInfoIvrNextHopVId  OBJECT-TYPE
+        SYNTAX        CiscoPrefPathIvrNextHopVsanId
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "This object represents the IVR next hop VSAN ID."
+        ::= { cPrefPathRouteMapSetInfoEntry 2 }
+
+cPrefPathRouteMapSetStatus OBJECT-TYPE
+        SYNTAX        CiscoPrefPathStatus 
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The status of the indexed set entry."
+        ::= { cPrefPathRouteMapSetInfoEntry 3 }
+
+-- Notification configuration
+
+cPrefPathHwFailureNotifEnable OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "This variable indicates whether the system produces
+                 the ciscoPrefPathHWFailureNotify.
+
+                 A 'false' value for this object will prevent
+                 ciscoPrefPathHWFailureNotify notification being 
+                 generated by the device."
+        ::= { ciscoPrefPathConfiguration 5 }
+
+-- Notifications
+
+ciscoPrefPathHWFailureNotify NOTIFICATION-TYPE
+        OBJECTS  { 
+             notifyVsanIndex
+        }
+        STATUS   current
+        DESCRIPTION
+                "This notification is generated whenever the
+                 local device encounters some hardware failures
+                 during programming of local preferred path 
+                 configuration."
+        ::= { ciscoPrefPathMIBNotifs 1 }
+
+
+-- Conformance
+
+ciscoPrefPathMIBCompliances OBJECT IDENTIFIER
+                       ::= { ciscoPrefPathMIBConform 1 }
+ciscoPrefPathMIBGroups      OBJECT IDENTIFIER
+                       ::= { ciscoPrefPathMIBConform 2 }
+
+ciscoPrefPathMIBCompliance MODULE-COMPLIANCE
+        STATUS  deprecated
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the CISCO-PREFERRED-PATH-MIB."
+        MODULE  MANDATORY-GROUPS {
+                    ciscoPrefPathConfigGroup,
+                    ciscoPrefPathInfoGroup,
+                    ciscoPrefPathNotifyGroup,
+                    ciscoPrefPathNotifyConfigGroup 
+                }
+
+        OBJECT  cPrefPathRouteMapStorageType
+        SYNTAX  INTEGER {             
+                    volatile(2)
+                }
+        DESCRIPTION 
+                "Only one value 'volatile' out of the five 
+                 enumerated values need to be supported."
+
+        OBJECT  cPrefPathRouteMapRowStatus
+        SYNTAX  INTEGER {             
+                    active(1),
+                    createAndGo(4),
+                    destroy(6)
+                }
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                 'active' out of the six enumerated values need to be
+                 supported."
+
+        OBJECT  cPrefPathRMapMatchRowStatus
+        SYNTAX  INTEGER {             
+                    active(1),
+                    createAndGo(4),
+                    destroy(6)
+                }
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                 'active' out of the six enumerated values need to be
+                 supported."
+
+        OBJECT  cPrefPathRMapSetRowStatus
+        SYNTAX  INTEGER {             
+                    active(1),
+                    createAndGo(4),
+                    destroy(6)
+                }
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                 'active' out of the six enumerated values need to be
+                 supported."
+
+        ::= { ciscoPrefPathMIBCompliances 1 }
+
+ciscoPrefPathMIBComplianceRev1 MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the CISCO-PREFERRED-PATH-MIB."
+        MODULE  MANDATORY-GROUPS {
+                    ciscoPrefPathConfigGroupRev1,
+                    ciscoPrefPathInfoGroup,
+                    ciscoPrefPathNotifyGroup,
+                    ciscoPrefPathNotifyConfigGroup 
+                }
+
+        OBJECT  cPrefPathRouteMapStorageType
+        SYNTAX  INTEGER {             
+                    volatile(2)
+                }
+        DESCRIPTION 
+                "Only one value 'volatile' out of the five 
+                 enumerated values need to be supported."
+
+        OBJECT  cPrefPathRouteMapRowStatus
+        SYNTAX  INTEGER {             
+                    active(1),
+                    createAndGo(4),
+                    destroy(6)
+                }
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                 'active' out of the six enumerated values need to be
+                 supported."
+
+        OBJECT  cPrefPathRMapMatchRowStatus
+        SYNTAX  INTEGER {             
+                    active(1),
+                    createAndGo(4),
+                    destroy(6)
+                }
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                 'active' out of the six enumerated values need to be
+                 supported."
+
+        OBJECT  cPrefPathRMapSetRowStatus
+        SYNTAX  INTEGER {             
+                    active(1),
+                    createAndGo(4),
+                    destroy(6)
+                }
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                 'active' out of the six enumerated values need to be
+                 supported."
+
+        ::= { ciscoPrefPathMIBCompliances 2 }
+
+-- Units of conformance
+
+ciscoPrefPathConfigGroup OBJECT-GROUP
+        OBJECTS  {
+             cPrefPathRMapSetIntf,
+             cPrefPathRMapSetIvrNextHopVsanId,
+             cPrefPathRouteMapIntfPrefStrict,
+             cPrefPathRouteMapRouteActive,
+             cPrefPathRouteMapActive,
+             cPrefPathRouteMapStorageType,
+             cPrefPathRouteMapRowStatus,
+             cPrefPathRMapMatchRowStatus,
+             cPrefPathRMapSetRowStatus
+        }
+        STATUS   deprecated
+        DESCRIPTION
+                "A collection of objects for configuring
+                 and displaying Preferred Path parameters."
+        ::= { ciscoPrefPathMIBGroups 1 }
+
+ciscoPrefPathInfoGroup OBJECT-GROUP
+        OBJECTS  {
+             cPrefPathRMapSelectedPref,
+             cPrefPathRMapSelectedIntf,
+             cPrefPathRMapSelIvrNextHopVsanId,
+             cPrefPathRMapMatchStatus, 
+             cPrefPathRouteMapSetInfoIntf,
+             cPrefPathRouteMapSetInfoIvrNextHopVId,
+             cPrefPathRouteMapSetStatus 
+        }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for providing
+                 information for preferred path notifications."
+        ::= { ciscoPrefPathMIBGroups 2 }
+
+ciscoPrefPathNotifyGroup NOTIFICATION-GROUP
+        NOTIFICATIONS {
+             ciscoPrefPathHWFailureNotify
+        }
+        STATUS   current
+        DESCRIPTION
+                "A collection of notifications for
+                 monitoring failure in configuring Preferred Path
+                 parameters on the local device."
+        ::= { ciscoPrefPathMIBGroups 3 }
+
+ciscoPrefPathNotifyConfigGroup OBJECT-GROUP
+        OBJECTS  { 
+              cPrefPathHwFailureNotifEnable
+        }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for displaying and
+                 configuring preferred path notifications." 
+        ::= { ciscoPrefPathMIBGroups 4 }
+
+ciscoPrefPathConfigGroupRev1 OBJECT-GROUP
+        OBJECTS  {
+             cPrefPathRouteMapGlobalActive, 
+             cPrefPathRMapSetIntf,
+             cPrefPathRMapSetIvrNextHopVsanId,
+             cPrefPathRouteMapIntfPrefStrict,
+             cPrefPathRouteMapRouteActive,
+             cPrefPathRouteMapStorageType,
+             cPrefPathRouteMapRowStatus,
+             cPrefPathRMapMatchRowStatus,
+             cPrefPathRMapSetRowStatus
+        }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for configuring
+                 and displaying Preferred Path parameters."
+        ::= { ciscoPrefPathMIBGroups 5 }
+
+END
+

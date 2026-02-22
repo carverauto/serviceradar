@@ -1,0 +1,2557 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-SM-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- SM management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-SM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprSdAppInstAdminState,
+    CfprSdAppInstState,
+    CfprSdJobState,
+    CfprSdJobType,
+    CfprSmActionStages,
+    CfprSmAppClusterOperState,
+    CfprSmAppInstanceClusterRole,
+    CfprSmAppInstanceCurrentJobProgress
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprSmObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        SM management information model package"
+    ::= { ciscoFirepowerMIBObjects 71 }
+
+cfprSmAppTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:App managed object table"
+    ::= { cfprSmObjects 1 }
+
+cfprSmAppEntry OBJECT-TYPE
+    SYNTAX           CfprSmAppEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppTable table."
+    INDEX { cfprSmAppInstanceId }
+    ::= { cfprSmAppTable 1 }
+
+CfprSmAppEntry ::= SEQUENCE {
+    cfprSmAppInstanceId                                              CfprManagedObjectId
+}
+
+cfprSmAppInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppEntry 1 }
+
+cfprSmAppAttributeTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppAttributeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AppAttribute managed object table"
+    ::= { cfprSmObjects 2 }
+
+cfprSmAppAttributeEntry OBJECT-TYPE
+    SYNTAX           CfprSmAppAttributeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppAttributeTable table."
+    INDEX { cfprSmAppAttributeInstanceId }
+    ::= { cfprSmAppAttributeTable 1 }
+
+CfprSmAppAttributeEntry ::= SEQUENCE {
+    cfprSmAppAttributeInstanceId                                     CfprManagedObjectId
+}
+
+cfprSmAppAttributeInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppAttributeEntry 1 }
+
+cfprSmAppAttributeValueTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppAttributeValueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AppAttributeValue managed object table"
+    ::= { cfprSmObjects 3 }
+
+cfprSmAppAttributeValueEntry OBJECT-TYPE
+    SYNTAX           CfprSmAppAttributeValueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppAttributeValueTable table."
+    INDEX { cfprSmAppAttributeValueInstanceId }
+    ::= { cfprSmAppAttributeValueTable 1 }
+
+CfprSmAppAttributeValueEntry ::= SEQUENCE {
+    cfprSmAppAttributeValueInstanceId                                CfprManagedObjectId
+}
+
+cfprSmAppAttributeValueInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppAttributeValueEntry 1 }
+
+cfprSmAppFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AppFsm managed object table"
+    ::= { cfprSmObjects 4 }
+
+cfprSmAppFsmEntry OBJECT-TYPE
+    SYNTAX           CfprSmAppFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppFsmTable table."
+    INDEX { cfprSmAppFsmInstanceId }
+    ::= { cfprSmAppFsmTable 1 }
+
+CfprSmAppFsmEntry ::= SEQUENCE {
+    cfprSmAppFsmInstanceId                                           CfprManagedObjectId
+}
+
+cfprSmAppFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppFsmEntry 1 }
+
+cfprSmAppFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AppFsmStage managed object table"
+    ::= { cfprSmObjects 5 }
+
+cfprSmAppFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprSmAppFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppFsmStageTable table."
+    INDEX { cfprSmAppFsmStageInstanceId }
+    ::= { cfprSmAppFsmStageTable 1 }
+
+CfprSmAppFsmStageEntry ::= SEQUENCE {
+    cfprSmAppFsmStageInstanceId                                      CfprManagedObjectId
+}
+
+cfprSmAppFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppFsmStageEntry 1 }
+
+cfprSmAppFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AppFsmTask managed object table"
+    ::= { cfprSmObjects 6 }
+
+cfprSmAppFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprSmAppFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppFsmTaskTable table."
+    INDEX { cfprSmAppFsmTaskInstanceId }
+    ::= { cfprSmAppFsmTaskTable 1 }
+
+CfprSmAppFsmTaskEntry ::= SEQUENCE {
+    cfprSmAppFsmTaskInstanceId                                       CfprManagedObjectId
+}
+
+cfprSmAppFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppFsmTaskEntry 1 }
+
+cfprSmAppInfoTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppInfoEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInfo managed object table"
+    ::= { cfprSmObjects 37 }
+
+cfprSmAppInfoEntry OBJECT-TYPE
+    SYNTAX           CfprSmAppInfoEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppInfoTable table."
+    INDEX { cfprSmAppInfoInstanceId }
+    ::= { cfprSmAppInfoTable 1 }
+
+CfprSmAppInfoEntry ::= SEQUENCE {
+    cfprSmAppInfoInstanceId                                          CfprManagedObjectId
+}
+
+cfprSmAppInfoInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppInfoEntry 1 }
+
+cfprSmAppInstanceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance managed object table"
+    ::= { cfprSmObjects 7 }
+
+cfprSmAppInstanceEntry OBJECT-TYPE
+    SYNTAX           CfprSmAppInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppInstanceTable table."
+    INDEX { cfprSmAppInstanceInstanceId }
+    ::= { cfprSmAppInstanceTable 1 }
+
+CfprSmAppInstanceEntry ::= SEQUENCE {
+    cfprSmAppInstanceInstanceId                                      CfprManagedObjectId,
+    cfprSmAppInstanceDn                                              CfprManagedObjectDn,
+    cfprSmAppInstanceRn                                              SnmpAdminString,
+    cfprSmAppInstanceAdminState                                      CfprSdAppInstAdminState,
+    cfprSmAppInstanceAppInstId                                       SnmpAdminString,
+    cfprSmAppInstanceAppName                                         SnmpAdminString,
+    cfprSmAppInstanceClearLogData                                    CfprSmActionStages,
+    cfprSmAppInstanceClusterOperationalState                         CfprSmAppClusterOperState,
+    cfprSmAppInstanceCurrentJobProgress                              CfprSmAppInstanceCurrentJobProgress,
+    cfprSmAppInstanceCurrentJobState                                 CfprSdJobState,
+    cfprSmAppInstanceCurrentJobType                                  CfprSdJobType,
+    cfprSmAppInstanceErrorMsg                                        SnmpAdminString,
+    cfprSmAppInstanceExecuteCmd                                      Gauge32,
+    cfprSmAppInstanceOperationalState                                CfprSdAppInstState,
+    cfprSmAppInstancePeerDn                                          SnmpAdminString,
+    cfprSmAppInstanceRunningVersion                                  SnmpAdminString,
+    cfprSmAppInstanceStartupVersion                                  SnmpAdminString,
+    cfprSmAppInstanceExternallyUpgraded                              TruthValue,
+    cfprSmAppInstanceHotfix                                          SnmpAdminString,
+    cfprSmAppInstanceAppDn                                           SnmpAdminString,
+    cfprSmAppInstanceClusterRole                                     CfprSmAppInstanceClusterRole,
+    cfprSmAppInstanceHasFailedReplication                            TruthValue,
+    cfprSmAppInstanceReasonForDebundle                               SnmpAdminString,
+    cfprSmAppInstanceResourceProfileName                             SnmpAdminString,
+    cfprSmAppInstanceVersionIncompatibleErrorMgr                     SnmpAdminString,
+    cfprSmAppInstanceTurboMode                                       TruthValue
+}
+
+cfprSmAppInstanceInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppInstanceEntry 1 }
+
+cfprSmAppInstanceDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:dn managed object property"
+    ::= { cfprSmAppInstanceEntry 2 }
+
+cfprSmAppInstanceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:rn managed object property"
+    ::= { cfprSmAppInstanceEntry 3 }
+
+cfprSmAppInstanceAdminState OBJECT-TYPE
+    SYNTAX       CfprSdAppInstAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:adminState managed
+        object property"
+    ::= { cfprSmAppInstanceEntry 4 }
+
+cfprSmAppInstanceAppInstId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:appInstId managed object property"
+    ::= { cfprSmAppInstanceEntry 5 }
+
+cfprSmAppInstanceAppName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:appName managed object property"
+    ::= { cfprSmAppInstanceEntry 6 }
+
+cfprSmAppInstanceClearLogData OBJECT-TYPE
+    SYNTAX       CfprSmActionStages
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:clearLogData managed
+        object property"
+    ::= { cfprSmAppInstanceEntry 7 }
+
+cfprSmAppInstanceClusterOperationalState OBJECT-TYPE
+    SYNTAX       CfprSmAppClusterOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:clusterOperationalState
+        managed object property"
+    ::= { cfprSmAppInstanceEntry 8 }
+
+cfprSmAppInstanceCurrentJobProgress OBJECT-TYPE
+    SYNTAX       CfprSmAppInstanceCurrentJobProgress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:currentJobProgress
+        managed object property"
+    ::= { cfprSmAppInstanceEntry 9 }
+
+cfprSmAppInstanceCurrentJobState OBJECT-TYPE
+    SYNTAX       CfprSdJobState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:currentJobState
+        managed object property"
+    ::= { cfprSmAppInstanceEntry 10 }
+
+cfprSmAppInstanceCurrentJobType OBJECT-TYPE
+    SYNTAX       CfprSdJobType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:currentJobType
+        managed object property"
+    ::= { cfprSmAppInstanceEntry 11 }
+
+cfprSmAppInstanceErrorMsg OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:errorMsg managed object property"
+    ::= { cfprSmAppInstanceEntry 12 }
+
+cfprSmAppInstanceExecuteCmd OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:executeCmd managed
+        object property"
+    ::= { cfprSmAppInstanceEntry 13 }
+
+cfprSmAppInstanceOperationalState OBJECT-TYPE
+    SYNTAX       CfprSdAppInstState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:operationalState
+        managed object property"
+    ::= { cfprSmAppInstanceEntry 14 }
+
+cfprSmAppInstancePeerDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:peerDn managed object property"
+    ::= { cfprSmAppInstanceEntry 15 }
+
+cfprSmAppInstanceRunningVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:runningVersion
+        managed object property"
+    ::= { cfprSmAppInstanceEntry 16 }
+
+cfprSmAppInstanceStartupVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:startupVersion
+        managed object property"
+    ::= { cfprSmAppInstanceEntry 17 }
+
+cfprSmAppInstanceExternallyUpgraded OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:externallyUpgraded
+        managed object property"
+    ::= { cfprSmAppInstanceEntry 18 }
+
+cfprSmAppInstanceHotfix OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:hotfix managed object property"
+    ::= { cfprSmAppInstanceEntry 29 }
+
+cfprSmAppInstanceAppDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:appDn managed object property"
+    ::= { cfprSmAppInstanceEntry 30 }
+
+cfprSmAppInstanceClusterRole OBJECT-TYPE
+    SYNTAX       CfprSmAppInstanceClusterRole
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:clusterRole managed
+        object property"
+    ::= { cfprSmAppInstanceEntry 31 }
+
+cfprSmAppInstanceHasFailedReplication OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:hasFailedReplication
+        managed object property"
+    ::= { cfprSmAppInstanceEntry 32 }
+
+cfprSmAppInstanceReasonForDebundle OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:reasonForDebundle
+        managed object property"
+    ::= { cfprSmAppInstanceEntry 33 }
+
+cfprSmAppInstanceResourceProfileName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:resourceProfileName
+        managed object property"
+    ::= { cfprSmAppInstanceEntry 34 }
+
+cfprSmAppInstanceVersionIncompatibleErrorMgr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:versionIncompatibleErrorMgr
+        managed object property"
+    ::= { cfprSmAppInstanceEntry 35 }
+
+cfprSmAppInstanceTurboMode OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance:turboMode managed object property"
+    ::= { cfprSmAppInstanceEntry 36 }
+
+cfprSmAppInstance2Table OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppInstance2Entry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance2 managed object table"
+    ::= { cfprSmObjects 38 }
+
+cfprSmAppInstance2Entry OBJECT-TYPE
+    SYNTAX           CfprSmAppInstance2Entry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppInstance2Table table."
+    INDEX { cfprSmAppInstance2InstanceId }
+    ::= { cfprSmAppInstance2Table 1 }
+
+CfprSmAppInstance2Entry ::= SEQUENCE {
+    cfprSmAppInstance2InstanceId                                     CfprManagedObjectId
+}
+
+cfprSmAppInstance2InstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppInstance2Entry 1 }
+
+cfprSmAppInstance2FsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppInstance2FsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance2Fsm managed object table"
+    ::= { cfprSmObjects 39 }
+
+cfprSmAppInstance2FsmEntry OBJECT-TYPE
+    SYNTAX           CfprSmAppInstance2FsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppInstance2FsmTable table."
+    INDEX { cfprSmAppInstance2FsmInstanceId }
+    ::= { cfprSmAppInstance2FsmTable 1 }
+
+CfprSmAppInstance2FsmEntry ::= SEQUENCE {
+    cfprSmAppInstance2FsmInstanceId                                  CfprManagedObjectId
+}
+
+cfprSmAppInstance2FsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppInstance2FsmEntry 1 }
+
+cfprSmAppInstance2FsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppInstance2FsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance2FsmStage managed object table"
+    ::= { cfprSmObjects 40 }
+
+cfprSmAppInstance2FsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprSmAppInstance2FsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppInstance2FsmStageTable table."
+    INDEX { cfprSmAppInstance2FsmStageInstanceId }
+    ::= { cfprSmAppInstance2FsmStageTable 1 }
+
+CfprSmAppInstance2FsmStageEntry ::= SEQUENCE {
+    cfprSmAppInstance2FsmStageInstanceId                             CfprManagedObjectId
+}
+
+cfprSmAppInstance2FsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppInstance2FsmStageEntry 1 }
+
+cfprSmAppInstance2FsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppInstance2FsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AppInstance2FsmTask managed object table"
+    ::= { cfprSmObjects 41 }
+
+cfprSmAppInstance2FsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprSmAppInstance2FsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppInstance2FsmTaskTable table."
+    INDEX { cfprSmAppInstance2FsmTaskInstanceId }
+    ::= { cfprSmAppInstance2FsmTaskTable 1 }
+
+CfprSmAppInstance2FsmTaskEntry ::= SEQUENCE {
+    cfprSmAppInstance2FsmTaskInstanceId                              CfprManagedObjectId
+}
+
+cfprSmAppInstance2FsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppInstance2FsmTaskEntry 1 }
+
+cfprSmAppRscProfListTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppRscProfListEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AppRscProfList managed object table"
+    ::= { cfprSmObjects 42 }
+
+cfprSmAppRscProfListEntry OBJECT-TYPE
+    SYNTAX           CfprSmAppRscProfListEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppRscProfListTable table."
+    INDEX { cfprSmAppRscProfListInstanceId }
+    ::= { cfprSmAppRscProfListTable 1 }
+
+CfprSmAppRscProfListEntry ::= SEQUENCE {
+    cfprSmAppRscProfListInstanceId                                   CfprManagedObjectId
+}
+
+cfprSmAppRscProfListInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppRscProfListEntry 1 }
+
+cfprSmAppRscProfileTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAppRscProfileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AppRscProfile managed object table"
+    ::= { cfprSmObjects 43 }
+
+cfprSmAppRscProfileEntry OBJECT-TYPE
+    SYNTAX           CfprSmAppRscProfileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAppRscProfileTable table."
+    INDEX { cfprSmAppRscProfileInstanceId }
+    ::= { cfprSmAppRscProfileTable 1 }
+
+CfprSmAppRscProfileEntry ::= SEQUENCE {
+    cfprSmAppRscProfileInstanceId                                    CfprManagedObjectId
+}
+
+cfprSmAppRscProfileInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAppRscProfileEntry 1 }
+
+cfprSmAutoMacPoolTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmAutoMacPoolEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:AutoMacPool managed object table"
+    ::= { cfprSmObjects 44 }
+
+cfprSmAutoMacPoolEntry OBJECT-TYPE
+    SYNTAX           CfprSmAutoMacPoolEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmAutoMacPoolTable table."
+    INDEX { cfprSmAutoMacPoolInstanceId }
+    ::= { cfprSmAutoMacPoolTable 1 }
+
+CfprSmAutoMacPoolEntry ::= SEQUENCE {
+    cfprSmAutoMacPoolInstanceId                                      CfprManagedObjectId
+}
+
+cfprSmAutoMacPoolInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmAutoMacPoolEntry 1 }
+
+cfprSmBatchHeartbeatTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmBatchHeartbeatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:BatchHeartbeat managed object table"
+    ::= { cfprSmObjects 45 }
+
+cfprSmBatchHeartbeatEntry OBJECT-TYPE
+    SYNTAX           CfprSmBatchHeartbeatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmBatchHeartbeatTable table."
+    INDEX { cfprSmBatchHeartbeatInstanceId }
+    ::= { cfprSmBatchHeartbeatTable 1 }
+
+CfprSmBatchHeartbeatEntry ::= SEQUENCE {
+    cfprSmBatchHeartbeatInstanceId                                   CfprManagedObjectId
+}
+
+cfprSmBatchHeartbeatInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmBatchHeartbeatEntry 1 }
+
+cfprSmCloudConnectorTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmCloudConnectorEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:CloudConnector managed object table"
+    ::= { cfprSmObjects 46 }
+
+cfprSmCloudConnectorEntry OBJECT-TYPE
+    SYNTAX           CfprSmCloudConnectorEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmCloudConnectorTable table."
+    INDEX { cfprSmCloudConnectorInstanceId }
+    ::= { cfprSmCloudConnectorTable 1 }
+
+CfprSmCloudConnectorEntry ::= SEQUENCE {
+    cfprSmCloudConnectorInstanceId                                   CfprManagedObjectId
+}
+
+cfprSmCloudConnectorInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmCloudConnectorEntry 1 }
+
+cfprSmCloudConnectorFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmCloudConnectorFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:CloudConnectorFsm managed object table"
+    ::= { cfprSmObjects 47 }
+
+cfprSmCloudConnectorFsmEntry OBJECT-TYPE
+    SYNTAX           CfprSmCloudConnectorFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmCloudConnectorFsmTable table."
+    INDEX { cfprSmCloudConnectorFsmInstanceId }
+    ::= { cfprSmCloudConnectorFsmTable 1 }
+
+CfprSmCloudConnectorFsmEntry ::= SEQUENCE {
+    cfprSmCloudConnectorFsmInstanceId                                CfprManagedObjectId
+}
+
+cfprSmCloudConnectorFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmCloudConnectorFsmEntry 1 }
+
+cfprSmCloudConnectorFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmCloudConnectorFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:CloudConnectorFsmStage managed object table"
+    ::= { cfprSmObjects 48 }
+
+cfprSmCloudConnectorFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprSmCloudConnectorFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmCloudConnectorFsmStageTable table."
+    INDEX { cfprSmCloudConnectorFsmStageInstanceId }
+    ::= { cfprSmCloudConnectorFsmStageTable 1 }
+
+CfprSmCloudConnectorFsmStageEntry ::= SEQUENCE {
+    cfprSmCloudConnectorFsmStageInstanceId                           CfprManagedObjectId
+}
+
+cfprSmCloudConnectorFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmCloudConnectorFsmStageEntry 1 }
+
+cfprSmCloudConnectorFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmCloudConnectorFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:CloudConnectorFsmTask managed object table"
+    ::= { cfprSmObjects 49 }
+
+cfprSmCloudConnectorFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprSmCloudConnectorFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmCloudConnectorFsmTaskTable table."
+    INDEX { cfprSmCloudConnectorFsmTaskInstanceId }
+    ::= { cfprSmCloudConnectorFsmTaskTable 1 }
+
+CfprSmCloudConnectorFsmTaskEntry ::= SEQUENCE {
+    cfprSmCloudConnectorFsmTaskInstanceId                            CfprManagedObjectId
+}
+
+cfprSmCloudConnectorFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmCloudConnectorFsmTaskEntry 1 }
+
+cfprSmClusterBootstrapTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmClusterBootstrapEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:ClusterBootstrap managed object table"
+    ::= { cfprSmObjects 8 }
+
+cfprSmClusterBootstrapEntry OBJECT-TYPE
+    SYNTAX           CfprSmClusterBootstrapEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmClusterBootstrapTable table."
+    INDEX { cfprSmClusterBootstrapInstanceId }
+    ::= { cfprSmClusterBootstrapTable 1 }
+
+CfprSmClusterBootstrapEntry ::= SEQUENCE {
+    cfprSmClusterBootstrapInstanceId                                 CfprManagedObjectId
+}
+
+cfprSmClusterBootstrapInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmClusterBootstrapEntry 1 }
+
+cfprSmCompatibilityMatrixTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmCompatibilityMatrixEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:CompatibilityMatrix managed object table"
+    ::= { cfprSmObjects 50 }
+
+cfprSmCompatibilityMatrixEntry OBJECT-TYPE
+    SYNTAX           CfprSmCompatibilityMatrixEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmCompatibilityMatrixTable table."
+    INDEX { cfprSmCompatibilityMatrixInstanceId }
+    ::= { cfprSmCompatibilityMatrixTable 1 }
+
+CfprSmCompatibilityMatrixEntry ::= SEQUENCE {
+    cfprSmCompatibilityMatrixInstanceId                              CfprManagedObjectId
+}
+
+cfprSmCompatibilityMatrixInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmCompatibilityMatrixEntry 1 }
+
+cfprSmConfigIssueTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmConfigIssueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:ConfigIssue managed object table"
+    ::= { cfprSmObjects 51 }
+
+cfprSmConfigIssueEntry OBJECT-TYPE
+    SYNTAX           CfprSmConfigIssueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmConfigIssueTable table."
+    INDEX { cfprSmConfigIssueInstanceId }
+    ::= { cfprSmConfigIssueTable 1 }
+
+CfprSmConfigIssueEntry ::= SEQUENCE {
+    cfprSmConfigIssueInstanceId                                      CfprManagedObjectId
+}
+
+cfprSmConfigIssueInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmConfigIssueEntry 1 }
+
+cfprSmDiskFileSystemTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmDiskFileSystemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:DiskFileSystem managed object table"
+    ::= { cfprSmObjects 9 }
+
+cfprSmDiskFileSystemEntry OBJECT-TYPE
+    SYNTAX           CfprSmDiskFileSystemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmDiskFileSystemTable table."
+    INDEX { cfprSmDiskFileSystemInstanceId }
+    ::= { cfprSmDiskFileSystemTable 1 }
+
+CfprSmDiskFileSystemEntry ::= SEQUENCE {
+    cfprSmDiskFileSystemInstanceId                                   CfprManagedObjectId,
+    cfprSmDiskFileSystemDn                                           CfprManagedObjectDn,
+    cfprSmDiskFileSystemRn                                           SnmpAdminString,
+    cfprSmDiskFileSystemDiskName                                     SnmpAdminString,
+    cfprSmDiskFileSystemFileSystem                                   SnmpAdminString,
+    cfprSmDiskFileSystemFreeKb                                       Gauge32,
+    cfprSmDiskFileSystemMountPoint                                   SnmpAdminString,
+    cfprSmDiskFileSystemTotalKb                                      Gauge32,
+    cfprSmDiskFileSystemUsedKb                                       Gauge32,
+    cfprSmDiskFileSystemFree                                         Gauge32,
+    cfprSmDiskFileSystemTotal                                        Gauge32,
+    cfprSmDiskFileSystemUsed                                         Gauge32
+}
+
+cfprSmDiskFileSystemInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmDiskFileSystemEntry 1 }
+
+cfprSmDiskFileSystemDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:DiskFileSystem:dn managed object property"
+    ::= { cfprSmDiskFileSystemEntry 2 }
+
+cfprSmDiskFileSystemRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:DiskFileSystem:rn managed object property"
+    ::= { cfprSmDiskFileSystemEntry 3 }
+
+cfprSmDiskFileSystemDiskName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:DiskFileSystem:diskName managed
+        object property"
+    ::= { cfprSmDiskFileSystemEntry 4 }
+
+cfprSmDiskFileSystemFileSystem OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:DiskFileSystem:fileSystem managed
+        object property"
+    ::= { cfprSmDiskFileSystemEntry 5 }
+
+cfprSmDiskFileSystemFreeKb OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:DiskFileSystem:freeKb managed object property"
+    ::= { cfprSmDiskFileSystemEntry 6 }
+
+cfprSmDiskFileSystemMountPoint OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:DiskFileSystem:mountPoint managed
+        object property"
+    ::= { cfprSmDiskFileSystemEntry 7 }
+
+cfprSmDiskFileSystemTotalKb OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:DiskFileSystem:totalKb managed
+        object property"
+    ::= { cfprSmDiskFileSystemEntry 8 }
+
+cfprSmDiskFileSystemUsedKb OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:DiskFileSystem:usedKb managed object property"
+    ::= { cfprSmDiskFileSystemEntry 9 }
+
+cfprSmDiskFileSystemFree OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:DiskFileSystem:free managed object property"
+    ::= { cfprSmDiskFileSystemEntry 10 }
+
+cfprSmDiskFileSystemTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:DiskFileSystem:total managed object property"
+    ::= { cfprSmDiskFileSystemEntry 11 }
+
+cfprSmDiskFileSystemUsed OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:DiskFileSystem:used managed object property"
+    ::= { cfprSmDiskFileSystemEntry 12 }
+
+cfprSmEncryptedKeyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmEncryptedKeyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:EncryptedKey managed object table"
+    ::= { cfprSmObjects 10 }
+
+cfprSmEncryptedKeyEntry OBJECT-TYPE
+    SYNTAX           CfprSmEncryptedKeyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmEncryptedKeyTable table."
+    INDEX { cfprSmEncryptedKeyInstanceId }
+    ::= { cfprSmEncryptedKeyTable 1 }
+
+CfprSmEncryptedKeyEntry ::= SEQUENCE {
+    cfprSmEncryptedKeyInstanceId                                     CfprManagedObjectId
+}
+
+cfprSmEncryptedKeyInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmEncryptedKeyEntry 1 }
+
+cfprSmErrorTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmErrorEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:Error managed object table"
+    ::= { cfprSmObjects 52 }
+
+cfprSmErrorEntry OBJECT-TYPE
+    SYNTAX           CfprSmErrorEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmErrorTable table."
+    INDEX { cfprSmErrorInstanceId }
+    ::= { cfprSmErrorTable 1 }
+
+CfprSmErrorEntry ::= SEQUENCE {
+    cfprSmErrorInstanceId                                            CfprManagedObjectId
+}
+
+cfprSmErrorInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmErrorEntry 1 }
+
+cfprSmExternalPortLinkTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmExternalPortLinkEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:ExternalPortLink managed object table"
+    ::= { cfprSmObjects 11 }
+
+cfprSmExternalPortLinkEntry OBJECT-TYPE
+    SYNTAX           CfprSmExternalPortLinkEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmExternalPortLinkTable table."
+    INDEX { cfprSmExternalPortLinkInstanceId }
+    ::= { cfprSmExternalPortLinkTable 1 }
+
+CfprSmExternalPortLinkEntry ::= SEQUENCE {
+    cfprSmExternalPortLinkInstanceId                                 CfprManagedObjectId
+}
+
+cfprSmExternalPortLinkInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmExternalPortLinkEntry 1 }
+
+cfprSmHeartbeatTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmHeartbeatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:Heartbeat managed object table"
+    ::= { cfprSmObjects 12 }
+
+cfprSmHeartbeatEntry OBJECT-TYPE
+    SYNTAX           CfprSmHeartbeatEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmHeartbeatTable table."
+    INDEX { cfprSmHeartbeatInstanceId }
+    ::= { cfprSmHeartbeatTable 1 }
+
+CfprSmHeartbeatEntry ::= SEQUENCE {
+    cfprSmHeartbeatInstanceId                                        CfprManagedObjectId
+}
+
+cfprSmHeartbeatInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmHeartbeatEntry 1 }
+
+cfprSmHeartbeatConfigTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmHeartbeatConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:HeartbeatConfig managed object table"
+    ::= { cfprSmObjects 13 }
+
+cfprSmHeartbeatConfigEntry OBJECT-TYPE
+    SYNTAX           CfprSmHeartbeatConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmHeartbeatConfigTable table."
+    INDEX { cfprSmHeartbeatConfigInstanceId }
+    ::= { cfprSmHeartbeatConfigTable 1 }
+
+CfprSmHeartbeatConfigEntry ::= SEQUENCE {
+    cfprSmHeartbeatConfigInstanceId                                  CfprManagedObjectId
+}
+
+cfprSmHeartbeatConfigInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmHeartbeatConfigEntry 1 }
+
+cfprSmHotfixTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmHotfixEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:Hotfix managed object table"
+    ::= { cfprSmObjects 53 }
+
+cfprSmHotfixEntry OBJECT-TYPE
+    SYNTAX           CfprSmHotfixEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmHotfixTable table."
+    INDEX { cfprSmHotfixInstanceId }
+    ::= { cfprSmHotfixTable 1 }
+
+CfprSmHotfixEntry ::= SEQUENCE {
+    cfprSmHotfixInstanceId                                           CfprManagedObjectId
+}
+
+cfprSmHotfixInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmHotfixEntry 1 }
+
+cfprSmHwCryptoTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmHwCryptoEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:HwCrypto managed object table"
+    ::= { cfprSmObjects 71 }
+
+cfprSmHwCryptoEntry OBJECT-TYPE
+    SYNTAX           CfprSmHwCryptoEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmHwCryptoTable table."
+    INDEX { cfprSmHwCryptoInstanceId }
+    ::= { cfprSmHwCryptoTable 1 }
+
+CfprSmHwCryptoEntry ::= SEQUENCE {
+    cfprSmHwCryptoInstanceId                                         CfprManagedObjectId
+}
+
+cfprSmHwCryptoInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmHwCryptoEntry 1 }
+
+cfprSmIPTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmIPEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:IP managed object table"
+    ::= { cfprSmObjects 14 }
+
+cfprSmIPEntry OBJECT-TYPE
+    SYNTAX           CfprSmIPEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmIPTable table."
+    INDEX { cfprSmIPInstanceId }
+    ::= { cfprSmIPTable 1 }
+
+CfprSmIPEntry ::= SEQUENCE {
+    cfprSmIPInstanceId                                               CfprManagedObjectId
+}
+
+cfprSmIPInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmIPEntry 1 }
+
+cfprSmIPV6Table OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmIPV6Entry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:IPV6 managed object table"
+    ::= { cfprSmObjects 15 }
+
+cfprSmIPV6Entry OBJECT-TYPE
+    SYNTAX           CfprSmIPV6Entry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmIPV6Table table."
+    INDEX { cfprSmIPV6InstanceId }
+    ::= { cfprSmIPV6Table 1 }
+
+CfprSmIPV6Entry ::= SEQUENCE {
+    cfprSmIPV6InstanceId                                             CfprManagedObjectId
+}
+
+cfprSmIPV6InstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmIPV6Entry 1 }
+
+cfprSmKeyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmKeyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:Key managed object table"
+    ::= { cfprSmObjects 16 }
+
+cfprSmKeyEntry OBJECT-TYPE
+    SYNTAX           CfprSmKeyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmKeyTable table."
+    INDEX { cfprSmKeyInstanceId }
+    ::= { cfprSmKeyTable 1 }
+
+CfprSmKeyEntry ::= SEQUENCE {
+    cfprSmKeyInstanceId                                              CfprManagedObjectId
+}
+
+cfprSmKeyInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmKeyEntry 1 }
+
+cfprSmLDTemplateTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmLDTemplateEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:LDTemplate managed object table"
+    ::= { cfprSmObjects 17 }
+
+cfprSmLDTemplateEntry OBJECT-TYPE
+    SYNTAX           CfprSmLDTemplateEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmLDTemplateTable table."
+    INDEX { cfprSmLDTemplateInstanceId }
+    ::= { cfprSmLDTemplateTable 1 }
+
+CfprSmLDTemplateEntry ::= SEQUENCE {
+    cfprSmLDTemplateInstanceId                                       CfprManagedObjectId
+}
+
+cfprSmLDTemplateInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmLDTemplateEntry 1 }
+
+cfprSmLicenseDeviceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmLicenseDeviceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:LicenseDevice managed object table"
+    ::= { cfprSmObjects 54 }
+
+cfprSmLicenseDeviceEntry OBJECT-TYPE
+    SYNTAX           CfprSmLicenseDeviceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmLicenseDeviceTable table."
+    INDEX { cfprSmLicenseDeviceInstanceId }
+    ::= { cfprSmLicenseDeviceTable 1 }
+
+CfprSmLicenseDeviceEntry ::= SEQUENCE {
+    cfprSmLicenseDeviceInstanceId                                    CfprManagedObjectId
+}
+
+cfprSmLicenseDeviceInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmLicenseDeviceEntry 1 }
+
+cfprSmLicenseFileTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmLicenseFileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:LicenseFile managed object table"
+    ::= { cfprSmObjects 55 }
+
+cfprSmLicenseFileEntry OBJECT-TYPE
+    SYNTAX           CfprSmLicenseFileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmLicenseFileTable table."
+    INDEX { cfprSmLicenseFileInstanceId }
+    ::= { cfprSmLicenseFileTable 1 }
+
+CfprSmLicenseFileEntry ::= SEQUENCE {
+    cfprSmLicenseFileInstanceId                                      CfprManagedObjectId
+}
+
+cfprSmLicenseFileInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmLicenseFileEntry 1 }
+
+cfprSmLicenseFileFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmLicenseFileFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:LicenseFileFsm managed object table"
+    ::= { cfprSmObjects 56 }
+
+cfprSmLicenseFileFsmEntry OBJECT-TYPE
+    SYNTAX           CfprSmLicenseFileFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmLicenseFileFsmTable table."
+    INDEX { cfprSmLicenseFileFsmInstanceId }
+    ::= { cfprSmLicenseFileFsmTable 1 }
+
+CfprSmLicenseFileFsmEntry ::= SEQUENCE {
+    cfprSmLicenseFileFsmInstanceId                                   CfprManagedObjectId
+}
+
+cfprSmLicenseFileFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmLicenseFileFsmEntry 1 }
+
+cfprSmLicenseFileFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmLicenseFileFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:LicenseFileFsmStage managed object table"
+    ::= { cfprSmObjects 57 }
+
+cfprSmLicenseFileFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprSmLicenseFileFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmLicenseFileFsmStageTable table."
+    INDEX { cfprSmLicenseFileFsmStageInstanceId }
+    ::= { cfprSmLicenseFileFsmStageTable 1 }
+
+CfprSmLicenseFileFsmStageEntry ::= SEQUENCE {
+    cfprSmLicenseFileFsmStageInstanceId                              CfprManagedObjectId
+}
+
+cfprSmLicenseFileFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmLicenseFileFsmStageEntry 1 }
+
+cfprSmLicenseFileFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmLicenseFileFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:LicenseFileFsmTask managed object table"
+    ::= { cfprSmObjects 58 }
+
+cfprSmLicenseFileFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprSmLicenseFileFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmLicenseFileFsmTaskTable table."
+    INDEX { cfprSmLicenseFileFsmTaskInstanceId }
+    ::= { cfprSmLicenseFileFsmTaskTable 1 }
+
+CfprSmLicenseFileFsmTaskEntry ::= SEQUENCE {
+    cfprSmLicenseFileFsmTaskInstanceId                               CfprManagedObjectId
+}
+
+cfprSmLicenseFileFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmLicenseFileFsmTaskEntry 1 }
+
+cfprSmLogicalDeviceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmLogicalDeviceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:LogicalDevice managed object table"
+    ::= { cfprSmObjects 18 }
+
+cfprSmLogicalDeviceEntry OBJECT-TYPE
+    SYNTAX           CfprSmLogicalDeviceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmLogicalDeviceTable table."
+    INDEX { cfprSmLogicalDeviceInstanceId }
+    ::= { cfprSmLogicalDeviceTable 1 }
+
+CfprSmLogicalDeviceEntry ::= SEQUENCE {
+    cfprSmLogicalDeviceInstanceId                                    CfprManagedObjectId
+}
+
+cfprSmLogicalDeviceInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmLogicalDeviceEntry 1 }
+
+cfprSmLogicalDeviceFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmLogicalDeviceFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:LogicalDeviceFsm managed object table"
+    ::= { cfprSmObjects 59 }
+
+cfprSmLogicalDeviceFsmEntry OBJECT-TYPE
+    SYNTAX           CfprSmLogicalDeviceFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmLogicalDeviceFsmTable table."
+    INDEX { cfprSmLogicalDeviceFsmInstanceId }
+    ::= { cfprSmLogicalDeviceFsmTable 1 }
+
+CfprSmLogicalDeviceFsmEntry ::= SEQUENCE {
+    cfprSmLogicalDeviceFsmInstanceId                                 CfprManagedObjectId
+}
+
+cfprSmLogicalDeviceFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmLogicalDeviceFsmEntry 1 }
+
+cfprSmLogicalDeviceFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmLogicalDeviceFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:LogicalDeviceFsmStage managed object table"
+    ::= { cfprSmObjects 60 }
+
+cfprSmLogicalDeviceFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprSmLogicalDeviceFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmLogicalDeviceFsmStageTable table."
+    INDEX { cfprSmLogicalDeviceFsmStageInstanceId }
+    ::= { cfprSmLogicalDeviceFsmStageTable 1 }
+
+CfprSmLogicalDeviceFsmStageEntry ::= SEQUENCE {
+    cfprSmLogicalDeviceFsmStageInstanceId                            CfprManagedObjectId
+}
+
+cfprSmLogicalDeviceFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmLogicalDeviceFsmStageEntry 1 }
+
+cfprSmLogicalDeviceFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmLogicalDeviceFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:LogicalDeviceFsmTask managed object table"
+    ::= { cfprSmObjects 61 }
+
+cfprSmLogicalDeviceFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprSmLogicalDeviceFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmLogicalDeviceFsmTaskTable table."
+    INDEX { cfprSmLogicalDeviceFsmTaskInstanceId }
+    ::= { cfprSmLogicalDeviceFsmTaskTable 1 }
+
+CfprSmLogicalDeviceFsmTaskEntry ::= SEQUENCE {
+    cfprSmLogicalDeviceFsmTaskInstanceId                             CfprManagedObjectId
+}
+
+cfprSmLogicalDeviceFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmLogicalDeviceFsmTaskEntry 1 }
+
+cfprSmMacItemTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmMacItemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:MacItem managed object table"
+    ::= { cfprSmObjects 62 }
+
+cfprSmMacItemEntry OBJECT-TYPE
+    SYNTAX           CfprSmMacItemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmMacItemTable table."
+    INDEX { cfprSmMacItemInstanceId }
+    ::= { cfprSmMacItemTable 1 }
+
+CfprSmMacItemEntry ::= SEQUENCE {
+    cfprSmMacItemInstanceId                                          CfprManagedObjectId
+}
+
+cfprSmMacItemInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmMacItemEntry 1 }
+
+cfprSmMgmtBootstrapTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmMgmtBootstrapEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:MgmtBootstrap managed object table"
+    ::= { cfprSmObjects 19 }
+
+cfprSmMgmtBootstrapEntry OBJECT-TYPE
+    SYNTAX           CfprSmMgmtBootstrapEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmMgmtBootstrapTable table."
+    INDEX { cfprSmMgmtBootstrapInstanceId }
+    ::= { cfprSmMgmtBootstrapTable 1 }
+
+CfprSmMgmtBootstrapEntry ::= SEQUENCE {
+    cfprSmMgmtBootstrapInstanceId                                    CfprManagedObjectId
+}
+
+cfprSmMgmtBootstrapInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmMgmtBootstrapEntry 1 }
+
+cfprSmMonitorTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmMonitorEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor managed object table"
+    ::= { cfprSmObjects 20 }
+
+cfprSmMonitorEntry OBJECT-TYPE
+    SYNTAX           CfprSmMonitorEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmMonitorTable table."
+    INDEX { cfprSmMonitorInstanceId }
+    ::= { cfprSmMonitorTable 1 }
+
+CfprSmMonitorEntry ::= SEQUENCE {
+    cfprSmMonitorInstanceId                                          CfprManagedObjectId,
+    cfprSmMonitorDn                                                  CfprManagedObjectDn,
+    cfprSmMonitorRn                                                  SnmpAdminString,
+    cfprSmMonitorBladeUptime                                         SnmpAdminString,
+    cfprSmMonitorCpuTotalLoadAvg15min                                INTEGER,
+    cfprSmMonitorCpuTotalLoadAvg1min                                 INTEGER,
+    cfprSmMonitorCpuTotalLoadAvg5min                                 INTEGER,
+    cfprSmMonitorDiskFileSystemCount                                 Gauge32,
+    cfprSmMonitorMemFreeKb                                           Gauge32,
+    cfprSmMonitorMemTotalKb                                          Gauge32,
+    cfprSmMonitorMemUsedKb                                           Gauge32,
+    cfprSmMonitorOsVersion                                           SnmpAdminString,
+    cfprSmMonitorUpdateTimestamp                                     DateAndTime,
+    cfprSmMonitorMemAppTotalKb                                       Gauge32,
+    cfprSmMonitorCpuAvailable                                        Gauge32,
+    cfprSmMonitorCpuTotal                                            Gauge32,
+    cfprSmMonitorDataDiskAvailable                                   Gauge32,
+    cfprSmMonitorDataDiskTotal                                       Gauge32,
+    cfprSmMonitorMemAppAvailable                                     Gauge32,
+    cfprSmMonitorMemAppTotal                                         Gauge32,
+    cfprSmMonitorMemFree                                             Gauge32,
+    cfprSmMonitorMemTotal                                            Gauge32,
+    cfprSmMonitorMemUsed                                             Gauge32,
+    cfprSmMonitorSecondaryDiskAvailable                              Gauge32,
+    cfprSmMonitorSecondaryDiskTotal                                  Gauge32,
+    cfprSmMonitorDiskAvailForInstall                                 Gauge32,
+    cfprSmMonitorLastUpdateMonoTime                                  DateAndTime
+}
+
+cfprSmMonitorInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmMonitorEntry 1 }
+
+cfprSmMonitorDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:dn managed object property"
+    ::= { cfprSmMonitorEntry 2 }
+
+cfprSmMonitorRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:rn managed object property"
+    ::= { cfprSmMonitorEntry 3 }
+
+cfprSmMonitorBladeUptime OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:bladeUptime managed object property"
+    ::= { cfprSmMonitorEntry 4 }
+
+cfprSmMonitorCpuTotalLoadAvg15min OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:cpuTotalLoadAvg15min
+        managed object property"
+    ::= { cfprSmMonitorEntry 5 }
+
+cfprSmMonitorCpuTotalLoadAvg1min OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:cpuTotalLoadAvg1min
+        managed object property"
+    ::= { cfprSmMonitorEntry 6 }
+
+cfprSmMonitorCpuTotalLoadAvg5min OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:cpuTotalLoadAvg5min
+        managed object property"
+    ::= { cfprSmMonitorEntry 7 }
+
+cfprSmMonitorDiskFileSystemCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:diskFileSystemCount
+        managed object property"
+    ::= { cfprSmMonitorEntry 8 }
+
+cfprSmMonitorMemFreeKb OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:memFreeKb managed object property"
+    ::= { cfprSmMonitorEntry 9 }
+
+cfprSmMonitorMemTotalKb OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:memTotalKb managed object property"
+    ::= { cfprSmMonitorEntry 10 }
+
+cfprSmMonitorMemUsedKb OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:memUsedKb managed object property"
+    ::= { cfprSmMonitorEntry 11 }
+
+cfprSmMonitorOsVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:osVersion managed object property"
+    ::= { cfprSmMonitorEntry 12 }
+
+cfprSmMonitorUpdateTimestamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:updateTimestamp managed
+        object property"
+    ::= { cfprSmMonitorEntry 13 }
+
+cfprSmMonitorMemAppTotalKb OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:memAppTotalKb managed object property"
+    ::= { cfprSmMonitorEntry 14 }
+
+cfprSmMonitorCpuAvailable OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:cpuAvailable managed object property"
+    ::= { cfprSmMonitorEntry 15 }
+
+cfprSmMonitorCpuTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:cpuTotal managed object property"
+    ::= { cfprSmMonitorEntry 16 }
+
+cfprSmMonitorDataDiskAvailable OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:dataDiskAvailable managed
+        object property"
+    ::= { cfprSmMonitorEntry 17 }
+
+cfprSmMonitorDataDiskTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:dataDiskTotal managed object property"
+    ::= { cfprSmMonitorEntry 18 }
+
+cfprSmMonitorMemAppAvailable OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:memAppAvailable managed
+        object property"
+    ::= { cfprSmMonitorEntry 19 }
+
+cfprSmMonitorMemAppTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:memAppTotal managed object property"
+    ::= { cfprSmMonitorEntry 20 }
+
+cfprSmMonitorMemFree OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:memFree managed object property"
+    ::= { cfprSmMonitorEntry 21 }
+
+cfprSmMonitorMemTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:memTotal managed object property"
+    ::= { cfprSmMonitorEntry 22 }
+
+cfprSmMonitorMemUsed OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:memUsed managed object property"
+    ::= { cfprSmMonitorEntry 23 }
+
+cfprSmMonitorSecondaryDiskAvailable OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:secondaryDiskAvailable
+        managed object property"
+    ::= { cfprSmMonitorEntry 24 }
+
+cfprSmMonitorSecondaryDiskTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:secondaryDiskTotal
+        managed object property"
+    ::= { cfprSmMonitorEntry 25 }
+
+cfprSmMonitorDiskAvailForInstall OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:diskAvailForInstall
+        managed object property"
+    ::= { cfprSmMonitorEntry 26 }
+
+cfprSmMonitorLastUpdateMonoTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower sm:Monitor:lastUpdateMonoTime
+        managed object property"
+    ::= { cfprSmMonitorEntry 27 }
+
+cfprSmNetMgmtBootstrapKeyEnumValueTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmNetMgmtBootstrapKeyEnumValueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:NetMgmtBootstrapKeyEnumValue
+        managed object table"
+    ::= { cfprSmObjects 24 }
+
+cfprSmNetMgmtBootstrapKeyEnumValueEntry OBJECT-TYPE
+    SYNTAX           CfprSmNetMgmtBootstrapKeyEnumValueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmNetMgmtBootstrapKeyEnumValueTable table."
+    INDEX { cfprSmNetMgmtBootstrapKeyEnumValueInstanceId }
+    ::= { cfprSmNetMgmtBootstrapKeyEnumValueTable 1 }
+
+CfprSmNetMgmtBootstrapKeyEnumValueEntry ::= SEQUENCE {
+    cfprSmNetMgmtBootstrapKeyEnumValueInstanceId                     CfprManagedObjectId
+}
+
+cfprSmNetMgmtBootstrapKeyEnumValueInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmNetMgmtBootstrapKeyEnumValueEntry 1 }
+
+cfprSmNetMgmtBootstrapKeyLimitsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmNetMgmtBootstrapKeyLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:NetMgmtBootstrapKeyLimits managed
+        object table"
+    ::= { cfprSmObjects 63 }
+
+cfprSmNetMgmtBootstrapKeyLimitsEntry OBJECT-TYPE
+    SYNTAX           CfprSmNetMgmtBootstrapKeyLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmNetMgmtBootstrapKeyLimitsTable table."
+    INDEX { cfprSmNetMgmtBootstrapKeyLimitsInstanceId }
+    ::= { cfprSmNetMgmtBootstrapKeyLimitsTable 1 }
+
+CfprSmNetMgmtBootstrapKeyLimitsEntry ::= SEQUENCE {
+    cfprSmNetMgmtBootstrapKeyLimitsInstanceId                        CfprManagedObjectId
+}
+
+cfprSmNetMgmtBootstrapKeyLimitsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmNetMgmtBootstrapKeyLimitsEntry 1 }
+
+cfprSmNetMgmtBootstrapValueTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmNetMgmtBootstrapValueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:NetMgmtBootstrapValue managed object table"
+    ::= { cfprSmObjects 25 }
+
+cfprSmNetMgmtBootstrapValueEntry OBJECT-TYPE
+    SYNTAX           CfprSmNetMgmtBootstrapValueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmNetMgmtBootstrapValueTable table."
+    INDEX { cfprSmNetMgmtBootstrapValueInstanceId }
+    ::= { cfprSmNetMgmtBootstrapValueTable 1 }
+
+CfprSmNetMgmtBootstrapValueEntry ::= SEQUENCE {
+    cfprSmNetMgmtBootstrapValueInstanceId                            CfprManagedObjectId
+}
+
+cfprSmNetMgmtBootstrapValueInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmNetMgmtBootstrapValueEntry 1 }
+
+cfprSmPortRequirementTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmPortRequirementEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:PortRequirement managed object table"
+    ::= { cfprSmObjects 26 }
+
+cfprSmPortRequirementEntry OBJECT-TYPE
+    SYNTAX           CfprSmPortRequirementEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmPortRequirementTable table."
+    INDEX { cfprSmPortRequirementInstanceId }
+    ::= { cfprSmPortRequirementTable 1 }
+
+CfprSmPortRequirementEntry ::= SEQUENCE {
+    cfprSmPortRequirementInstanceId                                  CfprManagedObjectId
+}
+
+cfprSmPortRequirementInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmPortRequirementEntry 1 }
+
+cfprSmPortSubTypeTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmPortSubTypeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:PortSubType managed object table"
+    ::= { cfprSmObjects 27 }
+
+cfprSmPortSubTypeEntry OBJECT-TYPE
+    SYNTAX           CfprSmPortSubTypeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmPortSubTypeTable table."
+    INDEX { cfprSmPortSubTypeInstanceId }
+    ::= { cfprSmPortSubTypeTable 1 }
+
+CfprSmPortSubTypeEntry ::= SEQUENCE {
+    cfprSmPortSubTypeInstanceId                                      CfprManagedObjectId
+}
+
+cfprSmPortSubTypeInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmPortSubTypeEntry 1 }
+
+cfprSmPreRequisiteTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmPreRequisiteEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:PreRequisite managed object table"
+    ::= { cfprSmObjects 64 }
+
+cfprSmPreRequisiteEntry OBJECT-TYPE
+    SYNTAX           CfprSmPreRequisiteEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmPreRequisiteTable table."
+    INDEX { cfprSmPreRequisiteInstanceId }
+    ::= { cfprSmPreRequisiteTable 1 }
+
+CfprSmPreRequisiteEntry ::= SEQUENCE {
+    cfprSmPreRequisiteInstanceId                                     CfprManagedObjectId
+}
+
+cfprSmPreRequisiteInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmPreRequisiteEntry 1 }
+
+cfprSmReplyInterfaceCfgTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmReplyInterfaceCfgEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:ReplyInterfaceCfg managed object table"
+    ::= { cfprSmObjects 65 }
+
+cfprSmReplyInterfaceCfgEntry OBJECT-TYPE
+    SYNTAX           CfprSmReplyInterfaceCfgEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmReplyInterfaceCfgTable table."
+    INDEX { cfprSmReplyInterfaceCfgInstanceId }
+    ::= { cfprSmReplyInterfaceCfgTable 1 }
+
+CfprSmReplyInterfaceCfgEntry ::= SEQUENCE {
+    cfprSmReplyInterfaceCfgInstanceId                                CfprManagedObjectId
+}
+
+cfprSmReplyInterfaceCfgInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmReplyInterfaceCfgEntry 1 }
+
+cfprSmResourceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmResourceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:Resource managed object table"
+    ::= { cfprSmObjects 28 }
+
+cfprSmResourceEntry OBJECT-TYPE
+    SYNTAX           CfprSmResourceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmResourceTable table."
+    INDEX { cfprSmResourceInstanceId }
+    ::= { cfprSmResourceTable 1 }
+
+CfprSmResourceEntry ::= SEQUENCE {
+    cfprSmResourceInstanceId                                         CfprManagedObjectId
+}
+
+cfprSmResourceInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmResourceEntry 1 }
+
+cfprSmSecSvcTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmSecSvcEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:SecSvc managed object table"
+    ::= { cfprSmObjects 29 }
+
+cfprSmSecSvcEntry OBJECT-TYPE
+    SYNTAX           CfprSmSecSvcEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmSecSvcTable table."
+    INDEX { cfprSmSecSvcInstanceId }
+    ::= { cfprSmSecSvcTable 1 }
+
+CfprSmSecSvcEntry ::= SEQUENCE {
+    cfprSmSecSvcInstanceId                                           CfprManagedObjectId
+}
+
+cfprSmSecSvcInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmSecSvcEntry 1 }
+
+cfprSmSlotTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmSlotEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:Slot managed object table"
+    ::= { cfprSmObjects 33 }
+
+cfprSmSlotEntry OBJECT-TYPE
+    SYNTAX           CfprSmSlotEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmSlotTable table."
+    INDEX { cfprSmSlotInstanceId }
+    ::= { cfprSmSlotTable 1 }
+
+CfprSmSlotEntry ::= SEQUENCE {
+    cfprSmSlotInstanceId                                             CfprManagedObjectId
+}
+
+cfprSmSlotInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmSlotEntry 1 }
+
+cfprSmSupportedHardwareTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmSupportedHardwareEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:SupportedHardware managed object table"
+    ::= { cfprSmObjects 66 }
+
+cfprSmSupportedHardwareEntry OBJECT-TYPE
+    SYNTAX           CfprSmSupportedHardwareEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmSupportedHardwareTable table."
+    INDEX { cfprSmSupportedHardwareInstanceId }
+    ::= { cfprSmSupportedHardwareTable 1 }
+
+CfprSmSupportedHardwareEntry ::= SEQUENCE {
+    cfprSmSupportedHardwareInstanceId                                CfprManagedObjectId
+}
+
+cfprSmSupportedHardwareInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmSupportedHardwareEntry 1 }
+
+cfprSmSystemMacTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmSystemMacEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:SystemMac managed object table"
+    ::= { cfprSmObjects 34 }
+
+cfprSmSystemMacEntry OBJECT-TYPE
+    SYNTAX           CfprSmSystemMacEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmSystemMacTable table."
+    INDEX { cfprSmSystemMacInstanceId }
+    ::= { cfprSmSystemMacTable 1 }
+
+CfprSmSystemMacEntry ::= SEQUENCE {
+    cfprSmSystemMacInstanceId                                        CfprManagedObjectId
+}
+
+cfprSmSystemMacInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmSystemMacEntry 1 }
+
+cfprSmTemplateAppTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmTemplateAppEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:TemplateApp managed object table"
+    ::= { cfprSmObjects 35 }
+
+cfprSmTemplateAppEntry OBJECT-TYPE
+    SYNTAX           CfprSmTemplateAppEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmTemplateAppTable table."
+    INDEX { cfprSmTemplateAppInstanceId }
+    ::= { cfprSmTemplateAppTable 1 }
+
+CfprSmTemplateAppEntry ::= SEQUENCE {
+    cfprSmTemplateAppInstanceId                                      CfprManagedObjectId
+}
+
+cfprSmTemplateAppInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmTemplateAppEntry 1 }
+
+cfprSmUnsignedCspLicenseTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmUnsignedCspLicenseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:UnsignedCspLicense managed object table"
+    ::= { cfprSmObjects 67 }
+
+cfprSmUnsignedCspLicenseEntry OBJECT-TYPE
+    SYNTAX           CfprSmUnsignedCspLicenseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmUnsignedCspLicenseTable table."
+    INDEX { cfprSmUnsignedCspLicenseInstanceId }
+    ::= { cfprSmUnsignedCspLicenseTable 1 }
+
+CfprSmUnsignedCspLicenseEntry ::= SEQUENCE {
+    cfprSmUnsignedCspLicenseInstanceId                               CfprManagedObjectId
+}
+
+cfprSmUnsignedCspLicenseInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmUnsignedCspLicenseEntry 1 }
+
+cfprSmUnsignedCspLicenseFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmUnsignedCspLicenseFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:UnsignedCspLicenseFsm managed object table"
+    ::= { cfprSmObjects 68 }
+
+cfprSmUnsignedCspLicenseFsmEntry OBJECT-TYPE
+    SYNTAX           CfprSmUnsignedCspLicenseFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmUnsignedCspLicenseFsmTable table."
+    INDEX { cfprSmUnsignedCspLicenseFsmInstanceId }
+    ::= { cfprSmUnsignedCspLicenseFsmTable 1 }
+
+CfprSmUnsignedCspLicenseFsmEntry ::= SEQUENCE {
+    cfprSmUnsignedCspLicenseFsmInstanceId                            CfprManagedObjectId
+}
+
+cfprSmUnsignedCspLicenseFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmUnsignedCspLicenseFsmEntry 1 }
+
+cfprSmUnsignedCspLicenseFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmUnsignedCspLicenseFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:UnsignedCspLicenseFsmStage
+        managed object table"
+    ::= { cfprSmObjects 69 }
+
+cfprSmUnsignedCspLicenseFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprSmUnsignedCspLicenseFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmUnsignedCspLicenseFsmStageTable table."
+    INDEX { cfprSmUnsignedCspLicenseFsmStageInstanceId }
+    ::= { cfprSmUnsignedCspLicenseFsmStageTable 1 }
+
+CfprSmUnsignedCspLicenseFsmStageEntry ::= SEQUENCE {
+    cfprSmUnsignedCspLicenseFsmStageInstanceId                       CfprManagedObjectId
+}
+
+cfprSmUnsignedCspLicenseFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmUnsignedCspLicenseFsmStageEntry 1 }
+
+cfprSmUnsignedCspLicenseFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmUnsignedCspLicenseFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:UnsignedCspLicenseFsmTask managed
+        object table"
+    ::= { cfprSmObjects 70 }
+
+cfprSmUnsignedCspLicenseFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprSmUnsignedCspLicenseFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmUnsignedCspLicenseFsmTaskTable table."
+    INDEX { cfprSmUnsignedCspLicenseFsmTaskInstanceId }
+    ::= { cfprSmUnsignedCspLicenseFsmTaskTable 1 }
+
+CfprSmUnsignedCspLicenseFsmTaskEntry ::= SEQUENCE {
+    cfprSmUnsignedCspLicenseFsmTaskInstanceId                        CfprManagedObjectId
+}
+
+cfprSmUnsignedCspLicenseFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmUnsignedCspLicenseFsmTaskEntry 1 }
+
+cfprSmUserMacTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprSmUserMacEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower sm:UserMac managed object table"
+    ::= { cfprSmObjects 36 }
+
+cfprSmUserMacEntry OBJECT-TYPE
+    SYNTAX           CfprSmUserMacEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprSmUserMacTable table."
+    INDEX { cfprSmUserMacInstanceId }
+    ::= { cfprSmUserMacTable 1 }
+
+CfprSmUserMacEntry ::= SEQUENCE {
+    cfprSmUserMacInstanceId                                          CfprManagedObjectId
+}
+
+cfprSmUserMacInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprSmUserMacEntry 1 }
+
+END

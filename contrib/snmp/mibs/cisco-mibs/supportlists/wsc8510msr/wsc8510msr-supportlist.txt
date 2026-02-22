@@ -1,0 +1,102 @@
+
+The below MIBs are supported by the Cat8510MSR in release 12.0 and later.
+SNMP version 1 MIBs are in the v1 directory and SNMP version 2 MIBs are
+in the v2 directory.  Note that for most every MIB <foo>.my in the v2
+directory, there exists a SNMP version 1 conversion of the MIB
+<foo>-V1SMI.my in the v1 directory.  The exception is SNMPv2-TC.my.
+Thanks go to David T. Perkins for his package smicng which was used to
+produce most of the v1 conversions.
+
+================================================================
+
+ The following is a list of MIBs supoported by the Cat8510MSR, as of
+ Release 12.0(1)W5-5.
+
+  1. MIBs inherited as part of the Cisco IOS code base:
+
+    1.1 Standard MIBs:
+	  IANAifType-MIB.my
+          IF-MIB.my
+          RFC1213-MIB.my
+          RMON-MIB.my (only alarm and event groups are supported)
+          SNMPv2-MIB.my
+	  SNMPv2-SMI.my
+	  SNMPv2-TC.my
+	  TCP-MIB.my
+	  UDP-MIB.my
+
+    1.2 Cisco enterprise MIBs:
+	  OLD-CISCO-CPU-MIB.my
+          OLD-CISCO-INTERFACES-MIB.my
+	  OLD-CISCO-IP-MIB.my
+	  OLD-CISCO-MEMORY-MIB.my
+          OLD-CISCO-SYS-MIB.my  
+	       Note: objects in this doc are also contained in the
+				separate docs OLD-CISCO-CPU-MIB.my,
+				OLD-CISCO-SYSTEM-MIB.my and 
+				OLD-CISCO-MEMORY-MIB.my
+	  OLD-CISCO-SYSTEM-MIB.my
+          OLD-CISCO-TS-MIB.my
+
+          CISCO-CDP-MIB.my
+	  CISCO-CONFIG-COPY-MIB.my
+          CISCO-CONFIG-MAN-MIB.my
+          CISCO-FLASH-MIB.my
+	  CISCO-GENERAL-TRAPS.my
+          CISCO-IMAGE-MIB.my
+          CISCO-MEMORY-POOL-MIB.my
+          CISCO-PING-MIB.my
+	  CISCO-PRODUCTS-MIB.my
+	  CISCO-SMI.my
+	  CISCO-SYSLOG-MIB.my
+	  CISCO-TC.my
+
+  2. Standard MIBs that are ATM-specific: 
+
+	ATM-MIB.my (from RFC1695)
+	CISCO-ATM2-MIB.my (subset of IETF draft atm2 mib)
+	ACCOUNTING-CONTROL-MIB.my (from IETF draft std)
+	ATM-ACCOUNTING-INFORMATION-MIB.my (from IETF draft std)
+	ATM-FORUM-TC-MIB.my
+	ATM-RMON-MIB.my
+	LAN-EMULATION-CLIENT-MIB.my (from ATM Forum spec)
+        PNNI-MIB.my (from ATM Forum PNNI MIB)
+        RFC1406-MIB.my
+
+    The ATM Forum's ILMI MIBs, supporting the UNI 4.0 specification:
+    (NOTE: These are NOT network management MIBs. Objects in these MIBs
+     cannot be accessed by an NMS via SNMP.
+     These MIBs are used by the ILMI protocol for link management
+     between adjacent ATM switches/end-stations) 
+	ATM-FORUM-ADDR-REG.my
+	ATM-FORUM-MIB.my
+	ATM-FORUM-SRVC-REG.my
+
+
+  3. Cisco enterprise MIBs 
+
+	CISCO-ATM-ACCESS-LIST-MIB.my
+	CISCO-ATM-ADDR-MIB.my
+	CISCO-ATM-CONN-MIB.my
+	CISCO-ATM-IF-MIB.my
+	CISCO-ATM-IF-PHYS-MIB.my
+	CISCO-ATM-RM-MIB.my
+	CISCO-ATM-SERVICE-REGISTRY-MIB.my
+	CISCO-ATM-SIG-DIAG-MIB.my
+	CISCO-ATM-SWITCH-ADDR-MIB.my
+        CISCO-ATM-SWITCH-FR-IWF-MIB.my
+        CISCO-ATM-SWITCH-FR-RM-MIB.my
+	CISCO-ATM-SWITCH-CUG-MIB.my
+	CISCO-ATM-TRAFFIC-MIB.my
+	CISCO-BUS-MIB.my
+        CISCO-DS0BUNDLE-MIB.my
+        CISCO-DS0BUNDLE-EXT-MIB.my
+	CISCO-LEC-EXT-MIB.my
+	CISCO-LEC-DATA-VCC-MIB.my
+	CISCO-LES-MIB.my
+	CISCO-LECS-MIB.my
+	CISCO-OAM-MIB.my
+	CISCO-PNNI-MIB.my
+	CISCO-RHINO-MIB.my
+
+===================================================================

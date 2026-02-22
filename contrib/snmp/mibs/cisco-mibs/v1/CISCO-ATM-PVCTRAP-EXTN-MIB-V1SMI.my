@@ -1,0 +1,1926 @@
+-- MIB file created 30-Jan-2003 23:39:13, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ATM-PVCTRAP-EXTN-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ATM-PVCTRAP-EXTN-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TimeStamp
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+--?? may need import of ifIndex from RFC1213-MIB
+    atmVclVpi, atmVclVci
+            FROM ATM-MIB
+    atmIntfPvcFailures, atmIntfCurrentlyFailingPVcls
+            FROM CISCO-IETF-ATM2-PVCTRAP-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoAtmPvcTrapExtnMIB OBJECT IDENTIFIER ::= { ciscoExperiment 97 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200301200000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-atm@cisco.com
+--  Descr
+--    This MIB Module is a supplement to the
+--     CISCO-IETF-ATM2-PVCTRAP-MIB.
+--  RevDate
+--    200301200000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoAtmPvcTrapExtnMIBObjects OBJECT IDENTIFIER ::= { ciscoAtmPvcTrapExtnMIB 1 }
+cAtmPvcTrapExtnMIBNotifPrefix OBJECT IDENTIFIER ::= { ciscoAtmPvcTrapExtnMIB 2 }
+cAtmPvcTrapExtnMIBNotif OBJECT IDENTIFIER ::= { cAtmPvcTrapExtnMIBNotifPrefix 0 }
+ciscoAtmPvcTrapExtnMIBConformance OBJECT IDENTIFIER ::= { ciscoAtmPvcTrapExtnMIB 3 }
+ciscoAtmPvcTrapExtnMIBCompliances OBJECT IDENTIFIER ::= { ciscoAtmPvcTrapExtnMIBConformance 1 }
+ciscoAtmPvcTrapExtnMIBGroups OBJECT IDENTIFIER ::= { ciscoAtmPvcTrapExtnMIBConformance 2 }
+
+CatmOAMRecoveryType ::= INTEGER {
+        catmLoopbackOAMRecover(1),
+        catmSegmentCCOAMRecover(2),
+        catmEndCCOAMRecover(4),
+        catmAISRDIOAMRecover(8)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Enums to indicate different types of OAM recoveries .
+--     catmLoopbackOAMRecover  - The object in query is Loopback OAM
+--                               type of recovery.
+--     catmSegmentCCOAMRecover - The object in query is Segment CC
+--                               OAM type of recovery.
+--     catmEndCCOAMRecover     - The object in query is End-to-End 
+--                               CC OAM type of recovery.
+--     catmAISRDIOAMRecover    - The object in query is AISRDI OAM
+--                               type of recovery.
+
+CatmOAMFailureType ::= INTEGER {
+        catmLoopbackOAMFailure(1),
+        catmSegmentCCOAMFailure(2),
+        catmEndCCOAMFailure(4),
+        catmAISRDIOAMFailure(8)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Enums to indicate different types of OAM recoveries .
+--     catmLoopbackOAMFailure  - The object in query is Loopback OAM
+--                               type of failure.
+--     catmSegmentCCOAMFailure - The object in query is Segment CC
+--                               OAM type of failure.
+--     catmEndCCOAMFailure     - The object in query is End-to-End 
+--                               CC OAM type of failure.
+--     catmAISRDIOAMFailure    - The object in query is AISRDI OAM
+--                               type of failure.
+
+catmInterfaceExt2Table OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmInterfaceExt2Entry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains ATM interface monitoring
+         information not defined in the
+         atmInterfaceConfTable from the ATM-MIB and
+         atmInterfaceExtTable CISCO-IETF-ATM2-PVCTRAP-MIB."
+    ::= { ciscoAtmPvcTrapExtnMIBObjects 1 }
+
+catmInterfaceExt2Entry OBJECT-TYPE
+    SYNTAX CatmInterfaceExt2Entry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry extends the atmInterfaceConfEntry
+         defined in ATM MIB.  Each entry corresponds
+         to an ATM interface."
+    INDEX { ifIndex }
+-- Augments atmInterfaceConfEntry FROM ATM-MIB
+    ::= { catmInterfaceExt2Table 1 }
+
+CatmInterfaceExt2Entry ::= SEQUENCE {
+    catmIntfCurrentlyDownToUpPVcls Gauge,
+    catmIntfOAMFailedPVcls Gauge,
+    catmIntfCurrentOAMFailingPVcls Gauge,
+    catmIntfSegCCOAMFailedPVcls Gauge,
+    catmIntfCurSegCCOAMFailingPVcls Gauge,
+    catmIntfEndCCOAMFailedPVcls Gauge,
+    catmIntfCurEndCCOAMFailingPVcls Gauge,
+    catmIntfAISRDIOAMFailedPVcls Gauge,
+    catmIntfCurAISRDIOAMFailingPVcls Gauge,
+    catmIntfAnyOAMFailedPVcls Gauge,
+    catmIntfCurAnyOAMFailingPVcls Gauge,
+    catmIntfTypeOfOAMFailure CatmOAMFailureType,
+    catmIntfOAMRcovedPVcls Gauge,
+    catmIntfCurrentOAMRcovingPVcls Gauge,
+    catmIntfSegCCOAMRcovedPVcls Gauge,
+    catmIntfCurSegCCOAMRcovingPVcls Gauge,
+    catmIntfEndCCOAMRcovedPVcls Gauge,
+    catmIntfCurEndCCOAMRcovingPVcls Gauge,
+    catmIntfAISRDIOAMRcovedPVcls Gauge,
+    catmIntfCurAISRDIOAMRcovingPVcls Gauge,
+    catmIntfAnyOAMRcovedPVcls Gauge,
+    catmIntfCurAnyOAMRcovingPVcls Gauge,
+    catmIntfTypeOfOAMRecover CatmOAMRecoveryType
+    }
+
+catmIntfCurrentlyDownToUpPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number PVCLs on this interface which 
+         changed state to 'up' since the last 
+         atmIntPvcUp2Trap was sent."
+    ::= { catmInterfaceExt2Entry 1 }
+
+catmIntfOAMFailedPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of PVCLs in this interface which 
+         are currently in the OAM loopback failed condition but 
+         the status of each PVCL remain in the 'up' state."
+    ::= { catmInterfaceExt2Entry 2 }
+
+catmIntfCurrentOAMFailingPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of PVCLs on this interface for which the
+         OAM loop back has failed but the status of each PVCL remain 
+         in the 'up' state in the last notification interval."
+    ::= { catmInterfaceExt2Entry 3 }
+
+catmIntfSegCCOAMFailedPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of PVCLs in this interface which 
+         are currently in the Segment CC OAM failed condition 
+         but the status of each PVCL remain in the 'up' state."
+    ::= { catmInterfaceExt2Entry 4 }
+
+catmIntfCurSegCCOAMFailingPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of PVCLs on this interface for which the
+         Segment CC OAM has failed but the status of each PVCL remain 
+         in the 'up' state in the last notification interval."
+    ::= { catmInterfaceExt2Entry 5 }
+
+catmIntfEndCCOAMFailedPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of PVCLs in this interface which 
+         are currently in the End-to-End CC OAM failed condition 
+         but the status of each PVCL remain in the 'up' state."
+    ::= { catmInterfaceExt2Entry 6 }
+
+catmIntfCurEndCCOAMFailingPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of PVCLs on this interface for which the
+         End-to-End CC OAM has failed but the status of each PVCL 
+         remain in the 'up' state in the last notification interval."
+    ::= { catmInterfaceExt2Entry 7 }
+
+catmIntfAISRDIOAMFailedPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of PVCLs in this interface which 
+         are currently in the AIS RDI OAM failed condition but 
+         the status of each PVCL remain in the 'up' state."
+    ::= { catmInterfaceExt2Entry 8 }
+
+catmIntfCurAISRDIOAMFailingPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of PVCLs on this interface for which the
+         AIS RDI OAM has failed but the status of each PVCL remain 
+         in the 'up' state in the last notification interval."
+    ::= { catmInterfaceExt2Entry 9 }
+
+catmIntfAnyOAMFailedPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of PVCLs in this interface which 
+         are currently in any type of OAM failed condition but 
+         the status of each PVCL remain in the 'up' state."
+    ::= { catmInterfaceExt2Entry 10 }
+
+catmIntfCurAnyOAMFailingPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of PVCLs on this interface for which 
+         any of OAM has failed but the status of each PVCL remain 
+         in the 'up' state in the last notification interval."
+    ::= { catmInterfaceExt2Entry 11 }
+
+catmIntfTypeOfOAMFailure OBJECT-TYPE
+    SYNTAX CatmOAMFailureType
+--    Rsyntax INTEGER {
+--        catmLoopbackOAMFailure(1),
+--        catmSegmentCCOAMFailure(2),
+--        catmEndCCOAMFailure(4),
+--        catmAISRDIOAMFailure(8)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of OAM failure."
+    ::= { catmInterfaceExt2Entry 12 }
+
+catmIntfOAMRcovedPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of PVCLs in this interface which 
+         are currently in the OAM loopback recovered condition and 
+         the status of each PVCL is in the 'up' state."
+    ::= { catmInterfaceExt2Entry 13 }
+
+catmIntfCurrentOAMRcovingPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of PVCLs on this interface for which the
+         OAM loop back has recovered and the status of each PVCL is 
+         in the 'up' state in the last notification interval."
+    ::= { catmInterfaceExt2Entry 14 }
+
+catmIntfSegCCOAMRcovedPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of PVCLs in this interface which 
+         are currently in the Segment CC OAM recovered condition 
+         and the status of each PVCL is in the 'up' state."
+    ::= { catmInterfaceExt2Entry 15 }
+
+catmIntfCurSegCCOAMRcovingPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of PVCLs on this interface for which the
+         Segment CC OAM has recovered and the status of each PVCL is 
+         in the 'up' state in the last notification interval."
+    ::= { catmInterfaceExt2Entry 16 }
+
+catmIntfEndCCOAMRcovedPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of PVCLs in this interface which 
+         are currently in the End-to-End CC OAM recovered condition 
+         and the status of each PVCL is in the 'up' state."
+    ::= { catmInterfaceExt2Entry 17 }
+
+catmIntfCurEndCCOAMRcovingPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of PVCLs on this interface for which the
+         End-to-End CC OAM has recovered and the status of each PVCL 
+         is in the 'up' state in the last notification interval."
+    ::= { catmInterfaceExt2Entry 18 }
+
+catmIntfAISRDIOAMRcovedPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of PVCLs in this interface which 
+         are currently in the AIS RDI OAM recovered condition and 
+         the status of each PVCL is in the 'up' state."
+    ::= { catmInterfaceExt2Entry 19 }
+
+catmIntfCurAISRDIOAMRcovingPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of PVCLs on this interface for which the
+         AIS RDI OAM has recovered and the status of each PVCL is 
+         in the 'up' state in the last notification interval."
+    ::= { catmInterfaceExt2Entry 20 }
+
+catmIntfAnyOAMRcovedPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of PVCLs in this interface which 
+         are currently in any type of OAM recovered condition and 
+         the status of each PVCL is in the 'up' state."
+    ::= { catmInterfaceExt2Entry 21 }
+
+catmIntfCurAnyOAMRcovingPVcls OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of PVCLs on this interface for which 
+         any of OAM has recovered and the status of each PVCL is 
+         in the 'up' state in the last notification interval."
+    ::= { catmInterfaceExt2Entry 22 }
+
+catmIntfTypeOfOAMRecover OBJECT-TYPE
+    SYNTAX CatmOAMRecoveryType
+--    Rsyntax INTEGER {
+--        catmLoopbackOAMRecover(1),
+--        catmSegmentCCOAMRecover(2),
+--        catmEndCCOAMRecover(4),
+--        catmAISRDIOAMRecover(8)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of OAM Recovered"
+    ::= { catmInterfaceExt2Entry 23 }
+
+catmCurStatChangePVclTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmCurStatChangePVclEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating all VCLs for which there is an
+         active row in the atmVclTable having an atmVclConnKind
+         value of `pvc' and atmVclOperStatus to have changed in the
+         last corresponding PVC notification."
+    ::= { ciscoAtmPvcTrapExtnMIBObjects 2 }
+
+catmCurStatChangePVclEntry OBJECT-TYPE
+    SYNTAX CatmCurStatChangePVclEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in the table represents a VCL for which
+         there is an active row in the atmVclTable having an
+         atmVclConnKind value of `pvc' and atmVclOperStatus
+         to have changed in the last corresponding PVC notification."
+    INDEX { ifIndex, atmVclVpi, atmVclVci }
+    ::= { catmCurStatChangePVclTable 1 }
+
+CatmCurStatChangePVclEntry ::= SEQUENCE {
+    catmPVclStatusTransition Counter,
+    catmPVclStatusChangeStart TimeStamp,
+    catmPVclStatusChangeEnd TimeStamp,
+    catmPVclSegCCStatusTransition Counter,
+    catmPVclSegCCStatusChangeStart TimeStamp,
+    catmPVclSegCCStatusChangeEnd TimeStamp,
+    catmPVclEndCCStatusTransition Counter,
+    catmPVclEndCCStatusChangeStart TimeStamp,
+    catmPVclEndCCStatusChangeEnd TimeStamp,
+    catmPVclAISRDIStatusTransition Counter,
+    catmPVclAISRDIStatusChangeStart TimeStamp,
+    catmPVclAISRDIStatusChangeEnd TimeStamp,
+    catmPVclCurFailTime TimeStamp,
+    catmPVclPrevRecoverTime TimeStamp,
+    catmPVclFailureReason CatmOAMFailureType
+    }
+
+catmPVclStatusTransition OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of state transitions that has happened 
+         on this PVCL in the last corresponding notification."
+    ::= { catmCurStatChangePVclEntry 2 }
+
+catmPVclStatusChangeStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state for the
+         first time in  the last corresponding notification."
+    ::= { catmCurStatChangePVclEntry 3 }
+
+catmPVclStatusChangeEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp of the last state change of this PVCL
+         in the last corresponding notification."
+    ::= { catmCurStatChangePVclEntry 4 }
+
+catmPVclSegCCStatusTransition OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of state transitions that has happened 
+         on this PVCL in the last corresponding notification due
+         to Segment CC OAM failure."
+    ::= { catmCurStatChangePVclEntry 5 }
+
+catmPVclSegCCStatusChangeStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state for the
+         first time in  the last corresponding notification due
+         to Segment CC OAM failure."
+    ::= { catmCurStatChangePVclEntry 6 }
+
+catmPVclSegCCStatusChangeEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp of the last state change of this PVCL
+         in the last corresponding notification due
+         to Segment CC OAM failure."
+    ::= { catmCurStatChangePVclEntry 7 }
+
+catmPVclEndCCStatusTransition OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of state transitions that has happened 
+         on this PVCL in the last corresponding notification due
+         to End CC OAM failure."
+    ::= { catmCurStatChangePVclEntry 8 }
+
+catmPVclEndCCStatusChangeStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state for the
+         first time in  the last corresponding notification due
+         to End CC OAM failure."
+    ::= { catmCurStatChangePVclEntry 9 }
+
+catmPVclEndCCStatusChangeEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp of the last state change of this PVCL
+         in the last corresponding notification due
+         to End CC OAM failure."
+    ::= { catmCurStatChangePVclEntry 10 }
+
+catmPVclAISRDIStatusTransition OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of state transitions that has happened 
+         on this PVCL in the last corresponding notification due
+         to AIS RDI OAM failure."
+    ::= { catmCurStatChangePVclEntry 11 }
+
+catmPVclAISRDIStatusChangeStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state for the
+         first time in  the last corresponding notification due
+         to AIS RDI OAM failure."
+    ::= { catmCurStatChangePVclEntry 12 }
+
+catmPVclAISRDIStatusChangeEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp of the last state change of this PVCL
+         in the last corresponding notification due
+         to AIS RDI OAM failure."
+    ::= { catmCurStatChangePVclEntry 13 }
+
+catmPVclCurFailTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state to DOWN
+         last time in the last corresponding notification ."
+    ::= { catmCurStatChangePVclEntry 14 }
+
+catmPVclPrevRecoverTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state to UP
+         last time in the previous corresponding notification ."
+    ::= { catmCurStatChangePVclEntry 15 }
+
+catmPVclFailureReason OBJECT-TYPE
+    SYNTAX CatmOAMFailureType
+--    Rsyntax INTEGER {
+--        catmLoopbackOAMFailure(1),
+--        catmSegmentCCOAMFailure(2),
+--        catmEndCCOAMFailure(4),
+--        catmAISRDIOAMFailure(8)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of OAM failure."
+    ::= { catmCurStatChangePVclEntry 16 }
+
+catmStatusChangePVclRangeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmStatusChangePVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating more than one VCLs in a consecutive 
+         range and for each VCL there is an active row in the 
+         atmVclTable having an atmVclConnKind value of `pvc'
+         and atmVclOperStatus to have changed in the same
+         direction in the last corresponding PVC notification ."
+    ::= { ciscoAtmPvcTrapExtnMIBObjects 3 }
+
+catmStatusChangePVclRangeEntry OBJECT-TYPE
+    SYNTAX CatmStatusChangePVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table represents a range of VCLs and 
+         for each VCL there is an active row in the atmVclTable having
+         an atmVclConnKind value of 'pvc' and atmVclOperStatus to have
+         changed in the same direction in the last notification 
+         interval."
+    INDEX { ifIndex, atmVclVpi, catmStatusChangePVclRangeIndex }
+    ::= { catmStatusChangePVclRangeTable 1 }
+
+CatmStatusChangePVclRangeEntry ::= SEQUENCE {
+    catmStatusChangePVclRangeIndex INTEGER,
+    catmPVclLowerRangeValue INTEGER,
+    catmPVclHigherRangeValue INTEGER,
+    catmPVclRangeStatusChangeStart TimeStamp,
+    catmPVclRangeStatusChangeEnd TimeStamp
+    }
+
+catmStatusChangePVclRangeIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Index to represent different ranges, the first range is
+        indexed by value 0, the second by 1 and so on..."
+    ::= { catmStatusChangePVclRangeEntry 1 }
+
+catmPVclLowerRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The first PVCL in a range of PVCLs for which the 
+         atmVclOperStatus to have changed in the last 
+         corresponding notification due to Loopback OAM failure."
+    ::= { catmStatusChangePVclRangeEntry 2 }
+
+catmPVclHigherRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The last PVCL in a range of PVCLs for which the 
+         atmOperStatus to have changed in the last 
+         corresponding notification due to Loopback OAM failure."
+    ::= { catmStatusChangePVclRangeEntry 3 }
+
+catmPVclRangeStatusChangeStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the first PVCL in the range
+         changed state in the last corresponding notification due 
+         to Loopback OAM failure."
+    ::= { catmStatusChangePVclRangeEntry 4 }
+
+catmPVclRangeStatusChangeEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the last PVCL in the range
+         changed state in the last corresponding notification due 
+         to Loopback OAM failure."
+    ::= { catmStatusChangePVclRangeEntry 5 }
+
+catmSegCCStatusChPVclRangeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmSegCCStatusChPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating more than one VCLs in a consecutive 
+         range and for each VCL there is an active row in the 
+         atmVclTable having an atmVclConnKind value of `pvc'
+         and atmVclOperStatus to have changed due to segment CC 
+         failure in the same direction in the last PVC 
+         corresponding notification ."
+    ::= { ciscoAtmPvcTrapExtnMIBObjects 5 }
+
+catmSegCCStatusChPVclRangeEntry OBJECT-TYPE
+    SYNTAX CatmSegCCStatusChPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table represents a range of VCLs and 
+         for each VCL there is an active row in the atmVclTable having
+         an atmVclConnKind value of 'pvc' and atmVclOperStatus to have
+         changed due to segment CC failure in the same direction 
+         in the last corresponding notification ."
+    INDEX { ifIndex, atmVclVpi, catmStatusChangePVclRangeIndex }
+    ::= { catmSegCCStatusChPVclRangeTable 1 }
+
+CatmSegCCStatusChPVclRangeEntry ::= SEQUENCE {
+    catmPVclSegCCLowerRangeValue INTEGER,
+    catmPVclSegCCHigherRangeValue INTEGER,
+    catmPVclSegCCRangeStatusChStart TimeStamp,
+    catmPVclSegCCRangeStatusChEnd TimeStamp
+    }
+
+catmPVclSegCCLowerRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The first PVCL in a range of PVCLs for which the 
+         atmVclOperStatus to have changed in the last 
+         corresponding notification due to Segment CC OAM failure."
+    ::= { catmSegCCStatusChPVclRangeEntry 1 }
+
+catmPVclSegCCHigherRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The last PVCL in a range of PVCLs for which the 
+         atmOperStatus to have changed in the last 
+         corresponding notification due to Segment CC OAM failure."
+    ::= { catmSegCCStatusChPVclRangeEntry 2 }
+
+catmPVclSegCCRangeStatusChStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the first PVCL in the range
+         changed state in the last corresponding notification due 
+         to Segment CC OAM failure."
+    ::= { catmSegCCStatusChPVclRangeEntry 3 }
+
+catmPVclSegCCRangeStatusChEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the last PVCL in the range
+         changed state in the last corresponding notification due 
+         to Segment CC OAM failure."
+    ::= { catmSegCCStatusChPVclRangeEntry 4 }
+
+catmEndCCStatusChPVclRangeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmEndCCStatusChPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating more than one VCLs in a consecutive 
+         range and for each VCL there is an active row in the 
+         atmVclTable having an atmVclConnKind value of `pvc'
+         and atmVclOperStatus to have changed due to End CC failure
+         in the same direction in the last PVC notification 
+         interval."
+    ::= { ciscoAtmPvcTrapExtnMIBObjects 6 }
+
+catmEndCCStatusChPVclRangeEntry OBJECT-TYPE
+    SYNTAX CatmEndCCStatusChPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table represents a range of VCLs and 
+         for each VCL there is an active row in the atmVclTable having
+         an atmVclConnKind value of 'pvc' and atmVclOperStatus to have
+         changed due to End CC failure in the same direction in the 
+         last corresponding notification ."
+    INDEX { ifIndex, atmVclVpi, catmStatusChangePVclRangeIndex }
+    ::= { catmEndCCStatusChPVclRangeTable 1 }
+
+CatmEndCCStatusChPVclRangeEntry ::= SEQUENCE {
+    catmPVclEndCCLowerRangeValue INTEGER,
+    catmPVclEndCCHigherRangeValue INTEGER,
+    catmPVclEndCCRangeStatusChStart TimeStamp,
+    catmPVclEndCCRangeStatusChEnd TimeStamp
+    }
+
+catmPVclEndCCLowerRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The first PVCL in a range of PVCLs for which the 
+         atmVclOperStatus to have changed in the last 
+         corresponding notification due to End CC OAM failure."
+    ::= { catmEndCCStatusChPVclRangeEntry 1 }
+
+catmPVclEndCCHigherRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The last PVCL in a range of PVCLs for which the 
+         atmOperStatus to have changed in the last 
+         corresponding notification due to End CC OAM failure."
+    ::= { catmEndCCStatusChPVclRangeEntry 2 }
+
+catmPVclEndCCRangeStatusChStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the first PVCL in the range
+         changed state in the last corresponding notification due 
+         to End CC OAM failure."
+    ::= { catmEndCCStatusChPVclRangeEntry 3 }
+
+catmPVclEndCCRangeStatusChEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the last PVCL in the range
+         changed state in the last corresponding notification due 
+         to End CC OAM failure."
+    ::= { catmEndCCStatusChPVclRangeEntry 4 }
+
+catmAISRDIStatusChPVclRangeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmAISRDIStatusChPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating more than one VCLs in a consecutive 
+         range and for each VCL there is an active row in the 
+         atmVclTable having an atmVclConnKind value of `pvc'
+         and atmVclOperStatus to have changed due to AIS/RDI failure
+         in the same direction in the last corresponding PVC 
+         notification."
+    ::= { ciscoAtmPvcTrapExtnMIBObjects 7 }
+
+catmAISRDIStatusChPVclRangeEntry OBJECT-TYPE
+    SYNTAX CatmAISRDIStatusChPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table represents a range of VCLs and 
+         for each VCL there is an active row in the atmVclTable having
+         an atmVclConnKind value of 'pvc' and atmVclOperStatus to have
+         changed due to AIS/RDI failure in the same direction in the 
+         last corresponding notification ."
+    INDEX { ifIndex, atmVclVpi, catmStatusChangePVclRangeIndex }
+    ::= { catmAISRDIStatusChPVclRangeTable 1 }
+
+CatmAISRDIStatusChPVclRangeEntry ::= SEQUENCE {
+    catmPVclAISRDILowerRangeValue INTEGER,
+    catmPVclAISRDIHigherRangeValue INTEGER,
+    catmPVclAISRDIRangeStatusChStart TimeStamp,
+    catmPVclAISRDIRangeStatusChEnd TimeStamp
+    }
+
+catmPVclAISRDILowerRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The first PVCL in a range of PVCLs for which the 
+         atmVclOperStatus to have changed in the last 
+         corresponding notification due to AISRDI OAM failure."
+    ::= { catmAISRDIStatusChPVclRangeEntry 1 }
+
+catmPVclAISRDIHigherRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The last PVCL in a range of PVCLs for which the 
+         atmOperStatus to have changed in the last 
+         corresponding notification due to AISRDI OAM failure."
+    ::= { catmAISRDIStatusChPVclRangeEntry 2 }
+
+catmPVclAISRDIRangeStatusChStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the first PVCL in the range
+         changed state in the last corresponding notification due 
+         to AISRDI OAM failure."
+    ::= { catmAISRDIStatusChPVclRangeEntry 3 }
+
+catmPVclAISRDIRangeStatusChEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the last PVCL in the range
+         changed state in the last corresponding notification due 
+         to AISRDI OAM failure."
+    ::= { catmAISRDIStatusChPVclRangeEntry 4 }
+
+catmDownPVclRangeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmDownPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating more than one VCLs in a consecutive 
+         range and for each VCL there is an active row in the 
+         atmVclTable having an atmVclConnKind value of `pvc'
+         and atmVclOperStatus to have detected as Down
+         in the last corresponding PVC notification ."
+    ::= { ciscoAtmPvcTrapExtnMIBObjects 8 }
+
+catmDownPVclRangeEntry OBJECT-TYPE
+    SYNTAX CatmDownPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table represents a range of VCLs and 
+         for each VCL there is an active row in the atmVclTable having
+         an atmVclConnKind value of 'pvc' and  atmVclOperStatus to 
+         have detected as Down in the last notification 
+         interval."
+    INDEX { ifIndex, atmVclVpi, catmStatusChangePVclRangeIndex }
+    ::= { catmDownPVclRangeTable 1 }
+
+CatmDownPVclRangeEntry ::= SEQUENCE {
+    catmDownPVclLowerRangeValue INTEGER,
+    catmDownPVclHigherRangeValue INTEGER,
+    catmDownPVclRangeStart TimeStamp,
+    catmDownPVclRangeEnd TimeStamp,
+    catmPrevUpPVclRangeStart TimeStamp,
+    catmPrevUpPVclRangeEnd TimeStamp,
+    catmPVclRangeFailureReason CatmOAMFailureType
+    }
+
+catmDownPVclLowerRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The first PVCL in a range of PVCLs for which the 
+         atmVclOperStatus has been detected as Down in the 
+         corresponding notification ."
+    ::= { catmDownPVclRangeEntry 1 }
+
+catmDownPVclHigherRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The last PVCL in a range of PVCLs for which the 
+         atmVclOperStatus has been detected as Down in the 
+         corresponding notification ."
+    ::= { catmDownPVclRangeEntry 2 }
+
+catmDownPVclRangeStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the first atmVclOperStatus
+         is detected as Down on any of the PVCLs in the range
+         in the corresponding notification ."
+    ::= { catmDownPVclRangeEntry 3 }
+
+catmDownPVclRangeEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the last atmVclOperStatus
+         is detected as Down on any of the PVCLs in the range
+         in the corresponding notification ."
+    ::= { catmDownPVclRangeEntry 4 }
+
+catmPrevUpPVclRangeStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the first atmVclOperStatus
+         is detected as Up on any of the PVCLs in the range
+         in the previous catmIntfPvcUp2Trap notification."
+    ::= { catmDownPVclRangeEntry 5 }
+
+catmPrevUpPVclRangeEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the last atmVclOperStatus
+         is detected as Up on any of the PVCLs in the range
+         in the previous catmIntfPvcUp2Trap notification."
+    ::= { catmDownPVclRangeEntry 6 }
+
+catmPVclRangeFailureReason OBJECT-TYPE
+    SYNTAX CatmOAMFailureType
+--    Rsyntax INTEGER {
+--        catmLoopbackOAMFailure(1),
+--        catmSegmentCCOAMFailure(2),
+--        catmEndCCOAMFailure(4),
+--        catmAISRDIOAMFailure(8)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of OAM failure."
+    ::= { catmDownPVclRangeEntry 7 }
+
+catmCurStatusUpPVclTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmCurStatusUpPVclEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating all VCLs for which there is an
+         active row in the atmVclTable having an atmVclConnKind
+         value of `pvc' and atmVclOperStatus to have changed to UP
+         in the last corresponding PVC notification ."
+    ::= { ciscoAtmPvcTrapExtnMIBObjects 9 }
+
+catmCurStatusUpPVclEntry OBJECT-TYPE
+    SYNTAX CatmCurStatusUpPVclEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in the table represents a VCL for which
+         there is an active row in the atmVclTable having an
+         atmVclConnKind value of `pvc' and atmVclOperStatus
+         to have changed to UP in the last PVC notification 
+         interval."
+    INDEX { ifIndex, atmVclVpi, atmVclVci }
+    ::= { catmCurStatusUpPVclTable 1 }
+
+CatmCurStatusUpPVclEntry ::= SEQUENCE {
+    catmPVclStatusUpTransition Gauge,
+    catmPVclStatusUpStart TimeStamp,
+    catmPVclStatusUpEnd TimeStamp,
+    catmPVclSegCCStatusUpTransition Gauge,
+    catmPVclSegCCStatusUpStart TimeStamp,
+    catmPVclSegCCStatusUpEnd TimeStamp,
+    catmPVclEndCCStatusUpTransition Gauge,
+    catmPVclEndCCStatusUpStart TimeStamp,
+    catmPVclEndCCStatusUpEnd TimeStamp,
+    catmPVclAISRDIStatusUpTransition Gauge,
+    catmPVclAISRDIStatusUpStart TimeStamp,
+    catmPVclAISRDIStatusUpEnd TimeStamp,
+    catmPVclCurRecoverTime TimeStamp,
+    catmPVclPrevFailTime TimeStamp,
+    catmPVclRecoveryReason CatmOAMRecoveryType
+    }
+
+catmPVclStatusUpTransition OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Down to Up state transitions due to
+         OAM loopback recovery that has happened on this PVCL 
+         in the last corresponding notification ."
+    ::= { catmCurStatusUpPVclEntry 1 }
+
+catmPVclStatusUpStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state to UP 
+         for the first time due to OAM loopback recovery
+         in the last corresponding notification ."
+    ::= { catmCurStatusUpPVclEntry 2 }
+
+catmPVclStatusUpEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state to UP 
+         for the last time due to OAM loopback recovery
+         in the last corresponding notification ."
+    ::= { catmCurStatusUpPVclEntry 3 }
+
+catmPVclSegCCStatusUpTransition OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Down to Up state transitions that has 
+         happened on this PVCL in the last corresponding notification 
+         due to Segment CC OAM recovery."
+    ::= { catmCurStatusUpPVclEntry 4 }
+
+catmPVclSegCCStatusUpStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state to Up for 
+         the first time in the last corresponding notification due
+         to Segment CC OAM recovery."
+    ::= { catmCurStatusUpPVclEntry 5 }
+
+catmPVclSegCCStatusUpEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp of the last state change of this PVCL
+         in the last corresponding notification due to Segment CC 
+         OAM recovery."
+    ::= { catmCurStatusUpPVclEntry 6 }
+
+catmPVclEndCCStatusUpTransition OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Down to UP state transitions that has 
+         happened on this PVCL in the last notification 
+         interval due to End CC OAM recovery."
+    ::= { catmCurStatusUpPVclEntry 7 }
+
+catmPVclEndCCStatusUpStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state to Up
+         for the first time in the last corresponding notification 
+         due to End CC OAM recovery."
+    ::= { catmCurStatusUpPVclEntry 8 }
+
+catmPVclEndCCStatusUpEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state to Up
+         for the last time in the last corresponding notification 
+         due to End CC OAM recovery."
+    ::= { catmCurStatusUpPVclEntry 9 }
+
+catmPVclAISRDIStatusUpTransition OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Down to Up state transitions that 
+         has happened on this PVCL in the last notification 
+         interval due to AIS RDI OAM recovery."
+    ::= { catmCurStatusUpPVclEntry 10 }
+
+catmPVclAISRDIStatusUpStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state to Up
+         for the first time in the last corresponding notification 
+         due to AIS/RDI OAM recovery."
+    ::= { catmCurStatusUpPVclEntry 11 }
+
+catmPVclAISRDIStatusUpEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state to Up
+         for the last time in the last corresponding notification 
+         due to AIS/RDI OAM recovery."
+    ::= { catmCurStatusUpPVclEntry 12 }
+
+catmPVclCurRecoverTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state to UP
+         last time in the last corresponding notification ."
+    ::= { catmCurStatusUpPVclEntry 13 }
+
+catmPVclPrevFailTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which this PVCL changed state to DOWN
+         last time in the previous corresponding notification ."
+    ::= { catmCurStatusUpPVclEntry 14 }
+
+catmPVclRecoveryReason OBJECT-TYPE
+    SYNTAX CatmOAMRecoveryType
+--    Rsyntax INTEGER {
+--        catmLoopbackOAMRecover(1),
+--        catmSegmentCCOAMRecover(2),
+--        catmEndCCOAMRecover(4),
+--        catmAISRDIOAMRecover(8)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of OAM Recovered"
+    ::= { catmCurStatusUpPVclEntry 15 }
+
+catmStatusUpPVclRangeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmStatusUpPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating more than one VCLs in a consecutive 
+         range and for each VCL there is an active row in the 
+         atmVclTable having an atmVclConnKind value of `pvc'
+         and loopback OAM status to have detected as recovered
+         in the last corresponding PVC notification ."
+    ::= { ciscoAtmPvcTrapExtnMIBObjects 10 }
+
+catmStatusUpPVclRangeEntry OBJECT-TYPE
+    SYNTAX CatmStatusUpPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table represents a range of VCLs and 
+         for each VCL there is an active row in the atmVclTable having
+         an atmVclConnKind value of 'pvc' and  loopback OAM status to 
+         have detected as recovered in the last notification 
+         interval."
+    INDEX { ifIndex, atmVclVpi, catmStatusChangePVclRangeIndex }
+    ::= { catmStatusUpPVclRangeTable 1 }
+
+CatmStatusUpPVclRangeEntry ::= SEQUENCE {
+    catmPVclUpLowerRangeValue INTEGER,
+    catmPVclUpHigherRangeValue INTEGER,
+    catmPVclRangeStatusUpStart TimeStamp,
+    catmPVclRangeStatusUpEnd TimeStamp
+    }
+
+catmPVclUpLowerRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The first PVCL in a range of PVCLs for which the 
+         Loopback OAM recovery has been detected in the last 
+         corresponding notification ."
+    ::= { catmStatusUpPVclRangeEntry 1 }
+
+catmPVclUpHigherRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The last PVCL in a range of PVCLs for which the 
+         Loopback OAM recovery has been detected in the last 
+         corresponding notification ."
+    ::= { catmStatusUpPVclRangeEntry 2 }
+
+catmPVclRangeStatusUpStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the first Loopback OAM recovery
+         is detected on any of the PVCLs in the range
+         in the last corresponding notification ."
+    ::= { catmStatusUpPVclRangeEntry 3 }
+
+catmPVclRangeStatusUpEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the last Loopback OAM recovery
+         is detected on any of the PVCLs in the range
+         in the last corresponding notification ."
+    ::= { catmStatusUpPVclRangeEntry 4 }
+
+catmSegCCStatusUpPVclRangeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmSegCCStatusUpPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating more than one VCLs in a consecutive
+         range and for each VCL there is an active row in the
+         atmVclTable having an atmVclConnKind value of `pvc'
+         and Segment CC OAM status to have detected as recovered
+         in the last corresponding PVC notification ."
+    ::= { ciscoAtmPvcTrapExtnMIBObjects 11 }
+
+catmSegCCStatusUpPVclRangeEntry OBJECT-TYPE
+    SYNTAX CatmSegCCStatusUpPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table represents a range of VCLs and
+         for each VCL there is an active row in the atmVclTable having
+         an atmVclConnKind value of 'pvc' and Segment CC OAM status to
+         have detected as recovered in the last notification
+         interval."
+    INDEX { ifIndex, atmVclVpi, catmStatusChangePVclRangeIndex }
+    ::= { catmSegCCStatusUpPVclRangeTable 1 }
+
+CatmSegCCStatusUpPVclRangeEntry ::= SEQUENCE {
+    catmPVclSegCCUpLowerRangeValue INTEGER,
+    catmPVclSegCCUpHigherRangeValue INTEGER,
+    catmPVclSegCCRangeStatusUpStart TimeStamp,
+    catmPVclSegCCRangeStatusUpEnd TimeStamp
+    }
+
+catmPVclSegCCUpLowerRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The first PVCL in a range of PVCLs for which the
+         Segment CC OAM recovery has been detected in the last
+         corresponding notification ."
+    ::= { catmSegCCStatusUpPVclRangeEntry 1 }
+
+catmPVclSegCCUpHigherRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The last PVCL in a range of PVCLs for which the
+         Segment CC OAM recovery has been detected in the last
+         corresponding notification ."
+    ::= { catmSegCCStatusUpPVclRangeEntry 2 }
+
+catmPVclSegCCRangeStatusUpStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the first Segment CC OAM recovery
+         is detected on any of the PVCLs in the range
+         in the last corresponding notification ."
+    ::= { catmSegCCStatusUpPVclRangeEntry 3 }
+
+catmPVclSegCCRangeStatusUpEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the last Segment CC OAM recovery
+         is detected on any of the PVCLs in the range
+         in the last corresponding notification ."
+    ::= { catmSegCCStatusUpPVclRangeEntry 4 }
+
+catmEndCCStatusUpPVclRangeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmEndCCStatusUpPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating more than one VCLs in a consecutive
+         range and for each VCL there is an active row in the
+         atmVclTable having an atmVclConnKind value of `pvc'
+         and End-to-End CC OAM status to have detected as recovered
+         in the last corresponding PVC notification ."
+    ::= { ciscoAtmPvcTrapExtnMIBObjects 12 }
+
+catmEndCCStatusUpPVclRangeEntry OBJECT-TYPE
+    SYNTAX CatmEndCCStatusUpPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table represents a range of VCLs and
+         for each VCL there is an active row in the atmVclTable having
+         an atmVclConnKind value of 'pvc' and End-to-End CC OAM status 
+         to have detected as recovered in the last notification
+         interval."
+    INDEX { ifIndex, atmVclVpi, catmStatusChangePVclRangeIndex }
+    ::= { catmEndCCStatusUpPVclRangeTable 1 }
+
+CatmEndCCStatusUpPVclRangeEntry ::= SEQUENCE {
+    catmPVclEndCCUpLowerRangeValue INTEGER,
+    catmPVclEndCCUpHigherRangeValue INTEGER,
+    catmPVclEndCCRangeStatusUpStart TimeStamp,
+    catmPVclEndCCRangeStatusUpEnd TimeStamp
+    }
+
+catmPVclEndCCUpLowerRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The first PVCL in a range of PVCLs for which the
+         End-to-End CC OAM recovery has been detected in the last
+         corresponding notification ."
+    ::= { catmEndCCStatusUpPVclRangeEntry 1 }
+
+catmPVclEndCCUpHigherRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The last PVCL in a range of PVCLs for which the
+         End-to-End CC OAM recovery has been detected in the last
+         corresponding notification ."
+    ::= { catmEndCCStatusUpPVclRangeEntry 2 }
+
+catmPVclEndCCRangeStatusUpStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the first End-to-End CC OAM recovery
+         is detected on any of the PVCLs in the range
+         in the last corresponding notification ."
+    ::= { catmEndCCStatusUpPVclRangeEntry 3 }
+
+catmPVclEndCCRangeStatusUpEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the last End-to-End CC OAM recovery
+         is detected on any of the PVCLs in the range
+         in the last corresponding notification ."
+    ::= { catmEndCCStatusUpPVclRangeEntry 4 }
+
+catmAISRDIStatusUpPVclRangeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmAISRDIStatusUpPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating more than one VCLs in a consecutive
+         range and for each VCL there is an active row in the
+         atmVclTable having an atmVclConnKind value of `pvc'
+         and AISRDI OAM status to have detected as recovered
+         in the last corresponding PVC notification ."
+    ::= { ciscoAtmPvcTrapExtnMIBObjects 13 }
+
+catmAISRDIStatusUpPVclRangeEntry OBJECT-TYPE
+    SYNTAX CatmAISRDIStatusUpPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table represents a range of VCLs and
+         for each VCL there is an active row in the atmVclTable having
+         an atmVclConnKind value of 'pvc' and AISRDI OAM status 
+         to have detected as recovered in the last notification
+         interval."
+    INDEX { ifIndex, atmVclVpi, catmStatusChangePVclRangeIndex }
+    ::= { catmAISRDIStatusUpPVclRangeTable 1 }
+
+CatmAISRDIStatusUpPVclRangeEntry ::= SEQUENCE {
+    catmPVclAISRDIUpLowerRangeValue INTEGER,
+    catmPVclAISRDIUpHigherRangeValue INTEGER,
+    catmPVclAISRDIRangeStatusUpStart TimeStamp,
+    catmPVclAISRDIRangeStatusUpEnd TimeStamp
+    }
+
+catmPVclAISRDIUpLowerRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The first PVCL in a range of PVCLs for which the
+         AISRDI OAM recovery has been detected in the last
+         corresponding notification ."
+    ::= { catmAISRDIStatusUpPVclRangeEntry 1 }
+
+catmPVclAISRDIUpHigherRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The last PVCL in a range of PVCLs for which the
+         AISRDI OAM recovery has been detected in the last
+         corresponding notification ."
+    ::= { catmAISRDIStatusUpPVclRangeEntry 2 }
+
+catmPVclAISRDIRangeStatusUpStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the first AISRDI OAM recovery
+         is detected on any of the PVCLs in the range
+         in the last corresponding notification ."
+    ::= { catmAISRDIStatusUpPVclRangeEntry 3 }
+
+catmPVclAISRDIRangeStatusUpEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the last AISRDI OAM recovery
+         is detected on any of the PVCLs in the range
+         in the last corresponding notification ."
+    ::= { catmAISRDIStatusUpPVclRangeEntry 4 }
+
+catmUpPVclRangeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CatmUpPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating more than one VCLs in a consecutive 
+         range and for each VCL there is an active row in the 
+         atmVclTable having an atmVclConnKind value of `pvc'
+         and atmVclOperStatus to have detected as Up
+         in the last corresponding PVC notification ."
+    ::= { ciscoAtmPvcTrapExtnMIBObjects 14 }
+
+catmUpPVclRangeEntry OBJECT-TYPE
+    SYNTAX CatmUpPVclRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table represents a range of VCLs and 
+         for each VCL there is an active row in the atmVclTable having
+         an atmVclConnKind value of 'pvc' and  atmVclOperStatus to 
+         have detected as Up in the last notification 
+         interval."
+    INDEX { ifIndex, atmVclVpi, catmStatusChangePVclRangeIndex }
+    ::= { catmUpPVclRangeTable 1 }
+
+CatmUpPVclRangeEntry ::= SEQUENCE {
+    catmUpPVclLowerRangeValue INTEGER,
+    catmUpPVclHigherRangeValue INTEGER,
+    catmUpPVclRangeStart TimeStamp,
+    catmUpPVclRangeEnd TimeStamp,
+    catmPrevDownPVclRangeStart TimeStamp,
+    catmPrevDownPVclRangeEnd TimeStamp,
+    catmPVclRangeRecoveryReason CatmOAMRecoveryType
+    }
+
+catmUpPVclLowerRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The first PVCL in a range of PVCLs for which the 
+         atmVclOperStatus has been detected as Up in the 
+         corresponding notification ."
+    ::= { catmUpPVclRangeEntry 1 }
+
+catmUpPVclHigherRangeValue OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The last PVCL in a range of PVCLs for which the 
+         atmVclOperStatus has been detected as Up in the 
+         corresponding notification ."
+    ::= { catmUpPVclRangeEntry 2 }
+
+catmUpPVclRangeStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the first atmVclOperStatus
+         is detected as Up on any of the PVCLs in the range
+         in the corresponding notification ."
+    ::= { catmUpPVclRangeEntry 3 }
+
+catmUpPVclRangeEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the last atmVclOperStatus
+         is detected as Up on any of the PVCLs in the range
+         in the corresponding notification ."
+    ::= { catmUpPVclRangeEntry 4 }
+
+catmPrevDownPVclRangeStart OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the first atmVclOperStatus
+         is detected as Down on any of the PVCLs in the range
+         in the previous catmIntfPvcDownTrap notification."
+    ::= { catmUpPVclRangeEntry 5 }
+
+catmPrevDownPVclRangeEnd OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp at which the last atmVclOperStatus
+         is detected as Down on any of the PVCLs in the range
+         in the previous catmIntfPvcDownTrap notification."
+    ::= { catmUpPVclRangeEntry 6 }
+
+catmPVclRangeRecoveryReason OBJECT-TYPE
+    SYNTAX CatmOAMRecoveryType
+--    Rsyntax INTEGER {
+--        catmLoopbackOAMRecover(1),
+--        catmSegmentCCOAMRecover(2),
+--        catmEndCCOAMRecover(4),
+--        catmAISRDIOAMRecover(8)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of OAM Recovered"
+    ::= { catmUpPVclRangeEntry 7 }
+
+catmIntfPvcUpTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cAtmPvcTrapExtnMIBNotifPrefix
+    VARIABLES {
+        ifIndex, catmIntfCurrentlyDownToUpPVcls }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has changed state back to 'up'
+         since the last catmIntfPvcUpTrap was sent."
+    ::= 1
+
+catmIntfPvcOAMFailureTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cAtmPvcTrapExtnMIBNotifPrefix
+    VARIABLES {
+        ifIndex, catmIntfOAMFailedPVcls, 
+        catmIntfCurrentOAMFailingPVcls }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has OAM loop back failed 
+         since the last catmIntfPvcOAMFailuresTrap was sent."
+    ::= 2
+
+catmIntfPvcSegCCOAMFailureTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cAtmPvcTrapExtnMIBNotifPrefix
+    VARIABLES {
+        ifIndex, catmIntfSegCCOAMFailedPVcls, 
+        catmIntfCurSegCCOAMFailingPVcls }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has Segment CC OAM failure 
+         since the last catmIntfPvcSegCCOAMFailureTrap was sent."
+    ::= 3
+
+catmIntfPvcEndCCOAMFailureTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cAtmPvcTrapExtnMIBNotifPrefix
+    VARIABLES {
+        ifIndex, catmIntfEndCCOAMFailedPVcls, 
+        catmIntfCurEndCCOAMFailingPVcls }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has End-to-End CC OAM failure 
+         since the last catmIntfPvcEndCCOAMFailureTrap was sent."
+    ::= 4
+
+catmIntfPvcAISRDIOAMFailureTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cAtmPvcTrapExtnMIBNotifPrefix
+    VARIABLES {
+        ifIndex, catmIntfAISRDIOAMFailedPVcls, 
+        catmIntfCurAISRDIOAMFailingPVcls }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has AIS RDI OAM failure 
+         since the last catmIntfPvcAISRDIOAMFailureTrap was sent."
+    ::= 5
+
+catmIntfPvcAnyOAMFailureTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cAtmPvcTrapExtnMIBNotifPrefix
+    VARIABLES {
+        ifIndex, catmIntfAnyOAMFailedPVcls, 
+        catmIntfCurAnyOAMFailingPVcls, catmIntfTypeOfOAMFailure }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has one or more OAM failed 
+         since the last catmIntfPvcAnyOAMFailureTrap was sent."
+    ::= 6
+
+catmIntfPvcOAMRecoverTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cAtmPvcTrapExtnMIBNotifPrefix
+    VARIABLES {
+        ifIndex, catmIntfOAMRcovedPVcls, 
+        catmIntfCurrentOAMRcovingPVcls }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has OAM loop back recovered 
+         since the last catmIntfPvcOAMRecoversTrap was sent."
+    ::= 7
+
+catmIntfPvcSegCCOAMRecoverTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cAtmPvcTrapExtnMIBNotifPrefix
+    VARIABLES {
+        ifIndex, catmIntfSegCCOAMRcovedPVcls, 
+        catmIntfCurSegCCOAMRcovingPVcls }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has Segment CC OAM recovery 
+         since the last catmIntfPvcSegCCOAMRecoverTrap was sent."
+    ::= 8
+
+catmIntfPvcEndCCOAMRecoverTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cAtmPvcTrapExtnMIBNotifPrefix
+    VARIABLES {
+        ifIndex, catmIntfEndCCOAMRcovedPVcls, 
+        catmIntfCurEndCCOAMRcovingPVcls }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has End-to-End CC OAM recovery 
+         since the last catmIntfPvcEndCCOAMRecoverTrap was sent."
+    ::= 9
+
+catmIntfPvcAISRDIOAMRecoverTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cAtmPvcTrapExtnMIBNotifPrefix
+    VARIABLES {
+        ifIndex, catmIntfAISRDIOAMRcovedPVcls, 
+        catmIntfCurAISRDIOAMRcovingPVcls }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has AIS RDI OAM recovery 
+         since the last catmIntfPvcAISRDIOAMRecoverTrap was sent."
+    ::= 10
+
+catmIntfPvcAnyOAMRecoverTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cAtmPvcTrapExtnMIBNotifPrefix
+    VARIABLES {
+        ifIndex, catmIntfAnyOAMRcovedPVcls, 
+        catmIntfCurAnyOAMRcovingPVcls, catmIntfTypeOfOAMRecover }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has one or more OAM recovered 
+         since the last catmIntfPvcAnyOAMRecoverTrap was sent."
+    ::= 11
+
+catmIntfPvcUp2Trap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cAtmPvcTrapExtnMIBNotifPrefix
+    VARIABLES {
+        ifIndex, catmIntfCurrentlyDownToUpPVcls }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has changed state back to 'up'
+         since the last catmIntfPvcUp2Trap was sent."
+    ::= 12
+
+catmIntfPvcDownTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cAtmPvcTrapExtnMIBNotifPrefix
+    VARIABLES {
+        ifIndex, atmIntfPvcFailures, atmIntfCurrentlyFailingPVcls }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has changed state back to 'down'
+         since the last catmIntfPvcDownTrap was sent."
+    ::= 13
+
+ciscoAtmPvcTrapExtnGroup OBJECT IDENTIFIER ::= { ciscoAtmPvcTrapExtnMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing 
+--     parameters for extended pvc traps.
+--  objects
+--    catmIntfOAMFailedPVcls, catmIntfCurrentOAMFailingPVcls, 
+--    catmIntfSegCCOAMFailedPVcls, catmIntfCurSegCCOAMFailingPVcls, 
+--    catmIntfEndCCOAMFailedPVcls, catmIntfCurEndCCOAMFailingPVcls, 
+--    catmIntfAISRDIOAMFailedPVcls, 
+--    catmIntfCurAISRDIOAMFailingPVcls, catmIntfAnyOAMFailedPVcls, 
+--    catmIntfCurAnyOAMFailingPVcls, catmIntfTypeOfOAMFailure, 
+--    catmIntfCurrentlyDownToUpPVcls, catmPVclLowerRangeValue, 
+--    catmPVclHigherRangeValue, catmPVclRangeStatusChangeStart, 
+--    catmPVclRangeStatusChangeEnd, catmPVclStatusTransition, 
+--    catmPVclStatusChangeStart, catmPVclStatusChangeEnd, 
+--    catmPVclSegCCLowerRangeValue, catmPVclSegCCHigherRangeValue, 
+--    catmPVclSegCCRangeStatusChStart, 
+--    catmPVclSegCCRangeStatusChEnd, catmPVclSegCCStatusTransition, 
+--    catmPVclSegCCStatusChangeStart, catmPVclSegCCStatusChangeEnd, 
+--    catmPVclEndCCLowerRangeValue, catmPVclEndCCHigherRangeValue, 
+--    catmPVclEndCCRangeStatusChStart, 
+--    catmPVclEndCCRangeStatusChEnd, catmPVclEndCCStatusTransition, 
+--    catmPVclEndCCStatusChangeStart, catmPVclEndCCStatusChangeEnd, 
+--    catmPVclAISRDILowerRangeValue, catmPVclAISRDIHigherRangeValue, 
+--    catmPVclAISRDIRangeStatusChStart, 
+--    catmPVclAISRDIRangeStatusChEnd, 
+--    catmPVclAISRDIStatusTransition, 
+--    catmPVclAISRDIStatusChangeStart, 
+--    catmPVclAISRDIStatusChangeEnd, catmIntfOAMRcovedPVcls, 
+--    catmIntfCurrentOAMRcovingPVcls, catmIntfSegCCOAMRcovedPVcls, 
+--    catmIntfCurSegCCOAMRcovingPVcls, catmIntfEndCCOAMRcovedPVcls, 
+--    catmIntfCurEndCCOAMRcovingPVcls, catmIntfAISRDIOAMRcovedPVcls, 
+--    catmIntfCurAISRDIOAMRcovingPVcls, catmIntfAnyOAMRcovedPVcls, 
+--    catmIntfCurAnyOAMRcovingPVcls, catmIntfTypeOfOAMRecover, 
+--    catmPVclCurFailTime, catmPVclPrevRecoverTime, 
+--    catmPVclFailureReason, catmDownPVclLowerRangeValue, 
+--    catmDownPVclHigherRangeValue, catmDownPVclRangeStart, 
+--    catmDownPVclRangeEnd, catmPrevUpPVclRangeStart, 
+--    catmPrevUpPVclRangeEnd, catmPVclRangeFailureReason, 
+--    catmPVclStatusUpTransition, catmPVclStatusUpStart, 
+--    catmPVclStatusUpEnd, catmPVclSegCCStatusUpTransition, 
+--    catmPVclSegCCStatusUpStart, catmPVclSegCCStatusUpEnd, 
+--    catmPVclEndCCStatusUpTransition, catmPVclEndCCStatusUpStart, 
+--    catmPVclEndCCStatusUpEnd, catmPVclAISRDIStatusUpTransition, 
+--    catmPVclAISRDIStatusUpStart, catmPVclAISRDIStatusUpEnd, 
+--    catmPVclCurRecoverTime, catmPVclPrevFailTime, 
+--    catmPVclRecoveryReason, catmPVclUpLowerRangeValue, 
+--    catmPVclUpHigherRangeValue, catmPVclRangeStatusUpStart, 
+--    catmPVclRangeStatusUpEnd, catmPVclSegCCUpLowerRangeValue, 
+--    catmPVclSegCCUpHigherRangeValue, 
+--    catmPVclSegCCRangeStatusUpStart, 
+--    catmPVclSegCCRangeStatusUpEnd, catmPVclEndCCUpLowerRangeValue, 
+--    catmPVclEndCCUpHigherRangeValue, 
+--    catmPVclEndCCRangeStatusUpStart, 
+--    catmPVclEndCCRangeStatusUpEnd, 
+--    catmPVclAISRDIUpLowerRangeValue, 
+--    catmPVclAISRDIUpHigherRangeValue, 
+--    catmPVclAISRDIRangeStatusUpStart, 
+--    catmPVclAISRDIRangeStatusUpEnd, catmUpPVclLowerRangeValue, 
+--    catmUpPVclHigherRangeValue, catmUpPVclRangeStart, 
+--    catmUpPVclRangeEnd, catmPrevDownPVclRangeStart, 
+--    catmPrevDownPVclRangeEnd, catmPVclRangeRecoveryReason
+
+ciscoAtmPvcTrapExtnNotifGroup OBJECT IDENTIFIER ::= { ciscoAtmPvcTrapExtnMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects used as
+--     notifications for extended pvc traps.
+--  notifications
+--    catmIntfPvcUpTrap, catmIntfPvcOAMFailureTrap, 
+--    catmIntfPvcSegCCOAMFailureTrap, 
+--    catmIntfPvcEndCCOAMFailureTrap, 
+--    catmIntfPvcAISRDIOAMFailureTrap, catmIntfPvcAnyOAMFailureTrap
+
+ciscoAtmPvcTrapExtnNotifGroup1 OBJECT IDENTIFIER ::= { ciscoAtmPvcTrapExtnMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects used as
+--     notifications for extended pvc traps.
+--  notifications
+--    catmIntfPvcOAMFailureTrap, catmIntfPvcSegCCOAMFailureTrap, 
+--    catmIntfPvcEndCCOAMFailureTrap, 
+--    catmIntfPvcAISRDIOAMFailureTrap, catmIntfPvcAnyOAMFailureTrap, 
+--    catmIntfPvcOAMRecoverTrap, catmIntfPvcSegCCOAMRecoverTrap, 
+--    catmIntfPvcEndCCOAMRecoverTrap, 
+--    catmIntfPvcAISRDIOAMRecoverTrap, catmIntfPvcAnyOAMRecoverTrap, 
+--    catmIntfPvcUp2Trap, catmIntfPvcDownTrap
+
+ciscoAtmPvcTrapExtnMIBCompliance OBJECT IDENTIFIER ::= { ciscoAtmPvcTrapExtnMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities 
+--     which implement this extended pvc traps.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoAtmPvcTrapExtnGroup
+--   MandGroup
+--    ciscoAtmPvcTrapExtnNotifGroup
+
+ciscoAtmPvcTrapExtnMIBCompliance1 OBJECT IDENTIFIER ::= { ciscoAtmPvcTrapExtnMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities 
+--     which implement this extended pvc traps.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoAtmPvcTrapExtnGroup
+--   MandGroup
+--    ciscoAtmPvcTrapExtnNotifGroup1
+
+
+END
+

@@ -1,0 +1,287 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-HOSTIMG-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- HOSTIMG management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-HOSTIMG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsHostimgComposition,
+    CucsHostimgDistribution,
+    CucsHostimgImgType,
+    CucsHostimgType,
+    CucsPolicyPolicyOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsHostimgObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        HOSTIMG management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 54 }
+
+cucsHostimgPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsHostimgPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS hostimg:Policy managed object table"
+    ::= { cucsHostimgObjects 1 }
+
+cucsHostimgPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsHostimgPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsHostimgPolicyTable table."
+    INDEX { cucsHostimgPolicyInstanceId }
+    ::= { cucsHostimgPolicyTable 1 }
+
+CucsHostimgPolicyEntry ::= SEQUENCE {
+    cucsHostimgPolicyInstanceId                                      CucsManagedObjectId,
+    cucsHostimgPolicyDn                                              CucsManagedObjectDn,
+    cucsHostimgPolicyRn                                              SnmpAdminString,
+    cucsHostimgPolicyComp                                            CucsHostimgComposition,
+    cucsHostimgPolicyDescr                                           SnmpAdminString,
+    cucsHostimgPolicyIntId                                           SnmpAdminString,
+    cucsHostimgPolicyName                                            SnmpAdminString,
+    cucsHostimgPolicyConf                                            SnmpAdminString,
+    cucsHostimgPolicyDistro                                          CucsHostimgDistribution,
+    cucsHostimgPolicyType                                            CucsHostimgImgType,
+    cucsHostimgPolicyPolicyLevel                                     Gauge32,
+    cucsHostimgPolicyPolicyOwner                                     CucsPolicyPolicyOwner
+}
+
+cucsHostimgPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsHostimgPolicyEntry 1 }
+
+cucsHostimgPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Policy:dn managed object property"
+    ::= { cucsHostimgPolicyEntry 2 }
+
+cucsHostimgPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Policy:rn managed object property"
+    ::= { cucsHostimgPolicyEntry 3 }
+
+cucsHostimgPolicyComp OBJECT-TYPE
+    SYNTAX       CucsHostimgComposition
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Policy:comp managed object property"
+    ::= { cucsHostimgPolicyEntry 4 }
+
+cucsHostimgPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Policy:descr managed object property"
+    ::= { cucsHostimgPolicyEntry 5 }
+
+cucsHostimgPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Policy:intId managed object property"
+    ::= { cucsHostimgPolicyEntry 6 }
+
+cucsHostimgPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Policy:name managed object property"
+    ::= { cucsHostimgPolicyEntry 7 }
+
+cucsHostimgPolicyConf OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Policy:conf managed object property"
+    ::= { cucsHostimgPolicyEntry 8 }
+
+cucsHostimgPolicyDistro OBJECT-TYPE
+    SYNTAX       CucsHostimgDistribution
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Policy:distro managed object property"
+    ::= { cucsHostimgPolicyEntry 9 }
+
+cucsHostimgPolicyType OBJECT-TYPE
+    SYNTAX       CucsHostimgImgType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Policy:type managed object property"
+    ::= { cucsHostimgPolicyEntry 10 }
+
+cucsHostimgPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Policy:policyLevel managed object property"
+    ::= { cucsHostimgPolicyEntry 11 }
+
+cucsHostimgPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Policy:policyOwner managed object property"
+    ::= { cucsHostimgPolicyEntry 12 }
+
+cucsHostimgTargetTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsHostimgTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS hostimg:Target managed object table"
+    ::= { cucsHostimgObjects 2 }
+
+cucsHostimgTargetEntry OBJECT-TYPE
+    SYNTAX           CucsHostimgTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsHostimgTargetTable table."
+    INDEX { cucsHostimgTargetInstanceId }
+    ::= { cucsHostimgTargetTable 1 }
+
+CucsHostimgTargetEntry ::= SEQUENCE {
+    cucsHostimgTargetInstanceId                                      CucsManagedObjectId,
+    cucsHostimgTargetDn                                              CucsManagedObjectDn,
+    cucsHostimgTargetRn                                              SnmpAdminString,
+    cucsHostimgTargetName                                            SnmpAdminString,
+    cucsHostimgTargetType                                            CucsHostimgType,
+    cucsHostimgTargetUri                                             SnmpAdminString,
+    cucsHostimgTargetOrder                                           Gauge32
+}
+
+cucsHostimgTargetInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsHostimgTargetEntry 1 }
+
+cucsHostimgTargetDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Target:dn managed object property"
+    ::= { cucsHostimgTargetEntry 2 }
+
+cucsHostimgTargetRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Target:rn managed object property"
+    ::= { cucsHostimgTargetEntry 3 }
+
+cucsHostimgTargetName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Target:name managed object property"
+    ::= { cucsHostimgTargetEntry 4 }
+
+cucsHostimgTargetType OBJECT-TYPE
+    SYNTAX       CucsHostimgType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Target:type managed object property"
+    ::= { cucsHostimgTargetEntry 5 }
+
+cucsHostimgTargetUri OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Target:uri managed object property"
+    ::= { cucsHostimgTargetEntry 6 }
+
+cucsHostimgTargetOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS hostimg:Target:order managed object property"
+    ::= { cucsHostimgTargetEntry 7 }
+
+END

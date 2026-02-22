@@ -1,0 +1,1921 @@
+-- *****************************************************************
+-- CISCO-TRUSTSEC-MIB.my
+--   
+-- December 2009, Dipesh Gorashia
+--   
+-- Copyright (c) 2009-2012, 2014 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-TRUSTSEC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter32,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    DateAndTime,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CtsSecurityGroupTag,
+    CtsGenerationId,
+    CtsPasswordEncryptionType,
+    CtsAcsAuthorityIdentity,
+    CtsCredentialRecordType
+        FROM CISCO-TRUSTSEC-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoTrustSecMIB MODULE-IDENTITY
+    LAST-UPDATED    "201401300000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module is for the configuration of a network
+        device on the Cisco Trusted Security (TrustSec) system.
+
+        TrustSec secures a network fabric by authenticating and
+        authorizing each device connecting to the network, allowing for
+        the encryption, authentication and replay protection of data
+        traffic on a hop by hop basis.
+
+        Glossary :
+
+        TrustSec - Cisco Trusted Security
+
+        EAP-FAST - Extensible Authentication Protocol-Flexible
+                   Authentication via Secure Tunneling (RFC 4851)
+
+        PAC - Protected Access Credential
+              A credential dynamically downloaded from the
+              Access Control Server.
+
+        ACS - Access Control Server
+
+        SGT - Security Group Tag
+              A tag identifying its source, assigned to a packet on
+              ingress to a TrustSec cloud, and used to determine
+              security and other policy to be applied to it along
+              its path through the cloud."
+    REVISION        "201401300000Z"
+    DESCRIPTION
+        "Added following OBJECT-GROUP
+        - ciscoTrustSecCrtclAuthGroup
+        Added new compliance
+        - ciscoTrustSecMIBCompliance4."
+    REVISION        "201209260000Z"
+    DESCRIPTION
+        "Added following OBJECT-GROUP
+        - ciscoTrustSecSwKeystoreNotifsInfoGroup
+        - ciscoTrustSecSwKeystoreNotifsControlGroup
+        - ciscoTrustSecSwKeystoreNotifsGroup
+        - ciscoTrustSecFileErrNotifsInfoGroup
+        - ciscoTrustSecNotifsMessageStringInfoGroup
+        - ciscoTrustSecCacheFileNotifsControlGroup
+        - ciscoTrustSecCacheFileNotifsGroup
+        - ciscoTrustSecCtrDrbgNotifsControlGroup
+        - ciscoTrustSecCtrDrbgNotifsGroup
+        Added new compliance
+        - ciscoTrustSecMIBCompliance3."
+    REVISION        "201103150000Z"
+    DESCRIPTION
+        "Added support for ciscoTrustSecEnvSecGroupNameGroup."
+    REVISION        "201009210000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 730 }
+
+
+ciscoTrustSecMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoTrustSecMIB 0 }
+
+ciscoTrustSecMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoTrustSecMIB 1 }
+
+ciscoTrustSecMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoTrustSecMIB 2 }
+
+ctsCacheObjects  OBJECT IDENTIFIER
+    ::= { ciscoTrustSecMIBObjects 1 }
+
+ctsSgtObjects  OBJECT IDENTIFIER
+    ::= { ciscoTrustSecMIBObjects 2 }
+
+ctsCredentialObjects  OBJECT IDENTIFIER
+    ::= { ciscoTrustSecMIBObjects 3 }
+
+ctsEnvironmentDataObjects  OBJECT IDENTIFIER
+    ::= { ciscoTrustSecMIBObjects 4 }
+
+ctsNotifsControlObjects  OBJECT IDENTIFIER
+    ::= { ciscoTrustSecMIBObjects 5 }
+
+ctsNotifsInfoObjects  OBJECT IDENTIFIER
+    ::= { ciscoTrustSecMIBObjects 6 }
+
+ctsCriticalAuthObjects  OBJECT IDENTIFIER
+    ::= { ciscoTrustSecMIBObjects 7 }
+
+
+-- -------------------------------------------------------------
+-- Objects to manage caching functionality of TrustSec
+-- -------------------------------------------------------------
+
+ctsCacheEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the TrustSec cache is enabled in
+        the system." 
+    ::= { ctsCacheObjects 1 }
+
+ctsCacheNvStorage OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The object specifies the location on the device
+        where TrustSec cache files will be created.
+
+        The location may be specified in <device>:[directory] format,
+        where <device> can be (but not limited to): bootdisk:, disk0:,
+        disk1:.
+
+        A zero length string for this object indicates that no location
+        has been configured and system will decide the location of
+        TrustSec cache files." 
+    ::= { ctsCacheObjects 2 }
+
+ctsCacheClear OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        all(2),
+                        authzPolicies(3),
+                        authzPoliciesPeer(4),
+                        authzPoliciesSgt(5),
+                        environmentData(6),
+                        interfaceController(7)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows user to clear the cache files for
+        Cisco Trusted Security feature on this device.
+
+        When read, this object always returns the value 'none'.
+
+        'none'              - No operation.
+        'all'               - Clear all the cached information
+        'authzPolicies'     - Clear all the cached authorization
+                              policies.
+        'authzPoliciesPeer' - Clear the cached peer authorization
+                              policies.
+        'authzPoliciesSgt'  - Clear the cached SGT authorization
+                              policies.
+        'environmentData'   - Clear the cached environment data
+        'interfaceController' - Clear the cached interface controller
+                                data." 
+    ::= { ctsCacheObjects 3 }
+
+ctsSecurityGroupTagId OBJECT-TYPE
+    SYNTAX          CtsSecurityGroupTag
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows user to specify the SGT for the packets
+        originating from this device.
+
+        A value of zero for this object indicates that no SGT has been
+        configured." 
+    ::= { ctsSgtObjects 1 }
+
+ctsSgtAssignmentMethod OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        ingress(2),
+                        egress(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the method used for assignment
+        of TrustSec SGT for the line cards without TrustSec
+        tagging capability.
+
+        'none'    - assignment of TrustSec SGT is not enabled.
+
+        'ingress' - 'ingress' method is used for the assignment of
+                    TrustSec SGT.
+
+        'egress'  - 'egress' method is used for the assignment of
+                    TrustSec SGT." 
+    ::= { ctsSgtObjects 2 }
+
+ctsDeviceId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows user to specify the identifier for
+        the device.
+
+        This identifier and the device password (specified by
+        ctsDevicePassword) are used together by the Cisco Trusted
+        Security feature for authenticating the device.
+
+        The value of this object must be set in the same PDU as
+        ctsDevicePasswordType and ctsDevicePassword.
+
+        The object may not be set to a zero length string.
+
+        The system will return a zero length string for this object
+        either when there is no value configured for this object or
+        TrustSec credentials for the device have been cleared by
+        setting ctsCredentialsClearAll to 'true'." 
+    ::= { ctsCredentialObjects 1 }
+
+ctsDevicePasswordType OBJECT-TYPE
+    SYNTAX          CtsPasswordEncryptionType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of encryption employed
+        to encrypt password in ctsDevicePassword object.
+
+        Value for this object must be specified as 'clearText',
+        'typeSix' or 'typeSeven' in order to configure the password in
+        ctsDevicePassword.
+
+        The value of this object must be set in the same PDU as
+        ctsDevicePassword and ctsDeviceId.
+
+        When read, value of this object must be 'none' if
+        ctsDevicePassword is a zero length string.
+
+        The value of this object may not be set to 'none' or 'other'." 
+    ::= { ctsCredentialObjects 2 }
+
+ctsDevicePassword OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows user to specify the password for
+        the device.
+
+        This password and the device identifier (specified by
+        ctsDeviceId) are used together by the Cisco Trusted Security
+        feature for authenticating the device.
+
+        The value of this object must be set in the same PDU as
+        ctsDevicePasswordType and ctsDeviceId.
+
+        The object may not be set to a zero length string.
+
+        When read, this object always returns the value of a
+        zero-length octet string." 
+    ::= { ctsCredentialObjects 3 }
+
+ctsKeystoreType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        hardwareKeystore(1),
+                        softwareEmulation(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of keystore employed
+        by the device.
+
+        'hardwareKeystore'  - Keystore functionality is implemented
+                              in hardware.
+        'softwareEmulation' - Keystore functionality is emulated
+                              in software." 
+    ::= { ctsCredentialObjects 4 }
+
+ctsKeystoreFwVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the firmware version of
+        the hardware keystore.
+
+        This object is only instantiated when the value of
+        ctsKeystoreType is 'hardwareKeystore'." 
+    ::= { ctsCredentialObjects 5 }
+
+ctsKeystoreFwAlerts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of hardware
+        keystore alerts that occurred.
+
+        This object is only instantiated when the value of
+        ctsKeystoreType is 'hardwareKeystore'." 
+    ::= { ctsCredentialObjects 6 }
+
+ctsKeystoreFwResets OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of times
+        the keystore firmware was reset.
+
+        This object is only instantiated when the value of
+        ctsKeystoreType is 'hardwareKeystore'." 
+    ::= { ctsCredentialObjects 7 }
+
+ctsKeystoreRxTimeouts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of times the system
+        timed out awaiting response from keystore firmware.
+
+        This object is only instantiated when the value of
+        ctsKeystoreType is 'hardwareKeystore'." 
+    ::= { ctsCredentialObjects 8 }
+
+ctsKeystoreRxBadChecksums OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of message fragments
+        the system received from keystore firmware that had bad 
+        checksum value.
+
+        This object is only instantiated when the value of
+        ctsKeystoreType is 'hardwareKeystore'." 
+    ::= { ctsCredentialObjects 9 }
+
+ctsKeystoreRxBadFragmentLengths OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of message fragments
+        the system received from keystore firmware that had 
+        illegal lengths.
+
+        This object is only instantiated when the value of
+        ctsKeystoreType is 'hardwareKeystore'." 
+    ::= { ctsCredentialObjects 10 }
+
+ctsKeystoreCorruptions OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of times keystore
+        firmware reported detection of one or more corrupted 
+        records in the hardware keystore.
+
+        This object is only instantiated when the value of
+        ctsKeystoreType is 'hardwareKeystore'." 
+    ::= { ctsCredentialObjects 11 }
+
+ctsKeystorePasswordRecordTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtsKeystorePasswordRecordEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of Cisco Trusted Security password records stored in
+        the hardware or software keystore of this device."
+    ::= { ctsCredentialObjects 13 }
+
+ctsKeystorePasswordRecordEntry OBJECT-TYPE
+    SYNTAX          CtsKeystorePasswordRecordEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describing individual password record in the
+        keystore of this device.
+
+        An entry will be created or deleted from this table when a
+        password record is added or removed from the keystore of
+        this device."
+    INDEX           { IMPLIED ctsKeystorePasswordRecordName } 
+    ::= { ctsKeystorePasswordRecordTable 1 }
+
+CtsKeystorePasswordRecordEntry ::= SEQUENCE {
+        ctsKeystorePasswordRecordName SnmpAdminString,
+        ctsKeystorePasswordRecordType CtsCredentialRecordType
+}
+
+ctsKeystorePasswordRecordName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies a password record." 
+    ::= { ctsKeystorePasswordRecordEntry 1 }
+
+ctsKeystorePasswordRecordType OBJECT-TYPE
+    SYNTAX          CtsCredentialRecordType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of credential in this record." 
+    ::= { ctsKeystorePasswordRecordEntry 2 }
+ 
+
+
+ctsKeystorePacRecordTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtsKeystorePacRecordEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of Cisco Trusted Security PAC records stored in
+        the hardware or software keystore of this device."
+    ::= { ctsCredentialObjects 14 }
+
+ctsKeystorePacRecordEntry OBJECT-TYPE
+    SYNTAX          CtsKeystorePacRecordEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describing individual PAC record in the
+        keystore of this device.
+
+        An entry will be created or deleted by the system when a
+        PAC record is added or removed from the keystore of this
+        device."
+    INDEX           { IMPLIED ctsKeystorePacRecordName } 
+    ::= { ctsKeystorePacRecordTable 1 }
+
+CtsKeystorePacRecordEntry ::= SEQUENCE {
+        ctsKeystorePacRecordName CtsAcsAuthorityIdentity,
+        ctsKeystorePacRecordType CtsCredentialRecordType
+}
+
+ctsKeystorePacRecordName OBJECT-TYPE
+    SYNTAX          CtsAcsAuthorityIdentity (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The name of this PAC record." 
+    ::= { ctsKeystorePacRecordEntry 1 }
+
+ctsKeystorePacRecordType OBJECT-TYPE
+    SYNTAX          CtsCredentialRecordType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of credential in this record." 
+    ::= { ctsKeystorePacRecordEntry 2 }
+ 
+
+
+ctsPacInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtsPacInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of PACs on this device."
+    ::= { ctsCredentialObjects 15 }
+
+ctsPacInfoEntry OBJECT-TYPE
+    SYNTAX          CtsPacInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry providing management information of a particular PAC
+        record.
+
+        An entry can only be created dynamically by the system when
+        a new PAC is installed in the keystore. An entry will be deleted
+        from this table when the PAC is removed from the keystore by the
+        system or by the user."
+    INDEX           { IMPLIED ctsPacAcsAuthId } 
+    ::= { ctsPacInfoTable 1 }
+
+CtsPacInfoEntry ::= SEQUENCE {
+        ctsPacAcsAuthId      CtsAcsAuthorityIdentity,
+        ctsPacAcsDescription SnmpAdminString,
+        ctsPacType           INTEGER,
+        ctsPacExpirationTime DateAndTime,
+        ctsPacTimeToRefresh  Unsigned32,
+        ctsPacStatus         RowStatus
+}
+
+ctsPacAcsAuthId OBJECT-TYPE
+    SYNTAX          CtsAcsAuthorityIdentity (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the unique authority identity of the
+        ACS server from where the PAC was downloaded." 
+    ::= { ctsPacInfoEntry 1 }
+
+ctsPacAcsDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the description of the ACS server from
+        where the PAC was downloaded." 
+    ::= { ctsPacInfoEntry 2 }
+
+ctsPacType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        tunnel(2),
+                        machineAuthentication(3),
+                        userAuthorization(4),
+                        posture(5),
+                        ciscoTrustSec(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of PAC this entry represents.
+
+        'unknown' -
+         Any other type of PAC that is not covered below
+
+        'tunnel' -
+         Distributed shared secret between the peer and ACS that is
+         used to establish a secure tunnel and convey the policy of
+         what must and can occur in the tunnel.
+
+        'machineAuthentication' -
+         The Machine Authentication PAC contains information in the
+         PAC opaque that identifies the machine.  It is meant to be
+         used by a machine when network access is required and no user
+         is logged in.
+
+        'userAuthorization' -
+         The User Authorization PAC contains information in the PAC
+         opaque that identifies a user and provides authorization
+         information.  The User Authorization PAC is used to provide
+         user information during stateless session resumption so
+         user authentication MAY be skipped.
+
+        'posture' -
+         Distributed posture checking and authorization result based
+         on a previous posture validation.  A posture PAC can be used
+         to optimize posture validation in the case of frequent
+         revalidations.  This result is specific to the posture
+         validation application and may be used outside the contents
+         of EAP-FAST.
+
+        'ciscoTrustSec' -
+         A credential dynamically provisioned in phase 0 of EAP-FAST.
+         It is used by Trustsec to set up secure communications with
+         the server." 
+    ::= { ctsPacInfoEntry 3 }
+
+ctsPacExpirationTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time when this PAC will be expired." 
+    ::= { ctsPacInfoEntry 4 }
+
+ctsPacTimeToRefresh OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time left for this PAC to be
+        refreshed from the ACS." 
+    ::= { ctsPacInfoEntry 5 }
+
+ctsPacStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to manage the deletion of rows
+        in this table. This object only supports the values
+        'active' and 'destroy'.
+
+        Setting this object to 'destroy' deletes this PAC.
+
+        When read, this object will always return 'active'." 
+    ::= { ctsPacInfoEntry 6 }
+ 
+
+
+ctsCredentialsClearAll OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows user to clear all the PACs and Cisco
+        Trusted Security credentials on the device.
+
+        Setting the object to 'true' will clear all the PACs and
+        credentials.
+
+        When read, this object will always return 'false'." 
+    ::= { ctsCredentialObjects 16 }
+
+-- -------------------------------------------------------------
+-- Objects to manage Environment Data of TrustSec
+-- -------------------------------------------------------------
+
+ctsEnvDataLastDownloadStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        succeeded(2),
+                        failed(3),
+                        inprogress(4),
+                        incomplete(5),
+                        timedout(6),
+                        cleared(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of the last attempt to
+        download the Environment Data.
+
+        'other'     - Any other state not covered by below
+                      enumerations.
+        'succeeded' - Environment Data download completed successfully.
+        'failed'    - Environment Data download failed.
+        'inprogress'- Environment Data download is in progress.
+        'incomplete'- Environment Data download is incomplete.
+        'timedout'  - Environment Data download did not start and
+                      timed out due to no response from the ACS.
+        'cleared'   - Environment Data has been cleared by the user." 
+    ::= { ctsEnvironmentDataObjects 1 }
+
+ctsEnvSecurityGroupTagId OBJECT-TYPE
+    SYNTAX          CtsSecurityGroupTag
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the SGT for packets originating
+        on this device downloaded from the ACS.
+
+        A value of zero for this object indicates that no SGT has
+        been downloaded from the ACS." 
+    ::= { ctsEnvironmentDataObjects 2 }
+
+ctsEnvSecurityGroupTagGenId OBJECT-TYPE
+    SYNTAX          CtsGenerationId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the generation identifier associated
+        with the downloaded SGT on this device." 
+    ::= { ctsEnvironmentDataObjects 3 }
+
+ctsEnvDataLastUpdate OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the last time Cisco Trusted Security
+        Environment Data was successfully updated from ACS.
+
+        This object will contain 0-1-1,00:00:00:0 if Environment Data
+        has never been successfully updated from ACS." 
+    ::= { ctsEnvironmentDataObjects 4 }
+
+ctsEnvDataRefreshInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time interval for which
+        Trusted Security Environment Data is valid.
+
+        The Trusted Security Environment Data will be refreshed i.e.
+        downloaded from the ACS after this time period has elapsed." 
+    ::= { ctsEnvironmentDataObjects 5 }
+
+ctsEnvDataTimeLeft OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time left for the currently
+        installed Trusted Security Environment Data to expire." 
+    ::= { ctsEnvironmentDataObjects 6 }
+
+ctsEnvDataTimeToRefresh OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time interval after which
+        Trusted Security Environment Data will be refreshed i.e.
+        downloaded from the ACS due to Environment Data expiration
+        or refresh failure." 
+    ::= { ctsEnvironmentDataObjects 7 }
+
+ctsEnvDataSource OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        cached(2),
+                        downloaded(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the source of current Environment Data
+        installed on the system.
+
+        'none'       - No Environment Data is currently installed.
+        'cached'     - Environment Data is installed from non-volatile
+                       storage on the system.
+        'downloaded' - Environment Data is downloaded from the ACS." 
+    ::= { ctsEnvironmentDataObjects 8 }
+
+ctsEnvDataAction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        refresh(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows user to specify the action to be taken for
+        all the Cisco Trusted Security Environment Data on this device.
+
+        When read, this object always returns the value 'none'.
+
+        'none'    - No operation.
+        'refresh' - Refresh all the Trusted Security Environment Data
+                    on the device." 
+    ::= { ctsEnvironmentDataObjects 9 }
+
+ctsEnvSecurityGroupNameTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtsEnvSecurityGroupNameEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of Security Group Names in Cisco Trusted Security
+        environment."
+    ::= { ctsEnvironmentDataObjects 16 }
+
+ctsEnvSecurityGroupNameEntry OBJECT-TYPE
+    SYNTAX          CtsEnvSecurityGroupNameEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry listing the name assigned to each SGT in
+        Cisco Trusted Security environment.
+
+        Entries will be populated in this table when system downloads
+        Security Group Name information as part of Trusted
+        Security Environment Data."
+    INDEX           { ctsEnvSecurityGroupNameSgt } 
+    ::= { ctsEnvSecurityGroupNameTable 1 }
+
+CtsEnvSecurityGroupNameEntry ::= SEQUENCE {
+        ctsEnvSecurityGroupNameSgt      CtsSecurityGroupTag,
+        ctsEnvSecurityGroupNameSgtGenId CtsGenerationId,
+        ctsEnvSecurityGroupNameSgtFlag  BITS,
+        ctsEnvSecurityGroupName         SnmpAdminString
+}
+
+ctsEnvSecurityGroupNameSgt OBJECT-TYPE
+    SYNTAX          CtsSecurityGroupTag (1..65535)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies a SGT in Trusted Security environment." 
+    ::= { ctsEnvSecurityGroupNameEntry 1 }
+
+ctsEnvSecurityGroupNameSgtGenId OBJECT-TYPE
+    SYNTAX          CtsGenerationId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Generation Identifier associated
+        with this SGT." 
+    ::= { ctsEnvSecurityGroupNameEntry 2 }
+
+ctsEnvSecurityGroupNameSgtFlag OBJECT-TYPE
+    SYNTAX          BITS {
+                        recognizedSgt(0),
+                        unicastSgt(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the flag associated with this SGT.
+
+        'recognizedSgt' - indicates a recognized SGT when set
+                          to 1, else indicates a reserved SGT.
+        'unicastSgt'    - indicates a unicast SGT when set
+                          to 1, else indicates a multicast SGT." 
+    ::= { ctsEnvSecurityGroupNameEntry 3 }
+
+ctsEnvSecurityGroupName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Security Group Name assigned
+        to this SGT." 
+    ::= { ctsEnvSecurityGroupNameEntry 4 }
+ 
+
+
+-- Notification-only information
+
+ctsFileErrNotifReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        openFailedForWrite(1),
+                        writeFailed(2),
+                        openFailedForRead(3),
+                        readFailed(4),
+                        badMagic(5),
+                        unexpectedEof(6),
+                        badHeader(7)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason file error related
+        notification was generated.
+
+        'openFailedForWrite' - System failed to open a file to
+                               write TrustSec information.
+        'writeFailed'        - System failed to write TrustSec 
+                               information to a file.
+        'openFailedForRead'  - System failed to open a file to
+                               read TrustSec information.
+        'readFailed'         - System failed to read TrustSec
+                               information from a file.
+        'badMagic'           - A bad magic number was encountered 
+                               for a TrustSec file.
+        'unexpectedEof'      - A record of unexpected length is found in
+                               TrustSec file.
+        'badHeader'          - Bad file header was encountered for a
+                               TrustSec file." 
+    ::= { ctsNotifsInfoObjects 1 }
+
+ctsSwKeystoreSyncFailNotifReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ipcPortCreationFailed(1),
+                        ipcPortOpenFailed(2),
+                        ipcConnectionFailure(3),
+                        ipcSendFailure(4),
+                        standbyIncompatible(5),
+                        syncProcessCreationFailed(6)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason ctsSwKeystoreSyncFailNotif
+        notification was generated. 
+
+        'ipcPortCreationFailed' - Keystore information could not be
+                                  synced because the system failed to
+                                  create port for Inter-Process
+                                  communication between the active
+                                  and the standby supervisors.
+
+        'ipcPortOpenFailed'     - Keystore information could not be
+                                  synced because the system failed to
+                                  open port for Inter-Process
+                                  communication between the active
+                                  and the standby supervisors.
+
+        'ipcConnectionFailure'  - Keystore information could not be
+                                  synced because Inter-Process
+                                  communication connection failed
+                                  between the active and the 
+                                  standby supervisors.
+
+        'ipcSendFailure'        - Keystore information could not be
+                                  synced because Inter-Process
+                                  Communication messages could not be
+                                  sent to the standby supervisor.
+
+        'standbyIncompatible'   - Keystore information could not be
+                                  synced because the standby
+                                  supervisor is not compatible with
+                                  the active supervisor.
+
+        'syncProcessCreationFailed' - Keystore information could not
+                                  be synced because the system failed
+                                  to create the sync process." 
+    ::= { ctsNotifsInfoObjects 2 }
+
+ctsNotifMessageString OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The object indicates additional information for a TrustSec
+        notification." 
+    ::= { ctsNotifsInfoObjects 3 }
+
+-- Notification Control
+
+ctsSwKeystoreFileErrNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the system generates
+        ctsSwKeystoreFileErrNotif.
+
+        A value of 'false' will prevent ctsSwKeystoreFileErrNotif
+        notifications from being generated by this system." 
+    ::= { ctsNotifsControlObjects 1 }
+
+ctsSwKeystoreSyncFailNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the system generates
+        ctsSwKeystoreSyncFailNotif.
+
+        A value of 'false' will prevent ctsSwKeystoreSyncFailNotif
+        notifications from being generated by this system." 
+    ::= { ctsNotifsControlObjects 2 }
+
+ctsAuthzCacheFileErrNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the system generates
+        ctsAuthzCacheFileErrNotif.
+
+        A value of 'false' will prevent ctsAuthzCacheFileErrNotif
+        notifications from being generated by this system." 
+    ::= { ctsNotifsControlObjects 3 }
+
+ctsCacheFileAccessErrNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the system generates
+        ctsCacheFileAccessErrNotif.
+
+        A value of 'false' will prevent ctsCacheFileAccessErrNotif
+        notifications from being generated by this system." 
+    ::= { ctsNotifsControlObjects 4 }
+
+ctsSrcEntropyFailNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the system generates
+        ctsSrcEntropyFailNotif.
+
+        A value of 'false' will prevent ctsSrcEntropyFailNotif
+        notifications from being generated by this system." 
+    ::= { ctsNotifsControlObjects 5 }
+
+ctsSapRandomNumberFailNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the system generates
+        ctsSapRandomNumberFailNotif.
+
+        A value of 'false' will prevent ctsSapRandomNumberFailNotif
+        notifications from being generated by this system." 
+    ::= { ctsNotifsControlObjects 6 }
+
+ctsCriticalAuthEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the Critical-Auth functionality
+        is enabled in the system.
+
+        Setting the object to 'true' will enable Critical-Auth
+        functionality in the system and 'false' will disable the
+        Critical-Auth functionality. Before enable ctsCriticalAuthEnable
+        ctsCriticalAuthPeerSgt need to be configured." 
+    ::= { ctsCriticalAuthObjects 1 }
+
+ctsCriticalAuthFallback OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        default(1),
+                        cache(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the CTS Critical-Auth fallback
+        policy. 
+
+        default - Critical-Auth fallback policy is default.
+
+        cache   - Critical-Auth fallback policy is cache." 
+    ::= { ctsCriticalAuthObjects 2 }
+
+ctsCriticalAuthPeerSgt OBJECT-TYPE
+    SYNTAX          CtsSecurityGroupTag
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the CTS Critical-Auth SGT tag
+        of the remote peer.
+
+        ctsCriticalAuthPeerSgt cannot be set to zero when
+        ctsCriticalAuthEnable is enable.
+
+        ctsCriticalAuthPeerSgtTrust will be set to untrusted by default
+        during set operation of ctsCriticalAuthPeerSgt.
+
+        User need to explicitly override the ctsCriticalAuthPeerSgtTrust
+        to trusted if required." 
+    ::= { ctsCriticalAuthObjects 3 }
+
+ctsCriticalAuthPeerSgtTrust OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the CTS Critical-Auth peer's sgt
+        trust state.
+
+        This object can only be set when ctsCriticalAuthPeerSgt is
+        non-zero." 
+    ::= { ctsCriticalAuthObjects 4 }
+
+ctsCriticalAuthDefaultPmk OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0 | 32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the CTS Critical-Auth default PMK
+        used by SAP.
+
+        The purpose of this object is to only allow configuration of
+        Critical-Auth PMK.
+
+        The ctsCriticalAuthViewDefaultPmk object is used to display the
+        default Critical-Auth PMK." 
+    ::= { ctsCriticalAuthObjects 5 }
+
+ctsCriticalAuthViewDefaultPmk OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the CTS Critical-Auth default PMK.
+
+        The purpose of this object is to only display the configured
+        Critical-Auth PMK.
+
+        A zero length string for this objects indicates the SAP
+        negotiation is disabled.
+
+        The ctsCriticalAuthDefaultPmk object is used to configure 
+        the PMK." 
+    ::= { ctsCriticalAuthObjects 6 }
+
+-- Notifications
+
+ctsSwKeystoreFileErrNotif NOTIFICATION-TYPE
+    OBJECTS         { ctsFileErrNotifReason }
+    STATUS          current
+    DESCRIPTION
+        "A ctsSwKeystoreFileErrNotif is generated when system
+        encounters an error while performing operation on the
+        software keystore file."
+   ::= { ciscoTrustSecMIBNotifs 1 }
+
+ctsSwKeystoreSyncFailNotif NOTIFICATION-TYPE
+    OBJECTS         { ctsSwKeystoreSyncFailNotifReason }
+    STATUS          current
+    DESCRIPTION
+        "A ctsSwKeystoreSyncFailNotifReason is generated when system
+        fails to sync software keystore information from the active
+        supervisor to the standby supervisor."
+   ::= { ciscoTrustSecMIBNotifs 2 }
+
+ctsAuthzCacheFileErrNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctsFileErrNotifReason,
+                        ctsNotifMessageString
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A ctsAuthzCacheFileErrNotif is generated when the system
+        encounters error downloading TrustSec authorization
+        related environment data to a cache file."
+   ::= { ciscoTrustSecMIBNotifs 3 }
+
+ctsCacheFileAccessErrNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        ctsFileErrNotifReason,
+                        ctsNotifMessageString
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A ctsCacheFileAccessErrNotif is generated when the
+        system fails to perform open/read/write operation
+        for a TrustSec cache file."
+   ::= { ciscoTrustSecMIBNotifs 4 }
+
+ctsSrcEntropyFailNotif NOTIFICATION-TYPE
+    STATUS          current
+    DESCRIPTION
+        "A ctsSrcEntropyFailNotif is generated when
+        the periodic health tests for the CTR-DRBG (Counter-
+        Deterministic Random Bit Generator) implementation
+        fails due to issues with the source entropy."
+   ::= { ciscoTrustSecMIBNotifs 5 }
+
+ctsSapRandomNumberFailNotif NOTIFICATION-TYPE
+    OBJECTS         { ctsNotifMessageString }
+    STATUS          current
+    DESCRIPTION
+        "A ctsSapRandomNumberFailNotif is generated when the
+        the system fails to obtain a random number from
+        CTR-DRBG block for SAP (Security Association Protocol)
+        key-counter."
+   ::= { ciscoTrustSecMIBNotifs 6 }
+-- Conformance
+
+ciscoTrustSecMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoTrustSecMIBConform 1 }
+
+ciscoTrustSecMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoTrustSecMIBConform 2 }
+
+
+ciscoTrustSecMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the CISCO-TRUSTSEC-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoTrustSecCacheGroup,
+                        ciscoTrustSecSgtGroup,
+                        ciscoTrustSecCredentialsGroup,
+                        ciscoTrustSecHwKeystoreInfoGroup,
+                        ciscoTrustSecEnvDataGroup
+                    }
+
+    GROUP           ciscoTrustSecSgtAssignmentGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support mechanism to assign SGT for
+        line cards without TrustSec tagging capability."
+
+    OBJECT          ctsCacheEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCacheNvStorage
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCacheClear
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSecurityGroupTagId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSgtAssignmentMethod
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsDeviceId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsDevicePasswordType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsDevicePassword
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsPacStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCredentialsClearAll
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsEnvDataAction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoTrustSecMIBCompliances 1 }
+
+ciscoTrustSecMIBCompliance2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the CISCO-TRUSTSEC-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoTrustSecCacheGroup,
+                        ciscoTrustSecSgtGroup,
+                        ciscoTrustSecCredentialsGroup,
+                        ciscoTrustSecHwKeystoreInfoGroup,
+                        ciscoTrustSecEnvDataGroup
+                    }
+
+    GROUP           ciscoTrustSecSgtAssignmentGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support mechanism to assign SGT for
+        line cards without TrustSec tagging capability."
+
+    GROUP           ciscoTrustSecEnvSecGroupNameGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support Security Group Name functionality."
+
+    OBJECT          ctsCacheEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCacheNvStorage
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCacheClear
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSecurityGroupTagId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSgtAssignmentMethod
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsDeviceId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsDevicePasswordType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsDevicePassword
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsPacStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCredentialsClearAll
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsEnvDataAction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoTrustSecMIBCompliances 2 }
+
+ciscoTrustSecMIBCompliance3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the CISCO-TRUSTSEC-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoTrustSecCacheGroup,
+                        ciscoTrustSecSgtGroup,
+                        ciscoTrustSecCredentialsGroup,
+                        ciscoTrustSecHwKeystoreInfoGroup,
+                        ciscoTrustSecEnvDataGroup
+                    }
+
+    GROUP           ciscoTrustSecSgtAssignmentGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support mechanism to assign SGT for
+        line cards without TrustSec tagging capability."
+
+    GROUP           ciscoTrustSecEnvSecGroupNameGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support Security Group Name functionality."
+
+    GROUP           ciscoTrustSecSwKeystoreNotifsInfoGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support software keystore notifications."
+
+    GROUP           ciscoTrustSecSwKeystoreNotifsControlGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support software keystore notifications."
+
+    GROUP           ciscoTrustSecSwKeystoreNotifsGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support software keystore notifications."
+
+    GROUP           ciscoTrustSecFileErrNotifsInfoGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support TrustSec keystore or cache file
+        error related notifications."
+
+    GROUP           ciscoTrustSecNotifsMessageStringInfoGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that provide additional information for
+        TrustSec notifications."
+
+    GROUP           ciscoTrustSecCacheFileNotifsControlGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support TrustSec cache file error
+        notifications."
+
+    GROUP           ciscoTrustSecCacheFileNotifsGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support TrustSec cache file error
+        notifications."
+
+    GROUP           ciscoTrustSecCtrDrbgNotifsControlGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support CTR-DRBG error notifications."
+
+    GROUP           ciscoTrustSecCtrDrbgNotifsGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support CTR-DRBG error notifications."
+
+    OBJECT          ctsCacheEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCacheNvStorage
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCacheClear
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSecurityGroupTagId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSgtAssignmentMethod
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsDeviceId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsDevicePasswordType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsDevicePassword
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsPacStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCredentialsClearAll
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsEnvDataAction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSwKeystoreFileErrNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSwKeystoreSyncFailNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsAuthzCacheFileErrNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCacheFileAccessErrNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSrcEntropyFailNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSapRandomNumberFailNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoTrustSecMIBCompliances 3 }
+
+ciscoTrustSecMIBCompliance4 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the CISCO-TRUSTSEC-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoTrustSecCacheGroup,
+                        ciscoTrustSecSgtGroup,
+                        ciscoTrustSecCredentialsGroup,
+                        ciscoTrustSecHwKeystoreInfoGroup,
+                        ciscoTrustSecEnvDataGroup
+                    }
+
+    GROUP           ciscoTrustSecSgtAssignmentGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support mechanism to assign SGT for
+        line cards without TrustSec tagging capability."
+
+    GROUP           ciscoTrustSecEnvSecGroupNameGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support Security Group Name functionality."
+
+    GROUP           ciscoTrustSecSwKeystoreNotifsInfoGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support software keystore notifications."
+
+    GROUP           ciscoTrustSecSwKeystoreNotifsControlGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support software keystore notifications."
+
+    GROUP           ciscoTrustSecSwKeystoreNotifsGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support software keystore notifications."
+
+    GROUP           ciscoTrustSecFileErrNotifsInfoGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support TrustSec keystore or cache file
+        error related notifications."
+
+    GROUP           ciscoTrustSecNotifsMessageStringInfoGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that provide additional information for
+        TrustSec notifications."
+
+    GROUP           ciscoTrustSecCacheFileNotifsControlGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support TrustSec cache file error
+        notifications."
+
+    GROUP           ciscoTrustSecCacheFileNotifsGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support TrustSec cache file error
+        notifications."
+
+    GROUP           ciscoTrustSecCtrDrbgNotifsControlGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support CTR-DRBG error notifications."
+
+    GROUP           ciscoTrustSecCtrDrbgNotifsGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support CTR-DRBG error notifications."
+
+    GROUP           ciscoTrustSecCrtclAuthGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices that support CTS Critical-Auth"
+
+    OBJECT          ctsCacheEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCacheNvStorage
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCacheClear
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSecurityGroupTagId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSgtAssignmentMethod
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsDeviceId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsDevicePasswordType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsDevicePassword
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsPacStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCredentialsClearAll
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsEnvDataAction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSwKeystoreFileErrNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSwKeystoreSyncFailNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsAuthzCacheFileErrNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCacheFileAccessErrNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSrcEntropyFailNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsSapRandomNumberFailNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCriticalAuthEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCriticalAuthFallback
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCriticalAuthPeerSgt
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCriticalAuthPeerSgtTrust
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ctsCriticalAuthDefaultPmk
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoTrustSecMIBCompliances 4 }
+
+-- Units of Conformance
+
+ciscoTrustSecCacheGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctsCacheEnabled,
+                        ctsCacheNvStorage,
+                        ctsCacheClear
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provides the cache configuration
+        for TrustSec in the system."
+    ::= { ciscoTrustSecMIBGroups 1 }
+
+ciscoTrustSecSgtGroup OBJECT-GROUP
+    OBJECTS         { ctsSecurityGroupTagId }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to manage SGT for TrustSec."
+    ::= { ciscoTrustSecMIBGroups 2 }
+
+ciscoTrustSecCredentialsGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctsDeviceId,
+                        ctsDevicePasswordType,
+                        ctsDevicePassword,
+                        ctsKeystoreType,
+                        ctsKeystorePasswordRecordType,
+                        ctsKeystorePacRecordType,
+                        ctsPacAcsDescription,
+                        ctsPacType,
+                        ctsPacExpirationTime,
+                        ctsPacTimeToRefresh,
+                        ctsPacStatus,
+                        ctsCredentialsClearAll
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to manage credentials parameters for
+        TrustSec."
+    ::= { ciscoTrustSecMIBGroups 3 }
+
+ciscoTrustSecHwKeystoreInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctsKeystoreFwVersion,
+                        ctsKeystoreFwAlerts,
+                        ctsKeystoreFwResets,
+                        ctsKeystoreRxTimeouts,
+                        ctsKeystoreRxBadChecksums,
+                        ctsKeystoreRxBadFragmentLengths,
+                        ctsKeystoreCorruptions
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to manage hardware keystore for
+        TrustSec."
+    ::= { ciscoTrustSecMIBGroups 4 }
+
+ciscoTrustSecEnvDataGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctsEnvDataLastDownloadStatus,
+                        ctsEnvSecurityGroupTagId,
+                        ctsEnvSecurityGroupTagGenId,
+                        ctsEnvDataLastUpdate,
+                        ctsEnvDataRefreshInterval,
+                        ctsEnvDataTimeLeft,
+                        ctsEnvDataTimeToRefresh,
+                        ctsEnvDataSource,
+                        ctsEnvDataAction
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to manage Environment Data for
+        TrustSec."
+    ::= { ciscoTrustSecMIBGroups 5 }
+
+ciscoTrustSecSgtAssignmentGroup OBJECT-GROUP
+    OBJECTS         { ctsSgtAssignmentMethod }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to manage assignment of TrustSec SGT."
+    ::= { ciscoTrustSecMIBGroups 6 }
+
+ciscoTrustSecEnvSecGroupNameGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctsEnvSecurityGroupNameSgtGenId,
+                        ctsEnvSecurityGroupNameSgtFlag,
+                        ctsEnvSecurityGroupName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) to manage Security Group Name
+        information for TrustSec."
+    ::= { ciscoTrustSecMIBGroups 7 }
+
+ciscoTrustSecSwKeystoreNotifsInfoGroup OBJECT-GROUP
+    OBJECTS         { ctsSwKeystoreSyncFailNotifReason }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) to provide information
+        regarding software keystore notifications for TrustSec."
+    ::= { ciscoTrustSecMIBGroups 8 }
+
+ciscoTrustSecSwKeystoreNotifsControlGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctsSwKeystoreFileErrNotifEnable,
+                        ctsSwKeystoreSyncFailNotifEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) to control software keystore
+        notifications for TrustSec."
+    ::= { ciscoTrustSecMIBGroups 9 }
+
+ciscoTrustSecSwKeystoreNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ctsSwKeystoreFileErrNotif,
+                        ctsSwKeystoreSyncFailNotif
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of software keystore related notifications for
+        TrustSec."
+    ::= { ciscoTrustSecMIBGroups 10 }
+
+ciscoTrustSecFileErrNotifsInfoGroup OBJECT-GROUP
+    OBJECTS         { ctsFileErrNotifReason }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) to provide information
+        regarding file error related notifications for TrustSec."
+    ::= { ciscoTrustSecMIBGroups 11 }
+
+ciscoTrustSecNotifsMessageStringInfoGroup OBJECT-GROUP
+    OBJECTS         { ctsNotifMessageString }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) to provide information
+        regarding TrustSec notification."
+    ::= { ciscoTrustSecMIBGroups 12 }
+
+ciscoTrustSecCacheFileNotifsControlGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctsAuthzCacheFileErrNotifEnable,
+                        ctsCacheFileAccessErrNotifEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) to control cache file
+        related notifications for TrustSec."
+    ::= { ciscoTrustSecMIBGroups 13 }
+
+ciscoTrustSecCacheFileNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ctsAuthzCacheFileErrNotif,
+                        ctsCacheFileAccessErrNotif
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of TrustSec cache file related notifications."
+    ::= { ciscoTrustSecMIBGroups 14 }
+
+ciscoTrustSecCtrDrbgNotifsControlGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctsSrcEntropyFailNotifEnable,
+                        ctsSapRandomNumberFailNotifEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) to control CTR-DRBG related
+        notifications for TrustSec."
+    ::= { ciscoTrustSecMIBGroups 15 }
+
+ciscoTrustSecCtrDrbgNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ctsSrcEntropyFailNotif,
+                        ctsSapRandomNumberFailNotif
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of CTR-DRBG related notifications
+        for TrustSec."
+    ::= { ciscoTrustSecMIBGroups 16 }
+
+ciscoTrustSecCrtclAuthGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctsCriticalAuthEnabled,
+                        ctsCriticalAuthFallback,
+                        ctsCriticalAuthPeerSgt,
+                        ctsCriticalAuthPeerSgtTrust,
+                        ctsCriticalAuthDefaultPmk,
+                        ctsCriticalAuthViewDefaultPmk
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of CTS Critical Auth Config
+        objects"
+    ::= { ciscoTrustSecMIBGroups 17 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

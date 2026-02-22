@@ -1,0 +1,442 @@
+-- MIB file created 22-Jul-2005 16:46:05, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+IPV6-MLD-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "IPV6-MLD-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    mib-2
+            FROM SNMPv2-SMI-v1
+    RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    InetAddressIPv6
+            FROM INET-ADDRESS-MIB
+    InterfaceIndex, InterfaceIndexOrZero
+            FROM IF-MIB
+    Counter, Gauge, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+mldMIB OBJECT IDENTIFIER ::= { mib-2 91 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200101250000Z
+--  OrgName
+--    IETF IPNGWG Working Group.
+--  ContactInfo
+--     Brian Haberman
+--      Nortel Networks
+--      4309 Emperor Blvd.
+--      Durham, NC  27703
+--      USA
+--    
+--      Phone: +1 919 992 4439
+--      e-mail: haberman@nortelnetworks.com
+--  Descr
+--    The MIB module for MLD Management.
+--  RevDate
+--    200101250000Z
+--  RevDescr
+--    Initial version, published as RFC 3019.
+
+mldMIBObjects   OBJECT IDENTIFIER ::= { mldMIB 1 }
+mldMIBConformance OBJECT IDENTIFIER ::= { mldMIB 2 }
+mldMIBCompliances OBJECT IDENTIFIER ::= { mldMIBConformance 1 }
+mldMIBGroups    OBJECT IDENTIFIER ::= { mldMIBConformance 2 }
+
+mldInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF MldInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table listing the interfaces on which
+        MLD is enabled."
+    ::= { mldMIBObjects 1 }
+
+mldInterfaceEntry OBJECT-TYPE
+    SYNTAX MldInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) representing an interface on
+        which MLD is enabled."
+    INDEX { mldInterfaceIfIndex }
+    ::= { mldInterfaceTable 1 }
+
+MldInterfaceEntry ::= SEQUENCE {
+    mldInterfaceIfIndex InterfaceIndex,
+    mldInterfaceQueryInterval Gauge,
+    mldInterfaceStatus RowStatus,
+    mldInterfaceVersion Gauge,
+    mldInterfaceQuerier InetAddressIPv6,
+    mldInterfaceQueryMaxRespDelay Gauge,
+    mldInterfaceJoins Counter,
+    mldInterfaceGroups Gauge,
+    mldInterfaceRobustness Gauge,
+    mldInterfaceLastListenQueryIntvl Gauge,
+    mldInterfaceProxyIfIndex InterfaceIndexOrZero,
+    mldInterfaceQuerierUpTime TimeTicks,
+    mldInterfaceQuerierExpiryTime TimeTicks
+    }
+
+mldInterfaceIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The internetwork-layer interface value of the interface
+        for which MLD is enabled."
+    ::= { mldInterfaceEntry 1 }
+
+mldInterfaceQueryInterval OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The frequency at which MLD Host-Query packets are
+        transmitted on this interface."
+    DEFVAL { 125 }
+    ::= { mldInterfaceEntry 2 }
+
+mldInterfaceStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The activation of a row enables MLD on the interface.
+        The destruction of a row disables MLD on the interface."
+    ::= { mldInterfaceEntry 3 }
+
+mldInterfaceVersion OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The version of MLD which is running on this interface.
+        This object is a place holder to allow for new versions
+        of MLD to be introduced.  Version 1 of MLD is defined
+        in RFC 2710."
+    DEFVAL { 1 }
+    ::= { mldInterfaceEntry 4 }
+
+mldInterfaceQuerier OBJECT-TYPE
+    SYNTAX InetAddressIPv6(SIZE(16))
+--    Rsyntax OCTET STRING(SIZE(16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The address of the MLD Querier on the IPv6 subnet to
+        which this interface is attached."
+    ::= { mldInterfaceEntry 5 }
+
+mldInterfaceQueryMaxRespDelay OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum query response time advertised in MLD
+        queries on this interface."
+    DEFVAL { 10 }
+    ::= { mldInterfaceEntry 6 }
+
+mldInterfaceJoins OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times a group membership has been added on
+        this interface; that is, the number of times an entry for
+        this interface has been added to the Cache Table.  This
+        object gives an indication of the amount of MLD activity
+        over time."
+    ::= { mldInterfaceEntry 7 }
+
+mldInterfaceGroups OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of entries for this interface in the
+        Cache Table."
+    ::= { mldInterfaceEntry 8 }
+
+mldInterfaceRobustness OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Robustness Variable allows tuning for the expected
+        packet loss on a subnet.  If a subnet is expected to be
+        lossy, the Robustness Variable may be increased.  MLD is
+        robust to (Robustness Variable-1) packet losses.  The
+        discussion of the Robustness Variable is in Section 7.1
+        of RFC 2710."
+    DEFVAL { 2 }
+    ::= { mldInterfaceEntry 9 }
+
+mldInterfaceLastListenQueryIntvl OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Last Member Query Interval is the Max Response
+        Delay inserted into Group-Specific Queries sent in
+        response to Leave Group messages, and is also the amount
+        of time between Group-Specific Query messages.  This
+        value may be tuned to modify the leave latency of the
+        network.  A reduced value results in reduced time to
+        detect the loss of the last member of a group."
+    DEFVAL { 1 }
+    ::= { mldInterfaceEntry 10 }
+
+mldInterfaceProxyIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Some devices implement a form of MLD proxying whereby
+        memberships learned on the interface represented by this
+        row, cause MLD Multicast Listener Reports to be sent on
+        the internetwork-layer interface identified by this
+        object.  Such a device would implement mldRouterMIBGroup
+        only on its router interfaces (those interfaces with
+        non-zero mldInterfaceProxyIfIndex).  Typically, the
+        value of this object is 0, indicating that no proxying
+        is being done."
+    DEFVAL { 0 }
+    ::= { mldInterfaceEntry 11 }
+
+mldInterfaceQuerierUpTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time since mldInterfaceQuerier was last changed."
+    ::= { mldInterfaceEntry 12 }
+
+mldInterfaceQuerierExpiryTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time remaining before the Other Querier Present
+        Timer expires.  If the local system is the querier,
+        the value of this object is zero."
+    ::= { mldInterfaceEntry 13 }
+
+mldCacheTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF MldCacheEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The (conceptual) table listing the IPv6 multicast
+        groups for which there are members on a particular
+        interface."
+    ::= { mldMIBObjects 2 }
+
+mldCacheEntry OBJECT-TYPE
+    SYNTAX MldCacheEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the mldCacheTable."
+    INDEX { mldCacheAddress, mldCacheIfIndex }
+    ::= { mldCacheTable 1 }
+
+MldCacheEntry ::= SEQUENCE {
+    mldCacheAddress InetAddressIPv6,
+    mldCacheIfIndex InterfaceIndex,
+    mldCacheSelf TruthValue,
+    mldCacheLastReporter InetAddressIPv6,
+    mldCacheUpTime TimeTicks,
+    mldCacheExpiryTime TimeTicks,
+    mldCacheStatus RowStatus
+    }
+
+mldCacheAddress OBJECT-TYPE
+    SYNTAX InetAddressIPv6(SIZE(16))
+--    Rsyntax OCTET STRING(SIZE(16))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IPv6 multicast group address for which this entry
+        contains information."
+    ::= { mldCacheEntry 1 }
+
+mldCacheIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The internetwork-layer interface for which this entry
+        contains information for an IPv6 multicast group
+        address."
+    ::= { mldCacheEntry 2 }
+
+mldCacheSelf OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An indication of whether the local system is a member of
+        this group address on this interface."
+    DEFVAL { true }
+    ::= { mldCacheEntry 3 }
+
+mldCacheLastReporter OBJECT-TYPE
+    SYNTAX InetAddressIPv6(SIZE(16))
+--    Rsyntax OCTET STRING(SIZE(16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IPv6 address of the source of the last membership
+        report received for this IPv6 Multicast group address on
+        this interface.  If no membership report has been
+        received, this object has the value 0::0."
+    ::= { mldCacheEntry 4 }
+
+mldCacheUpTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time elapsed since this entry was created."
+    ::= { mldCacheEntry 5 }
+
+mldCacheExpiryTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum amount of time remaining before this entry
+        will be aged out.  A value of 0 indicates that the entry
+        is only present because mldCacheSelf is true and that if
+        the router left the group, this entry would be aged out
+        immediately.  Note that some implementations may process
+        Membership Reports from the local system in the same way
+        as reports from other hosts, so a value of 0 is not
+        required."
+    ::= { mldCacheEntry 6 }
+
+mldCacheStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this row, by which new entries may be
+        created, or existing entries deleted from this table."
+    ::= { mldCacheEntry 7 }
+
+mldBaseMIBGroup OBJECT IDENTIFIER ::= { mldMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The basic collection of objects providing management of
+--    MLD.  The mldBaseMIBGroup is designed to allow for the
+--    manager creation and deletion of MLD cache entries.
+--  objects
+--    mldCacheSelf, mldCacheStatus, mldInterfaceStatus
+
+mldRouterMIBGroup OBJECT IDENTIFIER ::= { mldMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of additional objects for management of MLD
+--    in routers.
+--  objects
+--    mldCacheUpTime, mldCacheExpiryTime, mldInterfaceQueryInterval, 
+--    mldInterfaceJoins, mldInterfaceGroups, mldCacheLastReporter, 
+--    mldInterfaceQuerierUpTime, mldInterfaceQuerierExpiryTime, 
+--    mldInterfaceQuerier, mldInterfaceVersion, 
+--    mldInterfaceQueryMaxRespDelay, mldInterfaceRobustness, 
+--    mldInterfaceLastListenQueryIntvl
+
+mldHostMIBGroup OBJECT IDENTIFIER ::= { mldMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of additional objects for management of MLD
+--    in hosts.
+--  objects
+--    mldInterfaceQuerier
+
+mldProxyMIBGroup OBJECT IDENTIFIER ::= { mldMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of additional objects for management of MLD
+--    proxy devices.
+--  objects
+--    mldInterfaceProxyIfIndex
+
+mldHostMIBCompliance OBJECT IDENTIFIER ::= { mldMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for hosts running MLD and
+--    implementing the MLD MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    mldBaseMIBGroup
+--   MandGroup
+--    mldHostMIBGroup
+--   ObjVar
+--    mldInterfaceStatus
+
+mldRouterMIBCompliance OBJECT IDENTIFIER ::= { mldMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for routers running MLD and
+--    implementing the MLD MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    mldBaseMIBGroup
+--   MandGroup
+--    mldRouterMIBGroup
+--   ObjVar
+--    mldInterfaceStatus
+
+
+END
+

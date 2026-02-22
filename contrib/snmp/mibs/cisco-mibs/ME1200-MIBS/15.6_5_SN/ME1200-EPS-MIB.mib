@@ -1,0 +1,702 @@
+-- *****************************************************************
+-- EPS-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-EPS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200EpsMib MODULE-IDENTITY
+    LAST-UPDATED "201403110000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private Linear EPS (G.8031) MIB"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201402040000Z"
+    DESCRIPTION
+        "changed MIB name in EPS from vtssConfigAutomaticProtectionSwitching to
+         vtssConfigApsEnable"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201310240000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 45 }
+
+
+ME1200EpsArchitecture ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The EPS protection architecture."
+    SYNTAX      INTEGER { onePlusOne(0), oneForOne(1) }
+
+ME1200EpsCommand ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "protection group command."
+    SYNTAX      INTEGER { none(0), clear(1), lockOut(2), forcedSwitch(3), manualSwitchProtection(4), manualSwitchWorking(5), exercise(6), localFreeze(7), localLockOut(8) }
+
+ME1200EpsDefectState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Flow defect state."
+    SYNTAX      INTEGER { ok(0), sd(1), sf(2) }
+
+ME1200EpsDirectional ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The EPS 1+1 directional."
+    SYNTAX      INTEGER { uniDirectional(0), biDirectional(1) }
+
+ME1200EpsDomain ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The EPS protection domain."
+    SYNTAX      INTEGER { port(0), evc(1) }
+
+ME1200EpsProtectionState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "protection group state."
+    SYNTAX      INTEGER { disabled(0), noRequestWorking(1), noRequestProtecting(2), lockOut(3), forcedSwitch(4), signalFailWorking(5), signalFailProtecting(6), manualSwitchWorking(7), manualSwitchProtecting(8), waitToRestore(9), exerciseWorking(10), exerciseProtecting(11), reverseRequestWorking(12), reverseRequestProtecting(13), doNotRevert(14) }
+
+ME1200EpsRequest ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "APS request/state."
+    SYNTAX      INTEGER { nr(0), dnr(1), rr(2), exer(3), wtr(4), msW(5), msP(6), sd(7), sfW(8), fs(9), sfP(10), lo(11) }
+
+me1200EpsMibObjects OBJECT IDENTIFIER
+    ::= { me1200EpsMib 1 }
+
+me1200EpsCapabilities OBJECT IDENTIFIER
+    ::= { me1200EpsMibObjects 1 }
+
+me1200EpsCapabilitiesInstanceMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Maximum number of created EPS instances"
+    ::= { me1200EpsCapabilities 1 }
+
+me1200EpsCapabilitiesWtrMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Maximum WTR timer value"
+    ::= { me1200EpsCapabilities 2 }
+
+me1200EpsCapabilitiesHoldOffOff OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Hold Off timer OFF value"
+    ::= { me1200EpsCapabilities 3 }
+
+me1200EpsCapabilitiesHoldOffMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Maximum Hold Off timer value"
+    ::= { me1200EpsCapabilities 4 }
+
+me1200EpsCapabilitiesMepMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Maximum MEP relation instance value"
+    ::= { me1200EpsCapabilities 5 }
+
+me1200EpsCapabilitiesMepInvalid OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Invalid MEP indication. This is returned when EPS has no MEP relations"
+    ::= { me1200EpsCapabilities 6 }
+
+me1200EpsConfig OBJECT IDENTIFIER
+    ::= { me1200EpsMibObjects 2 }
+
+me1200InstanceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200InstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created EPS instance parameters."
+    ::= { me1200EpsConfig 1 }
+
+me1200InstanceEntry OBJECT-TYPE
+    SYNTAX      ME1200InstanceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created EPS instance parameters. No parameters can be changed
+         after create."
+    INDEX       { me1200InstanceId }
+    ::= { me1200InstanceTable 1 }
+
+ME1200InstanceEntry ::= SEQUENCE {
+    me1200InstanceId      Integer32,
+    me1200InstanceDomain      ME1200EpsDomain,
+    me1200InstanceArchitecture    ME1200EpsArchitecture,
+    me1200InstanceWorkingFlow     ME1200InterfaceIndex,
+    me1200InstanceProtectingFlow      ME1200InterfaceIndex,
+    me1200InstanceAction      ME1200RowEditorState
+}
+
+me1200InstanceId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The EPS instance ID"
+    ::= { me1200InstanceEntry 1 }
+
+me1200InstanceDomain OBJECT-TYPE
+    SYNTAX      ME1200EpsDomain
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protection domain. Cannot be changed after creation."
+    ::= { me1200InstanceEntry 2 }
+
+me1200InstanceArchitecture OBJECT-TYPE
+    SYNTAX      ME1200EpsArchitecture
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protection architecture. Cannot be changed after creation."
+    ::= { me1200InstanceEntry 3 }
+
+me1200InstanceWorkingFlow OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The working flow. Cannot be changed after creation."
+    ::= { me1200InstanceEntry 4 }
+
+me1200InstanceProtectingFlow OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protecting flow. Cannot be changed after creation."
+    ::= { me1200InstanceEntry 5 }
+
+me1200InstanceAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200InstanceEntry 100 }
+
+me1200InstanceRowEditor OBJECT IDENTIFIER
+    ::= { me1200EpsConfig 2 }
+
+me1200InstanceRowEditorId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The EPS instance ID"
+    ::= { me1200InstanceRowEditor 1 }
+
+me1200InstanceRowEditorDomain OBJECT-TYPE
+    SYNTAX      ME1200EpsDomain
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protection domain. Cannot be changed after creation."
+    ::= { me1200InstanceRowEditor 2 }
+
+me1200InstanceRowEditorArchitecture OBJECT-TYPE
+    SYNTAX      ME1200EpsArchitecture
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protection architecture. Cannot be changed after creation."
+    ::= { me1200InstanceRowEditor 3 }
+
+me1200InstanceRowEditorWorkingFlow OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The working flow. Cannot be changed after creation."
+    ::= { me1200InstanceRowEditor 4 }
+
+me1200InstanceRowEditorProtectingFlow OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protecting flow. Cannot be changed after creation."
+    ::= { me1200InstanceRowEditor 5 }
+
+me1200InstanceRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200InstanceRowEditor 100 }
+
+me1200ConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200ConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created EPS instance configuration parameters. When
+         an EPS instance is created in the 'InstanceTable', an entry is
+         automatically created here with default value."
+    ::= { me1200EpsConfig 3 }
+
+me1200ConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200ConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created EPS instance configuration parameters"
+    INDEX       { me1200ConfigId }
+    ::= { me1200ConfigTable 1 }
+
+ME1200ConfigEntry ::= SEQUENCE {
+    me1200ConfigId    Integer32,
+    me1200ConfigDirectional   ME1200EpsDirectional,
+    me1200ConfigApsEnable     TruthValue,
+    me1200ConfigRevertive     TruthValue,
+    me1200ConfigRestoreTimer      Unsigned32,
+    me1200ConfigHoldOffTimer      Unsigned32
+}
+
+me1200ConfigId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The EPS instance ID"
+    ::= { me1200ConfigEntry 1 }
+
+me1200ConfigDirectional OBJECT-TYPE
+    SYNTAX      ME1200EpsDirectional
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Protection is uni or bi directional. Only for 1+1."
+    ::= { me1200ConfigEntry 2 }
+
+me1200ConfigApsEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "APS can be enabled or disabled. Only for 1+1."
+    ::= { me1200ConfigEntry 3 }
+
+me1200ConfigRevertive OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Revertive operation can enabled or disabled."
+    ::= { me1200ConfigEntry 4 }
+
+me1200ConfigRestoreTimer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Wait to restore timer in seconds - max. 720 - min. 1."
+    ::= { me1200ConfigEntry 5 }
+
+me1200ConfigHoldOffTimer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Hold off timer in 100 ms - max. 100 - 0 means no hold off"
+    ::= { me1200ConfigEntry 6 }
+
+me1200MepTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200MepEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created EPS instance MEP configuration parameters.
+         When an EPS instance is created in the 'InstanceTable', an entry is
+         automatically created here with default value 100 - meaning no MEP
+         instance related."
+    ::= { me1200EpsConfig 4 }
+
+me1200MepEntry OBJECT-TYPE
+    SYNTAX      ME1200MepEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created EPS instance MEP configuration parameters."
+    INDEX       { me1200MepId }
+    ::= { me1200MepTable 1 }
+
+ME1200MepEntry ::= SEQUENCE {
+    me1200MepId   Integer32,
+    me1200MepWorkingMep   Unsigned32,
+    me1200MepProtectingMep    Unsigned32,
+    me1200MepApsMep   Unsigned32
+}
+
+me1200MepId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The EPS instance ID"
+    ::= { me1200MepEntry 1 }
+
+me1200MepWorkingMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Working SF MEP reference - max. 100-1 - min. 0. During get 100 indicate
+         no reference"
+    ::= { me1200MepEntry 2 }
+
+me1200MepProtectingMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Protecting SF MEP reference - max. 100-1 - min. 0. During get 100
+         indicate no reference"
+    ::= { me1200MepEntry 3 }
+
+me1200MepApsMep OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "APS MEP reference - max. 100-1 - min. 0. During get 100 indicate no
+         reference"
+    ::= { me1200MepEntry 4 }
+
+me1200CommandTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200CommandEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created EPS instance command. When an EPS instance
+         is created in the 'InstanceTable', an entry is automatically created
+         here with 'no command'."
+    ::= { me1200EpsConfig 5 }
+
+me1200CommandEntry OBJECT-TYPE
+    SYNTAX      ME1200CommandEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created EPS instance command"
+    INDEX       { me1200CommandId }
+    ::= { me1200CommandTable 1 }
+
+ME1200CommandEntry ::= SEQUENCE {
+    me1200CommandId   Integer32,
+    me1200CommandCommand      ME1200EpsCommand
+}
+
+me1200CommandId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The EPS instance ID"
+    ::= { me1200CommandEntry 1 }
+
+me1200CommandCommand OBJECT-TYPE
+    SYNTAX      ME1200EpsCommand
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "protection group command"
+    ::= { me1200CommandEntry 2 }
+
+me1200EpsStatus OBJECT IDENTIFIER
+    ::= { me1200EpsMibObjects 3 }
+
+me1200StatusTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200StatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of created EPS instance status."
+    ::= { me1200EpsStatus 1 }
+
+me1200StatusEntry OBJECT-TYPE
+    SYNTAX      ME1200StatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a created EPS instance status."
+    INDEX       { me1200StatusId }
+    ::= { me1200StatusTable 1 }
+
+ME1200StatusEntry ::= SEQUENCE {
+    me1200StatusId    Integer32,
+    me1200StatusProtectionState   ME1200EpsProtectionState,
+    me1200StatusWorkingState      ME1200EpsDefectState,
+    me1200StatusProtectingState   ME1200EpsDefectState,
+    me1200StatusTransmittedApsRequest     ME1200EpsRequest,
+    me1200StatusTransmittedApsReSignal    Unsigned32,
+    me1200StatusTransmittedApsBrSignal    Unsigned32,
+    me1200StatusReceivedApsRequest    ME1200EpsRequest,
+    me1200StatusReceivedApsReSignal   Unsigned32,
+    me1200StatusReceivedApsBrSignal   Unsigned32,
+    me1200StatusDfopPm    TruthValue,
+    me1200StatusDfopCm    TruthValue,
+    me1200StatusDfopNr    TruthValue,
+    me1200StatusDfopNoAps     TruthValue
+}
+
+me1200StatusId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The EPS instance ID"
+    ::= { me1200StatusEntry 1 }
+
+me1200StatusProtectionState OBJECT-TYPE
+    SYNTAX      ME1200EpsProtectionState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Protection state according to to G.8031 Annex A"
+    ::= { me1200StatusEntry 2 }
+
+me1200StatusWorkingState OBJECT-TYPE
+    SYNTAX      ME1200EpsDefectState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Working flow defect state"
+    ::= { me1200StatusEntry 3 }
+
+me1200StatusProtectingState OBJECT-TYPE
+    SYNTAX      ME1200EpsDefectState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Protecting flow defect state"
+    ::= { me1200StatusEntry 4 }
+
+me1200StatusTransmittedApsRequest OBJECT-TYPE
+    SYNTAX      ME1200EpsRequest
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted APS request"
+    ::= { me1200StatusEntry 5 }
+
+me1200StatusTransmittedApsReSignal OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted APS requested signal"
+    ::= { me1200StatusEntry 6 }
+
+me1200StatusTransmittedApsBrSignal OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Transmitted APS bridged signal"
+    ::= { me1200StatusEntry 7 }
+
+me1200StatusReceivedApsRequest OBJECT-TYPE
+    SYNTAX      ME1200EpsRequest
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received APS request"
+    ::= { me1200StatusEntry 8 }
+
+me1200StatusReceivedApsReSignal OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received APS requested signal"
+    ::= { me1200StatusEntry 9 }
+
+me1200StatusReceivedApsBrSignal OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Received APS bridged signal"
+    ::= { me1200StatusEntry 10 }
+
+me1200StatusDfopPm OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "FOP Protection type Mismatch - unexpected B bit"
+    ::= { me1200StatusEntry 11 }
+
+me1200StatusDfopCm OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "FOP Configuration Mismatch - APS received on working"
+    ::= { me1200StatusEntry 12 }
+
+me1200StatusDfopNr OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "FOP Not expected Request - receiving request is not the expected
+         (transmitted)"
+    ::= { me1200StatusEntry 13 }
+
+me1200StatusDfopNoAps OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "FOP No APS received"
+    ::= { me1200StatusEntry 14 }
+
+me1200EpsControl OBJECT IDENTIFIER
+    ::= { me1200EpsMibObjects 4 }
+
+me1200EpsMibConformance OBJECT IDENTIFIER
+    ::= { me1200EpsMib 3 }
+
+me1200EpsMibCompliances OBJECT IDENTIFIER
+    ::= { me1200EpsMibConformance 1 }
+
+me1200EpsMibGroups OBJECT IDENTIFIER
+    ::= { me1200EpsMibConformance 2 }
+
+me1200EpsCapabilitiesInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EpsCapabilitiesInstanceMax, me1200EpsCapabilitiesWtrMax, 
+                  me1200EpsCapabilitiesHoldOffOff, me1200EpsCapabilitiesHoldOffMax, 
+                  me1200EpsCapabilitiesMepMax, me1200EpsCapabilitiesMepInvalid }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EpsMibGroups 1 }
+
+me1200InstanceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200InstanceDomain, me1200InstanceArchitecture, 
+                  me1200InstanceWorkingFlow, me1200InstanceProtectingFlow, 
+                  me1200InstanceAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EpsMibGroups 2 }
+
+me1200InstanceRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200InstanceRowEditorId, me1200InstanceRowEditorDomain, 
+                  me1200InstanceRowEditorArchitecture, 
+                  me1200InstanceRowEditorWorkingFlow, 
+                  me1200InstanceRowEditorProtectingFlow, 
+                  me1200InstanceRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EpsMibGroups 3 }
+
+me1200ConfigTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200ConfigDirectional, me1200ConfigApsEnable, me1200ConfigRevertive, 
+                  me1200ConfigRestoreTimer, me1200ConfigHoldOffTimer }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EpsMibGroups 4 }
+
+me1200MepTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200MepWorkingMep, me1200MepProtectingMep, me1200MepApsMep }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EpsMibGroups 5 }
+
+me1200CommandTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200CommandCommand }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EpsMibGroups 6 }
+
+me1200StatusTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200StatusProtectionState, me1200StatusWorkingState, 
+                  me1200StatusProtectingState, me1200StatusTransmittedApsRequest, 
+                  me1200StatusTransmittedApsReSignal, 
+                  me1200StatusTransmittedApsBrSignal, me1200StatusReceivedApsRequest, 
+                  me1200StatusReceivedApsReSignal, me1200StatusReceivedApsBrSignal, 
+                  me1200StatusDfopPm, me1200StatusDfopCm, me1200StatusDfopNr, 
+                  me1200StatusDfopNoAps }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EpsMibGroups 7 }
+
+me1200EpsMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200EpsCapabilitiesInfoGroup, 
+                  me1200InstanceTableInfoGroup, me1200InstanceRowEditorInfoGroup, 
+                  me1200ConfigTableInfoGroup, me1200MepTableInfoGroup, 
+                  me1200CommandTableInfoGroup, me1200StatusTableInfoGroup }
+
+    ::= { me1200EpsMibCompliances 1 }
+
+END

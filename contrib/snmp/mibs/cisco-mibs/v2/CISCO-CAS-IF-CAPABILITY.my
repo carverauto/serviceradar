@@ -1,0 +1,412 @@
+-- *****************************************************************
+-- CISCO-CAS-IF-CAPABILITY
+--
+-- Agent capabilities for Voice Interface (DS1) or Voice Port 
+-- (DS0 Group) of the media gateway in CISCO Products
+--
+-- August 2004,  Margaret Hsieh
+--
+-- Copyright(c) 2003, 2004 by Cisco Systems, Inc.
+--
+-- *****************************************************************
+
+CISCO-CAS-IF-CAPABILITY DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY, Integer32
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoCasIfCapability MODULE-IDENTITY
+    LAST-UPDATED "200912040000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+        "        Cisco Systems
+                 Customer Service
+        Postal: 170 W Tasman Drive
+                San Jose, CA 95134
+                USA
+           Tel: +1 800 553-NETS
+        E-mail: cs-voice-gateway@cisco.com"
+    DESCRIPTION
+            "The agent capabilities for CISCO-CAS-IF-MIB." 
+    REVISION        "200912040000Z"
+    DESCRIPTION
+        "Added capability statement ciscoCasIfCapabilityV12R04TPC3xxx."
+ 
+    REVISION "200408100000Z"
+    DESCRIPTION
+        "Added ciscoCasIfCapabilityV5R015 for 
+         MGX8850 release 5.0.15."
+
+    REVISION "200312030000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+
+        ::= { ciscoAgentCapability 122 }
+
+
+    ciscoCasIfCapabilityV5R000 AGENT-CAPABILITIES
+
+        PRODUCT-RELEASE "MGX8850 Release 5.0"
+        STATUS          current
+        DESCRIPTION     "CISCO-CAS-IF-MIB Capabilities for Voice 
+                         Switch Service Module(VXSM) in 
+                         Release 5.0.0." 
+
+        SUPPORTS        CISCO-CAS-IF-MIB
+        INCLUDES        { 
+                            ccasGeneralInfoGroupRev1,
+                            ccasVoiceGroup
+                        }
+
+        VARIATION    ccasGrpCfgServiceType
+        SYNTAX       INTEGER {
+                        trunkingService  (8), 
+                        h248             (9),
+                        ds0xconn        (10)
+                     }
+        DESCRIPTION  "VXSM supports trunkingService(8), h248(9)
+                      and ds0xconn(10) only."
+
+        VARIATION    ccasGrpCfgType
+        ACCESS       not-implemented
+        DESCRIPTION  "Not supported."
+
+        VARIATION    ccasVoiceCfgConnectionMode
+        ACCESS       not-implemented
+        DESCRIPTION  "Not supported."
+
+        VARIATION    ccasVoiceCfgConnectionNumber
+        ACCESS       not-implemented
+        DESCRIPTION  "Not supported."
+
+        VARIATION    ccasVoiceCfgNoiseRegEnable
+        DEFVAL       { true } 
+        DESCRIPTION  "The initial value is 'true'."
+
+        VARIATION    ccasVoiceCfgNonLinearProcEnable
+        DEFVAL       { true } 
+        DESCRIPTION  "The initial value is 'true'."
+
+        VARIATION    ccasVoiceCfgMusicOnHoldThreshold
+        SYNTAX       Integer32 (-60..-30)
+        DEFVAL       { -38 } 
+        DESCRIPTION  "Limited data range supported by VXSM.
+                      The initial value is -38."
+
+        VARIATION    ccasVoiceCfgInGain
+        DEFVAL       { 0 } 
+        DESCRIPTION  "The initial value is 0."
+
+        VARIATION    ccasVoiceCfgOutAttn
+        DEFVAL       { 0 } 
+        DESCRIPTION  "The initial value is 0."
+
+        VARIATION    ccasVoiceCfgEchoCancelEnable
+        DEFVAL       { true } 
+        DESCRIPTION  "The initial value is 'true'."
+
+        VARIATION    ccasVoiceCfgEchoCancelCoverage
+        DEFVAL       { echoCanceller8ms }
+        DESCRIPTION  "The initial value is 'echoCanceller8ms'."
+
+        VARIATION    ccasVoiceCfgInitialDigitTimeOut
+        DEFVAL       { 10 }
+        DESCRIPTION  "The initial value is 10."
+
+        VARIATION    ccasVoiceCfgInterDigitTimeOut
+        DEFVAL       { 10 }
+        DESCRIPTION  "The initial value is 10."
+
+        VARIATION    ccasVoiceCfgRegionalTone
+        ACCESS       not-implemented
+        DESCRIPTION  "Not supported."
+
+    ::= { ciscoCasIfCapability 1 }
+
+    ciscoCasIfCapabilityV5R015 AGENT-CAPABILITIES
+
+        PRODUCT-RELEASE "MGX8850 Release 5.0.15"
+        STATUS          current
+        DESCRIPTION     "CISCO-CAS-IF-MIB Capabilities for Voice 
+                         Switch Service Module(VXSM) in 
+                         Release 5.0.15." 
+
+        SUPPORTS        CISCO-CAS-IF-MIB
+        INCLUDES        { 
+                            ccasGeneralInfoGroupRev1,
+                            ccasVoiceGroup
+                        }
+
+        VARIATION    ccasGrpCfgServiceType
+        SYNTAX       INTEGER {
+                        mgcp             (6),
+                        trunkingService  (8), 
+                        h248             (9),
+                        ds0xconn        (10),
+                        tgcp            (11)
+                     }
+        DESCRIPTION  "VXSM supports mgcp(6),trunkingService(8),
+                      h248(9), ds0xconn(10) and tgcp(11)."
+
+        VARIATION    ccasGrpCfgType
+        ACCESS       not-implemented
+        DESCRIPTION  "Not supported."
+
+        VARIATION    ccasVoiceCfgConnectionMode
+        ACCESS       not-implemented
+        DESCRIPTION  "Not supported."
+
+        VARIATION    ccasVoiceCfgConnectionNumber
+        ACCESS       not-implemented
+        DESCRIPTION  "Not supported."
+
+        VARIATION    ccasVoiceCfgNoiseRegEnable
+        DEFVAL       { true } 
+        DESCRIPTION  "The initial value is 'true'."
+
+        VARIATION    ccasVoiceCfgNonLinearProcEnable
+        DEFVAL       { true } 
+        DESCRIPTION  "The initial value is 'true'."
+
+        VARIATION    ccasVoiceCfgMusicOnHoldThreshold
+        SYNTAX       Integer32 (-60..-30)
+        DEFVAL       { -38 } 
+        DESCRIPTION  "Limited data range supported by VXSM.
+                      The initial value is -38."
+
+        VARIATION    ccasVoiceCfgInGain
+        DEFVAL       { 0 } 
+        DESCRIPTION  "The initial value is 0."
+
+        VARIATION    ccasVoiceCfgOutAttn
+        DEFVAL       { 0 } 
+        DESCRIPTION  "The initial value is 0."
+
+        VARIATION    ccasVoiceCfgEchoCancelEnable
+        DEFVAL       { true } 
+        DESCRIPTION  "The initial value is 'true'."
+
+        VARIATION    ccasVoiceCfgEchoCancelCoverage
+        DEFVAL       { echoCanceller128ms }
+        DESCRIPTION  "The initial value is 'echoCanceller128ms'."
+
+        VARIATION    ccasVoiceCfgInitialDigitTimeOut
+        DEFVAL       { 10 }
+        DESCRIPTION  "The initial value is 10."
+
+        VARIATION    ccasVoiceCfgInterDigitTimeOut
+        DEFVAL       { 10 }
+        DESCRIPTION  "The initial value is 10."
+
+        VARIATION    ccasVoiceCfgRegionalTone
+        DESCRIPTION  "Support the following regional tones -
+                         AR: Argentina
+                         AU: Australia
+                         BE: Belgium
+                         BR: Brazil
+                         CA: Canada
+                         CH: Switzerland
+                         CN: China
+                         CY: Cyprus
+                         CZ: Czech
+                         DK: Denmark
+                         DE: Germany
+                         EG: Egypt
+                         ES: Spain
+                         FI: Finland
+                         FR: France
+                         GB: United Kingdom
+                         GH: Ghana
+                         GR: Greece
+                         HK: Hong Kong
+                         HU: Hungary
+                         ID: Indonesia
+                         IE: Ireland
+                         IL: Israel
+                         IN: India
+                         IS: Iceland
+                         IT: Italy
+                         JP: Japan
+                         JO: Jordan
+                         KE: Kenya
+                         KR: Korea
+                         LB: Lebanon
+                         LU: Luxembourg
+                         MY: Malaysia
+                         MX: Mexico
+                         NG: Nigeria
+                         NL: Netherlands
+                         NO: Norway
+                         NP: Nepal
+                         NZ: New Zealand
+                         PA: Panama
+                         PK: Pakistan
+                         PH: Philippines
+                         PL: Poland
+                         PT: Portugal
+                         RU: Russian
+                         SA: Saudi Arab
+                         SG: Singapore
+                         SK: Slovakia
+                         SI: Slovenia
+                         SE: Sweden
+                         ZA: S. Africa
+                         TH: Thailand
+                         TR: Turkey
+                         US: USA
+                         ZW: Zimbabwe"
+
+    ::= { ciscoCasIfCapability 2 }
+
+ciscoCasIfCapabilityV12R04TPC3xxx AGENT-CAPABILITIES
+    PRODUCT-RELEASE "CISCO IOS 12.4T for Integrate Service
+                     Router (ISR) c2xxx and c3xxx platforms."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CAS-IF-MIB Capabilities"
+
+    SUPPORTS        CISCO-CAS-IF-MIB
+    INCLUDES        {
+                        ccasGeneralInfoGroupRev1,
+                        ccasIfDS1Group, ccasEMGroupRev2,
+                        ccasLineGroup,
+                        ccasCustomABCDGroup, ccasChannelInfoGroup
+                    }
+    VARIATION  ccasGrpCfgServiceType
+    ACCESS      read-only
+    DESCRIPTION "create/write access is not implemented."
+
+                       
+    VARIATION   ccasGrpCfgType
+    SYNTAX      INTEGER {
+                emWinkStart(1), emWinkStartFgd(2),emImmedStart(3),
+                fxsLoopStart(5), fxsGroundStart(6),
+                sasLoopStart(7), sasGroundStart(8),
+                r2Analog(9), r2Digital(10), r2Pulse(11),p7(12),
+                fxoLoopStart(13), fxoGroundStart(14),
+                extsig(26), emLmr(27)
+                }
+    ACCESS      read-only
+    DESCRIPTION "create/write access is not implemented. Only a
+                 limited set of enumerated values is supported"
+
+    VARIATION   ccasGrpCfgDs0Channels
+    ACCESS      read-only
+    DESCRIPTION "create/write access is not implemented"
+
+    VARIATION   ccasGrpCfgRowStatus
+    ACCESS      read-only
+    DESCRIPTION "create/write access is not implemented"
+
+    VARIATION   ccasGrpEMCfgDialType
+    ACCESS      read-only
+    DESCRIPTION "write access is not implemented"
+
+    VARIATION   ccasGrpEMCfgDnisAni
+    ACCESS      read-only
+    DESCRIPTION "write access is not implemented"
+
+    VARIATION   ccasGrpEMTmClearWaitDuration
+    ACCESS      not-implemented
+    DESCRIPTION "this object is not supported"
+
+    VARIATION   ccasGrpEMTmMaxWinkWaitDuration
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+    VARIATION   ccasGrpEMTmMaxWinkDuration
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+    VARIATION   ccasGrpEMTmDelayStart
+    ACCESS      not-implemented
+    DESCRIPTION "this object is not supported"
+
+    VARIATION   ccasGrpEMTmMaxDelayDuration
+    ACCESS       not-implemented
+    DESCRIPTION "this object is not supported"
+
+    VARIATION   ccasGrpEMTmMinDelayPulseWidth
+    ACCESS      not-implemented
+    DESCRIPTION "this object is not supported"
+
+    VARIATION   ccasGrpEMTmDigitDuration
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+    VARIATION   ccasGrpEMTmInterDigitDuration
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+    VARIATION   ccasGrpEMTmPulseRate
+    ACCESS      not-implemented
+    DESCRIPTION "this object is not supported"
+
+    VARIATION   ccasGrpEMTmPulseInterDigitDuration
+    ACCESS      not-implemented
+    DESCRIPTION "this object is not supported"
+
+    VARIATION   ccasGrpLineCfgNumberRings
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+    VARIATION   ccasGrpLineCfgSupDisconnect
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+    VARIATION   ccasGrpLineCfgDialType
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+    VARIATION   ccasGrpLineTmDigitDuration
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+    VARIATION   ccasGrpLineTmInterDigitDuration
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+    VARIATION   ccasGrpLineTmPulseRate
+    ACCESS      not-implemented
+    DESCRIPTION "this object is not supported"
+
+    VARIATION   ccasGrpLineTmPulseInterDigitDuration
+    ACCESS      not-implemented
+    DESCRIPTION "this object is not supported"
+
+    VARIATION   ccasGrpABCDCfgInvertBits
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+    VARIATION   ccasGrpABCDCfgUnusedBits
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+    VARIATION   ccasChannelCfgBusyOut
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+    VARIATION   ccasGrpEMCfgLmrMCap
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+    VARIATION   ccasGrpEMCfgLmrECap
+    ACCESS      read-only
+    DESCRIPTION "write access is not supported"
+
+
+    ::= { ciscoCasIfCapability 3 }
+
+END
+
+
+
+
+
+
+
+

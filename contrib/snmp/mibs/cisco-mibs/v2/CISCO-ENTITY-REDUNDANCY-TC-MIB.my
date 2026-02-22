@@ -1,0 +1,609 @@
+ -- *********************************************************************
+-- CISCO-ENTITY-REDUNDANCY-TC-MIB.my
+-- List of Textual Conventions used in the CISCO-ENTITY-REDUNDANCY-MIB
+--
+-- Feb 2005, Fred Frazer
+--
+-- Copyright (c) 2005, 2006 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *********************************************************************
+
+CISCO-ENTITY-REDUNDANCY-TC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+     MODULE-IDENTITY            FROM SNMPv2-SMI
+     TEXTUAL-CONVENTION         FROM SNMPv2-TC
+     ciscoMgmt                  FROM CISCO-SMI
+     ;
+
+ciscoEntityRedunTcMIB MODULE-IDENTITY
+    LAST-UPDATED    "200510010000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+                    "Cisco Systems, Inc.
+                     Customer Service
+                     Postal: 170 W. Tasman Drive
+                             San Jose, CA  95134-1706
+                             USA
+                     Tel: +1 800 553-NETS
+                     Email: cs-ha@cisco.com"
+
+    DESCRIPTION
+        "This module defines the textual conventions used within
+         Cisco Entity Redundancy MIBs.
+         "
+    REVISION      "200510010000Z"
+    DESCRIPTION
+         "The initial version of this MIB module."
+    ::= { ciscoMgmt 494 }
+
+
+-- Start of Textual Conventions
+CeRedunType ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "Defines the following group redundancy types:
+
+         other(1)
+           Indicates a type of redundancy which doesn't fall into
+           any other listed category.
+
+         yCable(2)
+           A form of redundancy in which signals from a common line 
+           are connected to ports on two redundant members using a 
+           special Y-shaped splitter/combiner cable.  The receive 
+           signals are split and fed to the receive ports on each 
+           redundant member. The transmit signals are combined from 
+           the transmit ports on each member. However, only the active
+           redundant member transmits a signal, while the standby 
+           member suppresses sending a signal into the Y-combiner.
+
+         aps(3) 
+           Automatic Protection Switching.  A form of redundancy 
+           using redundant lines with one connected to the working 
+           port on the primary member and the other connected to 
+           the protection port on the secondary member.  APS 
+           redundancy protects against line (or fiber) failures in 
+           addition to protecting against port module hardware 
+           failures.
+
+         featureCard(4)
+           The featureCard option is used when the module
+           does not have external line interfaces. Examples are
+           modules which provide packet processing, additional
+           memory or even fans or power supplies.
+
+         externalSwitch(5)
+           A form of redundancy similar to yCable but using an
+           external switch to select or direct the receive or 
+           transmit signals from a common line to ports on 
+           redundant members. Additional control (not provided in
+           this general MIB) may be necessary in order to control
+           and monitor the external switch.
+         
+         slotPair(6)
+           Some platforms require the user to configure a slot-pair
+           group in order to allow internal signals to be bridged to 
+           redundant linecards in the slot-pair.  But redundancy groups
+           would also need to be configured for contained entities, 
+           such as ports. Switchovers should take place independently 
+           for each contained entity (e.g. port).
+
+           The slotPair groups support only basic group and member
+           configuration including the primary/secondary designation.
+           Switchovers may only be supported for the contained
+           entity.  The primary/secondary roles of contained group 
+           members must match the primary/secondary role of the 
+           containing entity.
+         
+          cmts(7)
+           redundancy is provided for Cable Modem Termination Systems.
+        "
+    SYNTAX      INTEGER {
+                          other(1),
+                          yCable(2),
+                          aps(3),
+                          featureCard(4),
+                          externalSwitch(5),
+                          slotPair(6),
+                          cmts(7)
+                        }
+
+CeRedunScope ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "Defines the following group redundancy scopes:
+        
+         other(1)
+           The scope is not described by any of the other 
+           categories listed below.
+
+         local(2)
+           All redundancy group members reside on a single
+           managed system and are reachable through a single 
+           management IP address.
+
+         remoteChassis(3)
+           This redundancy group has peer members on physically 
+           separate local and remote managed systems with separate 
+           management IP addresses.  
+
+           But the local and remote systems can communicate with 
+           each other and are contained in the same instance of 
+           a supercontainer 'stack' entPhysicalClass, even if they
+           don't physically reside in close proximity. Therefore the 
+           members in the separate systems can be represented by a 
+           common entPhysicalIndex numbering scheme.
+
+           An example might be a multi-shelf system where redundant
+           member linecards are located on separate shelves. Each
+           shelf may have a separate management port to allow SNMP 
+           control, but the linecards are designated by a common 
+           shelf/slot numbering instead of just a slot number.
+           Therefore both members can be configured by communicating
+           with one of the SNMP managed systems even though only 
+           one member is physically located on that managed shelf.
+         
+         remoteSystem(4)
+           This redundancy group has peer members on physically 
+           separate local and remote managed systems with separate 
+           management IP addresses.  
+
+           The local and remote systems have independent 
+           entPhysicalIndex numbering. The local and remote members 
+           may be tied together by some other means, such as by 
+           configuration of an InetAddress for the remote peer member
+           and the requirement to use matching ceRedunGroupTypeIndex
+           and ceRedunGroupIndex values on the local and remote 
+           systems.
+
+           Because of the independent PhysicalIndex numbering, the 
+           primary member configuration would need to be done on one
+           managed system and the peer secondary member configuration
+           would need to be done on the remote managed system.
+        "
+    SYNTAX      INTEGER {
+                          other(1),
+                          local(2),
+                          remoteChassis(3),
+                          remoteSystem(4)
+                        }
+
+CeRedunArch  ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The architecture of the redundancy group.
+
+         other(1)
+           The redundancy architecture doesn't fall into one 
+           of the categories listed below.
+
+         oneToOne(2)
+
+           1:1 redundancy allows a secondary member to protect 
+           only one primary member. 
+         
+         onePlusOne(3)
+         
+           1+1 redundancy also allows a secondary member to protect
+           only one primary member. In 1+1 architecture the transmit 
+           signal is bridged so that it is transmitted identically 
+           on both redundant lines. So it only applies to the
+           aps redundancy type.
+
+         oneToN(4)
+
+           The 1:n architecture allows a secondary member to
+           protect for any of N primary members.  But the secondary 
+           can only take over as active for one primary at any
+           given time.
+
+         mToN(5)
+
+           The m:n architecture allows M secondary members to
+           protect for any of N primary members.  Each secondary 
+           member can only take over as active for one primary at 
+           any given time.
+
+         loadSharing(6)
+         
+           In load sharing architectures, redundant peers can actively 
+           provide some of the functionality normally provided by a 
+           single member, so that either the capacity of the system 
+           can be increased or else the loading on the primary member
+           can be decreased. 
+        "
+    SYNTAX      INTEGER {
+                          other(1),
+                          oneToOne(2),
+                          onePlusOne(3),
+                          oneToN(4),
+                          mToN(5),
+                          loadSharing(6)
+                        }
+
+CeRedunSwitchCommand ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "The following redundancy switch command values are defined.
+         However some platforms, group types or redundancy types
+         may only support a subset of these commands:
+
+         noCmdInEffect(1)
+
+           This value should be returned by a read request when no 
+           switch command has been written to the member in question
+           since initialization or the last command is no longer in
+       effect due to either a later clear command or because 
+       switch commands never remain in effect on this managed 
+       system. This value may not be used in a write operation.
+
+         clear(2)
+
+           Clears any switch command in effect for the specified 
+           member.  If the member number is sent as -1, then it 
+           clears all switch commands in effect for all members.
+       Following a clear command, the value read back should
+       be noCmdInEffect.
+
+
+         manualSwitchAway(3)
+
+           Switches away from the specified member, so that it will
+           become (or remain) standby. It should succeed only if the 
+           peer member is present with no switchable alarm conditions 
+           and has no equal or higher precedence switch command 
+           in effect.
+
+         forcedSwitchAway(4)
+
+           Switches away from the specified member, so that it will
+           become (or remain) standby. This should succeed when the 
+           peer member is present even when it has a degraded alarm 
+           condition or a manual switch in effect.
+         
+           When applied to a primary member it should not succeed
+           if the secondary peer has a failure alarm condition.
+
+           However, if applied to a secondary member it should succeed
+           even if the peer primary member has a failure alarm 
+           condition. 
+
+         lockoutProtection(5)
+
+           When applied to a secondary member, this command should
+           prevent the secondary from taking over as active for any 
+           primary member. It should if necessary, cause a switch back
+           to the corresponding primary member even when there is an
+           existing alarm or forced switch in effect for the primary 
+           member. 
+
+           When applied to a primary member in a 1:n architecture, 
+           it should prevent just the one primary member from going 
+           standby.
+        "
+    SYNTAX       INTEGER {
+                          noCmdInEffect(1),
+                          clear(2),
+                          manualSwitchAway(3),
+                          forcedSwitchAway(4),
+                          lockoutProtection(5)
+                          }
+
+CeRedunMode ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "Primary and secondary mode. The designation as primary or
+         secondary is configured and is static. It doesn't change due 
+         to a switchover.
+
+         primary
+           The member which normally defaults to active at system
+           startup and following a ceRedunGroupWaitToRestore timeout
+           for a revertive group. For APS redundancy types, this 
+           is called the working member.
+         
+         secondary
+           The member which normally defaults to standby at system
+           startup. It represents the extra member which has been 
+           added in order to provide backup to the primary member(s).
+           For APS redundancy types, the secondary member is called 
+           the protection member.
+        "
+    SYNTAX INTEGER {
+                    primary(1),
+                    secondary(2)
+                   }
+
+CeRedunMbrStatus ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "Bitflags indicating the current redundancy status of a 
+         redundant member. Some combinations of multiple bitflags
+         may be set at the same time.
+ 
+         protectionLockedOut
+ 
+           This bit, when applied to a primary member, indicates
+           that the member is prevented from switching to standby.
+           When applied to a secondary member, this bit indicates 
+           that it may not take over as active for any primary member.
+ 
+         degraded
+ 
+           A degraded alarm condition is in effect for the member.
+           This is any alarm condition which allows the member to 
+           provide some usable level of functionality, but should 
+           still result in a switchover if the peer member is good. 
+             
+           Any other minor alarm conditions which should not result in
+           switchovers, should not cause the degraded bit to be set.
+ 
+         failure
+ 
+           A failure alarm condition is in effect for the member.
+           This is any alarm condition which prevents or seriously 
+           degrades the ability of the member to provide a usable
+           level of functionality.
+ 
+         standby
+ 
+           The standby bit should be set for primary member any 
+           time a secondary member has taken over as active for it. 
+  
+           The standby bit should be set for a secondary member 
+           during the entire time when that member has not taken 
+           over as active for a primary member. 
+ 
+         protectionProvided
+ 
+           This bit is set whenever the standby bit is not set and a 
+           corresponding standby member has reached its terminal 
+           standby state so that it is fully capable of providing 
+           protection for this active member.
+
+           It should be suppressed if the protectionLockedOut bit or 
+           the forcedStandby bit is set for either member.  However 
+           it may remain set while the manualStandby bit is set for 
+           a corresponding standby member as long as switchover 
+           protection is still being offered for this active member 
+           under some conditions.
+ 
+         forcedStandby
+ 
+           This bit is applied if a forcedSwitchAway command is in
+           effect for the member.
+ 
+         manualStandby
+ 
+           This bit is applied if a manualSwitchAway command is in
+           effect for the member. 
+         "
+    SYNTAX     BITS {
+                      protectionLockedOut(0),
+                      degraded(1),
+                      failure(2),
+                      standby(3),
+                      protectionProvided(4),
+                      forcedStandby(5),
+                      manualStandby(6)
+                     }
+
+CeRedunStateCategories ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "A list of categories of possible member internal states 
+         which may be considered significant for redundancy control.
+         Managed systems may report only a subset of these state
+         categories. Managed systems may also report multiple states 
+         that fall into the same categories:
+        
+         other(1)
+           The internal state doesn't fall into any other category 
+           listed below.
+         
+         disabled(2)
+           The member is disabled from participating in protection
+           for this group, due to some user or automatic action.
+
+         inactive(3)
+           The member is not active, but is not considered as 
+           providing standby protection for this group.
+
+         failed(4)
+           The member can no longer provide protection for the
+           redundancy group because of a failure condition.
+
+           Note: Managed systems may optionally leave members 
+           with failures in other internal states, but may just 
+           report an alarm condition for the member.
+
+         initializing(5)
+           The member is undergoing initialization.
+         
+         negotiation(6)
+           The member is determining its active/standby 
+           classification.
+
+         activeOther(7)
+           The member is considered as active, but doesn't fit
+           into any other active category listed below.
+
+         activeImageInitialize(8)
+           The member has been chosen as active but is in the
+           process of downloading or otherwise initializing
+           a software or firmware image.
+
+         activeConfigInitialize(9)
+           The member has been chosen as active but is in the 
+           process of downloading or otherwise initializing
+           its configuration.
+
+         activeRunStateInitialize(10)
+           The member has been chosen as active but is in the 
+           process of downloading or otherwise initializing other 
+           information considered as part of its run-time state.
+
+         activeFromStandbyTransition(11)
+           The member is in the process of transitioning from
+           active to standby.
+         
+         activeReconciliation(12)
+           The member is reconciling in order to bring some 
+           internal configuration or run-time state to be consistent
+           with some other entity.
+
+         activeWait(13)
+           The member is doing some unspecified activity prior 
+           to reaching its final active state.
+
+         active(14)
+           The member is in its final active state.
+
+         standbyOther(15)
+           The member is considered as standby, but doesn't fit
+           into any other standby category listed below.
+
+         standbyImageInitialize(16)
+           The member has been chosen as standby but is in the
+           process of downloading or otherwise initializing a
+           software or firmware image.
+
+         standbyConfigInitialize(17)
+           The member has been chosen as standby but is in the 
+           process of downloading or otherwise initializing 
+           its configuration.
+
+         standbyRunStateInitialize(18)
+           The member has been chosen as standby but is in the 
+           process of downloading or otherwise initializing other
+           information considered as part of its run-time state.
+
+         standbyReconciliation(19)
+           The member is reconciling in order to bring some 
+           internal configuration or run-time state to be consistent
+           with some other entity.
+
+         standbyWait(20)
+           The member is doing some unspecified activity prior 
+           to reaching its final standby state.
+
+         standbyColdFinal(21)
+           The member is in its final standby state, but 
+           it will require a substantial interval of additional 
+           activities before it can be fully active following
+           a switchover.
+
+         standbyWarmFinal(22)
+           The member is in its final standby state, but it 
+           will require a small interval of additional
+           activities before it can be fully active following
+           a switchover.
+
+         standbyHotFinal(23)
+           The member is in its final standby state and will
+           be able to take over as active immediately following
+           a switchover. 
+
+         standbySwitchingToActive(24)
+           The member is still considered standby, but is in the 
+           process of transitioning to active.
+        "
+    SYNTAX INTEGER {
+                    other(1),
+                    disabled(2),
+                    inactive(3),
+                    failed(4),
+                    initializing(5),
+                    negotiation(6),
+                    activeOther(7),
+                    activeImageInitialize(8),
+                    activeConfigInitialize(9),
+                    activeRunStateInitialize(10),
+                    activeFromStandbyTransition(11),
+                    activeReconciliation(12),
+                    activeWait(13),
+                    active(14),
+                    standbyOther(15),
+                    standbyImageInitialize(16),
+                    standbyConfigInitialize(17),
+                    standbyRunStateInitialize(18),
+                    standbyReconciliation(19),
+                    standbyWait(20),
+                    standbyColdFinal(21),
+                    standbyWarmFinal(22),
+                    standbyHotFinal(23),
+                    standbySwitchingToActive(24)
+                   }
+
+CeRedunReasonCategories ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "A list of categories of possible switchover reasons.
+         Managed systems may report only a subset of these reason
+         categories. Managed systems may also report multiple reasons
+         that fall into the same categories.:
+
+         other(1)
+           The specified reason doesn't fall into any of the 
+           categories listed below.
+       
+         unsupported(2)
+           The reason code is an unsupported feature
+
+         notKnown(3)
+           The managed system was not able to determine the
+           reason for the last switchover.
+
+         userManual(4)
+           The switchover was a result of a manualSwitchAway 
+           command by a user.
+
+         userForced(5)
+           The switchover was a result of a forcedSwitchAway 
+           command by a user.
+
+         userLockout(6)
+           The switchover was a result of a lockoutProtection 
+           command by a user.
+
+         activeMbrFailed(7)
+           The switchover was triggered by a degrade or failure
+           alarm on the previously active member.
+
+         activeMbrRemoved(8)
+           The switchover was triggered by the removal of
+           the previously active member.
+             
+         activeMbrDisabled(9)
+           The switchover was triggered by some other user
+           controlled action which placed the prior active member
+           into an offline, disabled or shutdown state.
+
+         revertiveSwitchover(10)
+           The switchover was the result of a timeout of
+           the wait-to-revert timer for a group configured
+           for revertive switching.
+         
+         remoteRequest(11)
+           The switchover was triggered due to a request from
+           a remote system. 
+        "
+    SYNTAX INTEGER {
+                    other(1),
+                    unsupported(2),
+                    notKnown(3),
+                    userManual(4),
+                    userForced(5),
+                    userLockout(6),
+                    activeMbrFailed(7),
+                    activeMbrRemoved(8),
+                    activeMbrDisabled(9),
+                    revertiveSwitchover(10),
+                    remoteRequest(11)
+                   }
+END
+
+  
+ 
+ 

@@ -1,0 +1,1337 @@
+--*****************************************************************
+-- CISCO-XGCP-EXT-MIB
+--
+-- This MIB defines the attributes related to Call Control in 
+-- a Media Gateway.
+--
+-- May 2002, Margaret Hsieh
+--
+-- Copyright (c) 2002 by cisco Systems, Inc.
+-- All rights reserved.
+--*****************************************************************
+
+CISCO-XGCP-EXT-MIB  DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32
+        FROM SNMPv2-SMI
+    TruthValue, TEXTUAL-CONVENTION, DisplayString, RowStatus
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF  
+    cmgwIndex, CCallControlProfileIndex
+        FROM CISCO-MEDIA-GATEWAY-MIB  
+    InetAddress, InetAddressType                
+        FROM INET-ADDRESS-MIB
+    CXgcpRetryMethod
+        FROM CISCO-XGCP-MIB
+    CountryCodeITU
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoXgcpExtMIB  MODULE-IDENTITY
+    LAST-UPDATED "200301300000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+        "        Cisco Systems
+                 Customer Service
+        Postal: 170 W Tasman Drive
+                San Jose, CA 95134
+                USA
+           Tel: +1 800 553-NETS
+        E-mail: cs-voice-gateway@cisco.com"
+
+    DESCRIPTION
+        "This MIB module is an extension to CISCO-XGCP-MIB.
+
+         It defines the parameters related to the following
+         aspects in xGCP protocols:
+             * Default call control parameters in the local media
+               gateway.
+             * Provisioning specific call control profiles which can
+               be associated with the circuits for the call 
+               establishment in the circuits. "
+
+    REVISION "200301300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module"
+    ::= { ciscoMgmt 325 }
+
+--
+--Object Idenitifiers used for Call Control configuration 
+--
+cxgcpExtObjects
+    OBJECT IDENTIFIER ::= { ciscoXgcpExtMIB 1 }
+
+cxgcpExtConfig
+    OBJECT IDENTIFIER ::= { cxgcpExtObjects 1 }
+
+--*********************************************************************
+--
+-- Textual Conventions
+--
+--*********************************************************************
+
+DtmfRelayMode ::= TEXTUAL-CONVENTION
+    STATUS        current
+    DESCRIPTION
+        "This textual convention defines DTMF (Dual Tone Multi-
+         Frequency) relay mode.
+
+         There are a number of possible ways to relay DTMF digits over
+         a VoIP/VoATM network:
+
+             dtmfRelayDisabled - DTMF won't be detected and won't be
+                                 specially treated.
+             dtmfRelayCisco - DTMF will be sent as Cisco proprietary
+                           format in RTP (Real Time Protocol) packet. 
+             dtmfRelayNse - DTMF will be sent as NSE (Named Signalled 
+                            Event) in-band (within RTP audio stream) 
+             dtmfRelayOutOfBand - DTMF detection is enabled, but the 
+                                  digits will not be sent on the bearer.
+             dtmfRelayNteGw - DTMF will be sent as NTE (Named Telephony
+                              Event) configured in the local gateway.
+             dtmfRelayNteCa - DTMF will be sent as NTE (Named Telephony
+                              Event) from the negotiation with call 
+                              agent. 
+             dtmfRelayInband - DTMF will be detected and be transported
+                               over VoIP or VoATM network as voice 
+                               packets.
+             dtmfRelayType3 - DTMF digits will be detected and sent as 
+                               Type 3 packets."
+    REFERENCE
+        "RFC2833, Section 3: RTP Payload Format for Named 
+         Telephone Events"
+    SYNTAX          INTEGER {
+                        dtmfRelayDisabled  (1),
+                        dtmfRelayCisco     (2),
+                        dtmfRelayNse       (3),
+                        dtmfRelayOutOfBand (4),
+                        dtmfRelayNteGw     (5),
+                        dtmfRelayNteCa     (6),
+                        dtmfRelayInband    (7),
+                        dtmfRelayType3     (8)
+                    }
+
+DtmfCodecType ::= TEXTUAL-CONVENTION
+    STATUS        current
+    DESCRIPTION
+        "DTMF (Dual Tone Multi-Frequency) will be specially handled
+         under the specified codec rates.
+             dtmfCodecAll - DTMF will be specially handled according
+                            to the type indicated in DtmfRelayMode under
+                            all codec rates.
+             dtmfCodecLowRate - DTMF will be specially handled according
+                            to the type indicated in DtmfRelayMode only
+                            in lower codec rates (e.g., the rate of 
+                            G.726, G.728 or G.729). "
+    SYNTAX          INTEGER {
+                        dtmfCodecAll     (1),
+                        dtmfCodecLowRate (2) 
+                    }
+
+CxeTerminalProviderCode ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "This textual convention represents a Terminal Provider 
+         Code for non-standard facilities in telematic services.
+         Unrecognized terminal providers are represented as
+         empty string."
+    REFERENCE
+        "ITU-T T.35 - Section 3.2 Terminal Provider Code"
+    SYNTAX        OCTET STRING (SIZE (0 | 2))
+
+cxeCallCtrlConfigTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF CxeCallCtrlConfigEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "This table contains objects used for configuring general 
+         parameters in call control default to the local media gateway
+         in xGCP protocols. "
+
+    ::= { cxgcpExtConfig 1 }
+
+cxeCallCtrlConfigEntry OBJECT-TYPE
+    SYNTAX        CxeCallCtrlConfigEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "There is one entry for each media gateway.
+         The entry will be automatically generated when a media
+         gateway is detected. "
+
+    INDEX  { cmgwIndex }
+    ::= { cxeCallCtrlConfigTable 1 }
+
+CxeCallCtrlConfigEntry::= SEQUENCE  {
+    cxeCallCtrlControlServiceType    Integer32,
+    cxeCallCtrlBearerServiceType     Integer32,
+    cxeCallCtrlVoIpDtmfRelayMode     DtmfRelayMode,
+    cxeCallCtrlVoIpDtmfCodec         DtmfCodecType,
+    cxeCallCtrlVoAal2DtmfRelayMode   DtmfRelayMode, 
+    cxeCallCtrlVoAal2DtmfCodec       DtmfCodecType,
+    cxeCallCtrlTsePayload            Integer32,
+    cxeCallCtrlNetNseTimer           Integer32,
+    cxeCallCtrlRtcpRcvTimer          Integer32,
+    cxeCallCtrlIgnoreAal2LcoCodec    TruthValue,
+    cxeCallCtrlDigitMapOrder         INTEGER,
+    cxeCallCtrlT38Inhibited         TruthValue,
+    cxeCallCtrlT38NseRspTimer        Integer32,
+    cxeCallCtrlT38FecEnabled         TruthValue,
+    cxeCallCtrlT38LsRedundancy       Integer32, 
+    cxeCallCtrlT38HsRedundancy       Integer32, 
+    cxeCallCtrlT38NsfCountryCode     CountryCodeITU,
+    cxeCallCtrlT38NsfVendorCode      CxeTerminalProviderCode,
+    cxeCallCtrlVselDselFselSupport   TruthValue,
+    cxeCallCtrlDefaultBearTraffic    INTEGER,
+    cxeCallCtrlLastFailedMgcAddrType InetAddressType,
+    cxeCallCtrlLastFailedMgcAddress  InetAddress
+}
+
+
+cxeCallCtrlControlServiceType OBJECT-TYPE
+    SYNTAX                    Integer32 (0..255)
+    MAX-ACCESS                read-write
+    STATUS                    current
+    DESCRIPTION
+        "This object identifies Type Of Service (TOS) field of 
+         IP header for the control packet in VoIP application."
+    DEFVAL { 96 }
+    ::= { cxeCallCtrlConfigEntry 1 }
+
+cxeCallCtrlBearerServiceType OBJECT-TYPE
+    SYNTAX                   Integer32 (0..255)
+    MAX-ACCESS               read-write
+    STATUS                   current
+    DESCRIPTION
+        "This object identifies Type Of Service (TOS) field
+         of IP header for the voice payload packet in VoIP
+         application." 
+    DEFVAL { 160 }
+    ::= { cxeCallCtrlConfigEntry 2 }
+
+
+cxeCallCtrlVoIpDtmfRelayMode OBJECT-TYPE
+    SYNTAX                   DtmfRelayMode 
+    MAX-ACCESS               read-write
+    STATUS                   current
+    DESCRIPTION
+        "This object defines whether the DTMF (Dual Tone, 
+         Multi-Frequency) digits need to be transported to the other
+         endpoint via NSE packets in Voice Over IP.
+
+         The value of this object will be utilized when the call
+         agent does not specify this parameter."
+    DEFVAL { dtmfRelayDisabled }
+    ::= { cxeCallCtrlConfigEntry 3 }
+
+cxeCallCtrlVoIpDtmfCodec OBJECT-TYPE
+    SYNTAX               DtmfCodecType 
+    MAX-ACCESS           read-write
+    STATUS               current
+    DESCRIPTION
+        "This object identifies DTMF relay codec for VoIP. 
+         This object is not applicable if cxeCallCtrlVoIpDtmfRelay
+         is DtmfRelayDisabled. "
+    DEFVAL { dtmfCodecAll }
+    ::= { cxeCallCtrlConfigEntry 4 }
+
+cxeCallCtrlVoAal2DtmfRelayMode OBJECT-TYPE
+    SYNTAX                     DtmfRelayMode 
+    MAX-ACCESS                 read-write
+    STATUS                     current
+    DESCRIPTION
+        "This object defines whether the DTMF (Dual Tone, 
+         Multi-Frequency) digits need to be transported to the other
+         endpoint in Voice over AAL2 packets.
+
+         The value of this object will be utilized when the call
+         agent does not specify this parameter."
+    DEFVAL { dtmfRelayDisabled }
+    ::= { cxeCallCtrlConfigEntry 5 }
+
+cxeCallCtrlVoAal2DtmfCodec OBJECT-TYPE
+    SYNTAX                 DtmfCodecType 
+    MAX-ACCESS             read-write
+    STATUS                 current
+    DESCRIPTION
+        "This object identifies DTMF relay CODEC for Voice over AAL2. 
+         This object is not applicable if cxeCallCtrlVoAal2DtmfRelay
+         is DtmfRelayDisabled. "
+    DEFVAL { dtmfCodecAll }
+    ::= { cxeCallCtrlConfigEntry 6 }
+
+cxeCallCtrlTsePayload OBJECT-TYPE
+    SYNTAX            Integer32 (0..200)
+    MAX-ACCESS        read-write
+    STATUS            current
+    DESCRIPTION
+        "This object identifies TSE (Telephony Signaling 
+         Events) payload type." 
+    REFERENCE
+        "RFC2833, 3. RTP Payload Format for Named Telephone Events"
+    DEFVAL { 100 }
+    ::= { cxeCallCtrlConfigEntry 7 }
+
+cxeCallCtrlNetNseTimer OBJECT-TYPE
+    SYNTAX             Integer32 (250..10000)
+    UNITS              "milliseconds"
+    MAX-ACCESS         read-write
+    STATUS             current
+    DESCRIPTION
+        "This object identifies Network Signaling Event (NSE)
+         timeout value."
+    DEFVAL { 1000 }
+    ::= { cxeCallCtrlConfigEntry 8 }
+
+cxeCallCtrlRtcpRcvTimer OBJECT-TYPE
+    SYNTAX              Integer32 (1..10)
+    UNITS               "times"
+    MAX-ACCESS          read-write
+    STATUS              current
+    DESCRIPTION
+        "This object identifies the number of times of Real Time
+         Control Transport (RTCP) report interval if the media
+         gateway has not recieved any RTCP packets from another
+         side. 
+
+         The media gateway will mark another side inactive, or 
+         delete it if no RTCP packet has been received for 
+         the value of this object times the RTCP report interval."
+    REFERENCE
+        "RFC1889"
+    DEFVAL { 5 }
+    ::= { cxeCallCtrlConfigEntry 9 }
+
+cxeCallCtrlIgnoreAal2LcoCodec OBJECT-TYPE
+    SYNTAX                    TruthValue 
+    MAX-ACCESS                read-write
+    STATUS                    current
+    DESCRIPTION
+        "This object defines whether to ignore the AAL2 Local 
+         Connection Option (LCO) message from the call agent 
+         or not. "
+    DEFVAL { false }
+    ::= { cxeCallCtrlConfigEntry 10 }
+
+
+cxeCallCtrlDigitMapOrder OBJECT-TYPE
+    SYNTAX               INTEGER {
+                           dmOrderShortest (1),
+                           dmOrderOrdered (2)
+                         }
+    MAX-ACCESS           read-write
+    STATUS               current
+    DESCRIPTION
+        "This object defines the type of digit map order. 
+         The MGC can advise and load the gateway with a digit map 
+         that correspond to the dial plan to collect the access 
+         codes, credit card numbers and other numbers requested
+         by call control services."
+    REFERENCE
+        "RFC2705, 2.1.5 Digit Maps"
+    DEFVAL { dmOrderShortest }
+    ::= { cxeCallCtrlConfigEntry 11 }
+
+cxeCallCtrlT38Inhibited OBJECT-TYPE
+    SYNTAX               TruthValue
+    MAX-ACCESS           read-write
+    STATUS               current
+    DESCRIPTION
+        "This object defines whether T.38 is inhibited in the 
+         media gateway or not. 
+
+         T.38 is a Fax Relay Protocol defined by ITU for
+         real-time protocol for Fax over IP networks."
+    REFERENCE
+        "ITU-T T.38 Procedures for real-time Group 3 facsimile 
+         communicating over IP networks"
+    DEFVAL { false }
+    ::= { cxeCallCtrlConfigEntry 12 }
+
+cxeCallCtrlT38NseRspTimer OBJECT-TYPE
+    SYNTAX                Integer32 (250..10000)
+    UNITS                 "milliseconds"
+    MAX-ACCESS            read-write
+    STATUS                current
+    DESCRIPTION
+        "This object defines a timeout value for a timer. 
+         This timer is started after sending a NSE 200 
+         while waiting for the NSE 201 acknowledgement or
+         NSE 202 negative acknowledgement. Expiration of the 
+         timer will indicate that the request for switch 
+         to T.38 has been rejected or discarded by the far end.
+
+         The initial value is 1000 ms and this value 
+         can only be set in the increments of 250 ms.
+
+         This object is not applicable if cxeCallCtrlT38Inhibited 
+         is set to 'true'. "
+    DEFVAL { 1000 }
+    ::= { cxeCallCtrlConfigEntry 13 }
+
+cxeCallCtrlT38FecEnabled OBJECT-TYPE
+    SYNTAX               TruthValue 
+    MAX-ACCESS           read-write
+    STATUS               current
+    DESCRIPTION
+        "This object is used to enable the Forward Error 
+         Correction (FEC) for UDP-based fax transport.
+
+         This object is not applicable if cxeCallCtrlT38Inhibited 
+         is set to 'true'."
+    DEFVAL { true }
+    ::= { cxeCallCtrlConfigEntry 14 }
+
+cxeCallCtrlT38LsRedundancy OBJECT-TYPE
+    SYNTAX                Integer32 (0..5) 
+    MAX-ACCESS            read-write
+    STATUS                current
+    DESCRIPTION
+        "This object determines the extent of the Internet Fax
+         Protocol (IFP) packet transmission redundancy for 
+         the low-speed control information exchanged during 
+         the first phase of a T.38 fax relay connection.
+
+         Depending on whether Forward Error Correction (FEC) 
+         is enabled (cxeCallCtrlT38FecEnabled is set to 'true') 
+         or not, this object has different meanings.
+         If FEC is disabled, then this object is the maximum 
+         number of prior IFP packets within a Unnumbered
+         Datagram Protocol Transport Layer (UDPTL) packet carrying
+         low speed information, not counting the primary or 
+         current IFP packet.
+
+         If FEC is enabled, then this object is the maximum
+         number of FEC messages within a UDPTL packet carrying 
+         low speed information.
+
+         This object is not applicable if cxeCallCtrlT38Inhibited 
+         is set to 'true'."
+    REFERENCE
+        "ITU-T T.38 Procedures for real-time Group 3 facsimile 
+         communicating over IP networks"
+    DEFVAL { 5 }
+    ::= { cxeCallCtrlConfigEntry 15 }
+
+cxeCallCtrlT38HsRedundancy OBJECT-TYPE
+    SYNTAX                 Integer32 (0..2) 
+    MAX-ACCESS             read-write
+    STATUS                 current
+    DESCRIPTION
+        "This object determines the extent of the Internet Fax
+         Protocol (IFP) packet transmission redundancy for 
+         the high-speed control and image information 
+         exchanged following the initial low-speed phase of 
+         a T.38 fax relay connection.
+
+         Depending on whether forward error correction (FEC) 
+         is enabled (cxeCallCtrlT38FecEnabled is set to 'true') 
+         or not. If FEC is disabled, then this object is the 
+         maximum number of prior IFP packets within a UDPTL packet
+         carrying high speed information, not counting the 
+         primary or current IFP packet.
+         If FEC is enabled, then this object is the maximum
+         number of FEC messages within a UDPTL packet carrying 
+         high speed information.
+
+         This object is not applicable if cxeCallCtrlT38Inhibited 
+         is set to 'true'."
+    REFERENCE
+        "ITU-T T.38 Procedures for real-time Group 3 facsimile 
+         communicating over IP networks"
+    DEFVAL { 0 }
+    ::= { cxeCallCtrlConfigEntry 16 }
+
+cxeCallCtrlT38NsfCountryCode OBJECT-TYPE
+    SYNTAX                   CountryCodeITU
+    MAX-ACCESS               read-write
+    STATUS                   current
+    DESCRIPTION
+        "This object specifies the country code for identifying
+         the country where the media gateway with non-standard 
+         capabilities was manufactured.
+
+         This object is not applicable if cxeCallCtrlT38Inhibited 
+         is set to 'true'.  "
+    DEFVAL { 173 }  -- United States
+    ::= { cxeCallCtrlConfigEntry 17 }
+
+cxeCallCtrlT38NsfVendorCode OBJECT-TYPE
+    SYNTAX                  CxeTerminalProviderCode
+    MAX-ACCESS              read-write
+    STATUS                  current
+    DESCRIPTION
+        "Per its definition (ITU T.35), the Vendor Code (also
+         called the Terminal Provider Code) in the Non-Standard
+         Facilities (NSF) code is a two-byte field identifying the
+         manufacturer of the media gateway with non-standard 
+         capabilities.
+
+         This object is not applicable if cxeCallCtrlT38Inhibited 
+         is set to 'true'.  "
+    DEFVAL { '0051'h }
+    ::= { cxeCallCtrlConfigEntry 18 }
+
+cxeCallCtrlVselDselFselSupport OBJECT-TYPE
+    SYNTAX                     TruthValue
+    MAX-ACCESS                 read-write
+    STATUS                     current
+    DESCRIPTION
+        "This object is used to enable or disable VSEL, DSEL and  
+         FSEL support. 
+
+         VSEL: Voice codec, packet length and packet times Selection
+         DSEL: Data codec, packet length and packet times Selection
+         FSEL: Fax codec, packet length and packet times Selection
+
+         If cxeCallCtrlVselDselFselSupport is true, then the media
+         gateway must indicate prefered codec, packet length and 
+         packet times for an ATM connection. "
+    DEFVAL { false }
+    ::= { cxeCallCtrlConfigEntry 19 }
+
+cxeCallCtrlDefaultBearTraffic OBJECT-TYPE
+    SYNTAX                    INTEGER {
+                                  ipPvcAal5 (1),
+                                  atmPvcAal2 (2),
+                                  atmSvcAal2 (3),
+                                  atmSvcAal1 (4)
+                              }
+    MAX-ACCESS                read-write
+    STATUS                    current
+    DESCRIPTION
+        "This object specifies the combination of the network 
+         type (IP/ATM), virtual circuit type (PVC/SVC) and
+         ATM adaptation layer type (AAL1/AAL2/AAL5) for the 
+         connection used in transporting bearer traffic.
+
+             ipPvcAal5 (1) - The bearer traffic is transported in
+                             IP network, through Permanent Virtual 
+                             Circuit(PVC) over AAL5 adaptation layer.
+             atmPvcAal2 (2) - The bearer traffic is transported in
+                              ATM network, through Permanent Virtual 
+                              Circuit(PVC) over AAL2 adaptation layer.
+             atmSvcAal2 (3) - The bearer traffic is transported in
+                              ATM network, through Switching Virtual
+                              Circuit(SVC) over AAL2 adaptation layer.
+             atmSvcAal1 (4) - The bearer traffic is transported in
+                              ATM network, through Switching Virtual
+                              Circuit(SVC) over AAL1 adaptation layer.
+
+         If the call agent specifies the bear traffic type in the 
+         MGCP (Media Gateway Control Protocol) local connection 
+         options (CRCX request), then configuration of this object 
+         will have no effect, else the value of this object will be 
+         used when sending CRCX response."
+    DEFVAL { ipPvcAal5 }
+    ::= { cxeCallCtrlConfigEntry 20 }
+
+cxeCallCtrlLastFailedMgcAddrType OBJECT-TYPE
+    SYNTAX                InetAddressType
+    MAX-ACCESS            read-only
+    STATUS                current
+    DESCRIPTION
+        "This object indicates the address type, either IPv4 or 
+         IPv6, of cxeCallCtrlLastFailedMgcAddress. "
+    ::= { cxeCallCtrlConfigEntry 21 }
+
+cxeCallCtrlLastFailedMgcAddress OBJECT-TYPE
+    SYNTAX            InetAddress
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "This object indicates the address of MGC (Media Gateway
+         Controller) with which the media gateway had tried to 
+         communicate lastly but failed."
+    ::= { cxeCallCtrlConfigEntry 22 }
+
+cxeCallCtrlProfileTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CxeCallCtrlProfileEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This table defines the call control profiles.
+
+         A call control profile contains the call control information 
+         that a call agent uses to establish a call. In the call 
+         control profile, it has the following configurations:
+         (1) The information of call agent, such as its address, 
+             connecting port, service type and version.
+         (2) The maximum retry parameters in the message exchange 
+             between the call agent and the media gateway.
+         (3) The timeout settings in the call control.
+
+         A call control profile can be associated with a voice
+         interface (DS0 group in TDM side), so all the calls set up
+         in the voice interface will use the call control 
+         parameters from the profile. 
+
+         A call control profile can be associated with a Media Gateway
+         Controller(MGC)/call agent redundant group (cMgcGrpParamTable
+         defined in CISCO-MGC-MIB). In this case, the call agent 
+         information for the profile will be determined by the MGC 
+         redundant group. "
+    ::= { cxgcpExtConfig 2 }
+
+cxeCallCtrlProfileEntry OBJECT-TYPE
+    SYNTAX         CxeCallCtrlProfileEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "Each entry describes an instance of a call control
+         profile in the media gateway. 
+
+         When an entry of call control profile is added to the table,
+         the following object must be provided:
+
+             cxeCcProfileName - an unique string of profile name to 
+                               identify the profile.
+ 
+         After the entry is added, all the accessible objects can be
+         modified except cxeCcProfileName. If users want to modify
+         the name of the call control profile, they have to delete
+         the original entry and create another entry with the new
+         name. "
+    INDEX  { cmgwIndex, cxeCcProfileIndex }
+    ::= { cxeCallCtrlProfileTable 1 }
+
+CxeCallCtrlProfileEntry::= SEQUENCE  {
+    cxeCcProfileIndex	         CCallControlProfileIndex,
+    cxeCcProfileName             DisplayString,
+    cxeCcProfileNumVifs          Integer32,  
+    cxeCcProfileMgcGrpNum        Integer32,
+    cxeCcProfileMgcAddrType      InetAddressType,
+    cxeCcProfileMgcAddress       InetAddress,
+    cxeCcProfileProtocolIdx      Integer32,
+    cxeCcProfileXgcpRetryMethod  CXgcpRetryMethod,
+    cxeCcProfileRetryMax1        Integer32,
+    cxeCcProfileDnsLookupMax1    TruthValue,
+    cxeCcProfileRetryMax2        Integer32,
+    cxeCcProfileDnsLookupMax2    TruthValue,
+    cxeCcProfileMwiTimeout       Integer32,
+    cxeCcProfileTsmaxTimeout     Integer32,
+    cxeCcProfileTdinitTimeout    Integer32,
+    cxeCcProfileTdminTimeout     Integer32, 
+    cxeCcProfileTdmaxTimeout     Integer32, 
+    cxeCcProfileTcritTimeout     Integer32, 
+    cxeCcProfileTparTimeout      Integer32, 
+    cxeCcProfileThistTimeout     Integer32, 
+    cxeCcProfileRtTimeout        Integer32, 
+    cxeCcProfileRbkTimeout       Integer32, 
+    cxeCcProfileCgTimeout        Integer32, 
+    cxeCcProfileBzTimeout        Integer32, 
+    cxeCcProfileDlTimeout        Integer32, 
+    cxeCcProfileSlTimeout        Integer32, 
+    cxeCcProfileRgTimeout        Integer32, 
+    cxeCcProfileRoTimeout        Integer32, 
+    cxeCcProfileCot1Timeout      Integer32, 
+    cxeCcProfileCot2Timeout      Integer32, 
+    cxeCcProfileRowStatus        RowStatus
+}
+
+cxeCcProfileIndex  OBJECT-TYPE
+    SYNTAX         CCallControlProfileIndex
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This object uniquely identifies the call control profile."
+    ::= { cxeCallCtrlProfileEntry 1 }
+
+cxeCcProfileName   OBJECT-TYPE
+    SYNTAX         DisplayString (SIZE(1..64)) 
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+        "A unique name for the profile. The name of the profile
+         has to be unique among all entries of the table.
+
+         This object is mandatory during the creation of the entry.
+
+         This object can not be modified.
+         If users want to modify the name of the call control profile,
+         they have to delete the original entry and create another 
+         entry with the designated name. "
+    ::= { cxeCallCtrlProfileEntry 2 }
+
+cxeCcProfileNumVifs OBJECT-TYPE
+    SYNTAX          Integer32 (0..1000)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object reprsents the total number of voice interface 
+         (DS0 group) associated with this call control profile.
+
+         The value of '0' means there is no voice interfaces
+         associated with the profile. 
+
+         Before the call control profile can be deleted, 
+         this object should have the value of 0 
+         (means all voice interfaces should be de-associated with
+         the profile before the profile can be deleted).  "
+    ::= { cxeCallCtrlProfileEntry 3 }
+
+cxeCcProfileMgcGrpNum OBJECT-TYPE
+    SYNTAX            Integer32 (0..128)
+    MAX-ACCESS        read-create
+    STATUS            current
+    DESCRIPTION
+        "This object indicates which MGC Redundant group number
+         that the call control profile will be used. 
+         The value is the index to MGC Redundant Group Table
+         (cMgcGrpParamTable).
+
+         There are two conditions for associating a MGC group 
+         with a profile:
+         1. At least one MGC is associated with the MGC group
+         2. At least one protocol is associated with the MGC group
+
+         After a MGC Redundant Group is associated with the 
+         profile (cxeCcProfileMgcGrpNum > 0):
+           In the call setup, the parameters of MGCs 
+           within the MGC Redundant Group will be sequentially 
+           tried according to its preference.
+
+         The value of '0' means there is no MGC Redundant
+         Group associated with the profile.
+
+         This object takes the precedence of object 
+         cxeCcProfileMgcAddress of the profile.
+         If users try to set a value to cxeCcProfileMgcAddress
+         while the value of this object is non-zero, the set will
+         be rejected.
+
+         Before the call control profile can be deleted, 
+         this object should have the value of 0. 
+         Which means MGC Redundant Group should be 
+         de-associated with the profile before the profile 
+         can be deleted."
+    DEFVAL { 0 }
+    ::= { cxeCallCtrlProfileEntry 4 }
+
+cxeCcProfileMgcAddrType OBJECT-TYPE
+    SYNTAX              InetAddressType
+    MAX-ACCESS          read-create
+    STATUS              current
+    DESCRIPTION
+        "This object identifies the address type applicable to
+         cxeCcProfileMgcAddress."
+    DEFVAL { ipv4 }
+    ::= { cxeCallCtrlProfileEntry 5 }
+
+cxeCcProfileMgcAddress OBJECT-TYPE
+    SYNTAX             InetAddress 
+    MAX-ACCESS         read-create
+    STATUS             current
+    DESCRIPTION
+        "This object specifies the address of Media Gateway 
+         Controller (MGC) configured in the profile.
+
+         When cxeCcProfileMgcGrpNum is non-zero (which menas 
+         using MGC group), this object can not be set."
+    DEFVAL { '00000000'h }
+    ::= { cxeCallCtrlProfileEntry 6 }
+
+cxeCcProfileProtocolIdx OBJECT-TYPE
+    SYNTAX              Integer32 (1..32)
+    MAX-ACCESS          read-create
+    STATUS              current
+    DESCRIPTION
+        "This object specifies the protocol that the media gateway
+         should communicate with MGC during call setup.
+
+         It is the index of the protocol table(cMediaGwProtocolTable).
+
+         If cxeCcProfileMgcGrpNum is non-zero, the value of this object 
+         will be ignored. The protocol will be determined by the 
+         MGC group."
+    DEFVAL { 1 }
+    ::= { cxeCallCtrlProfileEntry 7 }
+
+cxeCcProfileXgcpRetryMethod  OBJECT-TYPE
+    SYNTAX                   CXgcpRetryMethod 
+    MAX-ACCESS               read-create
+    STATUS                   current
+    DESCRIPTION
+        "This object specifies the command/response retry method
+         when the media gateway communicates with the MGC in
+         xGCP protocols."
+    DEFVAL { neverResetTimer }
+    ::= { cxeCallCtrlProfileEntry 8 }
+
+cxeCcProfileRetryMax1 OBJECT-TYPE
+    SYNTAX            Integer32 (1..20)
+    MAX-ACCESS        read-create
+    STATUS            current
+    DESCRIPTION
+        "This object contains the suspicious error threshold for
+         signaling messages."
+    REFERENCE
+        "Refer to PKT-SP-EC-MGCP-I04-011221 specification 
+         Section 3.4.2"
+    DEFVAL { 5 }
+    ::= { cxeCallCtrlProfileEntry 9 }
+
+cxeCcProfileDnsLookupMax1 OBJECT-TYPE
+    SYNTAX                TruthValue 
+    MAX-ACCESS            read-create
+    STATUS                current
+    DESCRIPTION
+        "This object enables/disables the Max1 Domain Name Server
+        (DNS) query operation when Max1 expires.
+        This object is used when a gateway-initiated message is not
+        acknowledged by the MGC. If the object is 'true', a DNS
+        query is performed to re-resolve MGC's domain name after
+        exhausting Max1 retries on any IP address associated with
+        the MGC."
+    DEFVAL { true }
+    ::= { cxeCallCtrlProfileEntry 10 }
+
+cxeCcProfileRetryMax2 OBJECT-TYPE
+    SYNTAX            Integer32 (1..20)
+    MAX-ACCESS        read-create
+    STATUS            current
+    DESCRIPTION
+        "This object contains the disconnect error threshold 
+         for signaling messages."
+    REFERENCE
+        "Refer to PKT-SP-EC-MGCP-I04-011221 specification 
+         Section 3.4.2"
+    DEFVAL { 7 }
+    ::= { cxeCallCtrlProfileEntry 11 }
+
+cxeCcProfileDnsLookupMax2 OBJECT-TYPE
+    SYNTAX                TruthValue 
+    MAX-ACCESS            read-create
+    STATUS                current
+    DESCRIPTION
+        "This object enables/disables the Max2 Domain Name Server
+        (DNS) query operation when Max2 expires.
+
+        This object is used when a gateway-initiated message is not
+        acknowledged by the MGC. If the object is 'true', a DNS
+        query is performed to re-resolve MGC's domain name after
+        exhausting Max2 retries on the last IP address associated 
+        with the MGC."
+    DEFVAL { true }
+    ::= { cxeCallCtrlProfileEntry 12 }
+
+cxeCcProfileMwiTimeout OBJECT-TYPE
+    SYNTAX             Integer32 (1..50)
+    UNITS              "milliseconds"
+    MAX-ACCESS         read-create
+    STATUS             current
+    DESCRIPTION
+        "The timeout value for the message waiting indicator tone.
+         Message Waiting Indicator (MWI) tone is used with message
+         waiting services, it indicates that the media gateway 
+         is ready to accept address information or other information
+         from an access line."
+    REFERENCE
+        "GR-506-CORE, section 17.2.3"
+    DEFVAL { 16 }
+    ::= { cxeCallCtrlProfileEntry 13 }
+
+cxeCcProfileTsmaxTimeout OBJECT-TYPE
+    SYNTAX               Integer32 (1..1000)
+    UNITS                "seconds"
+    MAX-ACCESS           read-create
+    STATUS               current
+    DESCRIPTION
+        "The timeout value for retransmission removal. 
+         The gateway uses the value of this object to determine how 
+         long for the MGCP messages stored in the retransmission 
+         queue before they are discarded."
+    DEFVAL { 20 }
+    ::= { cxeCallCtrlProfileEntry 14 }
+
+cxeCcProfileTdinitTimeout OBJECT-TYPE
+    SYNTAX                Integer32 (1..100)
+    UNITS                 "seconds"
+    MAX-ACCESS            read-create
+    STATUS                current
+    DESCRIPTION  
+        "The voice interface (DS0 group) becomes disconnected when 
+         the media gateway tries to communicate with the call agent 
+         and the retransmission procedure times out after retrying. 
+ 
+         The voice interface (DS0 group) in disconnected state 
+         starts the disconnected timer initialised to the random 
+         value and uniformly distributed between 1 and initial 
+         waiting delay (Tdinit) in seconds.
+ 
+         The gateway waits for either the expiration of the timer, 
+         or the reception of call agent command or the detection of 
+         local user activity for the voice interface (DS0 group).   
+ 
+         When the disconnected timer elapses, or when a command is 
+         received from the call agent or when there is a local user 
+         activity, the media gateway sends the Restart In Progress 
+         command with the restart method as RM:disconnected to the 
+         call agent."
+    REFERENCE
+        "RFC2705, Section 4.4.7 "
+    DEFVAL { 15 }
+    ::= { cxeCallCtrlProfileEntry 15 }
+
+cxeCcProfileTdminTimeout OBJECT-TYPE
+    SYNTAX               Integer32 (1..100)
+    UNITS                "seconds"
+    MAX-ACCESS           read-create
+    STATUS               current
+    DESCRIPTION
+        "The DS0 group (voice interface) becomes disconnected 
+         when it tries to communicate with the call agent and the 
+         retransmission procedure times out after retrying. 
+ 
+         The DS0 group (voice interface ) in disconnected state 
+         starts the disconnected timer initialised to the random 
+         value and uniformly distributed between 1 and initial 
+         waiting delay (Tdinit) in seconds.
+ 
+         The gateway waits for either the end of this timer, or the 
+         reception of call agent command or the detection of local 
+         user activity for the DS0 group(voice interface).   
+ 
+         When the disconnected timer elapses, or when a command is 
+         received from the call agent or when there is a local user 
+         activity, the Voice Gateway sends the Restart In Progress 
+         command with the restart method as RM:disconnected to the 
+         call agent.
+         
+         In case of local user activity, a provisionable disconnected
+         minimum waiting delay (Tdmin) must have been elapsed 
+         since the gateway became disconnected.
+         
+         The minimum waiting delay (Tdmin) timeout value used by the
+         voice Gateway to send the Restart In Progress with the restart
+         method as RM:disconnected to the call agent if there is 
+         any local user activity is defined by this object.
+ 
+         Media gateway initiated delete connection (DLCX) or restart 
+         in progress (RSIP) commands are not considered as local user
+         activity.
+ 
+         The events observed on the TDM interface or on the network
+         constitute the local user activity."
+    REFERENCE
+         "RFC2705, Section 4.4.7 "
+    DEFVAL { 15 }
+    ::= { cxeCallCtrlProfileEntry 17 }
+
+cxeCcProfileTdmaxTimeout OBJECT-TYPE
+    SYNTAX               Integer32 (1..1000)
+    UNITS                "seconds"
+    MAX-ACCESS           read-create
+    STATUS               current
+    DESCRIPTION
+        "The maximum waiting delay (Tdmax) timeout value used by the
+         media gateway to send the Restart In Progress with the 
+         restart method as RM:disconnected to the call agent when
+         the voice interface associated ds0-group disconnection 
+         condition occurs.
+
+         The DS0 group (voice interface) becomes disconnected when 
+         it tries to communicate with the call agent and the 
+         retransmission procedure times out after retrying. 
+
+         The DS0 group (voice interface) in disconnected state 
+         starts the disconnected timer initialised to the random 
+         value and uniformly distributed between 1 and initial 
+         waiting delay (Tdinit) in seconds.
+
+         The gateway waits for either the expiration of the timer, 
+         or the reception of call agent command or the detection 
+         of local user activity for the DS0 group (voice interface).
+ 
+         When the disconnected timer elapses, or when a command is 
+         received from the call agent or when there is a local user 
+         activity, the media gateway sends the Restart In Progress 
+         command with the restart method as RM:disconnected to the 
+         call agent.
+ 
+         If the disconnected procedure still left the DS0 group 
+         (voice interface) disconnected, the disconnected timer 
+         is doubled subject to a provisionable disconnected 
+         maximum waiting delay (Tdmax) in seconds and the gateway 
+         starts the new disconnected procedure again.
+ 
+         Once the maximum value is reached, the subsequent 
+         disconnected Restart In Progress commands use the maximum 
+         waiting delay (Tdmax)."
+    REFERENCE
+         "RFC2705, Section 4.4.7 "
+    DEFVAL { 600 }
+    ::= { cxeCallCtrlProfileEntry 18 }
+
+cxeCcProfileTcritTimeout OBJECT-TYPE
+    SYNTAX               Integer32 (1..1000)
+    UNITS                "seconds"
+    MAX-ACCESS           read-create
+    STATUS               current
+    DESCRIPTION
+        "This object represents the timeout value for the critical 
+         timer.
+
+         If used along with a digit map, the timer is started when
+         the last digit is received. i.e and when no more digits
+         are required for a digit map match. After this timer
+         expires, the digit map match is assumed to be complete.
+
+         If used without a digit map, the timer is started
+         immediately and cancelled (but not restarted) as soon
+         as a digit is entered.
+
+         This object is used by call processing when it processes
+         mid-call DTMF digit reporting."
+    REFERENCE
+         "RFC2705, Section 4.4.7 "
+    DEFVAL { 4 }
+    ::= { cxeCallCtrlProfileEntry 19 }
+
+cxeCcProfileTparTimeout OBJECT-TYPE
+    SYNTAX              Integer32 (1..1000)
+    UNITS               "seconds"
+    MAX-ACCESS          read-create
+    STATUS              current
+    DESCRIPTION
+        " This object represents the partial dial timeout 
+          and is used along with a digit map as the inter-digit 
+          timer. 
+          This object is used by call processing when it processes
+          mid-call DTMF digit reporting.
+
+          The timer is not started until the first digit is entered, 
+          and the timer is restarted after each new digit is entered 
+          untill either a digit map match or mismatch occurs.  "
+    REFERENCE
+         "RFC2705, Section 4.4.7 "
+    DEFVAL { 16 }
+    ::= { cxeCallCtrlProfileEntry 20 }
+
+cxeCcProfileThistTimeout OBJECT-TYPE
+    SYNTAX               Integer32 (1..1000)
+    UNITS                "seconds"
+    MAX-ACCESS           read-create
+    STATUS               current
+    DESCRIPTION
+        "The MGCP protocol is organized as set of transactions, each
+         of which is composed of a command and a resonse. The MGCP
+         messages, being carried over UDP, may be subject to losses.
+         In the absence of a timely response, commands are repeated.
+         The media gateway must keep in memory a list of the responses
+         that it sent to recent transactions, and a list of the
+         transactions that are currently being executed.
+         Recent is here defined by the value of cxeCcProfileThistTimeout
+         that specifies the number of seconds that responses to
+         old transactions must be kept for. "
+    REFERENCE
+         "RFC2705, Section 4.4.7 "
+    DEFVAL { 30 }
+    ::= { cxeCallCtrlProfileEntry 21 }
+
+cxeCcProfileRtTimeout  OBJECT-TYPE
+    SYNTAX             Integer32 (0..3600)
+    UNITS              "seconds"
+    MAX-ACCESS         read-create
+    STATUS             current
+    DESCRIPTION
+        "This object specifies time for which the local ring back
+         tone (towards the TDM) will be generated unless 
+         interrupted (e.g., by the answer from the called party 
+         or a delete connection command from the Call Agent). 
+
+         The value of '0' indicates that the tone will be 
+         generated indefinitely unless interrupted. "
+    REFERENCE
+         "RFC2705, Section 6 Event Packages"
+    DEFVAL { 180 }
+    ::= { cxeCallCtrlProfileEntry 22 }
+
+cxeCcProfileRbkTimeout OBJECT-TYPE
+    SYNTAX             Integer32 (0..3600)
+    UNITS              "seconds"
+    MAX-ACCESS         read-create
+    STATUS             current
+    DESCRIPTION
+        "This object specifies time for which the remote ring 
+         back tone (towards the packet network) will be 
+         generated unless interrupted (e.g., by the answer 
+         from the called party or a delete connection command 
+         from the Call Agent). 
+
+         The value of '0' indicates that the tone will be 
+         generated indefinitely unless interrupted.  "
+    REFERENCE
+         "RFC2705, Section 6 Event Packages"
+    DEFVAL { 180 }
+    ::= { cxeCallCtrlProfileEntry 23 }
+
+cxeCcProfileCgTimeout  OBJECT-TYPE
+    SYNTAX             Integer32 (0..3600)
+    UNITS              "seconds"
+    MAX-ACCESS         read-create
+    STATUS             current
+    DESCRIPTION
+        "This object specifies time for network congestion 
+         tone will be generated. 
+
+         The network congestion tone will be generated when
+         the network resources or bandwidth exceed their 
+         threholds.
+
+         The value of '0' indicates that the tone will be 
+         generated indefinitely unless interrupted.  "
+    REFERENCE
+         "RFC2705, Section 6 Event Packages"
+    DEFVAL { 180 }
+    ::= { cxeCallCtrlProfileEntry 24 }
+
+cxeCcProfileBzTimeout  OBJECT-TYPE
+    SYNTAX             Integer32 (0..3600)
+    UNITS              "seconds"
+    MAX-ACCESS         read-create
+    STATUS             current
+    DESCRIPTION
+        "This object specifies time for which the busy tone 
+         will be generated unless interrupted (e.g., by the 
+         hangup from the calling party). 
+
+         The value of '0' indicates that the tone will be 
+         generated indefinitely unless interrupted.  "
+    REFERENCE
+         "RFC2705, Section 6 Event Packages"
+    DEFVAL { 30 }
+    ::= { cxeCallCtrlProfileEntry 25 }
+
+cxeCcProfileDlTimeout  OBJECT-TYPE
+    SYNTAX             Integer32 (0..3600)
+    UNITS              "seconds"
+    MAX-ACCESS         read-create
+    STATUS             current
+    DESCRIPTION
+        "This object specifies time for which the dial tone 
+         will be generated unless interrupted (e.g., by the 
+         first DTMF digit from the calling party). 
+
+         The value of '0' indicates that the tone will be 
+         generated indefinitely unless interrupted.  "
+    REFERENCE
+         "RFC2705, Section 6 Event Packages"
+    DEFVAL { 16 }
+    ::= { cxeCallCtrlProfileEntry 26 }
+
+cxeCcProfileSlTimeout  OBJECT-TYPE
+    SYNTAX             Integer32 (0..3600)
+    UNITS              "seconds"
+    MAX-ACCESS         read-create
+    STATUS             current
+    DESCRIPTION
+        "This object specifies time for which the stutter 
+         dial tone or confirmation dial tone will be 
+         generated unless interrupted (e.g., by the first 
+         DTMF digit from the calling party). 
+
+         The value of '0' indicates that the tone will be 
+         generated indefinitely unless interrupted.  "
+    REFERENCE
+         "RFC2705, Section 6 Event Packages"
+    DEFVAL { 16 }
+    ::= { cxeCallCtrlProfileEntry 27 }
+
+cxeCcProfileRgTimeout  OBJECT-TYPE
+    SYNTAX             Integer32 (0..3600)
+    UNITS              "seconds"
+    MAX-ACCESS         read-create
+    STATUS             current
+    DESCRIPTION
+        "This object specifies time for which the ringing 
+         cadence will be generated towards the basic PBX 
+         unless interrupted (e.g., by the answer from the 
+         called party or a delete connection command from 
+         the Call Agent). 
+
+         This is also the time for which remote inband ring back 
+         tone will be played towards the packet network. 
+
+         The value of '0' indicates that the cadence will be 
+         generated indefinitely unless interrupted.  "
+    REFERENCE
+         "RFC2705, Section 6 Event Packages"
+    DEFVAL { 180 }
+    ::= { cxeCallCtrlProfileEntry 28 }
+
+cxeCcProfileRoTimeout  OBJECT-TYPE
+    SYNTAX             Integer32 (0..3600)
+    UNITS              "seconds"
+    MAX-ACCESS         read-create
+    STATUS             current
+    DESCRIPTION
+        "This object specifies time for which the reorder
+         tone or fast busy tone will be generated unless 
+         interrupted (e.g., by the hangup from the called party).
+
+         The value of '0' indicates that the cadence will be 
+         generated indefinitely unless interrupted. "
+    REFERENCE
+         "RFC2705, Section 6 Event Packages"
+    DEFVAL { 30 }
+    ::= { cxeCallCtrlProfileEntry 29 }
+
+cxeCcProfileCot1Timeout OBJECT-TYPE
+    SYNTAX              Integer32 (0..100)
+    UNITS               "seconds"
+    MAX-ACCESS          read-create
+    STATUS              current
+    DESCRIPTION
+        "This object specifies time for which the continuity 
+         test tone 1 will be generated unless interrupted. 
+
+         The value of '0' indicates that the cadence will be 
+         generated indefinitely unless interrupted. "
+    REFERENCE
+         "RFC2705, Section 6 Event Packages"
+    DEFVAL { 3 }
+    ::= { cxeCallCtrlProfileEntry 30 }
+
+cxeCcProfileCot2Timeout OBJECT-TYPE
+    SYNTAX              Integer32 (0..100)
+    UNITS               "seconds"
+    MAX-ACCESS          read-create
+    STATUS              current
+    DESCRIPTION
+        "This object specifies time for which the continuity 
+         test tone 2 will be generated unless interrupted. 
+
+         The value of '0' indicates that the cadence will be 
+         generated indefinitely unless interrupted.  "
+    REFERENCE
+         "RFC2705, Section 6 Event Packages"
+    DEFVAL { 3 }
+    ::= { cxeCallCtrlProfileEntry 31 }
+
+cxeCcProfileRowStatus OBJECT-TYPE
+    SYNTAX            RowStatus 
+    MAX-ACCESS        read-create
+    STATUS            current
+    DESCRIPTION
+        "This object is used by users for adding/deleting an 
+         entry from the table.
+
+         The entry can't be deleted if the value of 
+         cxeCcProfileNumVifs is greater than zero or 
+         the value of cxeCcProfileMgcGrpNum is greater than zero."
+    ::= { cxeCallCtrlProfileEntry 32 }
+
+--**********************************************************************
+--Conformance 
+--**********************************************************************
+
+cxeCallCtrlMIBConformance
+     OBJECT IDENTIFIER ::= { ciscoXgcpExtMIB 2 }
+
+cxeCallCtrlMIBCompliances
+     OBJECT IDENTIFIER ::= { cxeCallCtrlMIBConformance 1 }
+
+cxeCallCtrlMIBGroups
+     OBJECT IDENTIFIER ::= { cxeCallCtrlMIBConformance 2 }
+
+
+--
+--Conformance and compliance statements
+--
+
+cxeCallCtrlMIBCompliance  MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities which implement
+         ciscoXgcpExtMIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS {
+        cxeCallCtrlGroup,
+        cxeCcProfileGroup
+    }
+
+    ::= { cxeCallCtrlMIBCompliances 1 }
+
+--
+--units of conformance
+--
+--MIB Groups
+--
+
+cxeCallCtrlGroup  OBJECT-GROUP
+    OBJECTS {
+        cxeCallCtrlControlServiceType,
+        cxeCallCtrlBearerServiceType,
+        cxeCallCtrlVoIpDtmfRelayMode,
+        cxeCallCtrlVoIpDtmfCodec,
+        cxeCallCtrlVoAal2DtmfRelayMode,
+        cxeCallCtrlVoAal2DtmfCodec,
+        cxeCallCtrlTsePayload,
+        cxeCallCtrlNetNseTimer,
+        cxeCallCtrlRtcpRcvTimer,
+        cxeCallCtrlIgnoreAal2LcoCodec,
+        cxeCallCtrlDigitMapOrder,
+        cxeCallCtrlT38Inhibited,
+        cxeCallCtrlT38NseRspTimer,
+        cxeCallCtrlT38FecEnabled,
+        cxeCallCtrlT38LsRedundancy, 
+        cxeCallCtrlT38HsRedundancy, 
+        cxeCallCtrlT38NsfCountryCode,
+        cxeCallCtrlT38NsfVendorCode,
+        cxeCallCtrlVselDselFselSupport,
+        cxeCallCtrlDefaultBearTraffic,
+        cxeCallCtrlLastFailedMgcAddrType,
+        cxeCallCtrlLastFailedMgcAddress
+    }
+    STATUS    current
+    DESCRIPTION
+        "This group contains objects that apply to the call control
+         general configuration in a media gateway.
+        "
+    ::= { cxeCallCtrlMIBGroups 1 }
+
+cxeCcProfileGroup  OBJECT-GROUP
+    OBJECTS {
+        cxeCcProfileName,
+        cxeCcProfileNumVifs,  
+        cxeCcProfileMgcGrpNum,
+        cxeCcProfileMgcAddrType,
+        cxeCcProfileMgcAddress,
+        cxeCcProfileProtocolIdx,
+        cxeCcProfileXgcpRetryMethod,
+        cxeCcProfileRetryMax1,
+        cxeCcProfileDnsLookupMax1,
+        cxeCcProfileRetryMax2,
+        cxeCcProfileDnsLookupMax2,
+        cxeCcProfileMwiTimeout,
+        cxeCcProfileTsmaxTimeout,
+        cxeCcProfileTdinitTimeout,
+        cxeCcProfileTdminTimeout, 
+        cxeCcProfileTdmaxTimeout, 
+        cxeCcProfileTcritTimeout, 
+        cxeCcProfileTparTimeout, 
+        cxeCcProfileThistTimeout, 
+        cxeCcProfileRtTimeout, 
+        cxeCcProfileRbkTimeout, 
+        cxeCcProfileCgTimeout, 
+        cxeCcProfileBzTimeout, 
+        cxeCcProfileDlTimeout, 
+        cxeCcProfileSlTimeout, 
+        cxeCcProfileRgTimeout, 
+        cxeCcProfileRoTimeout, 
+        cxeCcProfileCot1Timeout, 
+        cxeCcProfileCot2Timeout, 
+        cxeCcProfileRowStatus
+    }
+    STATUS    current
+    DESCRIPTION
+        "This group contains objects that apply to the call control
+         profile configuration in a media gateway.
+        "
+    ::= { cxeCallCtrlMIBGroups 2 }
+
+END

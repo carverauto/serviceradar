@@ -1,0 +1,1577 @@
+-- MIB file created 26-Jan-2006 13:53:27, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CALL-TRACKER-MODEM-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CALL-TRACKER-MODEM-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DisplayString
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    cctActiveCallId, cctHistoryIndex
+            FROM CISCO-CALL-TRACKER-MIB
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoCallTrackerModemMIB OBJECT IDENTIFIER ::= { ciscoMgmt 165 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200512060000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-dial@cisco.com
+--  Descr
+--    This MIB module provides modem call related data for
+--     tracking the progress and status of a call.
+--    
+--     This module extends tables defined in the MIB module
+--     ciscoCallTrackerMIB in CISCO-CALL-TRACKER-MIB.
+--  RevDate
+--    200512060000Z
+--  RevDescr
+--    Updated the imports such that Unsigned32 is imported 
+--     from SNMPv2-SMI instead of CISCO-TC. Re-ordered the 
+--     objects cctmActiveLocalDownRateShifts, 
+--     cctmActiveRemoteUpRateShifts under CctmActiveEntry, 
+--     and cctmHistoryLocalDownRateShifts and 
+--     cctmHistoryRemoteUpRateShifts under CctmHistoryEntry 
+--     to match the order in which they are defined.
+--  RevDate
+--    200112140000Z
+--  RevDescr
+--    Initial version of this mib.
+
+cctmMIBObjects  OBJECT IDENTIFIER ::= { ciscoCallTrackerModemMIB 1 }
+cctmActive      OBJECT IDENTIFIER ::= { cctmMIBObjects 1 }
+cctmHistory     OBJECT IDENTIFIER ::= { cctmMIBObjects 2 }
+cctmMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoCallTrackerModemMIB 2 }
+cctmMIBNotifications OBJECT IDENTIFIER ::= { cctmMIBNotificationPrefix 0 }
+cctmMIBConformance OBJECT IDENTIFIER ::= { ciscoCallTrackerModemMIB 3 }
+cctmMIBCompliances OBJECT IDENTIFIER ::= { cctmMIBConformance 1 }
+cctmMIBGroups   OBJECT IDENTIFIER ::= { cctmMIBConformance 2 }
+
+CctmModulation ::= INTEGER {
+        other(1),
+        bell103a(2),
+        bell212a(3),
+        v21(4),
+        v22(5),
+        v22bis(6),
+        v32(7),
+        v32bis(8),
+        vfc(9),
+        v34(10),
+        v17(11),
+        v29(12),
+        v33(13),
+        k56flex(14),
+        v23(15),
+        v32terbo(16),
+        v34plus(17),
+        v90(18),
+        v27ter(19),
+        v110(20)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents possible modulation standards
+--     other        - Modulation other than those identified
+--     bell103a     -
+--     bell212a     -
+--     v21          -
+--     v22          -
+--     v22bis       -
+--     v32          -
+--     v32bis       -
+--     vfc          -
+--     v34          -
+--     v17          -
+--     v29          -
+--     v33          -
+--     k56flex      -
+--     v23          -
+--     v32terbo     -
+--     v34plus      -
+--     v90          -
+--     v27ter       -
+--     v110         -
+
+CctmECProtocol ::= INTEGER {
+        normal(1),
+        direct(2),
+        mnp(3),
+        lapmV42(4),
+        syncMode(5),
+        asyncMode(6),
+        ara1(7),
+        ara2(8),
+        other(9)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents possible error correction protocols
+--     normal       - No EC present
+--     direct       -
+--     mnp          -
+--     lapmV42      -
+--     syncMode     -
+--     asyncMode    - No EC present, same as normal(1)
+--     ara1         - ARA 1.0
+--     ara2         - ARA 2.0
+--     other        - EC protocol other than those identified
+
+CctmDataCompression ::= INTEGER {
+        none(1),
+        v42bisTx(2),
+        v42bisRx(3),
+        v42bisBoth(4),
+        mnp5(5),
+        v44Tx(6),
+        v44Rx(7),
+        v44Both(8)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents possible data compression protocols
+--     none         - No Data Compression present
+--     v42bisTx     - V.42bis in transmit direction only
+--     v42bisRx     - V.42bis in receive direction only
+--     v42bisBoth   - V.42bis in receive and transmit directions
+--     mnp5         - 
+--     v44Tx        - V.44 in transmit direction only
+--     v44Rx        - V.44 in receive direction only
+--     v44Both      - V.44 in receive and transmit directions
+
+cctmActiveTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CctmActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains entries for active calls in the
+         system which utilize modem resources.
+        
+         It contains general modem session attributes and
+         statistics at the modem link and modem protocol layers.
+        
+         The table extends the cctActiveTable, using the same
+         index, cctActiveCallId.
+        
+         There are no entries for calls not requiring modem
+         services."
+    ::= { cctmActive 1 }
+
+cctmActiveEntry OBJECT-TYPE
+    SYNTAX CctmActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single call.
+        
+         Entries are created and deleted in sync with the entries
+         in cctActiveTable, if the call utilizes modem service."
+    INDEX { cctActiveCallId }
+    ::= { cctmActiveTable 1 }
+
+CctmActiveEntry ::= SEQUENCE {
+    cctmActiveProjectedMaxRxRate Gauge,
+    cctmActiveProjectedMaxTxRate Gauge,
+    cctmActiveRxRate Gauge,
+    cctmActiveTxRate Gauge,
+    cctmActiveAttemptedModulation CctmModulation,
+    cctmActiveInitialModulation CctmModulation,
+    cctmActiveModulation CctmModulation,
+    cctmActiveAttemptedECProtocol CctmECProtocol,
+    cctmActiveECProtocol CctmECProtocol,
+    cctmActiveSupportedDC OCTET STRING,
+    cctmActiveDataCompression CctmDataCompression,
+    cctmActiveRxHighWatermark Gauge,
+    cctmActiveRxLowWatermark Gauge,
+    cctmActiveTxHighWatermark Gauge,
+    cctmActiveTxLowWatermark Gauge,
+    cctmActiveLocalUpRateShifts Counter,
+    cctmActiveLocalDownRateShifts Counter,
+    cctmActiveRemoteUpRateShifts Counter,
+    cctmActiveRemoteDownRateShifts Counter,
+    cctmActiveRateShiftFailures Counter,
+    cctmActiveLocalRetrains Counter,
+    cctmActiveRemoteRetrains Counter,
+    cctmActiveRetrainFailures Counter,
+    cctmActiveRxLinkOctets Counter,
+    cctmActiveTxLinkOctets Counter,
+    cctmActiveRxECFrames Counter,
+    cctmActiveTxECFrames Counter,
+    cctmActiveRxECNAKs Counter,
+    cctmActiveTxECNAKs Counter,
+    cctmActiveRxECFramesBad Counter,
+    cctmActiveECFramesResent Counter,
+    cctmActiveECLinkTimeouts Counter,
+    cctmActiveRxCharLost Counter
+    }
+
+cctmActiveProjectedMaxRxRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum received rate local modem informs remote
+         modem it will support based on initial negotiations.
+        
+         The remote modem will not attempt to transmit at
+         rates greater than what the local modem will accept.
+        
+         The initial negotiated receive rate is in
+         cctActiveRxRate."
+    ::= { cctmActiveEntry 1 }
+
+cctmActiveProjectedMaxTxRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum rate the remote modem indicates it can
+         accept based on initial negotiations.
+        
+         The local modem will not attempt to transmit at
+         rates above what the remote modem will accept.
+        
+         The initial negotiated transmit rate is in
+         cctActiveTxRate."
+    ::= { cctmActiveEntry 2 }
+
+cctmActiveRxRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current receive data rate for this call.
+        
+         The value of this object will be the same as reported
+         in cmRXRate from CISCO-MODEM-MGMT-MIB while the call
+         is active."
+    ::= { cctmActiveEntry 3 }
+
+cctmActiveTxRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current transmit data rate for this call.
+        
+         The value of this object will be the same as reported
+         in cmTXRate from CISCO-MODEM-MGMT-MIB while the call
+         is active."
+    ::= { cctmActiveEntry 4 }
+
+cctmActiveAttemptedModulation OBJECT-TYPE
+    SYNTAX CctmModulation
+--    Rsyntax INTEGER {
+--        other(1),
+--        bell103a(2),
+--        bell212a(3),
+--        v21(4),
+--        v22(5),
+--        v22bis(6),
+--        v32(7),
+--        v32bis(8),
+--        vfc(9),
+--        v34(10),
+--        v17(11),
+--        v29(12),
+--        v33(13),
+--        k56flex(14),
+--        v23(15),
+--        v32terbo(16),
+--        v34plus(17),
+--        v90(18),
+--        v27ter(19),
+--        v110(20)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The initial modulation attempted when the modems began
+         negotiation."
+    ::= { cctmActiveEntry 5 }
+
+cctmActiveInitialModulation OBJECT-TYPE
+    SYNTAX CctmModulation
+--    Rsyntax INTEGER {
+--        other(1),
+--        bell103a(2),
+--        bell212a(3),
+--        v21(4),
+--        v22(5),
+--        v22bis(6),
+--        v32(7),
+--        v32bis(8),
+--        vfc(9),
+--        v34(10),
+--        v17(11),
+--        v29(12),
+--        v33(13),
+--        k56flex(14),
+--        v23(15),
+--        v32terbo(16),
+--        v34plus(17),
+--        v90(18),
+--        v27ter(19),
+--        v110(20)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The initial negotiated modulation."
+    ::= { cctmActiveEntry 6 }
+
+cctmActiveModulation OBJECT-TYPE
+    SYNTAX CctmModulation
+--    Rsyntax INTEGER {
+--        other(1),
+--        bell103a(2),
+--        bell212a(3),
+--        v21(4),
+--        v22(5),
+--        v22bis(6),
+--        v32(7),
+--        v32bis(8),
+--        vfc(9),
+--        v34(10),
+--        v17(11),
+--        v29(12),
+--        v33(13),
+--        k56flex(14),
+--        v23(15),
+--        v32terbo(16),
+--        v34plus(17),
+--        v90(18),
+--        v27ter(19),
+--        v110(20)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current modulation for this call.
+        
+         It is possible for retrains to result in the modulation
+         being renogiated during a call.
+        
+         The value of this object will be the same as reported
+         in cmModulationSchemeUsed from CISCO-MODEM-MGMT-MIB
+         while the call is active."
+    ::= { cctmActiveEntry 7 }
+
+cctmActiveAttemptedECProtocol OBJECT-TYPE
+    SYNTAX CctmECProtocol
+--    Rsyntax INTEGER {
+--        normal(1),
+--        direct(2),
+--        mnp(3),
+--        lapmV42(4),
+--        syncMode(5),
+--        asyncMode(6),
+--        ara1(7),
+--        ara2(8),
+--        other(9)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The initial modem error correction protocol attempted
+         during call negotiation.
+        
+         The actual EC negotiated is in cctmActiveECProtocol."
+    ::= { cctmActiveEntry 8 }
+
+cctmActiveECProtocol OBJECT-TYPE
+    SYNTAX CctmECProtocol
+--    Rsyntax INTEGER {
+--        normal(1),
+--        direct(2),
+--        mnp(3),
+--        lapmV42(4),
+--        syncMode(5),
+--        asyncMode(6),
+--        ara1(7),
+--        ara2(8),
+--        other(9)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The modem error correction protocol negotiated for
+         this call.
+        
+         The value of this object will be the same as reported
+         in cmProtocolUsed from CISCO-MODEM-MGMT-MIB
+         while the call is active."
+    ::= { cctmActiveEntry 9 }
+
+cctmActiveSupportedDC OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   mnp5(0)
+        --   v42bisRx(1)
+        --   v42bisTx(2)
+        --   v44Rx(3)
+        --   v44Tx(4)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The data compression protocols supported by the
+         calling modem.
+        
+         This object is a bit map, with each bit representing
+         a different call type as identified below.
+         A 1-bit indicates the DC protocol is supported.
+         A 0-bit indicates the DC protocol is not supported.
+        
+             Bit 0   - MNP5
+             Bit 1   - V.42bis in the receive direction
+             Bit 2   - V.42bis in the transmit direction
+        
+         V.42bis may be separately available in Rx or Tx
+         directions. If all bits are zero, no data compression
+         is supported.
+        
+         The particular compression selected by the answering
+         modem is reported in cctmActiveDataCompression."
+    ::= { cctmActiveEntry 10 }
+
+cctmActiveDataCompression OBJECT-TYPE
+    SYNTAX CctmDataCompression
+--    Rsyntax INTEGER {
+--        none(1),
+--        v42bisTx(2),
+--        v42bisRx(3),
+--        v42bisBoth(4),
+--        mnp5(5),
+--        v44Tx(6),
+--        v44Rx(7),
+--        v44Both(8)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The modem compression protocol selected for this call."
+    ::= { cctmActiveEntry 11 }
+
+cctmActiveRxHighWatermark OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum receive data rate achieved during this call."
+    ::= { cctmActiveEntry 12 }
+
+cctmActiveRxLowWatermark OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum receive data rate during this call."
+    ::= { cctmActiveEntry 13 }
+
+cctmActiveTxHighWatermark OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum transmit data rate achieved during this call."
+    ::= { cctmActiveEntry 14 }
+
+cctmActiveTxLowWatermark OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum transmit data rate during this call."
+    ::= { cctmActiveEntry 15 }
+
+cctmActiveLocalUpRateShifts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of locally initiated rate shifts to increase
+         the data rate which were successful."
+    ::= { cctmActiveEntry 16 }
+
+cctmActiveLocalDownRateShifts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of locally initiated rate shifts to decrease
+         the data rate which were successful."
+    ::= { cctmActiveEntry 17 }
+
+cctmActiveRemoteUpRateShifts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of remotely initiated rate shifts to increase
+         the data rate which were successful."
+    ::= { cctmActiveEntry 18 }
+
+cctmActiveRemoteDownRateShifts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of remotely initiated rate shifts to decrease
+         the data rate which were successful."
+    ::= { cctmActiveEntry 19 }
+
+cctmActiveRateShiftFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of rate shift attempts which failed
+         to complete.
+        
+         A failure to complete a rate renegotiation results in a
+         retrain attempt."
+    ::= { cctmActiveEntry 20 }
+
+cctmActiveLocalRetrains OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of locally initiated retrains for the call.
+        
+         Includes successfully completed retrains and those
+         which failed."
+    ::= { cctmActiveEntry 21 }
+
+cctmActiveRemoteRetrains OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of remotely initiated retrains for the call.
+        
+         Includes successfully completed retrains and those
+         which failed."
+    ::= { cctmActiveEntry 22 }
+
+cctmActiveRetrainFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of retrains which failed to complete.
+        
+         A failure to retrain results in another retrain
+         attempt. The call will terminate if too many
+         consecutive retrain failures occur. The consecutive
+         retrain failure threshold is system specific."
+    ::= { cctmActiveEntry 23 }
+
+cctmActiveRxLinkOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total modem link level octets received during this
+         call. If using Error Correction and Data Compression, this
+         is the compressed data within the EC protocol frames."
+    ::= { cctmActiveEntry 24 }
+
+cctmActiveTxLinkOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total modem link level octets transmitted during this
+         call. If using Error Correction and Data Compression, this
+         is the compressed data within the EC protocol frames."
+    ::= { cctmActiveEntry 25 }
+
+cctmActiveRxECFrames OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of error correction data frames
+         received successfully.
+        
+         This does not include damaged frames or control
+         frames."
+    ::= { cctmActiveEntry 26 }
+
+cctmActiveTxECFrames OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of error correction data frames
+         transmitted successfully.
+        
+         This does not include data frame resends or control
+         frames."
+    ::= { cctmActiveEntry 27 }
+
+cctmActiveRxECNAKs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of EC protocol negative acknowledgements
+         (NAK) received."
+    ::= { cctmActiveEntry 28 }
+
+cctmActiveTxECNAKs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of EC protocol negative acknowledgements
+         (NAK) sent."
+    ::= { cctmActiveEntry 29 }
+
+cctmActiveRxECFramesBad OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total error correction frames received during
+         the call which were determined to be bad."
+    ::= { cctmActiveEntry 30 }
+
+cctmActiveECFramesResent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of total retransmitted error correction
+         data frames during the call."
+    ::= { cctmActiveEntry 31 }
+
+cctmActiveECLinkTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This counter provides the number of EC link protocol
+         timer expirations which have occurred during the call.
+        
+         This corresponds to the T401 timer for LAPM and MNP.
+        
+         These are distinct from normal 'keep alive' and
+         'window open' timeouts."
+    ::= { cctmActiveEntry 32 }
+
+cctmActiveRxCharLost OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of characters received by the modem
+         but were dropped due to host buffer over run."
+    ::= { cctmActiveEntry 33 }
+
+cctmHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CctmHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides information on terminated modem
+         calls.
+        
+         It contains general modem session attributes and
+         statistics at the modem link and modem protocol layers.
+        
+         The table extends the cctHistoryTable, using the same
+         index, cctHistoryIndex.
+        
+         There are no entries for calls not requiring modem
+         services."
+    ::= { cctmHistory 1 }
+
+cctmHistoryEntry OBJECT-TYPE
+    SYNTAX CctmHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single terminated modem call.
+        
+         Entries are created and deleted in sync with the entries
+         in cctHistoryTable, if the call utilized modem service."
+    INDEX { cctHistoryIndex }
+    ::= { cctmHistoryTable 1 }
+
+CctmHistoryEntry ::= SEQUENCE {
+    cctmHistoryProjectedMaxRxRate Gauge,
+    cctmHistoryProjectedMaxTxRate Gauge,
+    cctmHistoryFinalRxRate Gauge,
+    cctmHistoryFinalTxRate Gauge,
+    cctmHistoryAttemptedModulation CctmModulation,
+    cctmHistoryInitialModulation CctmModulation,
+    cctmHistoryFinalModulation CctmModulation,
+    cctmHistoryAttemptedECProtocol CctmECProtocol,
+    cctmHistoryECProtocol CctmECProtocol,
+    cctmHistorySupportedDC OCTET STRING,
+    cctmHistoryDataCompression CctmDataCompression,
+    cctmHistoryRxHighWatermark Gauge,
+    cctmHistoryRxLowWatermark Gauge,
+    cctmHistoryTxHighWatermark Gauge,
+    cctmHistoryTxLowWatermark Gauge,
+    cctmHistoryLocalUpRateShifts Counter,
+    cctmHistoryLocalDownRateShifts Counter,
+    cctmHistoryRemoteUpRateShifts Counter,
+    cctmHistoryRemoteDownRateShifts Counter,
+    cctmHistoryRateShiftFailures Counter,
+    cctmHistoryLocalRetrains Counter,
+    cctmHistoryRemoteRetrains Counter,
+    cctmHistoryRetrainFailures Counter,
+    cctmHistoryRxLinkOctets Counter,
+    cctmHistoryTxLinkOctets Counter,
+    cctmHistoryRxECFrames Counter,
+    cctmHistoryTxECFrames Counter,
+    cctmHistoryRxECNAKs Counter,
+    cctmHistoryTxECNAKs Counter,
+    cctmHistoryRxECFramesBad Counter,
+    cctmHistoryECFramesResent Counter,
+    cctmHistoryECLinkTimeouts Counter,
+    cctmHistoryRxCharLost Counter,
+    cctmHistoryDisconnectReason Gauge,
+    cctmHistoryDisconnectReasonText DisplayString
+    }
+
+cctmHistoryProjectedMaxRxRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum received rate local modem informs remote
+         modem it will support based on initial negotiations.
+        
+         The remote modem will not attempt to transmit at
+         rates greater than what the local modem will accept.
+        
+         The initial negotiated receive rate is in
+         cctHistoryRxRate."
+    ::= { cctmHistoryEntry 1 }
+
+cctmHistoryProjectedMaxTxRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum rate the remote modem indicates it can
+         accept based on initial negotiations.
+        
+         The local modem will not attempt to transmit at
+         rates above what the remote modem will accept.
+        
+         The initial negotiated transmit rate is in
+         cctHistoryTxRate."
+    ::= { cctmHistoryEntry 2 }
+
+cctmHistoryFinalRxRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Final receive data rate for this call.
+        
+         The initial negotiated receive rate is in
+         cctHistoryRxRate."
+    ::= { cctmHistoryEntry 3 }
+
+cctmHistoryFinalTxRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Final transmit data rate for this call.
+        
+         The initial negotiated transmit rate is in
+         cctHistoryTxRate."
+    ::= { cctmHistoryEntry 4 }
+
+cctmHistoryAttemptedModulation OBJECT-TYPE
+    SYNTAX CctmModulation
+--    Rsyntax INTEGER {
+--        other(1),
+--        bell103a(2),
+--        bell212a(3),
+--        v21(4),
+--        v22(5),
+--        v22bis(6),
+--        v32(7),
+--        v32bis(8),
+--        vfc(9),
+--        v34(10),
+--        v17(11),
+--        v29(12),
+--        v33(13),
+--        k56flex(14),
+--        v23(15),
+--        v32terbo(16),
+--        v34plus(17),
+--        v90(18),
+--        v27ter(19),
+--        v110(20)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The initial modulation attempted when the modems began
+         negotiation."
+    ::= { cctmHistoryEntry 5 }
+
+cctmHistoryInitialModulation OBJECT-TYPE
+    SYNTAX CctmModulation
+--    Rsyntax INTEGER {
+--        other(1),
+--        bell103a(2),
+--        bell212a(3),
+--        v21(4),
+--        v22(5),
+--        v22bis(6),
+--        v32(7),
+--        v32bis(8),
+--        vfc(9),
+--        v34(10),
+--        v17(11),
+--        v29(12),
+--        v33(13),
+--        k56flex(14),
+--        v23(15),
+--        v32terbo(16),
+--        v34plus(17),
+--        v90(18),
+--        v27ter(19),
+--        v110(20)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The initial negotiated modulation."
+    ::= { cctmHistoryEntry 6 }
+
+cctmHistoryFinalModulation OBJECT-TYPE
+    SYNTAX CctmModulation
+--    Rsyntax INTEGER {
+--        other(1),
+--        bell103a(2),
+--        bell212a(3),
+--        v21(4),
+--        v22(5),
+--        v22bis(6),
+--        v32(7),
+--        v32bis(8),
+--        vfc(9),
+--        v34(10),
+--        v17(11),
+--        v29(12),
+--        v33(13),
+--        k56flex(14),
+--        v23(15),
+--        v32terbo(16),
+--        v34plus(17),
+--        v90(18),
+--        v27ter(19),
+--        v110(20)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The final modulation for this call.
+        
+         It is possible for retrains to result in the modulation
+         being renogiated during a call."
+    ::= { cctmHistoryEntry 7 }
+
+cctmHistoryAttemptedECProtocol OBJECT-TYPE
+    SYNTAX CctmECProtocol
+--    Rsyntax INTEGER {
+--        normal(1),
+--        direct(2),
+--        mnp(3),
+--        lapmV42(4),
+--        syncMode(5),
+--        asyncMode(6),
+--        ara1(7),
+--        ara2(8),
+--        other(9)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The initial modem error correction protocol attempted
+         during call negotiation.
+        
+         The actual EC negotiated is in cctmHistoryECProtocol."
+    ::= { cctmHistoryEntry 8 }
+
+cctmHistoryECProtocol OBJECT-TYPE
+    SYNTAX CctmECProtocol
+--    Rsyntax INTEGER {
+--        normal(1),
+--        direct(2),
+--        mnp(3),
+--        lapmV42(4),
+--        syncMode(5),
+--        asyncMode(6),
+--        ara1(7),
+--        ara2(8),
+--        other(9)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The modem error correction protocol negotiated for
+         this call."
+    ::= { cctmHistoryEntry 9 }
+
+cctmHistorySupportedDC OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   mnp5(0)
+        --   v42bisRx(1)
+        --   v42bisTx(2)
+        --   v44Rx(3)
+        --   v44Tx(4)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The data compression protocols supported by the
+         calling modem.
+        
+         This object is a bit map, with each bit representing
+         a different call type as identified below.
+         A 1-bit indicates the DC protocol is supported.
+         A 0-bit indicates the DC protocol is not supported.
+        
+             Bit 0   - MNP5
+             Bit 1   - V.42bis in the receive direction
+             Bit 2   - V.42bis in the transmit direction
+        
+         V.42bis may be separately available in Rx or Tx 
+         directions. If all bits are zero, no data compression
+         is supported.
+        
+         The particular compression selected by the answering
+         modem is reported in cctmHistoryDataCompression."
+    ::= { cctmHistoryEntry 10 }
+
+cctmHistoryDataCompression OBJECT-TYPE
+    SYNTAX CctmDataCompression
+--    Rsyntax INTEGER {
+--        none(1),
+--        v42bisTx(2),
+--        v42bisRx(3),
+--        v42bisBoth(4),
+--        mnp5(5),
+--        v44Tx(6),
+--        v44Rx(7),
+--        v44Both(8)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The modem compression protocol selected for this call."
+    ::= { cctmHistoryEntry 11 }
+
+cctmHistoryRxHighWatermark OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum receive data rate achieved during this call."
+    ::= { cctmHistoryEntry 12 }
+
+cctmHistoryRxLowWatermark OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum receive data rate during this call."
+    ::= { cctmHistoryEntry 13 }
+
+cctmHistoryTxHighWatermark OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum transmit data rate achieved during this call."
+    ::= { cctmHistoryEntry 14 }
+
+cctmHistoryTxLowWatermark OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum transmit data rate during this call."
+    ::= { cctmHistoryEntry 15 }
+
+cctmHistoryLocalUpRateShifts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of locally initiated rate shifts to increase
+         the data rate which were successful."
+    ::= { cctmHistoryEntry 16 }
+
+cctmHistoryLocalDownRateShifts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of locally initiated rate shifts to decrease
+         the data rate which were successful."
+    ::= { cctmHistoryEntry 17 }
+
+cctmHistoryRemoteUpRateShifts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of remotely initiated rate shifts to increase
+         the data rate which were successful."
+    ::= { cctmHistoryEntry 18 }
+
+cctmHistoryRemoteDownRateShifts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of remotely initiated rate shifts to decrease
+         the data rate which were successful."
+    ::= { cctmHistoryEntry 19 }
+
+cctmHistoryRateShiftFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of rate shift attempts which failed
+         to complete.
+        
+         A failure to complete a rate renegotiation results in a
+         retrain attempt."
+    ::= { cctmHistoryEntry 20 }
+
+cctmHistoryLocalRetrains OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of locally initiated retrains for the call.
+        
+         Includes successfully completed retrains and those
+         which failed."
+    ::= { cctmHistoryEntry 21 }
+
+cctmHistoryRemoteRetrains OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of remotely initiated retrains for the call.
+        
+         Includes successfully completed retrains and those
+         which failed."
+    ::= { cctmHistoryEntry 22 }
+
+cctmHistoryRetrainFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of retrains which failed to complete.
+        
+         A failure to retrain results in another retrain
+         attempt. The call will terminate if too many
+         consecutive retrain failures occur. The consecutive
+         retrain failure threshold is system specific."
+    ::= { cctmHistoryEntry 23 }
+
+cctmHistoryRxLinkOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total modem link level octets received during this
+         call. If using Error Correction and Data Compression, this
+         is the compressed data within the EC protocol frames."
+    ::= { cctmHistoryEntry 24 }
+
+cctmHistoryTxLinkOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total modem link level octets transmitted during this
+         call. If using Error Correction and Data Compression, this
+         is the compressed data within the EC protocol frames."
+    ::= { cctmHistoryEntry 25 }
+
+cctmHistoryRxECFrames OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of error correction data frames received
+         successfully.
+        
+         This does not include damaged frames or control frames."
+    ::= { cctmHistoryEntry 26 }
+
+cctmHistoryTxECFrames OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of error correction data frames
+         transmitted successfully.
+        
+         This does not include data frame resends or control
+         frames."
+    ::= { cctmHistoryEntry 27 }
+
+cctmHistoryRxECNAKs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of EC protocol negative acknowledgements
+         (NAK) received."
+    ::= { cctmHistoryEntry 28 }
+
+cctmHistoryTxECNAKs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of EC protocol negative acknowledgements
+         (NAK) sent."
+    ::= { cctmHistoryEntry 29 }
+
+cctmHistoryRxECFramesBad OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total error correction frames received during
+         the call which were determined to be bad."
+    ::= { cctmHistoryEntry 30 }
+
+cctmHistoryECFramesResent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The count of total retransmitted error correction
+         data frames during the call."
+    ::= { cctmHistoryEntry 31 }
+
+cctmHistoryECLinkTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This counter provides the number of EC link protocol
+         timer expirations which have occurred during the call.
+        
+         This corresponds to the T401 timer for LAPM and MNP.
+        
+         These are distinct from normal 'keep alive' and
+         'window open' timeouts."
+    ::= { cctmHistoryEntry 32 }
+
+cctmHistoryRxCharLost OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of characters received by the modem
+         but were dropped due to host buffer over run."
+    ::= { cctmHistoryEntry 33 }
+
+cctmHistoryDisconnectReason OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Code indicating the reason this call was
+         terminated."
+    ::= { cctmHistoryEntry 34 }
+
+cctmHistoryDisconnectReasonText OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Text description of the disconnect reason indicated by
+         cctHistoryDisconnectReason.
+        
+         Value is zero-length string if no text is available."
+    ::= { cctmHistoryEntry 35 }
+
+cctmXHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CctmXHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides additional, detailed information on
+         terminated modem calls.
+        
+         It contains low level modem session attributes and
+         statistics at the modem link and modem protocol layers.
+        
+         The table extends the cctHistoryTable, using the same
+         index, cctHistoryIndex."
+    ::= { cctmHistory 2 }
+
+cctmXHistoryEntry OBJECT-TYPE
+    SYNTAX CctmXHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The detailed information for a single terminated modem
+         call.
+        
+         Entries are created and deleted in sync with the entries
+         in cctHistoryTable, if the call utilized modem service."
+    INDEX { cctHistoryIndex }
+-- Augments cctmHistoryEntry
+    ::= { cctmXHistoryTable 1 }
+
+CctmXHistoryEntry ::= SEQUENCE {
+    cctmXHistoryRxECInfoFrameSize Gauge,
+    cctmXHistoryTxECInfoFrameSize Gauge,
+    cctmXHistoryRxECWindowSize Gauge,
+    cctmXHistoryTxECWindowSize Gauge,
+    cctmXHistoryRxLevel INTEGER,
+    cctmXHistoryTxLevel INTEGER,
+    cctmXHistoryConstellation INTEGER,
+    cctmXHistoryV90Status INTEGER,
+    cctmXHistoryV90Failure INTEGER,
+    cctmXHistoryV90ClientId Gauge,
+    cctmXHistoryECWindowClosures Counter
+    }
+
+cctmXHistoryRxECInfoFrameSize OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Negotiated maximum EC frame data payload size in
+         the receive direction.
+        
+         LAPM distinguishes between Rx and Tx. MNP will have the
+         the same information frame size for Rx and Tx,
+         cctmHistoryTxECInfoFrameSize."
+    ::= { cctmXHistoryEntry 1 }
+
+cctmXHistoryTxECInfoFrameSize OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Negotiated maximum EC frame data payload size in
+         the transmit direction.
+        
+         LAPM distinguishes between Rx and Tx. MNP will have the
+         the same information frame size for Tx and Rx,
+         cctmHistoryRxECInfoFrameSize."
+    ::= { cctmXHistoryEntry 2 }
+
+cctmXHistoryRxECWindowSize OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The EC protocol window size in units of frames in the
+         receive direction.
+        
+         This is the maximum number of information frames sent from
+         remote modem that may be outstanding without receiving any
+         acknowledgement from the local modem.
+        
+         If the EC protocol is LAPM, the Rx and Tx windows are
+         separately negotiated and may have different values. If
+         MNP, both windows are negotiated together and have the
+         same value for this object and cctHistoryTxECWindowSize."
+    ::= { cctmXHistoryEntry 3 }
+
+cctmXHistoryTxECWindowSize OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The EC protocol window size in units of frames in the
+         transmit direction.
+        
+         This is the maximum number of information frames sent from
+         local modem that may be outstanding without receiving any
+         acknowledgement from the remote modem.
+        
+         If the EC protocol is LAPM, the Rx and Tx windows are
+         separately negotiated and may have different values. If
+         MNP, both windows are negotiated together and have the
+         same value for this object and cctHistoryRxECWindowSize."
+    ::= { cctmXHistoryEntry 4 }
+
+cctmXHistoryRxLevel OBJECT-TYPE
+    SYNTAX INTEGER(-128..0)
+--  Units
+--    dB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The final signal level in the receive direction for
+         applicable modulations."
+    ::= { cctmXHistoryEntry 5 }
+
+cctmXHistoryTxLevel OBJECT-TYPE
+    SYNTAX INTEGER(-128..0)
+--  Units
+--    dB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The final signal level in the transmit direction for
+         applicable modulations."
+    ::= { cctmXHistoryEntry 6 }
+
+cctmXHistoryConstellation OBJECT-TYPE
+    SYNTAX INTEGER {
+        points4(1),
+        points16(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Connection constellation size."
+    ::= { cctmXHistoryEntry 7 }
+
+cctmXHistoryV90Status OBJECT-TYPE
+    SYNTAX INTEGER {
+        notAttempted(1),
+        failure(2),
+        success(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if V.90 modulation was attempted
+         during initial modem negotiation.
+        
+            notAttempted(1) - Client modem did not attempt V.90
+        
+            failure(2)      - Client and server modems attempted
+                              V.90, but were not successful
+        
+            success(3)      - Client and server modems successfully
+                              negotiated V.90 during call setup."
+    ::= { cctmXHistoryEntry 8 }
+
+cctmXHistoryV90Failure OBJECT-TYPE
+    SYNTAX INTEGER {
+        noFailure(1),
+        clientNonPCM(2),
+        clientFallback(3),
+        serverV90Disabled(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object provides an interpretation of why V.90
+         modulation was not achieved.
+        
+            noFailure(1)         - V.90 was not attempted or it
+                was successful. The value of cctmXHistoryV90Status
+                will be notAttempted(1) or success(3) respectively.
+                                
+        
+            clientNonPCM(2)      - Client selected a non-PCM
+                connection due to PSTN properties.
+        
+            clientFallback(3)    - Client was unable to sustain
+                PCM due to PSTN properties and fellback to a
+                non-PCM connection.
+        
+            serverV90Disabled(4) - Client attempted V.90 but
+                server modem was configured to disable V.90."
+    ::= { cctmXHistoryEntry 9 }
+
+cctmXHistoryV90ClientId OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Client modem identification inferred from the V.90 DIL
+         training and sign patterns."
+    ::= { cctmXHistoryEntry 10 }
+
+cctmXHistoryECWindowClosures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times the EC protocol window closed
+         without receiving an ACK or NAK from the remote modem.
+        
+         A closure occurs when the maximum number of EC
+         information frames have been sent without receiving any
+         acknowledgement.
+        
+         The window size is provided in cctmHistoryRxECWindowSize."
+    ::= { cctmXHistoryEntry 11 }
+
+cctmActiveGroup OBJECT IDENTIFIER ::= { cctmMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the
+--     active call modem information.
+--  objects
+--    cctmActiveProjectedMaxRxRate, cctmActiveProjectedMaxTxRate, 
+--    cctmActiveRxRate, cctmActiveTxRate, 
+--    cctmActiveAttemptedModulation, cctmActiveInitialModulation, 
+--    cctmActiveModulation, cctmActiveAttemptedECProtocol, 
+--    cctmActiveECProtocol, cctmActiveSupportedDC, 
+--    cctmActiveDataCompression, cctmActiveRxHighWatermark, 
+--    cctmActiveRxLowWatermark, cctmActiveTxHighWatermark, 
+--    cctmActiveTxLowWatermark, cctmActiveLocalUpRateShifts, 
+--    cctmActiveRemoteUpRateShifts, cctmActiveLocalDownRateShifts, 
+--    cctmActiveRemoteDownRateShifts, cctmActiveRateShiftFailures, 
+--    cctmActiveLocalRetrains, cctmActiveRemoteRetrains, 
+--    cctmActiveRetrainFailures, cctmActiveRxLinkOctets, 
+--    cctmActiveTxLinkOctets, cctmActiveRxECFrames, 
+--    cctmActiveTxECFrames, cctmActiveRxECNAKs, cctmActiveTxECNAKs, 
+--    cctmActiveRxECFramesBad, cctmActiveECFramesResent, 
+--    cctmActiveECLinkTimeouts, cctmActiveRxCharLost
+
+cctmHistoryGroup OBJECT IDENTIFIER ::= { cctmMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the
+--     historical call modem information.
+--  objects
+--    cctmHistoryProjectedMaxRxRate, cctmHistoryProjectedMaxTxRate, 
+--    cctmHistoryFinalRxRate, cctmHistoryFinalTxRate, 
+--    cctmHistoryAttemptedModulation, cctmHistoryInitialModulation, 
+--    cctmHistoryFinalModulation, cctmHistoryAttemptedECProtocol, 
+--    cctmHistoryECProtocol, cctmHistorySupportedDC, 
+--    cctmHistoryDataCompression, cctmHistoryRxHighWatermark, 
+--    cctmHistoryRxLowWatermark, cctmHistoryTxHighWatermark, 
+--    cctmHistoryTxLowWatermark, cctmHistoryLocalUpRateShifts, 
+--    cctmHistoryRemoteUpRateShifts, cctmHistoryLocalDownRateShifts, 
+--    cctmHistoryRemoteDownRateShifts, cctmHistoryRateShiftFailures, 
+--    cctmHistoryLocalRetrains, cctmHistoryRemoteRetrains, 
+--    cctmHistoryRetrainFailures, cctmHistoryRxLinkOctets, 
+--    cctmHistoryTxLinkOctets, cctmHistoryRxECFrames, 
+--    cctmHistoryTxECFrames, cctmHistoryRxECNAKs, 
+--    cctmHistoryTxECNAKs, cctmHistoryRxECFramesBad, 
+--    cctmHistoryECFramesResent, cctmHistoryECLinkTimeouts, 
+--    cctmHistoryRxCharLost, cctmHistoryDisconnectReason, 
+--    cctmHistoryDisconnectReasonText
+
+cctmXHistoryGroup OBJECT IDENTIFIER ::= { cctmMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the
+--     historical detailed call modem information.
+--  objects
+--    cctmXHistoryRxECInfoFrameSize, cctmXHistoryTxECInfoFrameSize, 
+--    cctmXHistoryRxECWindowSize, cctmXHistoryTxECWindowSize, 
+--    cctmXHistoryRxLevel, cctmXHistoryTxLevel, 
+--    cctmXHistoryConstellation, cctmXHistoryV90Status, 
+--    cctmXHistoryV90Failure, cctmXHistoryV90ClientId, 
+--    cctmXHistoryECWindowClosures
+
+cctmMIBCompliance OBJECT IDENTIFIER ::= { cctmMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO CALL TRACKER MODEM MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cctmActiveGroup
+--   MandGroup
+--    cctmHistoryGroup
+--   OptGroup
+--    cctmXHistoryGroup
+
+
+END
+

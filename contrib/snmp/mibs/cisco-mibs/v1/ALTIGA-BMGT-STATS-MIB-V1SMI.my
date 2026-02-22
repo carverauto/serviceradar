@@ -1,0 +1,231 @@
+-- MIB file created 12-Dec-2002 15:08:07, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-BMGT-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-BMGT-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus
+            FROM SNMPv2-TC-v1
+    alBwMgmtGroup, alStatsBwMgmt
+            FROM ALTIGA-MIB
+    alBwMgmtMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaBwMgmMibModule OBJECT IDENTIFIER ::= { alBwMgmtMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga Bandwidth Limiting/Guarantee and Policy Statistics MIB 
+--     models counters and objects that are of management interest for bandwidth 
+--     management. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       BW:         Bandwidth 
+--    
+--       MIB:        Management Information Base 
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alBwMgmtStatsGlobal OBJECT IDENTIFIER ::= { alStatsBwMgmt 1 }
+altigaBwMgmMibConformance OBJECT IDENTIFIER ::= { altigaBwMgmMibModule 1 }
+altigaBwMgmMibCompliances OBJECT IDENTIFIER ::= { altigaBwMgmMibConformance 1 }
+
+alBwMgmtStatTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlBwMgmtStatEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of BW Management status entries."
+    ::= { alStatsBwMgmt 2 }
+
+alBwMgmtStatEntry OBJECT-TYPE
+    SYNTAX AlBwMgmtStatEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of bandwidth mgmt status objects on this  
+         interface."
+    INDEX { alBwMgmtStatIntfId }
+    ::= { alBwMgmtStatTable 1 }
+
+AlBwMgmtStatEntry ::= SEQUENCE {
+    alBwMgmtStatRowStatus RowStatus,
+    alBwMgmtStatIntfId INTEGER,
+    alBwMgmtStatGrpId INTEGER,
+    alBwMgmtStatInConformedRate Gauge,
+    alBwMgmtStatInDroppedRate Gauge,
+    alBwMgmtStatInConformedBytes Counter,
+    alBwMgmtStatInDroppedBytes Counter,
+    alBwMgmtStatOutConformedRate Gauge,
+    alBwMgmtStatOutDroppedRate Gauge,
+    alBwMgmtStatOutConformedBytes Counter,
+    alBwMgmtStatOutDroppedBytes Counter
+    }
+
+alBwMgmtStatRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this row."
+    ::= { alBwMgmtStatEntry 1 }
+
+alBwMgmtStatIntfId OBJECT-TYPE
+    SYNTAX INTEGER(1..3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "BwPolicy identifier used as the index of this row."
+    ::= { alBwMgmtStatEntry 2 }
+
+alBwMgmtStatGrpId OBJECT-TYPE
+    SYNTAX INTEGER(0..100000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "BwPolicy identifier used as the index of this row."
+    ::= { alBwMgmtStatEntry 3 }
+
+alBwMgmtStatInConformedRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    kbytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of packets permitted by this rate limit."
+    ::= { alBwMgmtStatEntry 4 }
+
+alBwMgmtStatInDroppedRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    kbytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of packets which exceeded this rate limit."
+    ::= { alBwMgmtStatEntry 5 }
+
+alBwMgmtStatInConformedBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of bytes which exceeded this rate limit."
+    ::= { alBwMgmtStatEntry 6 }
+
+alBwMgmtStatInDroppedBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of bytes which exceeded this rate limit."
+    ::= { alBwMgmtStatEntry 7 }
+
+alBwMgmtStatOutConformedRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    kbytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of packets permitted by this rate limit."
+    ::= { alBwMgmtStatEntry 8 }
+
+alBwMgmtStatOutDroppedRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    kbytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of packets which exceeded this rate limit."
+    ::= { alBwMgmtStatEntry 9 }
+
+alBwMgmtStatOutConformedBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of bytes which exceeded this rate limit."
+    ::= { alBwMgmtStatEntry 10 }
+
+alBwMgmtStatOutDroppedBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The counter of bytes which exceeded this rate limit."
+    ::= { alBwMgmtStatEntry 11 }
+
+alBwMgmtStatsGroup OBJECT IDENTIFIER ::= { alBwMgmtGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing BW Management monitoring.
+--  objects
+--    alBwMgmtStatRowStatus, alBwMgmtStatIntfId, alBwMgmtStatGrpId, 
+--    alBwMgmtStatInConformedRate, alBwMgmtStatInDroppedRate, 
+--    alBwMgmtStatInConformedBytes, alBwMgmtStatInDroppedBytes, 
+--    alBwMgmtStatOutConformedRate, alBwMgmtStatOutDroppedRate, 
+--    alBwMgmtStatOutConformedBytes, alBwMgmtStatOutDroppedBytes
+
+altigaBwMgmMibCompliance OBJECT IDENTIFIER ::= { altigaBwMgmMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Bandwidth Limiting/Guarantee and Policy Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    alBwMgmtStatsGroup
+
+
+END
+

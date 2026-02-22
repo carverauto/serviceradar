@@ -1,0 +1,322 @@
+-- *****************************************************************
+-- CISCO-IGNITION-MIB.my
+--   
+-- January 2021, Sherry Chang
+--
+-- Copyright (c) 2021, 2023 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-IGNITION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    NOTIFICATION-TYPE,
+    Unsigned32,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+ciscoIgnitionMIB MODULE-IDENTITY
+    LAST-UPDATED    "202306300000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-<list>@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on IR1800 devices."
+    REVISION        "202306300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 1061 }
+
+-- Textual Conventions definition will be defined before this line
+
+ipmMIBStatus OBJECT IDENTIFIER
+    ::= { ciscoIgnitionMIB 0 }
+
+ipmMIBThreshold OBJECT IDENTIFIER
+    ::= { ciscoIgnitionMIB 1 }
+
+ipmMIBConform OBJECT IDENTIFIER
+    ::= { ciscoIgnitionMIB 2 }
+
+ipmMIBCompliance OBJECT IDENTIFIER
+    ::= { ipmMIBConform 1 }
+
+ipmMIBGroups OBJECT IDENTIFIER
+    ::= { ipmMIBConform 2 }
+
+-- table entry type definition
+
+IgnitionStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Ignition Status 
+         Bootloader(0): Booting or on bootloader mode,
+         PowerOn(1): Normal operating status,
+         LowDelay(2): Timing the low voltage shut down,
+         OffDelay(3): Timing the ignition off shut down,
+         HighDelay(4): Timing the high voltage shut down,
+         OnDelay(5): Timing from ignition 'on' to power,
+         Monitor(6): Monitor,
+         Sleep(7): Sleep,
+         Unknown(8): Unknown"
+    REFERENCE       "Ignition Status"
+    SYNTAX          INTEGER  {
+                        bootloader(0),
+                        powerOn(1),
+                        lowDelay(2),
+                        offDelay(3),
+                        highDelay(4),
+                        onDelay(5),
+                        monitor(6),
+                        sleep(7),
+                        unknown(8)
+                    }
+
+-- table definition for ipmIgnitionStatusTable
+
+ipmIgnitionStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF IpmIgnitionStatusEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Table for Ignition Status"
+    ::= { ipmMIBStatus 1 }
+
+ipmIgnitionStatusEntry OBJECT-TYPE
+    SYNTAX          IpmIgnitionStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the ipmIgnitionStatusTable."
+    INDEX           { ipmIgnitionStatusIndex } 
+    ::= {  ipmIgnitionStatusTable 1 }
+
+IpmIgnitionStatusEntry ::= SEQUENCE {
+        ipmIgnitionStatusIndex  Integer32,
+        ipmIgnitionManagement   TruthValue,
+        ipmInputVoltage         Unsigned32,
+        ipmIgnitionStatus       IgnitionStatus,
+        ipmIgnitionSense        TruthValue,
+        ipmShutdownTimer        Unsigned32,
+        ipmConfigBattery        Integer32
+}
+
+-- table definition for ipmIgnitionThresholdTable
+
+ipmIgnitionThresholdTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF IpmIgnitionThresholdEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Table for Ignition Threshold"
+    ::= { ipmMIBThreshold 1 }
+
+ipmIgnitionThresholdEntry OBJECT-TYPE
+    SYNTAX          IpmIgnitionThresholdEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the ipmIgnitionThresholdTable."
+    INDEX           { ipmIgnitionThresholdIndex } 
+    ::= {  ipmIgnitionThresholdTable 1 }
+
+IpmIgnitionThresholdEntry ::= SEQUENCE {
+        ipmIgnitionThresholdIndex Integer32,
+        ipmUndervoltage           Unsigned32,
+        ipmOvervoltage            Unsigned32,
+        ipmSenseOn                Unsigned32,
+        ipmSenseOff               Unsigned32,
+        ipmUndervoltageTimer      Unsigned32,
+        ipmOvervoltageTimer       Unsigned32,
+        ipmIgnitionOffTimer       Unsigned32 
+} 
+
+ipmIgnitionStatusIndex OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition Status Index"
+    ::= { ipmIgnitionStatusEntry 1 }
+
+ipmIgnitionManagement OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition Management is enable(true) or disable(false)"
+    ::= { ipmIgnitionStatusEntry 2 }
+
+ipmInputVoltage OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition Input Voltage in millivolts"
+    ::= { ipmIgnitionStatusEntry 3 }
+
+ipmIgnitionStatus OBJECT-TYPE
+    SYNTAX          IgnitionStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition Status"
+    ::= { ipmIgnitionStatusEntry 4 }
+
+ipmIgnitionSense OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition Sense is enable(true) or disable(false)"
+    ::= { ipmIgnitionStatusEntry 5 }
+
+ipmShutdownTimer OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition Shutdown Timer in milliseconds to off"
+    ::= { ipmIgnitionStatusEntry 6 }
+
+ipmConfigBattery OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition Battery Type (v)"
+    ::= { ipmIgnitionStatusEntry 7 }
+
+ipmIgnitionThresholdIndex OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition Threshold Index"
+    ::= { ipmIgnitionThresholdEntry 1 }
+
+ipmUndervoltage OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition undervoltage in millivolts"
+    ::= { ipmIgnitionThresholdEntry 2 }
+
+ipmOvervoltage OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition overvoltage in millivolts"
+    ::= { ipmIgnitionThresholdEntry 3 }
+
+ipmSenseOn OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition Sense On in millivolts"
+    ::= { ipmIgnitionThresholdEntry 4 }
+
+ipmSenseOff OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition Sense Off in millivolts"
+    ::= { ipmIgnitionThresholdEntry 5 }
+
+ipmUndervoltageTimer OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition undervoltage timer in milliseconds"
+    ::= { ipmIgnitionThresholdEntry 6 }
+
+ipmOvervoltageTimer OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition overvoltage timer in milliseconds"
+    ::= { ipmIgnitionThresholdEntry 7 }
+
+ipmIgnitionOffTimer OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ignition off timer in milliseconds"
+    ::= { ipmIgnitionThresholdEntry 8 }
+
+ipmMIBCompliances MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ipmIgnitionStatusMIBGroup,
+                        ipmIgnitionThresholdMIBGroup
+                     }
+    ::= { ipmMIBCompliance 1 }
+
+-- Units of Conformance
+
+ipmIgnitionStatusMIBGroup OBJECT-GROUP
+    OBJECTS         {
+                        ipmIgnitionManagement,
+                        ipmInputVoltage,
+                        ipmIgnitionStatus,
+                        ipmIgnitionSense,
+                        ipmShutdownTimer,
+                        ipmConfigBattery
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The is a test group for Ignition Status."
+    ::= { ipmMIBGroups 1 }
+
+ipmIgnitionThresholdMIBGroup OBJECT-GROUP
+    OBJECTS         {
+                        ipmUndervoltage,
+                        ipmOvervoltage,
+                        ipmSenseOn,
+                        ipmSenseOff,
+                        ipmUndervoltageTimer,
+                        ipmOvervoltageTimer,
+                        ipmIgnitionOffTimer
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The is a test group for Ignition Thresholds."
+    ::= { ipmMIBGroups 2 }
+ 
+END

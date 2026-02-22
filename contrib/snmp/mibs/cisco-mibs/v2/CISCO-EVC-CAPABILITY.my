@@ -1,0 +1,587 @@
+-- *****************************************************************
+-- CISCO-EVC-CAPABILITY.my : Cisco EVC MIB Agent Capability File.
+--   
+-- April 2008, Pravin Gohite
+--   
+-- Copyright (c) 2006, 2008 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-EVC-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoEvcCapability MODULE-IDENTITY
+    LAST-UPDATED    "200808260000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+            USA
+            Tel: +1 800 553-NETS
+            E-mail:  cs-ethermibs@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for the CISCO-EVC-MIB."
+    REVISION        "200808260000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 568 }
+
+
+
+ciscoEvcCapabilityV12R02SR AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2 SR Release"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-EVC-MIB capabilities."
+
+    SUPPORTS        CISCO-EVC-MIB
+    INCLUDES        {
+                        cevcSystemGroup,
+                        cevcPortGroup,
+                        cevcEvcGroup,
+                        cevcSIGroup,
+                        cevcSIVlanRewriteGroup,
+                        cevcSICosMatchCriteriaGroup,
+                        cevcSIMatchCriteriaGroupRev1,
+                        cevcSIForwardGroup,
+                        cevcEvcNotificationConfigGroup,
+                        cevcEvcNotificationGroup
+                    }
+    VARIATION       cevcPortMode
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcUniIdentifier
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcUniPortType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcUniServiceAttributes
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcPortL2ControlProtocolAction
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcEvcRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcEvcStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcEvcIdentifier
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcEvcType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcEvcCfgUnis
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSITargetType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSITarget
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIEvcIndex
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIAdminStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cevcSIForwardingType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteAction
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteEncapsulation
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteVlan1
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteVlan2
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteSymmetric
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIL2ControlProtocolAction
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSICEVlanRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSICEVlanStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSICEVlanEndingVlan
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchCriteriaType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchEncapRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchEncapStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchEncapValid
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchEncapEncapsulation
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchEncapPrimaryCos
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cevcSIMatchEncapSecondaryCos
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cevcSIMatchEncapPayloadTypes
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cevcSIMatchEncapPriorityCos
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cevcSIPrimaryVlanRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIPrimaryVlanStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIPrimaryVlanEndingVlan
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSISecondaryVlanRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSISecondaryVlanStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSISecondaryVlanEndingVlan
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIForwardBdRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIForwardBdStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIForwardBdNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcEvcNotifyEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    ::= { ciscoEvcCapability 1 }
+
+ciscoEvcCapabilityV12R02XO AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2 XO Release."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-EVC-MIB capabilities."
+
+    SUPPORTS        CISCO-EVC-MIB
+    INCLUDES        {
+                        cevcSystemGroup,
+                        cevcPortGroup,
+                        cevcEvcGroup,
+                        cevcSIGroup,
+                        cevcSIVlanRewriteGroup,
+                        cevcSICosMatchCriteriaGroup,
+                        cevcSIMatchCriteriaGroupRev1,
+                        cevcSIForwardGroup,
+                        cevcEvcNotificationConfigGroup,
+                        cevcEvcNotificationGroup
+                    }
+    VARIATION       cevcPortMode
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcUniIdentifier
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcUniPortType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcUniServiceAttributes
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcPortL2ControlProtocolAction
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcEvcRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcEvcStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcEvcIdentifier
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcEvcType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcEvcCfgUnis
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSITargetType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSITarget
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIName
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIEvcIndex
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIAdminStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cevcSIForwardingType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteAction
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteEncapsulation
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteVlan1
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteVlan2
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIVlanRewriteSymmetric
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIL2ControlProtocolAction
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSICEVlanRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSICEVlanStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSICEVlanEndingVlan
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchCriteriaType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchEncapRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchEncapStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchEncapValid
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchEncapEncapsulation
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchEncapPrimaryCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchEncapSecondaryCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchEncapPayloadTypes
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIMatchEncapPriorityCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIPrimaryVlanRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIPrimaryVlanStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIPrimaryVlanEndingVlan
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSISecondaryVlanRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSISecondaryVlanStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSISecondaryVlanEndingVlan
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIForwardBdRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIForwardBdStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcSIForwardBdNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    VARIATION       cevcEvcNotifyEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Only read-only access is implemented."
+
+    ::= { ciscoEvcCapability 2 }
+
+END
+
+
+

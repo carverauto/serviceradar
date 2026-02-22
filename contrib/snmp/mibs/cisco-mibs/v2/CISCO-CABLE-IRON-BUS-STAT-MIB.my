@@ -1,0 +1,287 @@
+-- *****************************************************************
+-- CISCO-CABLE-IRON-BUS-STAT-MIB.my: Cisco Cable Iron Bus Statistics
+-- MIB file
+--   
+-- August 2014 Kun Liang
+--   
+-- Copyright (c) 2014-2015 2014 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-CABLE-IRON-BUS-STAT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    NonZeroPercent
+        FROM CISCO-CABLE-ADMISSION-CTRL-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCableIronBusStatMIB MODULE-IDENTITY
+    LAST-UPDATED    "201408140000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ubr@cisco.com"
+    DESCRIPTION
+        "This is the MIB module for Cable Iron Bus Statistics for
+        DOCSIS-compliant Cable Modem Termination Systems (CMTS). 
+
+        The Statistics of Iron Bus is a software/hardware feature
+        provided in the CMTS so that the CMTS can count statistics
+        of bandwidth usage of Iron Bus when traffic through it.
+
+        The purpose of cable Iron Bus statistics is to monitor the 
+        bandwidth usage of Iron Bus , which CMTS can report warning 
+        message when the traffic throughput on Iron Bus overlap the 
+        threshold configured.
+        The statistics of Iron Bus also monitor the traffic throughput 
+        statistics both ingress and outband Iron Bus with units bytes
+        and packets per second.
+        The statistics of Iron Bus can also configure the threshold and 
+        message interval to CMTS."
+    REVISION        "201408140000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 821 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+ciscoCableIronBusStatMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCableIronBusStatMIB 0 }
+
+ciscoCableIronBusStatMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCableIronBusStatMIB 1 }
+
+ciscoCableIronBusStatMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoCableIronBusStatMIB 2 }
+
+
+ciscoCableIronBusStatTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoCableIronBusStatEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table abstracts a sparse matrix of Bandwidth resource
+        utilization thresholds to be monitored by Iron Bus Statistics.
+        The ciscoCableIronBusStatIndex uniquely identifies the physical
+
+        entity with a set of Iron Bus bandwidth resource utilization 
+        thresholds being associated.The physical entities is for Jacket
+        Card slot Number.The agent creates/destroys/modifies an entry
+        whenever the local console affects this configuration.The
+        management application may create/destroy/modify an entry. This
+        entry will exist by default since the Iron Bus Statistics has
+        90% and 2 minutes configuration by default."
+    ::= { ciscoCableIronBusStatMIBObjects 1 }
+
+ciscoCableIronBusStatEntry OBJECT-TYPE
+    SYNTAX          CiscoCableIronBusStatEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cableIronBusStatTable."
+    INDEX           { ciscoCableIronBusStatIndex } 
+    ::= { ciscoCableIronBusStatTable 1 }
+
+CiscoCableIronBusStatEntry ::= SEQUENCE {
+        ciscoCableIronBusStatIndex                  Integer32,
+        ciscoCableIronBusStatFibBandwidth           NonZeroPercent,
+        ciscoCableIronBusStatTibBandwidth           NonZeroPercent,
+        ciscoCableIronBusStatMessageIntervalCurrent Integer32,
+        ciscoCableIronBusStatBandwidthCurrent       NonZeroPercent,
+        ciscoCableIronBusStatMessageIntervalDefault Integer32,
+        ciscoCableIronBusStatBandwidthDefault       NonZeroPercent,
+        ciscoCableIronBusStatFibPktsRcv             Counter64,
+        ciscoCableIronBusStatFibBytesRcv            Counter64,
+        ciscoCableIronBusStatTibPktsSent            Counter64,
+        ciscoCableIronBusStatTibByteSent            Counter64,
+        ciscoCableIronBusStatFibPktsPerSec          Counter64,
+        ciscoCableIronBusStatTibPktPerSec           Counter64
+}
+
+ciscoCableIronBusStatIndex OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object defines the index of this entry , which should be
+        the slot number of SIP card in CMTS, only support 1,3
+        currently." 
+    ::= { ciscoCableIronBusStatEntry 1 }
+
+ciscoCableIronBusStatFibBandwidth OBJECT-TYPE
+    SYNTAX          NonZeroPercent (1..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies Iron Bus Fib bandwidth(From Iron Bus)
+        thresholds currently in CMTS being monitored." 
+    ::= { ciscoCableIronBusStatEntry 2 }
+
+ciscoCableIronBusStatTibBandwidth OBJECT-TYPE
+    SYNTAX          NonZeroPercent (1..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies Iron Bus Tib bandwidth(To Iron Bus)
+        thresholds currently in CMTS being monitored." 
+    ::= { ciscoCableIronBusStatEntry 3 }
+
+ciscoCableIronBusStatMessageIntervalCurrent OBJECT-TYPE
+    SYNTAX          Integer32 (0..60)
+    UNITS           "minutes"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies Iron Bus warning message interval
+        currently in CMTS being monitored. which from 0 to 60 minutes.
+        Setting the object to 2 will remove the configuration.
+        Setting the object to 0 will not log any warning message."
+    DEFVAL          { 2 } 
+    ::= { ciscoCableIronBusStatEntry 4 }
+
+ciscoCableIronBusStatBandwidthCurrent OBJECT-TYPE
+    SYNTAX          NonZeroPercent (50..100)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies Iron Bus bandwidth usage thresholds
+        currently in CMTS being monitored. The following values range 
+        from 50 to 100. Setting the object to 90 is remove the
+        configuration and set it to default configuration."
+    DEFVAL          { 90 } 
+    ::= { ciscoCableIronBusStatEntry 5 }
+
+ciscoCableIronBusStatMessageIntervalDefault OBJECT-TYPE
+    SYNTAX          Integer32 (0..60)
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies Iron Bus warning message interval by
+        default. The default value of this object is 2."
+    DEFVAL          { 2 } 
+    ::= { ciscoCableIronBusStatEntry 6 }
+
+ciscoCableIronBusStatBandwidthDefault OBJECT-TYPE
+    SYNTAX          NonZeroPercent (1..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the default Iron Bus bandwidth usage
+        thresholds in CMTS being monitored. The default value is 90."
+    DEFVAL          { 90 } 
+    ::= { ciscoCableIronBusStatEntry 7 }
+
+ciscoCableIronBusStatFibPktsRcv OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Fib received packets per second." 
+    ::= { ciscoCableIronBusStatEntry 8 }
+
+ciscoCableIronBusStatFibBytesRcv OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Fib received bytes per second." 
+    ::= { ciscoCableIronBusStatEntry 9 }
+
+ciscoCableIronBusStatTibPktsSent OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Fib sent packets per second." 
+    ::= { ciscoCableIronBusStatEntry 10 }
+
+ciscoCableIronBusStatTibByteSent OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Fib sent Bytes per second." 
+    ::= { ciscoCableIronBusStatEntry 11 }
+
+ciscoCableIronBusStatFibPktsPerSec OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Fib throughput Bytes per second." 
+    ::= { ciscoCableIronBusStatEntry 12 }
+
+ciscoCableIronBusStatTibPktPerSec OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Tib throughput Bytes per second." 
+    ::= { ciscoCableIronBusStatEntry 13 }
+ 
+
+ciscoCableIronBusStatMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCableIronBusStatMIBConform 1 }
+
+ciscoCableIronBusStatMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCableIronBusStatMIBConform 2 }
+
+
+ciscoCableIronBusStatMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the Cisco Cable Iron Bus Statistics MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoCableIronBusStatObjectGroup }
+    ::= { ciscoCableIronBusStatMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoCableIronBusStatObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciscoCableIronBusStatFibBandwidth,
+                        ciscoCableIronBusStatMessageIntervalCurrent,
+                        ciscoCableIronBusStatBandwidthCurrent,
+                        ciscoCableIronBusStatBandwidthDefault,
+                        ciscoCableIronBusStatFibPktsRcv,
+                        ciscoCableIronBusStatFibBytesRcv,
+                        ciscoCableIronBusStatTibPktsSent,
+                        ciscoCableIronBusStatTibByteSent,
+                        ciscoCableIronBusStatFibPktsPerSec,
+                        ciscoCableIronBusStatTibPktPerSec,
+                        ciscoCableIronBusStatTibBandwidth,
+                        ciscoCableIronBusStatMessageIntervalDefault
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing CMTS Iron Bus
+        Statistics being monitored."
+    ::= { ciscoCableIronBusStatMIBGroups 1 }
+
+END
+
+
+
+
+

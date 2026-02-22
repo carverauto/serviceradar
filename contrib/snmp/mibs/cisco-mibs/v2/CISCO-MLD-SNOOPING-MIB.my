@@ -1,0 +1,2135 @@
+-- *****************************************************************
+-- CISCO-MLD-SNOOPING-MIB.my
+--   
+-- Jan, 2010 - Salvatore Valenza
+--   
+-- Copyright (c) 2010 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-MLD-SNOOPING-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    RowStatus,
+    StorageType,
+    TEXTUAL-CONVENTION,
+    TruthValue
+        FROM SNMPv2-TC
+    InetAddress,
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoMldSnoopingMIB MODULE-IDENTITY
+    LAST-UPDATED    "201007020000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects that describe IGMP/MLD
+        snooping.
+        It provides remote network management system the ability
+        to manage the IGMP/MLD Snooping feature when snooping is
+        operating at the system and port level.
+
+        Virtual systems and related ports data can be accessed by 
+        NMS using appropriate SNMP context. 
+        E.g. in order to access data related to a particular L2VPN 
+        bridge domain system, the user shall specify on the SNMP 
+        request the SNMP context related to that particular bridge 
+        domain.
+
+        Glossary of terms:
+
+        GMI - Group Management Interval; it controls when the IGMP/MLD 
+              snooping expires stale group membership states. 
+        L2VPN - Layer 2 Virtual Private Network.
+        IGMP - Internet Group Management Protocol.
+        MLD - Multicast Listener Discovery.
+        MRT - Max Response Time.
+        TTL - Time To Live.
+        PIM - Protocol Independent Multicast.
+        TCN - Topology Change Notification.
+        Querier - External IGMP/MLD router sending out queries which 
+                  are flooded in the system (e.g a bridge domain).
+        Internal Querier - Virtual Querier that solicits periodic 
+                           membership reports by sending IGMP/MLD 
+                           general queries out of all system ports.
+        Winner/Looser Querier - A system can only have one active 
+                                querier at a time, if the internal 
+                                querier receives queries from another 
+                                querier it performs querier election, 
+                                the lowest IP address wins.
+        G-Query - General IGMP/MLD Query.
+        Solicitation - a global leave message with a NULL group 
+                       multicast address, when the upstream router 
+                       receives this solicitation, it immediately issues
+                       an general query."
+    REVISION        "201007020000Z"
+    DESCRIPTION
+        "Initial version."
+    ::= { ciscoMgmt 721 }
+
+
+ciscoMldSnoopingMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoMldSnoopingMIB 0 }
+
+ciscoMldSnoopingMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoMldSnoopingMIB 1 }
+
+ciscoMldSnoopingMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoMldSnoopingMIB 2 }
+
+
+CiscoMldPortType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention denotes an enumerated integer-value
+        that represents a bridge domain member type:
+
+            'unknown'
+                The device is unable to ascertain the bridge domain 
+                member.
+
+            'interface'
+                The bridge domain member is an interface represented by
+                a row in the ifTable (defined by the IF-MIB [RFC2863].
+
+            'pw'
+                The bridge domain member is a L2VPN pseudowire
+                represented by a row in the cpwVcTable (defined by the 
+                CISCO-IETF-PW-MIB).
+
+        With the exception of the values 'unknown', each definition of
+        a concrete CiscoMldPortType value MUST have a corresponding
+        textual convention for use with the particular type of bridge
+        domain member.
+
+        To support future extensions, a MIB module SHOULD NOT sub-type
+        the CiscoMldPortType textual convention in an object type
+        definition.  However, a compliance statement MAY sub-type it in
+        order to require only a subset of the member types for a
+        compliant implementation.
+
+        Implementations must ensure that CiscoMldPortType objects 
+        and any dependent objects (e.g., CiscoMldPortIdentifier 
+        objects) are consistent. For example, an implementation must 
+        respond with an 'inconsistentValue' error if an attempt is made 
+        to modify a CiscoMldPortType object without changing the
+        corresponding CiscoMldPortIdentifier object."
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        interface(2),
+                        pw(3)
+                    }
+
+CiscoMldPortIdentifier ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention denotes an octet string-value that
+        indicates a bridge domain member.
+
+        An implementation MUST ALWAYS interpret a
+        CiscoMldPortIdentifier value within the context of a
+        CiscoMldPortType value. Every use of the
+        CiscoMldPortIdentifier textual convention requires the
+        specification of a CiscoMldPortType object to provide the
+        context.
+        A MIB module SHOULD logically register the CiscoMldPortType
+        object before the CiscoMldPortIdentifier object(s).
+
+        The value of a CiscoMldPortIdentifier object MUST BE the 
+        null string if the value of the CiscoMldPortType object 
+        providing the context is 'unknown'.
+
+        Implementations must ensure that a CiscoMldPortIdentifier
+        object remains consistent with the CiscoMldPortType object
+        providing the context. For example, an implementation must
+        respond with an 'inconsistentValue' error if an attempt is made
+        to modify a CiscoMldPortIdentifier object without changing 
+        the corresponding CiscoMldPortType object."
+    SYNTAX          OCTET STRING (SIZE (0..255))
+
+CiscoMldPortInterface ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention denotes an octet string-value
+        identifying a row in ifTable (defined by the IF-MIB [RFC2863]).
+
+            Octets  Contents       Encoding
+            =========================================
+            4       ifIndex-value  network-byte order
+
+        The corresponding CiscoMldPortType value is 'interface'.
+
+        A MIB module SHOULD NOT directly use this textual convention in
+        defining object, as it restricts bridge domain members to
+        specific type.
+        However, if a MIB module does chose to directly use the textual
+        convention, it MAY chose to do so without a 
+        CiscoMldPortType object to define the context, since this 
+        textual convention implies the context."
+    SYNTAX          OCTET STRING (SIZE (4))
+
+CiscoMldPortPseudowire ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention denotes an octet string-value
+        identifying a row in the cpwVcTable (defined by the 
+        CISCO-IETF-PW-MIB).
+
+            Octets  Contents               Encoding
+            =========================================
+            4       cpwVcIndex-value       network-byte order
+
+        The corresponding CiscoMldPortType value is 'pw'.
+
+        A MIB module SHOULD NOT directly use this textual convention in
+        defining object, as it restricts bridge domain members to
+        specific type.
+        However, if a MIB module does chose to directly use the textual
+        convention, it MAY chose to do so without a 
+        CiscoMldPortType object to define the context, since this 
+        textual convention implies the context."
+    SYNTAX          OCTET STRING (SIZE (4))
+
+CiscoMldSnoopingVersion ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention denotes an enumerated integer-value
+        that represents the IGMP/MLD snooping version:
+
+            'v1'      - version 1
+            'v2'      - version 2    
+            'v3'      - version 3
+            'unknown' - the system is not able to determine the version"
+    SYNTAX          INTEGER {
+                        v1(1),
+                        v2(2),
+                        v3(3),
+                        unknown(4)
+                    }
+cmsConfiguration  OBJECT IDENTIFIER
+    ::= { ciscoMldSnoopingMIBObjects 1 }
+
+cmsSystemInfo  OBJECT IDENTIFIER
+    ::= { ciscoMldSnoopingMIBObjects 2 }
+
+cmsOperInfo  OBJECT IDENTIFIER
+    ::= { ciscoMldSnoopingMIBObjects 3 }
+
+cmsSystemStats  OBJECT IDENTIFIER
+    ::= { ciscoMldSnoopingMIBObjects 4 }
+
+cmsPortStats  OBJECT IDENTIFIER
+    ::= { ciscoMldSnoopingMIBObjects 5 }
+
+
+cmsProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmsProfileEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists IGMP/MLD configuration for each
+        profile available on the system."
+    ::= { cmsConfiguration 1 }
+
+cmsProfileEntry OBJECT-TYPE
+    SYNTAX          CmsProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes a IGMP/MLD snooping profile; that is a set
+        of configuration parameters that can be applied to either
+        systems or ports. 
+
+        A peer SNMP entity may create a profile by setting
+        an instance of cmsProfileStatus to 'createAndWait' or
+        'createAndGo'.  Observe that an implementation that does 
+        not support these options must specify these limitations 
+        in an agent capabilities statement.
+
+        Other management entities (e.g., the local console) may 
+        perform actions resulting in the creation of a member link.
+        In these cases, the system must automatically create a row 
+        in the cmsProfileTable.
+
+        A peer SNMP entity may destroy a profile by setting 
+        the corresponding instance of cmsProfileStatus to
+        'destroy'. Observe that an implementation that does not
+        support this option must specify this limitation in an 
+        agent capabilities statement.
+
+        Other management entities may perform actions resulting 
+        in the destruction of a profile. In these cases, the
+        system must automatically destroy the corresponding row 
+        in the cmsProfileTable."
+    INDEX           { cmsProfileName } 
+    ::= { cmsProfileTable 1 }
+
+CmsProfileEntry ::= SEQUENCE {
+        cmsProfileName                       SnmpAdminString,
+        cmsProfileStatus                     RowStatus,
+        cmsProfileStorageType                StorageType,
+        cmsProfileSnoopMinVersion            CiscoMldSnoopingVersion,
+        cmsProfileIPAddrType                 InetAddressType,
+        cmsProfileIPAddress                  InetAddress,
+        cmsProfileRobustnessVariable         Unsigned32,
+        cmsProfileInternalQuerier            TruthValue,
+        cmsProfileLastMemberQueryCount       Unsigned32,
+        cmsProfileLastMemberQueryInterval    Unsigned32,
+        cmsProfileSuppressReport             TruthValue,
+        cmsProfileUnsolicitedReportTimer     Unsigned32,
+        cmsProfileFloodQueryCount            Unsigned32,
+        cmsProfileQuerySolicit               TruthValue,
+        cmsProfileTTLCheck                   TruthValue,
+        cmsProfileRouterAlertCheck           TruthValue,
+        cmsProfileIntQuerierMaxRespTime      Unsigned32,
+        cmsProfileIntQuerierQueryInterval    Unsigned32,
+        cmsProfileIntQuerierTCNQueryCount    Unsigned32,
+        cmsProfileIntQuerierTCNQueryInterval Unsigned32,
+        cmsProfileIntQuerierExpiry           Unsigned32,
+        cmsProfileIntQuerierVersion          CiscoMldSnoopingVersion,
+        cmsProfileRouterGuard                TruthValue,
+        cmsProfileStaticMRouter              TruthValue,
+        cmsProfileImmediateLeave             TruthValue
+}
+
+cmsProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a text string defining the name of the
+        profile identified by cmsProfileIndex." 
+    ::= { cmsProfileEntry 1 }
+
+cmsProfileStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the row. The following
+        columns must be valid before activating a row:
+
+        - cmsProfileStorageType
+        - cmsProfileSnoopMinVersion
+        - cmsProfileIPAddrType
+        - cmsProfileIPAddress
+        - cmsProfileRobustnessVariable
+        - cmsProfileInternalQuerier
+        - cmsProfileLastMemberQueryCount
+        - cmsProfileLastMemberQueryInterval
+        - cmsProfileProxyReporting
+        - cmsProfileReportSuppression
+        - cmsProfileUnsolicitedReportTimer
+        - cmsProfileFloodQueryCount
+        - cmsProfileQuerySolicit
+        - cmsProfileTTLCheck
+        - cmsProfileRouterAlertCheck
+        - cmsProfileIntQuerierMaxRespTime
+        - cmsProfileIntQuerierQueryInterval
+        - cmsProfileIntQuerierRobustnessVar
+        - cmsProfileIntQuerierTCNQueryCount
+        - cmsProfileIntQuerierTCNQueryIntrvl
+        - cmsProfileIntQuerierExpiry 
+        - cmsProfileIntQuerierVersion
+        - cmsProfileRouterGuard
+        - cmsProfileStaticMRouter
+        - cmsProfileImmediateLeave
+
+        However, these objects specify valid default values.  Thus, it
+        is possible to use create-and-go row creation semantics without
+        setting additional columns.
+
+        An implementation must allow an EMS/NMS to modify any column
+        when this column is 'active'" 
+    ::= { cmsProfileEntry 2 }
+
+cmsProfileStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type of this conceptual
+        row."
+    DEFVAL          { volatile } 
+    ::= { cmsProfileEntry 3 }
+
+cmsProfileSnoopMinVersion OBJECT-TYPE
+    SYNTAX          CiscoMldSnoopingVersion
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum IGMP or MLD version
+        supported by snooping in the system where the profile is 
+        applied."
+    DEFVAL          { v3 } 
+    ::= { cmsProfileEntry 4 }
+
+cmsProfileIPAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address type (IPv4 or IPv6) for
+        the objects cmsProfileIPAddress"
+    DEFVAL          { ipv4 } 
+    ::= { cmsProfileEntry 5 }
+
+cmsProfileIPAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the system IP address used by
+        IGMP/MLD snooping."
+    DEFVAL          { '00000000'H } 
+    ::= { cmsProfileEntry 6 }
+
+cmsProfileRobustnessVariable OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..7)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the robustness-variable value used to
+        calculate the group management interval (GMI): 
+        GMI = (robustness-variable * query-interval) + MRT"
+    DEFVAL          { 1 } 
+    ::= { cmsProfileEntry 7 }
+
+cmsProfileInternalQuerier OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the administrative status of the internal
+        querier. A value of 'true' means that the internal querier
+        feature is enabled."
+    DEFVAL          { false } 
+    ::= { cmsProfileEntry 8 }
+
+cmsProfileLastMemberQueryCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "queries"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the profile member query count. This
+        value is the number of group-specific queries IGMP/MLD snooping
+        sends, in response to a leave message."
+    DEFVAL          { 2 } 
+    ::= { cmsProfileEntry 9 }
+
+cmsProfileLastMemberQueryInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (100..5000)
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the query interval, which should be the
+        time gap between two consecutive group-specific queries."
+    DEFVAL          { 100 } 
+    ::= { cmsProfileEntry 10 }
+
+cmsProfileSuppressReport OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the configuration status of the report
+        suppression feature. A value of 'true' means that the reports
+        are suppressed."
+    DEFVAL          { false } 
+    ::= { cmsProfileEntry 11 }
+
+cmsProfileUnsolicitedReportTimer OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the unsolicited report timer interval in
+        minutes. The reports are forwarded at random intervals within
+        the timeframe configured."
+    DEFVAL          { 100 } 
+    ::= { cmsProfileEntry 12 }
+
+cmsProfileFloodQueryCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of general queries for
+        which the multicast traffic is flooded following a topology
+        change notification, thus influencing the refresh period."
+    DEFVAL          { 1 } 
+    ::= { cmsProfileEntry 13 }
+
+cmsProfileQuerySolicit OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the query solicit administrative
+        status. A value of 'true' means that the feature is enabled."
+    DEFVAL          { false } 
+    ::= { cmsProfileEntry 14 }
+
+cmsProfileTTLCheck OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies administrative status of the time-to-live
+        (TTL) check feature. A value of 'true', means IGMP/MLD
+        snooping processes all packets by examining the TTL field in 
+        the header."
+    DEFVAL          { false } 
+    ::= { cmsProfileEntry 15 }
+
+cmsProfileRouterAlertCheck OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the administrative status of the alert
+        check feature. A value of 'true', means IGMP/MLD snooping
+        performs
+        the validation before processing the message."
+    DEFVAL          { false } 
+    ::= { cmsProfileEntry 16 }
+
+cmsProfileIntQuerierMaxRespTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum time the querier can take
+        to reply to a query. It is used in order to calculate the Group
+        Management Interval (GMI):
+        GMI = (robustness-variable * query-interval) + MRT"
+    DEFVAL          { 1 } 
+    ::= { cmsProfileEntry 17 }
+
+cmsProfileIntQuerierQueryInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the internal querier query interval,
+        which should be the time gap between two consecutive queries.
+        It is used in order to calculate the Group Management Interval
+        (GMI): GMI = (robustness-variable * query-interval) + MRT"
+    DEFVAL          { 1 } 
+    ::= { cmsProfileEntry 18 }
+
+cmsProfileIntQuerierTCNQueryCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Topopogy Change Notification query
+        count for the internal querier."
+    DEFVAL          { 0 } 
+    ::= { cmsProfileEntry 19 }
+
+cmsProfileIntQuerierTCNQueryInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the internal querier TCN query
+        interval, which should be the time gap between two 
+        consecutive TCN queries"
+    DEFVAL          { 1 } 
+    ::= { cmsProfileEntry 20 }
+
+cmsProfileIntQuerierExpiry OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the internal querier time out; that is
+        the timer set by the internal querier after an election
+        procedure where the internal query results as loser. 
+        If this timer expires before another query is received from the
+        election winner, the internal querier becomes the active
+        querier."
+    DEFVAL          { 60 } 
+    ::= { cmsProfileEntry 21 }
+
+cmsProfileIntQuerierVersion OBJECT-TYPE
+    SYNTAX          CiscoMldSnoopingVersion
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the internal querier version"
+    DEFVAL          { v3 } 
+    ::= { cmsProfileEntry 22 }
+
+cmsProfileRouterGuard OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IGMP/MLD snooping router
+        guard configuration status. A value of 'true' means 
+        that a port cannot be dynamically discovered as 
+        an mrouter"
+    DEFVAL          { false } 
+    ::= { cmsProfileEntry 23 }
+
+cmsProfileStaticMRouter OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the static multicast router
+        administrative
+        status. A value of 'true' means that the feature is enabled."
+    DEFVAL          { false } 
+    ::= { cmsProfileEntry 24 }
+
+cmsProfileImmediateLeave OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the immediate leave administrative
+        status. A value of 'true' means that IGMP/MLD snooping 
+        will remove a Layer 2 interface from the forwarding table 
+        entry immediately, without first sending group-specific 
+        queries to the port."
+    DEFVAL          { false } 
+    ::= { cmsProfileEntry 25 }
+ 
+
+
+cmsConfigPortTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmsConfigPortEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists snooping configuration for each port."
+    ::= { cmsConfiguration 2 }
+
+cmsConfigPortEntry OBJECT-TYPE
+    SYNTAX          CmsConfigPortEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes the configuration associated with
+        a port.
+
+        A peer SNMP entity may create a port config by setting
+        an instance of cmsConfigPortStatus to 'createAndWait' or
+        'createAndGo'.  Observe that an implementation that does 
+        not support these options must specify these limitations 
+        in an agent capabilities statement.
+
+        Other management entities (e.g., the local console) may 
+        perform actions resulting in the creation of a member link.
+        In these cases, the system must automatically create a row 
+        in the cmsConfigPortTable.
+
+        A peer SNMP entity may destroy a port config by setting 
+        the corresponding instance of cmsConfigPortStatus to
+        'destroy'. Observe that an implementation that does not
+        support this option must specify this limitation in an 
+        agent capabilities statement.
+
+        Other management entities may perform actions resulting 
+        in the destruction of a profile. In these cases, the
+        system must automatically destroy the corresponding row 
+        in the cmsConfigPortTable."
+    INDEX           {
+                        cmsPortType,
+                        cmsPortId
+                    } 
+    ::= { cmsConfigPortTable 1 }
+
+CmsConfigPortEntry ::= SEQUENCE {
+        cmsPortType              CiscoMldPortType,
+        cmsPortId                CiscoMldPortIdentifier,
+        cmsConfigPortStatus      RowStatus,
+        cmsConfigPortStorageType StorageType,
+        cmsConfigPortProfileName SnmpAdminString
+}
+
+cmsPortType OBJECT-TYPE
+    SYNTAX          CiscoMldPortType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the port type." 
+    ::= { cmsConfigPortEntry 1 }
+
+cmsPortId OBJECT-TYPE
+    SYNTAX          CiscoMldPortIdentifier
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indentifies the port. Depending on
+        the cmsPortType this object will uniquely identify the
+        port accordingly with the definition of the TC
+        CiscoMldPortIdentifier." 
+    ::= { cmsConfigPortEntry 2 }
+
+cmsConfigPortStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the row. The following
+        columns must be valid before activating a row:
+
+        - cmsConfigPortProfileName
+
+        However, this objects specify a valid default value.  Thus, it
+        is possible to use create-and-go row creation semantics without
+        setting additional columns.
+
+        An implementation must allow an EMS/NMS to modify any column
+        when this column is 'active'" 
+    ::= { cmsConfigPortEntry 3 }
+
+cmsConfigPortStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type of this conceptual
+        row."
+    DEFVAL          { volatile } 
+    ::= { cmsConfigPortEntry 4 }
+
+cmsConfigPortProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the profile
+        contained by the cmsProfileTable associated with the system port
+        identified by the table entry indices."
+    DEFVAL          { "" } 
+    ::= { cmsConfigPortEntry 5 }
+ 
+
+
+cmsConfigSystemProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IGMP/MLD profile name associated to
+        the system. It corresponds to an entry on cmsProfileTable where
+        the complete set of configuration parameters are stored."
+    DEFVAL          { "" } 
+    ::= { cmsConfiguration 3 }
+
+cmsQuerierIPAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP address type (IPv4 or IPv6) of
+        cmsQuerierIPAddr." 
+    ::= { cmsOperInfo 1 }
+
+cmsQuerierIPAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP address of the querier." 
+    ::= { cmsOperInfo 2 }
+
+cmsQuerierPortType OBJECT-TYPE
+    SYNTAX          CiscoMldPortType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the port type of the querier." 
+    ::= { cmsOperInfo 3 }
+
+cmsQuerierPortId OBJECT-TYPE
+    SYNTAX          CiscoMldPortIdentifier
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the port identifier of the querier; that
+        is the port through which the querier's queries are received on
+        the system." 
+    ::= { cmsOperInfo 4 }
+
+cmsQuerierVersion OBJECT-TYPE
+    SYNTAX          CiscoMldSnoopingVersion
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the querier IGMP/MLD snooping version." 
+    ::= { cmsOperInfo 5 }
+
+cmsQuerierQueryInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the querier interval, which is the
+        time gap between two consecutive queries." 
+    ::= { cmsOperInfo 6 }
+
+cmsQuerierRobustness OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the querier robustness variable." 
+    ::= { cmsOperInfo 7 }
+
+cmsQuerierMaxRespTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum time the querier can take
+        to reply to a query." 
+    ::= { cmsOperInfo 8 }
+
+cmsQuerierTimeSinceLastGQuery OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates for the querier the time interval since
+        the last general query." 
+    ::= { cmsOperInfo 9 }
+
+cmsMcastInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmsMcastInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the snooping multicast operational data for
+        group/source addresses associated to a port."
+    ::= { cmsOperInfo 10 }
+
+cmsMcastInfoEntry OBJECT-TYPE
+    SYNTAX          CmsMcastInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes the multicast operational data for the
+        group/source addresses associated to a port. 
+        The system creates a row in this table for each port and
+        group/source address configured on the snooping profile
+        associated to that port.
+        The system destroy a row on this table when the related
+        group/source configuration is removed form the profile
+        associated to that port.
+        If a port is associated with a profile not defining any static
+        group/source there will not be any entry for that port on this
+        table."
+    INDEX           {
+                        cmsPortType,
+                        cmsPortId,
+                        cmsMcastInfoGroupAddrType,
+                        cmsMcastInfoGroupAddr,
+                        cmsMcastInfoSourceAddr
+                    } 
+    ::= { cmsMcastInfoTable 1 }
+
+CmsMcastInfoEntry ::= SEQUENCE {
+        cmsMcastInfoGroupAddrType InetAddressType,
+        cmsMcastInfoGroupAddr     InetAddress,
+        cmsMcastInfoSourceAddr    InetAddress,
+        cmsMcastInfoGroupFilter   INTEGER,
+        cmsMcastInfoExpiry        Unsigned32,
+        cmsMcastInfoFlag          INTEGER
+}
+
+cmsMcastInfoGroupAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP version of cmsMcastGroupAddr
+        and cmsMcastSourceAddr" 
+    ::= { cmsMcastInfoEntry 1 }
+
+cmsMcastInfoGroupAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the IP address of the multicast
+        group observed through IGMP/MLD snooping." 
+    ::= { cmsMcastInfoEntry 2 }
+
+cmsMcastInfoSourceAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP address of a
+        IGMP/MLD snooping source" 
+    ::= { cmsMcastInfoEntry 3 }
+
+cmsMcastInfoGroupFilter OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        exclude(1),
+                        include(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the multicast group filter associated
+        with
+        the group/source related to the indices.
+
+        - 'exclude': The group filter mode is set to exclude.
+
+        - 'include': The group filter mode is set to include." 
+    ::= { cmsMcastInfoEntry 4 }
+
+cmsMcastInfoExpiry OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the multicast group expiry time. When
+        this timer expires the group membership is removed from
+        the port."
+    REFERENCE       "RFC3376, Section 8.4. Group Membership Interval" 
+    ::= { cmsMcastInfoEntry 5 }
+
+cmsMcastInfoFlag OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        static(1),
+                        dynamic(2),
+                        staticAndDynamic(3),
+                        unknown(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the multicast flag associated with
+        the group/source related to the indices:
+
+            'static' -
+                 The group state is configured via snooping profile
+
+            'dynamic' - 
+                 The group state is learnt as a result of receiving 
+                 IGMP/MLD reports.
+
+            'staticAndDynamic' -
+                 The group state is both statically configured via
+                 snooping profile and learnt as a result of receiving 
+                 IGMP/MLD reports.
+
+            'unknown' -
+                 The group state is not known." 
+    ::= { cmsMcastInfoEntry 6 }
+ 
+
+
+cmsMRouterPortInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmsMRouterPortInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides IGMP/MLD snooping operational data for the
+        multicast router ports available on the system."
+    ::= { cmsOperInfo 11 }
+
+cmsMRouterPortInfoEntry OBJECT-TYPE
+    SYNTAX          CmsMRouterPortInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in the cmsMRouterPortInfoTable.
+        There is an entry in this table for each port where 
+        IGMP/MLD snooping is configured on the system."
+    INDEX           {
+                        cmsPortType,
+                        cmsPortId
+                    } 
+    ::= { cmsMRouterPortInfoTable 1 }
+
+CmsMRouterPortInfoEntry ::= SEQUENCE {
+        cmsMRouterType INTEGER
+}
+
+cmsMRouterType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        static(1),
+                        dynamic(2),
+                        staticAndDynamic(3),
+                        unknown(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the multicast router type for the port
+        identified by the indices. 
+
+        'dynamic' - indicates that the mrouter port is dynamically    
+                    discovered by the system.
+
+        'static'  - indicates that the mrouter ports is statically 
+                    configured.
+
+        'staticAndDynamic' - indicates that the mrouter port is both
+                             static and dynamic at the same time.
+
+        'unknown' - indicates that the mrouter type is not known" 
+    ::= { cmsMRouterPortInfoEntry 1 }
+ 
+
+
+cmsSysIntQuerierRxGeneralQueries OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of general queries received
+        by the internal querier." 
+    ::= { cmsSystemStats 1 }
+
+cmsSysIntQuerierRxGeneralQueriesWhenDisabled OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of general queries received
+        when internal querier is disabled." 
+    ::= { cmsSystemStats 2 }
+
+cmsSysIntQuerierRxGeneralQueriesAsQuerier OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of general queries received by
+        the internal querier as querier." 
+    ::= { cmsSystemStats 3 }
+
+cmsSysIntQuerierRxGeneralQueriesAsNonQuerier OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of general queries received
+        by the internal querier as non querier." 
+    ::= { cmsSystemStats 4 }
+
+cmsSysIntQuerierRxGeneralQueriesAsWinner OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of general queries received
+        by the internal querier as winner." 
+    ::= { cmsSystemStats 5 }
+
+cmsSysIntQuerierRxGeneralQueriesAsLoser OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of general queries received
+        by the internal querier as loser." 
+    ::= { cmsSystemStats 6 }
+
+cmsSysIntQuerierRxGlobalLeaves OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of global leaves received." 
+    ::= { cmsSystemStats 7 }
+
+cmsSysIntQuerierRxGlobalLeavesWhenDisabled OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of global leaves received
+        when internal querier is disabled." 
+    ::= { cmsSystemStats 8 }
+
+cmsSysIntQuerierRxGlobalLeavsAsNonQuerier OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This objects indicates the number of global leaves received as
+        non querier." 
+    ::= { cmsSystemStats 9 }
+
+cmsSysIntQuerierRxGlobalLeavesIgnored OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This objects indicates the number of global leaves received
+        and ignored." 
+    ::= { cmsSystemStats 10 }
+
+cmsSysIntQuerierRxPimEnabledNotifications OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PIM enabled notification
+        received." 
+    ::= { cmsSystemStats 11 }
+
+cmsSysIntQuerierRxPimDisabledNotifications OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PIM disabled notification
+        received." 
+    ::= { cmsSystemStats 12 }
+
+cmsSysIntQuerierRxLocalQuerySolicitations OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of local query solicitations
+        received." 
+    ::= { cmsSystemStats 13 }
+
+cmsSysIntQuerierTxGeneralQueries OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of general queries
+        transmitted." 
+    ::= { cmsSystemStats 14 }
+
+cmsSysTrfGeneralQueriesReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of general queries
+        received." 
+    ::= { cmsSystemStats 15 }
+
+cmsSysTrfGeneralQueriesReinjected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of general querier
+        re-injected." 
+    ::= { cmsSystemStats 16 }
+
+cmsSysTrfGeneralQueriesGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of general queries
+        generated." 
+    ::= { cmsSystemStats 17 }
+
+cmsSysTrfGrpSpecificQueriesReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of group specific
+        queries received." 
+    ::= { cmsSystemStats 18 }
+
+cmsSysTrfGrpSpecificQueriesReinjected OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of group specific
+        queries re-injected." 
+    ::= { cmsSystemStats 19 }
+
+cmsSysTrfGrpSpecificQueriesGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of group specific
+        queries generated." 
+    ::= { cmsSystemStats 20 }
+
+cmsSysTrfGSSpecificQueriesReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of group source specific
+        queries received." 
+    ::= { cmsSystemStats 21 }
+
+cmsSysTrfGSSpecificQueriesReinjected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of group source specific
+        queries re-injected." 
+    ::= { cmsSystemStats 22 }
+
+cmsSysTrfGSSpecificQueriesGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of group source specific
+        queries generated." 
+    ::= { cmsSystemStats 23 }
+
+cmsSysTrfV2ReportReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V2 reports received." 
+    ::= { cmsSystemStats 24 }
+
+cmsSysTrfV2ReportReinjected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V2 reports
+        re-injected." 
+    ::= { cmsSystemStats 25 }
+
+cmsSysTrfV2ReportGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of  V2
+        reports generated." 
+    ::= { cmsSystemStats 26 }
+
+cmsSysTrfV3ReportReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports received." 
+    ::= { cmsSystemStats 27 }
+
+cmsSysTrfV3ReportReinjected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports
+        re-injected." 
+    ::= { cmsSystemStats 28 }
+
+cmsSysTrfV3ReportGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of  V3
+        reports generated." 
+    ::= { cmsSystemStats 29 }
+
+cmsSysTrfGlobalLeavesReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of global leaves
+        received." 
+    ::= { cmsSystemStats 30 }
+
+cmsSysTrfGlobalLeavesReinjected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of global leaves
+        re-injected." 
+    ::= { cmsSystemStats 31 }
+
+cmsSysTrfGlobalLeavesGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of global leaves
+        generated." 
+    ::= { cmsSystemStats 32 }
+
+cmsSysTrfPIMHellosReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PIM hellos received." 
+    ::= { cmsSystemStats 33 }
+
+cmsSysTrfPIMHellosReinjected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PIM hellos
+        re-injected." 
+    ::= { cmsSystemStats 34 }
+
+cmsSysTrfPIMHellosGenerated OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PIM hellos generated." 
+    ::= { cmsSystemStats 35 }
+
+cmsSysTrfRxPcktsFlooded OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received packets flooded on
+        the system." 
+    ::= { cmsSystemStats 36 }
+
+cmsSysTrfRxPcktsFwdToMembers OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received packets forwarded
+        to the snooping members." 
+    ::= { cmsSystemStats 37 }
+
+cmsSysTrfRxPcktsFwdToMrouters OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received packets forwarded
+        to MRouters." 
+    ::= { cmsSystemStats 38 }
+
+cmsSysTrfRxPcktsConsumed OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received
+        packets consumed by the system." 
+    ::= { cmsSystemStats 39 }
+
+cmsSysTrfRxErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received packets with
+        errors." 
+    ::= { cmsSystemStats 40 }
+
+cmsSysTrfRxOther OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received packets not
+        counted on the other rx counters on this table." 
+    ::= { cmsSystemStats 41 }
+
+cmsSysTrfTxErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of transmitted packets with
+        errors." 
+    ::= { cmsSystemStats 42 }
+
+cmsSysRxV3RepIsInclude OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports of type
+        'include' received by the system." 
+    ::= { cmsSystemStats 43 }
+
+cmsSysRxV3RepChangeToInclude OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports of type
+        'change to include' received by the system." 
+    ::= { cmsSystemStats 44 }
+
+cmsSysRxV3RepIsExclude OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports of type
+        'exclude' received by the system." 
+    ::= { cmsSystemStats 45 }
+
+cmsSysRxV3RepChangeToExclude OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports of type
+        'change to exclude' received by the system." 
+    ::= { cmsSystemStats 46 }
+
+cmsSysRxV3RepAllowNewSrc OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports of type
+        'Allow New Source' received by the system." 
+    ::= { cmsSystemStats 47 }
+
+cmsSysRxV3RepBlockOldSrc OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports of type
+        'block old source' received by the system." 
+    ::= { cmsSystemStats 48 }
+
+cmsStatsPortTrfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmsStatsPortTrfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the IGMP/MLD snooping port traffic
+        statistics.
+        Each row contains traffic statistical data associated with
+        a unique bridge domain port identified by the indexes.
+        Conceptual rows can be seen by SNMP agents or NMS as containing
+        statistical informations related to the indexes discovered on
+        cbdBridgeDomainTable and cbdPortTable"
+    ::= { cmsPortStats 1 }
+
+cmsStatsPortTrfEntry OBJECT-TYPE
+    SYNTAX          CmsStatsPortTrfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in the cmsStatsPortTrfTable.
+        There is an entry in this table for each port where 
+        IGMP/MLD snooping is configured on the system."
+    INDEX           {
+                        cmsPortType,
+                        cmsPortId
+                    } 
+    ::= { cmsStatsPortTrfTable 1 }
+
+CmsStatsPortTrfEntry ::= SEQUENCE {
+        cmsStsPortTrfGeneralQueriesReceived       Counter32,
+        cmsStsPortTrfGeneralQueriesReinjected     Counter32,
+        cmsStsPortTrfGeneralQueriesGenerated      Counter32,
+        cmsStsPortTrfGrpSpecificQueriesReceived   Counter32,
+        cmsStsPortTrfGrpSpecificQueriesReinjected Counter32,
+        cmsStsPortTrfGrpSpecificQueriesGenerated  Counter32,
+        cmsStsPortTrfGSSpecificQueriesReceived    Counter32,
+        cmsStsPortTrfGSSpecificQueriesReinjected  Counter32,
+        cmsStsPortTrfGSSpecificQueriesGenerated   Counter32,
+        cmsStsPortTrfV2ReportReceived             Counter32,
+        cmsStsPortTrfV2ReportReinjected           Counter32,
+        cmsStsPortTrfV2ReportGenerated            Counter32,
+        cmsStsPortTrfV3ReportReceived             Counter32,
+        cmsStsPortTrfV3ReportReinjected           Counter32,
+        cmsStsPortTrfV3ReportGenerated            Counter32,
+        cmsStsPortTrfGlobalLeavesReceived         Counter32,
+        cmsStsPortTrfGlobalLeavesReinjected       Counter32,
+        cmsStsPortTrfGlobalLeavesGenerated        Counter32,
+        cmsStsPortTrfPIMHellosReceived            Counter32,
+        cmsStsPortTrfPIMHellosReinjected          Counter32,
+        cmsStsPortTrfPIMHellosGenerated           Counter32,
+        cmsStsPortTrfRxPcktsFlooded               Counter32,
+        cmsStsPortTrfRxPcktsFwdToMembers          Counter32,
+        cmsStsPortTrfRxPcktsFwdToMrouters         Counter32,
+        cmsStsPortTrfRxPcktsConsumed              Counter32,
+        cmsStsPortTrfRxErrors                     Counter32,
+        cmsStsPortTrfRxOther                      Counter32,
+        cmsStsPortTrfTxErrors                     Counter32,
+        cmsStsPortRxV3RepIsInclude                Counter32,
+        cmsStsPortRxV3RepChangeToInclude          Counter32,
+        cmsStsPortRxV3RepIsExclude                Counter32,
+        cmsStsPortRxV3RepChangeToExclude          Counter32,
+        cmsStsPortRxV3RepAllowNewSrc              Counter32,
+        cmsStsPortRxV3RepBlockOldSrc              Counter32,
+        cmsStsPortGrps                            Counter32,
+        cmsStsPortSGs                             Counter32
+}
+
+cmsStsPortTrfGeneralQueriesReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of general queries
+        received on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 1 }
+
+cmsStsPortTrfGeneralQueriesReinjected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of general queries
+        re-injected on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 2 }
+
+cmsStsPortTrfGeneralQueriesGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of general queries
+        generated on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 3 }
+
+cmsStsPortTrfGrpSpecificQueriesReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of group specific
+        queries received on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 4 }
+
+cmsStsPortTrfGrpSpecificQueriesReinjected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of group specific
+        queries re-injected on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 5 }
+
+cmsStsPortTrfGrpSpecificQueriesGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of group specific
+        queries generated on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 6 }
+
+cmsStsPortTrfGSSpecificQueriesReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of group source specific
+        queries received on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 7 }
+
+cmsStsPortTrfGSSpecificQueriesReinjected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of group source specific
+        queries re-injected on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 8 }
+
+cmsStsPortTrfGSSpecificQueriesGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of group source specific
+        queries generated on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 9 }
+
+cmsStsPortTrfV2ReportReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V2 reports received on the
+        port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 10 }
+
+cmsStsPortTrfV2ReportReinjected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V2 reports
+        re-injected on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 11 }
+
+cmsStsPortTrfV2ReportGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V2
+        reports generated on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 12 }
+
+cmsStsPortTrfV3ReportReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of  V3 reports received on the
+        port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 13 }
+
+cmsStsPortTrfV3ReportReinjected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of  V3 reports
+        re-injected on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 14 }
+
+cmsStsPortTrfV3ReportGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports generated on the
+        port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 15 }
+
+cmsStsPortTrfGlobalLeavesReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of global leaves
+        received on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 16 }
+
+cmsStsPortTrfGlobalLeavesReinjected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of  global leaves
+        re-injected on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 17 }
+
+cmsStsPortTrfGlobalLeavesGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of global leaves
+        generated on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 18 }
+
+cmsStsPortTrfPIMHellosReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PIM hellos received on the
+        port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 19 }
+
+cmsStsPortTrfPIMHellosReinjected OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PIM hellos re-injected on
+        the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 20 }
+
+cmsStsPortTrfPIMHellosGenerated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PIM hellos generated on the
+        port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 21 }
+
+cmsStsPortTrfRxPcktsFlooded OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received packets flooded on
+        the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 22 }
+
+cmsStsPortTrfRxPcktsFwdToMembers OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received packets forwarded
+        to members on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 23 }
+
+cmsStsPortTrfRxPcktsFwdToMrouters OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received packets forwarded
+        to MRouters on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 24 }
+
+cmsStsPortTrfRxPcktsConsumed OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received
+        packets consumed on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 25 }
+
+cmsStsPortTrfRxErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received packets with
+        errors on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 26 }
+
+cmsStsPortTrfRxOther OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of received packets on the
+        port identified by the indices and not
+        counted on the others receive counters" 
+    ::= { cmsStatsPortTrfEntry 27 }
+
+cmsStsPortTrfTxErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of transmitted packets with
+        errors on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 28 }
+
+cmsStsPortRxV3RepIsInclude OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports of type
+        'include' received on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 29 }
+
+cmsStsPortRxV3RepChangeToInclude OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports of type
+        'change to include' received on the port identified by the
+        indices" 
+    ::= { cmsStatsPortTrfEntry 30 }
+
+cmsStsPortRxV3RepIsExclude OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports of type
+        'exclude' received on the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 31 }
+
+cmsStsPortRxV3RepChangeToExclude OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports of type
+        'change to exclude' received on the port identified by the
+        indices" 
+    ::= { cmsStatsPortTrfEntry 32 }
+
+cmsStsPortRxV3RepAllowNewSrc OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports of type
+        'allow new source' received on the port identified by the
+        indices" 
+    ::= { cmsStatsPortTrfEntry 33 }
+
+cmsStsPortRxV3RepBlockOldSrc OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of V3 reports of type
+        'block old source' received on the port identified by the
+        indices" 
+    ::= { cmsStatsPortTrfEntry 34 }
+
+cmsStsPortGrps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "groups"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of groups associated with the
+        port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 35 }
+
+cmsStsPortSGs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "sources"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of sources associated with
+        the port identified by the indices" 
+    ::= { cmsStatsPortTrfEntry 36 }
+ 
+
+ciscoMldSnoopingMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoMldSnoopingMIBConform 1 }
+
+ciscoMldSnoopingMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoMldSnoopingMIBConform 2 }
+
+
+ciscoMldSnoopingMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The basic implementation requirements for agents that
+        support the CISCO-MLD-SNOOPING-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoMldSnoopingMIBConfigMainObjectGroup,
+                        ciscoMldSnoopingMIBInfoMainObjectGroup,
+                        ciscoMldSnoopingMIBStatsMainObjectGroup
+                    }
+
+    GROUP           ciscoMldSnoopingMIBConfigDetailedObjectGroup
+    DESCRIPTION
+        "optional config data"
+
+    GROUP           ciscoMldSnoopingMIBStatsDetailedObjectGroup
+    DESCRIPTION
+        "optional statistics"
+    ::= { ciscoMldSnoopingMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoMldSnoopingMIBConfigMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmsProfileInternalQuerier,
+                        cmsProfileSuppressReport,
+                        cmsProfileRouterGuard,
+                        cmsProfileStaticMRouter,
+                        cmsProfileImmediateLeave,
+                        cmsConfigSystemProfileName,
+                        cmsConfigPortProfileName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collections of objects representing the main configuration
+        elements of CISCO-MLD-SNOOPING-MIB."
+    ::= { ciscoMldSnoopingMIBGroups 1 }
+
+ciscoMldSnoopingMIBConfigDetailedObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmsProfileSnoopMinVersion,
+                        cmsProfileStatus,
+                        cmsProfileStorageType,
+                        cmsProfileIPAddress,
+                        cmsProfileRobustnessVariable,
+                        cmsProfileLastMemberQueryCount,
+                        cmsProfileLastMemberQueryInterval,
+                        cmsProfileUnsolicitedReportTimer,
+                        cmsProfileFloodQueryCount,
+                        cmsProfileQuerySolicit,
+                        cmsProfileTTLCheck,
+                        cmsProfileRouterAlertCheck,
+                        cmsProfileIntQuerierMaxRespTime,
+                        cmsProfileIntQuerierQueryInterval,
+                        cmsProfileIntQuerierTCNQueryCount,
+                        cmsProfileIntQuerierTCNQueryInterval,
+                        cmsProfileIntQuerierExpiry,
+                        cmsProfileIntQuerierVersion,
+                        cmsProfileIPAddrType,
+                        cmsConfigPortStatus,
+                        cmsConfigPortStorageType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collections of objects representing the detailed
+        configuration elements of CISCO-MLD-SNOOPING-MIB."
+    ::= { ciscoMldSnoopingMIBGroups 2 }
+
+ciscoMldSnoopingMIBInfoMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmsMcastInfoGroupFilter,
+                        cmsMcastInfoExpiry,
+                        cmsMcastInfoFlag,
+                        cmsQuerierPortId,
+                        cmsQuerierVersion,
+                        cmsQuerierQueryInterval,
+                        cmsQuerierRobustness,
+                        cmsQuerierMaxRespTime,
+                        cmsQuerierTimeSinceLastGQuery,
+                        cmsMRouterType,
+                        cmsQuerierIPAddr,
+                        cmsQuerierIPAddrType,
+                        cmsQuerierPortType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collections of objects representing the main operational
+        elements of CISCO-MLD-SNOOPING-MIB."
+    ::= { ciscoMldSnoopingMIBGroups 3 }
+
+ciscoMldSnoopingMIBStatsMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmsSysTrfGeneralQueriesReceived,
+                        cmsSysTrfGeneralQueriesReinjected,
+                        cmsSysTrfGeneralQueriesGenerated,
+                        cmsSysTrfGlobalLeavesReceived,
+                        cmsSysTrfGlobalLeavesReinjected,
+                        cmsSysTrfGlobalLeavesGenerated,
+                        cmsSysTrfPIMHellosReceived,
+                        cmsSysTrfPIMHellosReinjected,
+                        cmsSysTrfPIMHellosGenerated,
+                        cmsSysTrfRxErrors,
+                        cmsSysTrfTxErrors,
+                        cmsStsPortTrfV2ReportReceived,
+                        cmsStsPortTrfV2ReportReinjected,
+                        cmsStsPortTrfV2ReportGenerated,
+                        cmsStsPortTrfV3ReportReceived,
+                        cmsStsPortTrfV3ReportReinjected,
+                        cmsStsPortTrfV3ReportGenerated,
+                        cmsStsPortTrfRxErrors,
+                        cmsStsPortTrfTxErrors,
+                        cmsSysRxV3RepIsInclude,
+                        cmsSysRxV3RepChangeToInclude,
+                        cmsSysRxV3RepIsExclude,
+                        cmsSysRxV3RepChangeToExclude,
+                        cmsSysRxV3RepAllowNewSrc,
+                        cmsSysRxV3RepBlockOldSrc,
+                        cmsStsPortRxV3RepIsInclude,
+                        cmsStsPortRxV3RepChangeToInclude,
+                        cmsStsPortRxV3RepIsExclude,
+                        cmsStsPortRxV3RepChangeToExclude,
+                        cmsStsPortRxV3RepAllowNewSrc,
+                        cmsStsPortRxV3RepBlockOldSrc,
+                        cmsStsPortGrps,
+                        cmsStsPortSGs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collections of objects representing the main statistical
+        elements of CISCO-MLD-SNOOPING-MIB."
+    ::= { ciscoMldSnoopingMIBGroups 4 }
+
+ciscoMldSnoopingMIBStatsDetailedObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmsSysTrfGrpSpecificQueriesReceived,
+                        cmsSysTrfGrpSpecificQueriesReinjected,
+                        cmsSysTrfGrpSpecificQueriesGenerated,
+                        cmsSysTrfGSSpecificQueriesReceived,
+                        cmsSysTrfGSSpecificQueriesReinjected,
+                        cmsSysTrfGSSpecificQueriesGenerated,
+                        cmsSysTrfV2ReportReceived,
+                        cmsSysTrfV2ReportReinjected,
+                        cmsSysTrfV2ReportGenerated,
+                        cmsSysTrfV3ReportReceived,
+                        cmsSysTrfV3ReportReinjected,
+                        cmsSysTrfV3ReportGenerated,
+                        cmsSysTrfRxPcktsFlooded,
+                        cmsSysTrfRxPcktsFwdToMembers,
+                        cmsSysTrfRxPcktsFwdToMrouters,
+                        cmsSysTrfRxPcktsConsumed,
+                        cmsSysTrfRxOther,
+                        cmsStsPortTrfGeneralQueriesReceived,
+                        cmsStsPortTrfGeneralQueriesReinjected,
+                        cmsStsPortTrfGeneralQueriesGenerated,
+                        cmsStsPortTrfGrpSpecificQueriesReceived,
+                        cmsStsPortTrfGrpSpecificQueriesReinjected,
+                        cmsStsPortTrfGrpSpecificQueriesGenerated,
+                        cmsStsPortTrfGSSpecificQueriesReceived,
+                        cmsStsPortTrfGSSpecificQueriesReinjected,
+                        cmsStsPortTrfGSSpecificQueriesGenerated,
+                        cmsStsPortTrfGlobalLeavesReceived,
+                        cmsStsPortTrfGlobalLeavesReinjected,
+                        cmsStsPortTrfGlobalLeavesGenerated,
+                        cmsStsPortTrfPIMHellosReceived,
+                        cmsStsPortTrfPIMHellosReinjected,
+                        cmsStsPortTrfPIMHellosGenerated,
+                        cmsStsPortTrfRxPcktsFlooded,
+                        cmsStsPortTrfRxPcktsFwdToMembers,
+                        cmsStsPortTrfRxPcktsFwdToMrouters,
+                        cmsStsPortTrfRxPcktsConsumed,
+                        cmsStsPortTrfRxOther,
+                        cmsSysIntQuerierRxGeneralQueries,
+                        cmsSysIntQuerierRxGeneralQueriesWhenDisabled,
+                        cmsSysIntQuerierRxGeneralQueriesAsQuerier,
+                        cmsSysIntQuerierRxGeneralQueriesAsNonQuerier,
+                        cmsSysIntQuerierRxGeneralQueriesAsWinner,
+                        cmsSysIntQuerierRxGeneralQueriesAsLoser,
+                        cmsSysIntQuerierRxGlobalLeaves,
+                        cmsSysIntQuerierRxGlobalLeavesWhenDisabled,
+                        cmsSysIntQuerierRxGlobalLeavsAsNonQuerier,
+                        cmsSysIntQuerierRxGlobalLeavesIgnored,
+                        cmsSysIntQuerierRxPimEnabledNotifications,
+                        cmsSysIntQuerierRxPimDisabledNotifications,
+                        cmsSysIntQuerierRxLocalQuerySolicitations,
+                        cmsSysIntQuerierTxGeneralQueries
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collections of objects representing the detailed statistical
+        elements of CISCO-MLD-SNOOPING-MIB."
+    ::= { ciscoMldSnoopingMIBGroups 5 }
+
+END
+
+
+
+
+

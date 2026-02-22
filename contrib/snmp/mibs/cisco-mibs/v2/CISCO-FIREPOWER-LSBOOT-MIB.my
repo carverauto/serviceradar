@@ -1,0 +1,1714 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-LSBOOT-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- LSBOOT management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-LSBOOT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprLsbootADefBootMode,
+    CfprLsbootAccessType,
+    CfprLsbootDefaultLocalImageType,
+    CfprLsbootIScsiAccess,
+    CfprLsbootIScsiImagePathType,
+    CfprLsbootIScsiType,
+    CfprLsbootLanAccess,
+    CfprLsbootLanBootProt,
+    CfprLsbootLanImagePathType,
+    CfprLsbootLanType,
+    CfprLsbootLocalHddImageType,
+    CfprLsbootPurpose,
+    CfprLsbootSanAccess,
+    CfprLsbootSanCatSanImagePathType,
+    CfprLsbootSanCatSanImageType,
+    CfprLsbootSanImagePathType,
+    CfprLsbootSanImageType,
+    CfprLsbootSanType,
+    CfprLsbootStorageAccess,
+    CfprLsbootStorageType,
+    CfprLsbootUsbExternalImageType,
+    CfprLsbootUsbFlashStorageImageType,
+    CfprLsbootUsbInternalImageType,
+    CfprLsbootVirtualMediaType,
+    CfprPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprLsbootObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        LSBOOT management information model package"
+    ::= { ciscoFirepowerMIBObjects 47 }
+
+cfprLsbootBootSecurityTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootBootSecurityEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:BootSecurity managed object table"
+    ::= { cfprLsbootObjects 1 }
+
+cfprLsbootBootSecurityEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootBootSecurityEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootBootSecurityTable table."
+    INDEX { cfprLsbootBootSecurityInstanceId }
+    ::= { cfprLsbootBootSecurityTable 1 }
+
+CfprLsbootBootSecurityEntry ::= SEQUENCE {
+    cfprLsbootBootSecurityInstanceId                                 CfprManagedObjectId,
+    cfprLsbootBootSecurityDn                                         CfprManagedObjectDn,
+    cfprLsbootBootSecurityRn                                         SnmpAdminString,
+    cfprLsbootBootSecuritySecureBoot                                 TruthValue
+}
+
+cfprLsbootBootSecurityInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootBootSecurityEntry 1 }
+
+cfprLsbootBootSecurityDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:BootSecurity:dn managed object property"
+    ::= { cfprLsbootBootSecurityEntry 2 }
+
+cfprLsbootBootSecurityRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:BootSecurity:rn managed object property"
+    ::= { cfprLsbootBootSecurityEntry 3 }
+
+cfprLsbootBootSecuritySecureBoot OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:BootSecurity:secureBoot
+        managed object property"
+    ::= { cfprLsbootBootSecurityEntry 4 }
+
+cfprLsbootDefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootDefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Def managed object table"
+    ::= { cfprLsbootObjects 2 }
+
+cfprLsbootDefEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootDefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootDefTable table."
+    INDEX { cfprLsbootDefInstanceId }
+    ::= { cfprLsbootDefTable 1 }
+
+CfprLsbootDefEntry ::= SEQUENCE {
+    cfprLsbootDefInstanceId                                          CfprManagedObjectId,
+    cfprLsbootDefDn                                                  CfprManagedObjectDn,
+    cfprLsbootDefRn                                                  SnmpAdminString,
+    cfprLsbootDefAdvBootOrderApplicable                              TruthValue,
+    cfprLsbootDefBootMode                                            CfprLsbootADefBootMode,
+    cfprLsbootDefDescr                                               SnmpAdminString,
+    cfprLsbootDefEnforceVnicName                                     TruthValue,
+    cfprLsbootDefIntId                                               SnmpAdminString,
+    cfprLsbootDefName                                                SnmpAdminString,
+    cfprLsbootDefPolicyLevel                                         Gauge32,
+    cfprLsbootDefPolicyOwner                                         CfprPolicyPolicyOwner,
+    cfprLsbootDefPurpose                                             CfprLsbootPurpose,
+    cfprLsbootDefRebootOnUpdate                                      TruthValue
+}
+
+cfprLsbootDefInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootDefEntry 1 }
+
+cfprLsbootDefDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Def:dn managed object property"
+    ::= { cfprLsbootDefEntry 2 }
+
+cfprLsbootDefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Def:rn managed object property"
+    ::= { cfprLsbootDefEntry 3 }
+
+cfprLsbootDefAdvBootOrderApplicable OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Def:advBootOrderApplicable
+        managed object property"
+    ::= { cfprLsbootDefEntry 4 }
+
+cfprLsbootDefBootMode OBJECT-TYPE
+    SYNTAX       CfprLsbootADefBootMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Def:bootMode managed object property"
+    ::= { cfprLsbootDefEntry 5 }
+
+cfprLsbootDefDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Def:descr managed object property"
+    ::= { cfprLsbootDefEntry 6 }
+
+cfprLsbootDefEnforceVnicName OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Def:enforceVnicName managed
+        object property"
+    ::= { cfprLsbootDefEntry 7 }
+
+cfprLsbootDefIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Def:intId managed object property"
+    ::= { cfprLsbootDefEntry 8 }
+
+cfprLsbootDefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Def:name managed object property"
+    ::= { cfprLsbootDefEntry 9 }
+
+cfprLsbootDefPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Def:policyLevel managed object property"
+    ::= { cfprLsbootDefEntry 10 }
+
+cfprLsbootDefPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Def:policyOwner managed object property"
+    ::= { cfprLsbootDefEntry 11 }
+
+cfprLsbootDefPurpose OBJECT-TYPE
+    SYNTAX       CfprLsbootPurpose
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Def:purpose managed object property"
+    ::= { cfprLsbootDefEntry 12 }
+
+cfprLsbootDefRebootOnUpdate OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Def:rebootOnUpdate managed
+        object property"
+    ::= { cfprLsbootDefEntry 13 }
+
+cfprLsbootDefaultLocalImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootDefaultLocalImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:DefaultLocalImage managed object table"
+    ::= { cfprLsbootObjects 3 }
+
+cfprLsbootDefaultLocalImageEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootDefaultLocalImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootDefaultLocalImageTable table."
+    INDEX { cfprLsbootDefaultLocalImageInstanceId }
+    ::= { cfprLsbootDefaultLocalImageTable 1 }
+
+CfprLsbootDefaultLocalImageEntry ::= SEQUENCE {
+    cfprLsbootDefaultLocalImageInstanceId                            CfprManagedObjectId,
+    cfprLsbootDefaultLocalImageDn                                    CfprManagedObjectDn,
+    cfprLsbootDefaultLocalImageRn                                    SnmpAdminString,
+    cfprLsbootDefaultLocalImageOrder                                 Gauge32,
+    cfprLsbootDefaultLocalImageType                                  CfprLsbootDefaultLocalImageType
+}
+
+cfprLsbootDefaultLocalImageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootDefaultLocalImageEntry 1 }
+
+cfprLsbootDefaultLocalImageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:DefaultLocalImage:dn managed
+        object property"
+    ::= { cfprLsbootDefaultLocalImageEntry 2 }
+
+cfprLsbootDefaultLocalImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:DefaultLocalImage:rn managed
+        object property"
+    ::= { cfprLsbootDefaultLocalImageEntry 3 }
+
+cfprLsbootDefaultLocalImageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:DefaultLocalImage:order
+        managed object property"
+    ::= { cfprLsbootDefaultLocalImageEntry 4 }
+
+cfprLsbootDefaultLocalImageType OBJECT-TYPE
+    SYNTAX       CfprLsbootDefaultLocalImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:DefaultLocalImage:type
+        managed object property"
+    ::= { cfprLsbootDefaultLocalImageEntry 5 }
+
+cfprLsbootIScsiTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootIScsiEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:IScsi managed object table"
+    ::= { cfprLsbootObjects 4 }
+
+cfprLsbootIScsiEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootIScsiEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootIScsiTable table."
+    INDEX { cfprLsbootIScsiInstanceId }
+    ::= { cfprLsbootIScsiTable 1 }
+
+CfprLsbootIScsiEntry ::= SEQUENCE {
+    cfprLsbootIScsiInstanceId                                        CfprManagedObjectId,
+    cfprLsbootIScsiDn                                                CfprManagedObjectDn,
+    cfprLsbootIScsiRn                                                SnmpAdminString,
+    cfprLsbootIScsiAccess                                            CfprLsbootIScsiAccess,
+    cfprLsbootIScsiOrder                                             Gauge32,
+    cfprLsbootIScsiType                                              CfprLsbootIScsiType
+}
+
+cfprLsbootIScsiInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootIScsiEntry 1 }
+
+cfprLsbootIScsiDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:IScsi:dn managed object property"
+    ::= { cfprLsbootIScsiEntry 2 }
+
+cfprLsbootIScsiRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:IScsi:rn managed object property"
+    ::= { cfprLsbootIScsiEntry 3 }
+
+cfprLsbootIScsiAccess OBJECT-TYPE
+    SYNTAX       CfprLsbootIScsiAccess
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:IScsi:access managed object property"
+    ::= { cfprLsbootIScsiEntry 4 }
+
+cfprLsbootIScsiOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:IScsi:order managed object property"
+    ::= { cfprLsbootIScsiEntry 5 }
+
+cfprLsbootIScsiType OBJECT-TYPE
+    SYNTAX       CfprLsbootIScsiType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:IScsi:type managed object property"
+    ::= { cfprLsbootIScsiEntry 6 }
+
+cfprLsbootIScsiImagePathTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootIScsiImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:IScsiImagePath managed object table"
+    ::= { cfprLsbootObjects 5 }
+
+cfprLsbootIScsiImagePathEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootIScsiImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootIScsiImagePathTable table."
+    INDEX { cfprLsbootIScsiImagePathInstanceId }
+    ::= { cfprLsbootIScsiImagePathTable 1 }
+
+CfprLsbootIScsiImagePathEntry ::= SEQUENCE {
+    cfprLsbootIScsiImagePathInstanceId                               CfprManagedObjectId,
+    cfprLsbootIScsiImagePathDn                                       CfprManagedObjectDn,
+    cfprLsbootIScsiImagePathRn                                       SnmpAdminString,
+    cfprLsbootIScsiImagePathISCSIVnicName                            SnmpAdminString,
+    cfprLsbootIScsiImagePathType                                     CfprLsbootIScsiImagePathType,
+    cfprLsbootIScsiImagePathVnicName                                 SnmpAdminString
+}
+
+cfprLsbootIScsiImagePathInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootIScsiImagePathEntry 1 }
+
+cfprLsbootIScsiImagePathDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:IScsiImagePath:dn managed object property"
+    ::= { cfprLsbootIScsiImagePathEntry 2 }
+
+cfprLsbootIScsiImagePathRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:IScsiImagePath:rn managed object property"
+    ::= { cfprLsbootIScsiImagePathEntry 3 }
+
+cfprLsbootIScsiImagePathISCSIVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:IScsiImagePath:iSCSIVnicName
+        managed object property"
+    ::= { cfprLsbootIScsiImagePathEntry 4 }
+
+cfprLsbootIScsiImagePathType OBJECT-TYPE
+    SYNTAX       CfprLsbootIScsiImagePathType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:IScsiImagePath:type managed
+        object property"
+    ::= { cfprLsbootIScsiImagePathEntry 5 }
+
+cfprLsbootIScsiImagePathVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:IScsiImagePath:vnicName
+        managed object property"
+    ::= { cfprLsbootIScsiImagePathEntry 6 }
+
+cfprLsbootLanTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootLanEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Lan managed object table"
+    ::= { cfprLsbootObjects 6 }
+
+cfprLsbootLanEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootLanEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootLanTable table."
+    INDEX { cfprLsbootLanInstanceId }
+    ::= { cfprLsbootLanTable 1 }
+
+CfprLsbootLanEntry ::= SEQUENCE {
+    cfprLsbootLanInstanceId                                          CfprManagedObjectId,
+    cfprLsbootLanDn                                                  CfprManagedObjectDn,
+    cfprLsbootLanRn                                                  SnmpAdminString,
+    cfprLsbootLanAccess                                              CfprLsbootLanAccess,
+    cfprLsbootLanOrder                                               Gauge32,
+    cfprLsbootLanProt                                                CfprLsbootLanBootProt,
+    cfprLsbootLanType                                                CfprLsbootLanType
+}
+
+cfprLsbootLanInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootLanEntry 1 }
+
+cfprLsbootLanDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Lan:dn managed object property"
+    ::= { cfprLsbootLanEntry 2 }
+
+cfprLsbootLanRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Lan:rn managed object property"
+    ::= { cfprLsbootLanEntry 3 }
+
+cfprLsbootLanAccess OBJECT-TYPE
+    SYNTAX       CfprLsbootLanAccess
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Lan:access managed object property"
+    ::= { cfprLsbootLanEntry 4 }
+
+cfprLsbootLanOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Lan:order managed object property"
+    ::= { cfprLsbootLanEntry 5 }
+
+cfprLsbootLanProt OBJECT-TYPE
+    SYNTAX       CfprLsbootLanBootProt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Lan:prot managed object property"
+    ::= { cfprLsbootLanEntry 6 }
+
+cfprLsbootLanType OBJECT-TYPE
+    SYNTAX       CfprLsbootLanType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Lan:type managed object property"
+    ::= { cfprLsbootLanEntry 7 }
+
+cfprLsbootLanImagePathTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootLanImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LanImagePath managed object table"
+    ::= { cfprLsbootObjects 7 }
+
+cfprLsbootLanImagePathEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootLanImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootLanImagePathTable table."
+    INDEX { cfprLsbootLanImagePathInstanceId }
+    ::= { cfprLsbootLanImagePathTable 1 }
+
+CfprLsbootLanImagePathEntry ::= SEQUENCE {
+    cfprLsbootLanImagePathInstanceId                                 CfprManagedObjectId,
+    cfprLsbootLanImagePathDn                                         CfprManagedObjectDn,
+    cfprLsbootLanImagePathRn                                         SnmpAdminString,
+    cfprLsbootLanImagePathBootIpPolicyName                           SnmpAdminString,
+    cfprLsbootLanImagePathISCSIVnicName                              SnmpAdminString,
+    cfprLsbootLanImagePathImgPolicyName                              SnmpAdminString,
+    cfprLsbootLanImagePathImgSecPolicyName                           SnmpAdminString,
+    cfprLsbootLanImagePathProvSrvPolicyName                          SnmpAdminString,
+    cfprLsbootLanImagePathType                                       CfprLsbootLanImagePathType,
+    cfprLsbootLanImagePathVnicName                                   SnmpAdminString
+}
+
+cfprLsbootLanImagePathInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootLanImagePathEntry 1 }
+
+cfprLsbootLanImagePathDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LanImagePath:dn managed object property"
+    ::= { cfprLsbootLanImagePathEntry 2 }
+
+cfprLsbootLanImagePathRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LanImagePath:rn managed object property"
+    ::= { cfprLsbootLanImagePathEntry 3 }
+
+cfprLsbootLanImagePathBootIpPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LanImagePath:bootIpPolicyName
+        managed object property"
+    ::= { cfprLsbootLanImagePathEntry 4 }
+
+cfprLsbootLanImagePathISCSIVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LanImagePath:iSCSIVnicName
+        managed object property"
+    ::= { cfprLsbootLanImagePathEntry 5 }
+
+cfprLsbootLanImagePathImgPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LanImagePath:imgPolicyName
+        managed object property"
+    ::= { cfprLsbootLanImagePathEntry 6 }
+
+cfprLsbootLanImagePathImgSecPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LanImagePath:imgSecPolicyName
+        managed object property"
+    ::= { cfprLsbootLanImagePathEntry 7 }
+
+cfprLsbootLanImagePathProvSrvPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LanImagePath:provSrvPolicyName
+        managed object property"
+    ::= { cfprLsbootLanImagePathEntry 8 }
+
+cfprLsbootLanImagePathType OBJECT-TYPE
+    SYNTAX       CfprLsbootLanImagePathType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LanImagePath:type managed object property"
+    ::= { cfprLsbootLanImagePathEntry 9 }
+
+cfprLsbootLanImagePathVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LanImagePath:vnicName managed
+        object property"
+    ::= { cfprLsbootLanImagePathEntry 10 }
+
+cfprLsbootLocalHddImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootLocalHddImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LocalHddImage managed object table"
+    ::= { cfprLsbootObjects 8 }
+
+cfprLsbootLocalHddImageEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootLocalHddImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootLocalHddImageTable table."
+    INDEX { cfprLsbootLocalHddImageInstanceId }
+    ::= { cfprLsbootLocalHddImageTable 1 }
+
+CfprLsbootLocalHddImageEntry ::= SEQUENCE {
+    cfprLsbootLocalHddImageInstanceId                                CfprManagedObjectId,
+    cfprLsbootLocalHddImageDn                                        CfprManagedObjectDn,
+    cfprLsbootLocalHddImageRn                                        SnmpAdminString,
+    cfprLsbootLocalHddImageOrder                                     Gauge32,
+    cfprLsbootLocalHddImageType                                      CfprLsbootLocalHddImageType
+}
+
+cfprLsbootLocalHddImageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootLocalHddImageEntry 1 }
+
+cfprLsbootLocalHddImageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LocalHddImage:dn managed object property"
+    ::= { cfprLsbootLocalHddImageEntry 2 }
+
+cfprLsbootLocalHddImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LocalHddImage:rn managed object property"
+    ::= { cfprLsbootLocalHddImageEntry 3 }
+
+cfprLsbootLocalHddImageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LocalHddImage:order managed
+        object property"
+    ::= { cfprLsbootLocalHddImageEntry 4 }
+
+cfprLsbootLocalHddImageType OBJECT-TYPE
+    SYNTAX       CfprLsbootLocalHddImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LocalHddImage:type managed
+        object property"
+    ::= { cfprLsbootLocalHddImageEntry 5 }
+
+cfprLsbootLocalStorageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootLocalStorageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LocalStorage managed object table"
+    ::= { cfprLsbootObjects 9 }
+
+cfprLsbootLocalStorageEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootLocalStorageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootLocalStorageTable table."
+    INDEX { cfprLsbootLocalStorageInstanceId }
+    ::= { cfprLsbootLocalStorageTable 1 }
+
+CfprLsbootLocalStorageEntry ::= SEQUENCE {
+    cfprLsbootLocalStorageInstanceId                                 CfprManagedObjectId,
+    cfprLsbootLocalStorageDn                                         CfprManagedObjectDn,
+    cfprLsbootLocalStorageRn                                         SnmpAdminString
+}
+
+cfprLsbootLocalStorageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootLocalStorageEntry 1 }
+
+cfprLsbootLocalStorageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LocalStorage:dn managed object property"
+    ::= { cfprLsbootLocalStorageEntry 2 }
+
+cfprLsbootLocalStorageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:LocalStorage:rn managed object property"
+    ::= { cfprLsbootLocalStorageEntry 3 }
+
+cfprLsbootPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Policy managed object table"
+    ::= { cfprLsbootObjects 10 }
+
+cfprLsbootPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootPolicyTable table."
+    INDEX { cfprLsbootPolicyInstanceId }
+    ::= { cfprLsbootPolicyTable 1 }
+
+CfprLsbootPolicyEntry ::= SEQUENCE {
+    cfprLsbootPolicyInstanceId                                       CfprManagedObjectId,
+    cfprLsbootPolicyDn                                               CfprManagedObjectDn,
+    cfprLsbootPolicyRn                                               SnmpAdminString,
+    cfprLsbootPolicyBootMode                                         CfprLsbootADefBootMode,
+    cfprLsbootPolicyDescr                                            SnmpAdminString,
+    cfprLsbootPolicyEnforceVnicName                                  TruthValue,
+    cfprLsbootPolicyIntId                                            SnmpAdminString,
+    cfprLsbootPolicyName                                             SnmpAdminString,
+    cfprLsbootPolicyPolicyLevel                                      Gauge32,
+    cfprLsbootPolicyPolicyOwner                                      CfprPolicyPolicyOwner,
+    cfprLsbootPolicyPurpose                                          CfprLsbootPurpose,
+    cfprLsbootPolicyRebootOnUpdate                                   TruthValue
+}
+
+cfprLsbootPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootPolicyEntry 1 }
+
+cfprLsbootPolicyDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Policy:dn managed object property"
+    ::= { cfprLsbootPolicyEntry 2 }
+
+cfprLsbootPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Policy:rn managed object property"
+    ::= { cfprLsbootPolicyEntry 3 }
+
+cfprLsbootPolicyBootMode OBJECT-TYPE
+    SYNTAX       CfprLsbootADefBootMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Policy:bootMode managed object property"
+    ::= { cfprLsbootPolicyEntry 4 }
+
+cfprLsbootPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Policy:descr managed object property"
+    ::= { cfprLsbootPolicyEntry 5 }
+
+cfprLsbootPolicyEnforceVnicName OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Policy:enforceVnicName
+        managed object property"
+    ::= { cfprLsbootPolicyEntry 6 }
+
+cfprLsbootPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Policy:intId managed object property"
+    ::= { cfprLsbootPolicyEntry 7 }
+
+cfprLsbootPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Policy:name managed object property"
+    ::= { cfprLsbootPolicyEntry 8 }
+
+cfprLsbootPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Policy:policyLevel managed
+        object property"
+    ::= { cfprLsbootPolicyEntry 9 }
+
+cfprLsbootPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Policy:policyOwner managed
+        object property"
+    ::= { cfprLsbootPolicyEntry 10 }
+
+cfprLsbootPolicyPurpose OBJECT-TYPE
+    SYNTAX       CfprLsbootPurpose
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Policy:purpose managed object property"
+    ::= { cfprLsbootPolicyEntry 11 }
+
+cfprLsbootPolicyRebootOnUpdate OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Policy:rebootOnUpdate managed
+        object property"
+    ::= { cfprLsbootPolicyEntry 12 }
+
+cfprLsbootSanTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootSanEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:San managed object table"
+    ::= { cfprLsbootObjects 11 }
+
+cfprLsbootSanEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootSanEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootSanTable table."
+    INDEX { cfprLsbootSanInstanceId }
+    ::= { cfprLsbootSanTable 1 }
+
+CfprLsbootSanEntry ::= SEQUENCE {
+    cfprLsbootSanInstanceId                                          CfprManagedObjectId,
+    cfprLsbootSanDn                                                  CfprManagedObjectDn,
+    cfprLsbootSanRn                                                  SnmpAdminString,
+    cfprLsbootSanAccess                                              CfprLsbootSanAccess,
+    cfprLsbootSanOrder                                               Gauge32,
+    cfprLsbootSanType                                                CfprLsbootSanType
+}
+
+cfprLsbootSanInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootSanEntry 1 }
+
+cfprLsbootSanDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:San:dn managed object property"
+    ::= { cfprLsbootSanEntry 2 }
+
+cfprLsbootSanRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:San:rn managed object property"
+    ::= { cfprLsbootSanEntry 3 }
+
+cfprLsbootSanAccess OBJECT-TYPE
+    SYNTAX       CfprLsbootSanAccess
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:San:access managed object property"
+    ::= { cfprLsbootSanEntry 4 }
+
+cfprLsbootSanOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:San:order managed object property"
+    ::= { cfprLsbootSanEntry 5 }
+
+cfprLsbootSanType OBJECT-TYPE
+    SYNTAX       CfprLsbootSanType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:San:type managed object property"
+    ::= { cfprLsbootSanEntry 6 }
+
+cfprLsbootSanCatSanImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootSanCatSanImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanCatSanImage managed object table"
+    ::= { cfprLsbootObjects 12 }
+
+cfprLsbootSanCatSanImageEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootSanCatSanImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootSanCatSanImageTable table."
+    INDEX { cfprLsbootSanCatSanImageInstanceId }
+    ::= { cfprLsbootSanCatSanImageTable 1 }
+
+CfprLsbootSanCatSanImageEntry ::= SEQUENCE {
+    cfprLsbootSanCatSanImageInstanceId                               CfprManagedObjectId,
+    cfprLsbootSanCatSanImageDn                                       CfprManagedObjectDn,
+    cfprLsbootSanCatSanImageRn                                       SnmpAdminString,
+    cfprLsbootSanCatSanImageType                                     CfprLsbootSanCatSanImageType,
+    cfprLsbootSanCatSanImageVnicName                                 SnmpAdminString
+}
+
+cfprLsbootSanCatSanImageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootSanCatSanImageEntry 1 }
+
+cfprLsbootSanCatSanImageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanCatSanImage:dn managed object property"
+    ::= { cfprLsbootSanCatSanImageEntry 2 }
+
+cfprLsbootSanCatSanImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanCatSanImage:rn managed object property"
+    ::= { cfprLsbootSanCatSanImageEntry 3 }
+
+cfprLsbootSanCatSanImageType OBJECT-TYPE
+    SYNTAX       CfprLsbootSanCatSanImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanCatSanImage:type managed
+        object property"
+    ::= { cfprLsbootSanCatSanImageEntry 4 }
+
+cfprLsbootSanCatSanImageVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanCatSanImage:vnicName
+        managed object property"
+    ::= { cfprLsbootSanCatSanImageEntry 5 }
+
+cfprLsbootSanCatSanImagePathTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootSanCatSanImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanCatSanImagePath managed object table"
+    ::= { cfprLsbootObjects 13 }
+
+cfprLsbootSanCatSanImagePathEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootSanCatSanImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootSanCatSanImagePathTable table."
+    INDEX { cfprLsbootSanCatSanImagePathInstanceId }
+    ::= { cfprLsbootSanCatSanImagePathTable 1 }
+
+CfprLsbootSanCatSanImagePathEntry ::= SEQUENCE {
+    cfprLsbootSanCatSanImagePathInstanceId                           CfprManagedObjectId,
+    cfprLsbootSanCatSanImagePathDn                                   CfprManagedObjectDn,
+    cfprLsbootSanCatSanImagePathRn                                   SnmpAdminString,
+    cfprLsbootSanCatSanImagePathLun                                  SnmpAdminString,
+    cfprLsbootSanCatSanImagePathType                                 CfprLsbootSanCatSanImagePathType,
+    cfprLsbootSanCatSanImagePathVnicName                             SnmpAdminString,
+    cfprLsbootSanCatSanImagePathWwn                                  Unsigned64
+}
+
+cfprLsbootSanCatSanImagePathInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootSanCatSanImagePathEntry 1 }
+
+cfprLsbootSanCatSanImagePathDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanCatSanImagePath:dn managed
+        object property"
+    ::= { cfprLsbootSanCatSanImagePathEntry 2 }
+
+cfprLsbootSanCatSanImagePathRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanCatSanImagePath:rn managed
+        object property"
+    ::= { cfprLsbootSanCatSanImagePathEntry 3 }
+
+cfprLsbootSanCatSanImagePathLun OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanCatSanImagePath:lun
+        managed object property"
+    ::= { cfprLsbootSanCatSanImagePathEntry 4 }
+
+cfprLsbootSanCatSanImagePathType OBJECT-TYPE
+    SYNTAX       CfprLsbootSanCatSanImagePathType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanCatSanImagePath:type
+        managed object property"
+    ::= { cfprLsbootSanCatSanImagePathEntry 5 }
+
+cfprLsbootSanCatSanImagePathVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanCatSanImagePath:vnicName
+        managed object property"
+    ::= { cfprLsbootSanCatSanImagePathEntry 6 }
+
+cfprLsbootSanCatSanImagePathWwn OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanCatSanImagePath:wwn
+        managed object property"
+    ::= { cfprLsbootSanCatSanImagePathEntry 7 }
+
+cfprLsbootSanImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootSanImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanImage managed object table"
+    ::= { cfprLsbootObjects 14 }
+
+cfprLsbootSanImageEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootSanImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootSanImageTable table."
+    INDEX { cfprLsbootSanImageInstanceId }
+    ::= { cfprLsbootSanImageTable 1 }
+
+CfprLsbootSanImageEntry ::= SEQUENCE {
+    cfprLsbootSanImageInstanceId                                     CfprManagedObjectId,
+    cfprLsbootSanImageDn                                             CfprManagedObjectDn,
+    cfprLsbootSanImageRn                                             SnmpAdminString,
+    cfprLsbootSanImageType                                           CfprLsbootSanImageType,
+    cfprLsbootSanImageVnicName                                       SnmpAdminString
+}
+
+cfprLsbootSanImageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootSanImageEntry 1 }
+
+cfprLsbootSanImageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanImage:dn managed object property"
+    ::= { cfprLsbootSanImageEntry 2 }
+
+cfprLsbootSanImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanImage:rn managed object property"
+    ::= { cfprLsbootSanImageEntry 3 }
+
+cfprLsbootSanImageType OBJECT-TYPE
+    SYNTAX       CfprLsbootSanImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanImage:type managed object property"
+    ::= { cfprLsbootSanImageEntry 4 }
+
+cfprLsbootSanImageVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanImage:vnicName managed object property"
+    ::= { cfprLsbootSanImageEntry 5 }
+
+cfprLsbootSanImagePathTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootSanImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanImagePath managed object table"
+    ::= { cfprLsbootObjects 15 }
+
+cfprLsbootSanImagePathEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootSanImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootSanImagePathTable table."
+    INDEX { cfprLsbootSanImagePathInstanceId }
+    ::= { cfprLsbootSanImagePathTable 1 }
+
+CfprLsbootSanImagePathEntry ::= SEQUENCE {
+    cfprLsbootSanImagePathInstanceId                                 CfprManagedObjectId,
+    cfprLsbootSanImagePathDn                                         CfprManagedObjectDn,
+    cfprLsbootSanImagePathRn                                         SnmpAdminString,
+    cfprLsbootSanImagePathLun                                        SnmpAdminString,
+    cfprLsbootSanImagePathType                                       CfprLsbootSanImagePathType,
+    cfprLsbootSanImagePathVnicName                                   SnmpAdminString,
+    cfprLsbootSanImagePathWwn                                        Unsigned64
+}
+
+cfprLsbootSanImagePathInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootSanImagePathEntry 1 }
+
+cfprLsbootSanImagePathDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanImagePath:dn managed object property"
+    ::= { cfprLsbootSanImagePathEntry 2 }
+
+cfprLsbootSanImagePathRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanImagePath:rn managed object property"
+    ::= { cfprLsbootSanImagePathEntry 3 }
+
+cfprLsbootSanImagePathLun OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanImagePath:lun managed object property"
+    ::= { cfprLsbootSanImagePathEntry 4 }
+
+cfprLsbootSanImagePathType OBJECT-TYPE
+    SYNTAX       CfprLsbootSanImagePathType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanImagePath:type managed object property"
+    ::= { cfprLsbootSanImagePathEntry 5 }
+
+cfprLsbootSanImagePathVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanImagePath:vnicName managed
+        object property"
+    ::= { cfprLsbootSanImagePathEntry 6 }
+
+cfprLsbootSanImagePathWwn OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:SanImagePath:wwn managed object property"
+    ::= { cfprLsbootSanImagePathEntry 7 }
+
+cfprLsbootStorageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootStorageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Storage managed object table"
+    ::= { cfprLsbootObjects 16 }
+
+cfprLsbootStorageEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootStorageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootStorageTable table."
+    INDEX { cfprLsbootStorageInstanceId }
+    ::= { cfprLsbootStorageTable 1 }
+
+CfprLsbootStorageEntry ::= SEQUENCE {
+    cfprLsbootStorageInstanceId                                      CfprManagedObjectId,
+    cfprLsbootStorageDn                                              CfprManagedObjectDn,
+    cfprLsbootStorageRn                                              SnmpAdminString,
+    cfprLsbootStorageAccess                                          CfprLsbootStorageAccess,
+    cfprLsbootStorageOrder                                           Gauge32,
+    cfprLsbootStorageType                                            CfprLsbootStorageType
+}
+
+cfprLsbootStorageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootStorageEntry 1 }
+
+cfprLsbootStorageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Storage:dn managed object property"
+    ::= { cfprLsbootStorageEntry 2 }
+
+cfprLsbootStorageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Storage:rn managed object property"
+    ::= { cfprLsbootStorageEntry 3 }
+
+cfprLsbootStorageAccess OBJECT-TYPE
+    SYNTAX       CfprLsbootStorageAccess
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Storage:access managed object property"
+    ::= { cfprLsbootStorageEntry 4 }
+
+cfprLsbootStorageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Storage:order managed object property"
+    ::= { cfprLsbootStorageEntry 5 }
+
+cfprLsbootStorageType OBJECT-TYPE
+    SYNTAX       CfprLsbootStorageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:Storage:type managed object property"
+    ::= { cfprLsbootStorageEntry 6 }
+
+cfprLsbootUsbExternalImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootUsbExternalImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbExternalImage managed object table"
+    ::= { cfprLsbootObjects 17 }
+
+cfprLsbootUsbExternalImageEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootUsbExternalImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootUsbExternalImageTable table."
+    INDEX { cfprLsbootUsbExternalImageInstanceId }
+    ::= { cfprLsbootUsbExternalImageTable 1 }
+
+CfprLsbootUsbExternalImageEntry ::= SEQUENCE {
+    cfprLsbootUsbExternalImageInstanceId                             CfprManagedObjectId,
+    cfprLsbootUsbExternalImageDn                                     CfprManagedObjectDn,
+    cfprLsbootUsbExternalImageRn                                     SnmpAdminString,
+    cfprLsbootUsbExternalImageOrder                                  Gauge32,
+    cfprLsbootUsbExternalImageType                                   CfprLsbootUsbExternalImageType
+}
+
+cfprLsbootUsbExternalImageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootUsbExternalImageEntry 1 }
+
+cfprLsbootUsbExternalImageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbExternalImage:dn managed
+        object property"
+    ::= { cfprLsbootUsbExternalImageEntry 2 }
+
+cfprLsbootUsbExternalImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbExternalImage:rn managed
+        object property"
+    ::= { cfprLsbootUsbExternalImageEntry 3 }
+
+cfprLsbootUsbExternalImageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbExternalImage:order
+        managed object property"
+    ::= { cfprLsbootUsbExternalImageEntry 4 }
+
+cfprLsbootUsbExternalImageType OBJECT-TYPE
+    SYNTAX       CfprLsbootUsbExternalImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbExternalImage:type managed
+        object property"
+    ::= { cfprLsbootUsbExternalImageEntry 5 }
+
+cfprLsbootUsbFlashStorageImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootUsbFlashStorageImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbFlashStorageImage managed object table"
+    ::= { cfprLsbootObjects 18 }
+
+cfprLsbootUsbFlashStorageImageEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootUsbFlashStorageImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootUsbFlashStorageImageTable table."
+    INDEX { cfprLsbootUsbFlashStorageImageInstanceId }
+    ::= { cfprLsbootUsbFlashStorageImageTable 1 }
+
+CfprLsbootUsbFlashStorageImageEntry ::= SEQUENCE {
+    cfprLsbootUsbFlashStorageImageInstanceId                         CfprManagedObjectId,
+    cfprLsbootUsbFlashStorageImageDn                                 CfprManagedObjectDn,
+    cfprLsbootUsbFlashStorageImageRn                                 SnmpAdminString,
+    cfprLsbootUsbFlashStorageImageOrder                              Gauge32,
+    cfprLsbootUsbFlashStorageImageType                               CfprLsbootUsbFlashStorageImageType
+}
+
+cfprLsbootUsbFlashStorageImageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootUsbFlashStorageImageEntry 1 }
+
+cfprLsbootUsbFlashStorageImageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbFlashStorageImage:dn
+        managed object property"
+    ::= { cfprLsbootUsbFlashStorageImageEntry 2 }
+
+cfprLsbootUsbFlashStorageImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbFlashStorageImage:rn
+        managed object property"
+    ::= { cfprLsbootUsbFlashStorageImageEntry 3 }
+
+cfprLsbootUsbFlashStorageImageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbFlashStorageImage:order
+        managed object property"
+    ::= { cfprLsbootUsbFlashStorageImageEntry 4 }
+
+cfprLsbootUsbFlashStorageImageType OBJECT-TYPE
+    SYNTAX       CfprLsbootUsbFlashStorageImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbFlashStorageImage:type
+        managed object property"
+    ::= { cfprLsbootUsbFlashStorageImageEntry 5 }
+
+cfprLsbootUsbInternalImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootUsbInternalImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbInternalImage managed object table"
+    ::= { cfprLsbootObjects 19 }
+
+cfprLsbootUsbInternalImageEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootUsbInternalImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootUsbInternalImageTable table."
+    INDEX { cfprLsbootUsbInternalImageInstanceId }
+    ::= { cfprLsbootUsbInternalImageTable 1 }
+
+CfprLsbootUsbInternalImageEntry ::= SEQUENCE {
+    cfprLsbootUsbInternalImageInstanceId                             CfprManagedObjectId,
+    cfprLsbootUsbInternalImageDn                                     CfprManagedObjectDn,
+    cfprLsbootUsbInternalImageRn                                     SnmpAdminString,
+    cfprLsbootUsbInternalImageOrder                                  Gauge32,
+    cfprLsbootUsbInternalImageType                                   CfprLsbootUsbInternalImageType
+}
+
+cfprLsbootUsbInternalImageInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootUsbInternalImageEntry 1 }
+
+cfprLsbootUsbInternalImageDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbInternalImage:dn managed
+        object property"
+    ::= { cfprLsbootUsbInternalImageEntry 2 }
+
+cfprLsbootUsbInternalImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbInternalImage:rn managed
+        object property"
+    ::= { cfprLsbootUsbInternalImageEntry 3 }
+
+cfprLsbootUsbInternalImageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbInternalImage:order
+        managed object property"
+    ::= { cfprLsbootUsbInternalImageEntry 4 }
+
+cfprLsbootUsbInternalImageType OBJECT-TYPE
+    SYNTAX       CfprLsbootUsbInternalImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:UsbInternalImage:type managed
+        object property"
+    ::= { cfprLsbootUsbInternalImageEntry 5 }
+
+cfprLsbootVirtualMediaTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLsbootVirtualMediaEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsboot:VirtualMedia managed object table"
+    ::= { cfprLsbootObjects 20 }
+
+cfprLsbootVirtualMediaEntry OBJECT-TYPE
+    SYNTAX           CfprLsbootVirtualMediaEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLsbootVirtualMediaTable table."
+    INDEX { cfprLsbootVirtualMediaInstanceId }
+    ::= { cfprLsbootVirtualMediaTable 1 }
+
+CfprLsbootVirtualMediaEntry ::= SEQUENCE {
+    cfprLsbootVirtualMediaInstanceId                                 CfprManagedObjectId,
+    cfprLsbootVirtualMediaDn                                         CfprManagedObjectDn,
+    cfprLsbootVirtualMediaRn                                         SnmpAdminString,
+    cfprLsbootVirtualMediaAccess                                     CfprLsbootAccessType,
+    cfprLsbootVirtualMediaLunId                                      SnmpAdminString,
+    cfprLsbootVirtualMediaMappingName                                SnmpAdminString,
+    cfprLsbootVirtualMediaOrder                                      Gauge32,
+    cfprLsbootVirtualMediaType                                       CfprLsbootVirtualMediaType
+}
+
+cfprLsbootVirtualMediaInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLsbootVirtualMediaEntry 1 }
+
+cfprLsbootVirtualMediaDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:VirtualMedia:dn managed object property"
+    ::= { cfprLsbootVirtualMediaEntry 2 }
+
+cfprLsbootVirtualMediaRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:VirtualMedia:rn managed object property"
+    ::= { cfprLsbootVirtualMediaEntry 3 }
+
+cfprLsbootVirtualMediaAccess OBJECT-TYPE
+    SYNTAX       CfprLsbootAccessType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:VirtualMedia:access managed
+        object property"
+    ::= { cfprLsbootVirtualMediaEntry 4 }
+
+cfprLsbootVirtualMediaLunId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:VirtualMedia:lunId managed
+        object property"
+    ::= { cfprLsbootVirtualMediaEntry 5 }
+
+cfprLsbootVirtualMediaMappingName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:VirtualMedia:mappingName
+        managed object property"
+    ::= { cfprLsbootVirtualMediaEntry 6 }
+
+cfprLsbootVirtualMediaOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:VirtualMedia:order managed
+        object property"
+    ::= { cfprLsbootVirtualMediaEntry 7 }
+
+cfprLsbootVirtualMediaType OBJECT-TYPE
+    SYNTAX       CfprLsbootVirtualMediaType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsboot:VirtualMedia:type managed object property"
+    ::= { cfprLsbootVirtualMediaEntry 8 }
+
+END

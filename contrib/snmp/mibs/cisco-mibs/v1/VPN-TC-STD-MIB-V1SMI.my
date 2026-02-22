@@ -1,0 +1,78 @@
+-- MIB file created 15-May-2006 17:24:01, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+VPN-TC-STD-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "VPN-TC-STD-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    mib-2
+            FROM SNMPv2-SMI-v1;
+
+vpnTcMIB OBJECT IDENTIFIER ::= { mib-2 129 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200511150000Z
+--  OrgName
+--    Layer 3 Virtual Private Networks (L3VPN) Working Group.
+--  ContactInfo
+--    Benson Schliesser
+--     bensons@savvis.net
+--    
+--     Thomas D. Nadeau
+--     tnadeau@cisco.com
+--    
+--     This TC MIB is a product of the PPVPN
+--     http://www.ietf.org/html.charters/ppvpn-charter.html
+--     and subsequently the L3VPN
+--     http://www.ietf.org/html.charters/l3vpn-charter.html
+--     working groups.
+--    
+--     Comments and discussion should be directed to
+--     l3vpn@ietf.org
+--  Descr
+--    This MIB contains TCs for VPNs.
+--    
+--     Copyright (C) The Internet Society (2005).  This version
+--     of this MIB module is part of RFC 4265;  see the RFC
+--     itself for full legal notices.
+--  RevDate
+--    200511150000Z
+--  RevDescr
+--    Initial version, published as RFC 4265.
+
+VPNId ::= OCTET STRING(SIZE(7))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The purpose of a VPN-ID is to uniquely identify a VPN.
+--     The Global VPN Identifier format is:
+--     3 octet VPN Authority, Organizationally Unique Identifier
+--     followed by 4 octet VPN index identifying VPN according
+--     to OUI
+--  Refer
+--    Fox, B. and Gleeson, B., 'Virtual Private Networks
+--     Identifier', RFC 2685, September 1999.
+
+VPNIdOrZero ::= OCTET STRING(SIZE(0|7))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention is an extension of the
+--     VPNId textual convention that defines a non-zero-length
+--     OCTET STRING to identify a physical entity.  This extension
+--     permits the additional value of a zero-length OCTET STRING.
+--    
+--     The semantics of the value zero-length OCTET STRING are
+--     object-specific and must therefore be defined
+--     as part of the description of any object that uses this
+--     syntax.  Examples of usage of this extension are
+--     situations where none or all VPN IDs need to be
+--     referenced.
+
+
+END
+

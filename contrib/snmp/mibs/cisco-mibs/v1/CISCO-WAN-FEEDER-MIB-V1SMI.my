@@ -1,0 +1,366 @@
+-- MIB file created 15-Apr-2003 16:21:32, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-WAN-FEEDER-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-WAN-FEEDER-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, DisplayString
+            FROM SNMPv2-TC-v1
+    InterfaceIndex
+            FROM IF-MIB
+    ciscoWan
+            FROM CISCOWAN-SMI
+    IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoWanFeederMIB OBJECT IDENTIFIER ::= { ciscoWan 15 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200303270000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--    Tel:    +1 800 553-NETS
+--    
+--    E-mail: cs-wanatm@cisco.com
+--  Descr
+--    This MIB is used for configuring a port on an ATM 
+--     switch module to be aware of feeder connection 
+--     information.
+--    
+--     Terminology:
+--         AR - Auto Route, a CISCO proprietary feature,
+--           provides connection management for network with only
+--           CISCO nodes such as BPX or IGX.
+--    
+--         Feeder - An external ATM switch, which does not 
+--           have PNNI feature, connected to an ATM switch 
+--           that supports PNNI to provide LMI. 
+--    
+--         LMI - Local Management Interface is an 
+--           interface to provide a set of enhancements to
+--           Frame Relay specification for managing complex
+--           internetworks. LMI extensions include global 
+--           addressing, virtual-circuit status messages,
+--           and multicasting. 
+--    
+--         XLMI - The Extended LMI is a type of LMI which
+--           is implemented in an AR + PNNI network.
+--  RevDate
+--    200303270000Z
+--  RevDescr
+--    Fixed alignments and descriptions.
+--  RevDate
+--    200010100000Z
+--  RevDescr
+--    Added cwfLMIType object to distinguish feeder versus XLMI.
+--     Added enum fdrNON to cwfFeederType object.
+--  RevDate
+--    200004250000Z
+--  RevDescr
+--    Initial version of feeder MIB module.
+
+cwfMIBObjects   OBJECT IDENTIFIER ::= { ciscoWanFeederMIB 1 }
+cwfFeeder       OBJECT IDENTIFIER ::= { cwfMIBObjects 1 }
+cwfMIBConformance OBJECT IDENTIFIER ::= { ciscoWanFeederMIB 3 }
+cwfMIBCompliances OBJECT IDENTIFIER ::= { cwfMIBConformance 1 }
+cwfMIBGroups    OBJECT IDENTIFIER ::= { cwfMIBConformance 2 }
+
+cwfFeederTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwfFeederEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the entries for the feeders.
+         It is used for addition or deletion of feeders and 
+         to support LMI on the feeders. The information in
+         these entries are advertised to LMI using a system 
+         dependent implementation when an entry is 
+         created/activated. This table can also be applicable 
+         to XLMI."
+    ::= { cwfFeeder 1 }
+
+cwfFeederEntry OBJECT-TYPE
+    SYNTAX CwfFeederEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in cwfFeederTable."
+    INDEX { cwfFeederIfNum }
+    ::= { cwfFeederTable 1 }
+
+CwfFeederEntry ::= SEQUENCE {
+    cwfFeederIfNum InterfaceIndex,
+    cwfFeederName DisplayString,
+    cwfLanIP IpAddress,
+    cwfNetIP IpAddress,
+    cwfRemoteShelf INTEGER,
+    cwfRemoteSlot INTEGER,
+    cwfRemotePort INTEGER,
+    cwfFeederType INTEGER,
+    cwfModelNumber INTEGER,
+    cwfLMIAdminStatus INTEGER,
+    cwfLMIOperStatus INTEGER,
+    cwfFeederNodeAlarm INTEGER,
+    cwfFeederRowStatus RowStatus,
+    cwfLMIType INTEGER
+    }
+
+cwfFeederIfNum OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This is an unique interface number of an 
+         ATM virtual interface. The value of this 
+         object is equal to the ifIndex of the ATM 
+         virtual interface interface identified by
+         ifType atmVirtual(149)."
+    ::= { cwfFeederEntry 1 }
+
+cwfFeederName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the name of the feeder. It contains 
+         a string of length zero, if the feeder name
+         is not available."
+    ::= { cwfFeederEntry 2 }
+
+cwfLanIP OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the LAN IP address of the feeder. 
+         This IP address is used for ethernet interface."
+    ::= { cwfFeederEntry 3 }
+
+cwfNetIP OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the network IP address of the feeder. 
+         This IP address is used for ATM interface."
+    ::= { cwfFeederEntry 4 }
+
+cwfRemoteShelf OBJECT-TYPE
+    SYNTAX INTEGER(1..4)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the remote shelf number of the feeder
+         module."
+    ::= { cwfFeederEntry 5 }
+
+cwfRemoteSlot OBJECT-TYPE
+    SYNTAX INTEGER(1..32)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the remote slot number of the feeder
+         module."
+    ::= { cwfFeederEntry 6 }
+
+cwfRemotePort OBJECT-TYPE
+    SYNTAX INTEGER(1..64)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the remote physical port(line) 
+         number of the feeder module."
+    ::= { cwfFeederEntry 7 }
+
+cwfFeederType OBJECT-TYPE
+    SYNTAX INTEGER {
+        fdrIPX(1),
+        fdrBPX(2),
+        fdrIpxAF(3),
+        fdrBASIS(4),
+        fdrUNKNOWN(5),
+        fdrUNI(6),
+        fdrAPS(7),
+        fdrIGX(8),
+        fdrIgxAF(9),
+        fdrVSI(10),
+        fdrPAR(11),
+        fdrNON(12)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This identifies the feeeder type. fdrNON(12) 
+         is applicable when cwfLMIType is xLMI(2). 
+         Other values are applicable for cwfLMIType = feeder(1). 
+        
+         The possible values are:
+         fdrIPX       -- Feeder is an IPX node in a routing network 
+         fdrBPX       -- Feeder is an BPX node in a routing network
+         fdrIpxAF     -- Feeder is a stand-alone IPX node         
+         fdrBASIS     -- Feeder is a stand-alone BASIS node      
+         fdrUNKNOWN   -- Feeder is unknown 
+         fdrUNI       -- Feeder is a UNI AIT (phase 0)         
+         fdrAPS       -- Feeder is an APS (Adjunct Processor Shelf) 
+         fdrIGX       -- Feeder is an IGX node in a routing network 
+         fdrIgxAF     -- Feeder is a stand-alone IGX node          
+         fdrVSI       -- Feeder is an VSI Controller 
+         fdrPAR       -- Feeder is a PAR 
+         fdrNON       -- Non-feeder type"
+    ::= { cwfFeederEntry 8 }
+
+cwfModelNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This identifies the feeder model number."
+    ::= { cwfFeederEntry 9 }
+
+cwfLMIAdminStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This provides the feeder LMI admin state 
+         configuration capabilities for the desired
+         state of interface. The value of this object 
+         is ignored during row creation."
+    DEFVAL { up }
+    ::= { cwfFeederEntry 10 }
+
+cwfLMIOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This provides the operational state of 
+         the LMI connection."
+    ::= { cwfFeederEntry 11 }
+
+cwfFeederNodeAlarm OBJECT-TYPE
+    SYNTAX INTEGER {
+        clear(1),
+        minor(2),
+        major(3),
+        critical(4),
+        unknown(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This identifies the feeder node alarm status. 
+         It provides the alarm status in hierarchical order
+         where by if there are no feeder node alarms, it is 
+         signified by <clear>. If minor alarms, with no major 
+         alarms, it is signified by <minor>. If the node 
+         has one or more major alarms, irrespective of the
+         minor alarm status, then it is signified by <major>."
+    ::= { cwfFeederEntry 12 }
+
+cwfFeederRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is used for adding or deleting a feeder entry. 
+         The row can be created by setting this object to 
+         'createAndGo(4)'. The row can be deleted by setting 
+         this object to 'destroy(6)'.
+        
+         No other values are supported."
+    ::= { cwfFeederEntry 13 }
+
+cwfLMIType OBJECT-TYPE
+    SYNTAX INTEGER {
+        feeder(1),
+        xLMI(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This identifies the LMI type. It identifies the 
+         type of network to which the LMI port is connected 
+         to."
+    DEFVAL { feeder }
+    ::= { cwfFeederEntry 14 }
+
+cwfFeederGroup OBJECT IDENTIFIER ::= { cwfMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    The objects related to configuring a feeder.
+--  objects
+--    cwfFeederName, cwfLanIP, cwfNetIP, cwfRemoteShelf, 
+--    cwfRemoteSlot, cwfRemotePort, cwfFeederType, cwfModelNumber, 
+--    cwfLMIAdminStatus, cwfLMIOperStatus, cwfFeederNodeAlarm, 
+--    cwfFeederRowStatus
+
+cwfFeederGroup2 OBJECT IDENTIFIER ::= { cwfMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects related to configuring feeder and 
+--     non-feeder(XLMI).
+--  objects
+--    cwfFeederName, cwfLanIP, cwfNetIP, cwfRemoteShelf, 
+--    cwfRemoteSlot, cwfRemotePort, cwfFeederType, cwfModelNumber, 
+--    cwfLMIAdminStatus, cwfLMIOperStatus, cwfFeederNodeAlarm, 
+--    cwfFeederRowStatus, cwfLMIType
+
+cwfMIBCompliance OBJECT IDENTIFIER ::= { cwfMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for feeder group.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cwfFeederGroup
+
+cwfMIBCompliance2 OBJECT IDENTIFIER ::= { cwfMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The Compliance statement for feeder group.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cwfFeederGroup2
+
+
+END
+

@@ -1,0 +1,773 @@
+-- MIB file created 24-Feb-2006 09:56:35, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-OAM-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-OAM-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TimeStamp, TruthValue, RowStatus
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    OwnerString
+            FROM RMON-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoOamPingMIB OBJECT IDENTIFIER ::= { ciscoExperiment 15 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200602170000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems 
+--        Customer Service 
+--    
+--    Postal: 170 W Tasman Drive 
+--        San Jose, CA  95134 
+--        USA 
+--    
+--       Tel: +1 800 553-NETS 
+--    
+--    E-mail: cs-atm@cisco.com
+--  Descr
+--    A MIB module for invoking OAM loopback Ping on ATM 
+--    connections.
+--  RevDate
+--    200602170000Z
+--  RevDescr
+--    Removed the OwnerString TEXTUAL-CONVENTION and 
+--     imported the same from RMON-MIB.
+--  RevDate
+--    200306270000Z
+--  RevDescr
+--    Add object to oamLoopbackPingTable:  
+--      - oamLoopbackPingMinRttuSec,    
+--      - oamLoopbackPingAvgRttuSec, 
+--      - oamLoopbackPingMaxRttuSec.
+--  RevDate
+--    200304040000Z
+--  RevDescr
+--    Add objects to oamLoopbackPingTable:  
+--      - oamLoopbackPingExecTime,  
+--      - oamLoopbackPingDir,  
+--      - oamLoopbackPingOperStatus  
+--    
+--     Add new table oamLoopbackSegEndPointTable for OAM segment 
+--     endpoint provisioning. 
+--    
+--     Usage of oamLoopbackSegEndPointTable: 
+--       If the loopback ping test type (oamLoopbackPingType) is 
+--       'segment', the test requires the endpoint under test 
+--       and the remote ping endpoint are both OAM segment 
+--       loopback endpoints. 
+--         
+--       The table oamLoopbackSegEndPointTable is used to 
+--       provision an ATM connection endpoint to be an OAM 
+--       segment endpoint. 
+--    
+--       If the endpoints are already OAM segment endpoints, the 
+--       provisioning of the table is not required.
+--  RevDate
+--    9605010000Z
+--  RevDescr
+--    Initial version of the MIB.
+
+ciscoOamPingMIBObjects OBJECT IDENTIFIER ::= { ciscoOamPingMIB 1 }
+oamLoopbackPingMIBTrapPrefix OBJECT IDENTIFIER ::= { ciscoOamPingMIB 2 }
+oamLoopbackPingMIBTraps OBJECT IDENTIFIER ::= { oamLoopbackPingMIBTrapPrefix 0 }
+ciscoOamPingMIBConformance OBJECT IDENTIFIER ::= { ciscoOamPingMIB 3 }
+ciscoOamPingMIBCompliances OBJECT IDENTIFIER ::= { ciscoOamPingMIBConformance 1 }
+ciscoOamPingMIBGroups OBJECT IDENTIFIER ::= { ciscoOamPingMIBConformance 2 }
+
+CiscoOAMPingDir ::= INTEGER {
+        forward(1),
+        backward(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Direction in which the OAM segment cells are sent:  
+--     forward     : send OAM loopback cells in the 
+--                   direction form the originator towards the 
+--                   destination of the connection. 
+--     backward    : send OAM loopback cells in the direction  
+--                   towards the originator of the connection.
+
+CiscoOAMPingStatus ::= INTEGER {
+        success(1),
+        timeOut(2),
+        resourceNotAvailable(3),
+        aborted(4),
+        inProgress(5),
+        noResponseData(6),
+        failToStart(7)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Defines possible test status. 
+--       success(1)     - The test has completed.  
+--    
+--       timeOut(2)     - The test has been failed because  
+--                        the test does not receive loopback 
+--                        cell response from remote endpoint 
+--                        and it times out. 
+--    
+--       resourceNotAvailable(3) - The resources required by the 
+--                        test is not available, such as other 
+--                        application is testing on the same 
+--                        endpoint. 
+--    
+--       aborted(4)     - The test is aborted due to the removal  
+--                        of connection endpoint or failed to 
+--                        proceed.  
+--    
+--       inProgress(5)  - The endpoint is still in progress of 
+--                        testing and waiting for the response. 
+--    
+--       noResponseData(6) - If the test receives response from 
+--                        the remote end but without any data. 
+--    
+--       failToStart(7) - The test fails to kickoff (internal 
+--                        messaging timeout).
+
+oamLoopbackPingTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF OamLoopbackPingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of OAM loopback request entries.  (This table 
+        is similar to the CISCO-PING-MIB.)"
+    ::= { ciscoOamPingMIBObjects 1 }
+
+oamLoopbackPingEntry OBJECT-TYPE
+    SYNTAX OamLoopbackPingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A OAM loopback request entry. 
+        
+        A management station wishing to create an entry should 
+        first generate a pseudo-random serial number to be used 
+        as the index to this sparse table.  The NMS should 
+        then create the associated instance of the row status 
+        and row owner objects.  It must also, either in the same 
+        or in successive PDUs, create the associated instances 
+        specifying the VPI and VCI values.  It should also modify 
+        the default values for the other configuration objects 
+        if the defaults are not appropriate. 
+        
+        Once the appropriate instance of all the configuration 
+        objects have been created, either by an explicit SNMP 
+        set request or by default, the row status should be set 
+        to active to initiate the request.  Note that this entire 
+        procedure may be initiated via a single set request which 
+        specifies a row status of createAndGo as well as specifies 
+        valid values for the non-defaulted configuration objects. 
+        
+        Once the OAM sequence has been activated, it cannot be 
+        stopped -- it will run until the configured number of 
+        cells have been sent. 
+        
+        Once the sequence completes, the management station should 
+        retrieve the values of the status objects of interest, and 
+        should then delete the entry.  In order to prevent old 
+        entries from clogging the table, entries will be aged out, 
+        but an entry will never be deleted within 5 minutes of 
+        completing."
+    INDEX { oamLoopbackPingSerialNumber }
+    ::= { oamLoopbackPingTable 1 }
+
+OamLoopbackPingEntry ::= SEQUENCE {
+    oamLoopbackPingSerialNumber INTEGER,
+    oamLoopbackPingInterface INTEGER,
+    oamLoopbackPingVpi INTEGER,
+    oamLoopbackPingVci INTEGER,
+    oamLoopbackPingType INTEGER,
+    oamLoopbackPingLocation OCTET STRING,
+    oamLoopbackPingLocationFlag INTEGER,
+    oamLoopbackPingCount INTEGER,
+    oamLoopbackPingTimeout INTEGER,
+    oamLoopbackPingDelay INTEGER,
+    oamLoopbackPingTrapOnCompletion TruthValue,
+    oamLoopbackPingSentCells Counter,
+    oamLoopbackPingReceivedCells Counter,
+    oamLoopbackPingMinRtt INTEGER,
+    oamLoopbackPingAvgRtt INTEGER,
+    oamLoopbackPingMaxRtt INTEGER,
+    oamLoopbackPingCompleted TruthValue,
+    oamLoopbackPingEntryOwner OwnerString,
+    oamLoopbackPingEntryStatus RowStatus,
+    oamLoopbackPingDir CiscoOAMPingDir,
+    oamLoopbackPingOperStatus CiscoOAMPingStatus,
+    oamLoopbackPingExecTime TimeStamp,
+    oamLoopbackPingMinRttuSec INTEGER,
+    oamLoopbackPingAvgRttuSec INTEGER,
+    oamLoopbackPingMaxRttuSec INTEGER
+    }
+
+oamLoopbackPingSerialNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Object which identifies a unique entry in the 
+        oamLoopbackPingTable.  A management station wishing 
+        to initiate a OAM-loopback operation should use a 
+        pseudo-random value for this object when creating 
+        or modifying an instance of an oamLoopbackPingEntry. 
+        The RowStatus semantics of the oamLoopbackPingEntryStatus 
+        object will prevent access conflicts."
+    ::= { oamLoopbackPingEntry 1 }
+
+oamLoopbackPingInterface OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The interface of the connection on which OAM loopbacks are 
+        to be sent.  Once an instance of this object is created, its 
+        value can not be changed. The value specified for this object  
+        must equate to a value of ifIndex in the ifTable."
+    ::= { oamLoopbackPingEntry 2 }
+
+oamLoopbackPingVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The VPI of the connection on which OAM loopbacks are 
+        to be sent. 
+        Once an instance of this object is created, its 
+        value can not be changed."
+    ::= { oamLoopbackPingEntry 3 }
+
+oamLoopbackPingVci OBJECT-TYPE
+    SYNTAX INTEGER(-1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Either -1 or the VCI of the connection on which F5 OAM 
+        loopback cells are to be sent. 
+        If the value of this object is -1, then an F4 OAM loopback 
+        cells will be sent on the VPC indicated by oamLoopbackPingVpi. 
+        An instance of this object cannot be created until the 
+        associated instance of oamLoopbackPingVpi is created. 
+        Once an instance of this object is created, its 
+        value can not be changed."
+    ::= { oamLoopbackPingEntry 4 }
+
+oamLoopbackPingType OBJECT-TYPE
+    SYNTAX INTEGER {
+        segment(1),
+        end2end(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of OAM loopback to be performed."
+    DEFVAL { end2end }
+    ::= { oamLoopbackPingEntry 5 }
+
+oamLoopbackPingLocation OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..16))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value to be placed in the 'Loopback Location ID' field 
+        of the OAM loopback cell.  If this value is less than 16  
+        octets in length, then it will be appended with zero-valued 
+        octets to form the required 96-bit value.  One possibility 
+        is to set this value to the IP-address of the node at which 
+        the OAM loopback is to occur. 
+        
+        An instance of this object cannot be created until the 
+        associated instance of oamLoopbackPingVpi is created. 
+        Once an instance of this object is created, its 
+        value can not be changed."
+    DEFVAL { 'FF'H }
+    ::= { oamLoopbackPingEntry 6 }
+
+oamLoopbackPingLocationFlag OBJECT-TYPE
+    SYNTAX INTEGER {
+        ipAddress(1),
+        nsapPrefix(2),
+        fixed16byteValue(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies what kind of information is embedded into the  
+         oamLoopbackPingLocation string. This flag is ignored when  
+         oamLoopbackPingType is set to segment."
+    DEFVAL { ipAddress }
+    ::= { oamLoopbackPingEntry 7 }
+
+oamLoopbackPingCount OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the number of OAM loopback cells to send to the 
+         target in this sequence."
+    DEFVAL { 5 }
+    ::= { oamLoopbackPingEntry 8 }
+
+oamLoopbackPingTimeout OBJECT-TYPE
+    SYNTAX INTEGER(0..3600000)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the amount of time to wait for a response to a 
+        transmitted OAM loopback cells before declaring the OAM 
+        loopback cells as 'dropped.'"
+    DEFVAL { 1000 }
+    ::= { oamLoopbackPingEntry 9 }
+
+oamLoopbackPingDelay OBJECT-TYPE
+    SYNTAX INTEGER(0..3600000)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the minimum amount of time to wait before sending 
+        the next OAM loopback cell in a sequence after receiving a 
+        response or declaring a timeout for a previous OAM cell.  The 
+        actual delay may be greater due to internal task scheduling."
+    DEFVAL { 0 }
+    ::= { oamLoopbackPingEntry 10 }
+
+oamLoopbackPingTrapOnCompletion OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies whether or not a oamLoopbackPingCompletion trap 
+         should be issued on completion of the sequence of OAM loopback 
+         cells. If such a trap is desired, it is the responsibility of 
+         the management entity to ensure that the SNMP administrative 
+         model is configured in such a way as to allow the trap to be 
+         delivered."
+    DEFVAL { false }
+    ::= { oamLoopbackPingEntry 11 }
+
+oamLoopbackPingSentCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of OAM loopback cells that have been sent to the 
+        target in this sequence."
+    ::= { oamLoopbackPingEntry 12 }
+
+oamLoopbackPingReceivedCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of OAM loopback cells that have been received 
+         from the target in this sequence."
+    ::= { oamLoopbackPingEntry 13 }
+
+oamLoopbackPingMinRtt OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum round trip time of all the OAM loopback cells 
+        that have been sent in this sequence. 
+        
+        This object will not be created until the first OAM loopback 
+        response in a sequence is received."
+    ::= { oamLoopbackPingEntry 14 }
+
+oamLoopbackPingAvgRtt OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The average round trip time of all the OAM loopback cells 
+        that have been sent in this sequence. 
+        
+        This object will not be created until the first OAM loopback 
+        response in a sequence is received."
+    ::= { oamLoopbackPingEntry 15 }
+
+oamLoopbackPingMaxRtt OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum round trip time of all the OAM loopback cells 
+        that have been sent in this sequence. 
+        
+        This object will not be created until the first OAM loopback 
+        response in a sequence is received."
+    ::= { oamLoopbackPingEntry 16 }
+
+oamLoopbackPingCompleted OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Set to true when all the OAM loopback cells in this sequence 
+        have been either responded to or timed out."
+    ::= { oamLoopbackPingEntry 17 }
+
+oamLoopbackPingEntryOwner OBJECT-TYPE
+    SYNTAX OwnerString
+--    Rsyntax OCTET STRING
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The entity that configured this entry."
+    ::= { oamLoopbackPingEntry 18 }
+
+oamLoopbackPingEntryStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this table entry.  Once the entry status is 
+        set to active, the associate entry cannot be modified until 
+        the sequence completes (oamLoopbackPingCompleted is true)."
+    ::= { oamLoopbackPingEntry 19 }
+
+oamLoopbackPingDir OBJECT-TYPE
+    SYNTAX CiscoOAMPingDir
+--    Rsyntax INTEGER {
+--        forward(1),
+--        backward(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object set the traveling direction of the OAM 
+          segment loopback cells which are injected to the 
+          connection endpoint."
+    ::= { oamLoopbackPingEntry 20 }
+
+oamLoopbackPingOperStatus OBJECT-TYPE
+    SYNTAX CiscoOAMPingStatus
+--    Rsyntax INTEGER {
+--        success(1),
+--        timeOut(2),
+--        resourceNotAvailable(3),
+--        aborted(4),
+--        inProgress(5),
+--        noResponseData(6),
+--        failToStart(7)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the ping test status."
+    ::= { oamLoopbackPingEntry 21 }
+
+oamLoopbackPingExecTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the MIB object 
+         is created which triggers the loppback ping test."
+    ::= { oamLoopbackPingEntry 22 }
+
+oamLoopbackPingMinRttuSec OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    microseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum round trip time of all the OAM loopback cells 
+        that have been sent in this sequence. 
+        
+        This object will not be created until the first OAM loopback 
+        response in a sequence is received.  
+        
+        Notes: this object is the same as oamLoopbackPingMinRtt but 
+        the unit is in microseconds instead of milliseconds."
+    ::= { oamLoopbackPingEntry 23 }
+
+oamLoopbackPingAvgRttuSec OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    microseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The average round trip time of all the OAM loopback cells 
+        that have been sent in this sequence. 
+        
+        This object will not be created until the first OAM loopback 
+        response in a sequence is received. 
+        
+        Notes: this object is the same as oamLoopbackPingAvgRtt but 
+        the unit is in microseconds instead of milliseconds."
+    ::= { oamLoopbackPingEntry 24 }
+
+oamLoopbackPingMaxRttuSec OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    microseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum round trip time of all the OAM loopback cells 
+        that have been sent in this sequence. 
+        
+        This object will not be created until the first OAM loopback 
+        response in a sequence is received.  
+        
+        Notes: this object is the same as oamLoopbackPingMaxRtt but 
+        the unit is in microseconds instead of milliseconds."
+    ::= { oamLoopbackPingEntry 25 }
+
+oamLoopbackSegEndPointTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF OamLoopbackSegEndPointEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains a list of OAM loopback segment 
+         endpoints. 
+        
+         When the endpoint is an OAM segment endpoint, it is able to 
+         send ATM segment loop back cells or loop back the cells to 
+         the originator which initiates the OAM loop back ping test. 
+        
+         The provisioning of this table is required if the loopback 
+         ping test type (oamLoopbackPingType) in oamLoopbackPingTable 
+         is 'segment', and the endpoint under test or the remote ping 
+         endpoint is not OAM segment loopback endpoints."
+    ::= { ciscoOamPingMIBObjects 2 }
+
+oamLoopbackSegEndPointEntry OBJECT-TYPE
+    SYNTAX OamLoopbackSegEndPointEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the segment endpoint table."
+    INDEX { ifIndex, oamLoopSegVpi, oamLoopSegVci }
+    ::= { oamLoopbackSegEndPointTable 1 }
+
+OamLoopbackSegEndPointEntry ::= SEQUENCE {
+    oamLoopSegVpi Gauge,
+    oamLoopSegVci Gauge,
+    oamLoopSegRowStatus RowStatus
+    }
+
+oamLoopSegVpi OBJECT-TYPE
+    SYNTAX Gauge(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The VPI value of a VP or VC connection."
+    ::= { oamLoopbackSegEndPointEntry 1 }
+
+oamLoopSegVci OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The VCI value of VC connection. For a VPC connection, 
+         the VCI value is 0."
+    ::= { oamLoopbackSegEndPointEntry 2 }
+
+oamLoopSegRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "To create, delete an OAM segment entry. Only 
+         the value 'active', 'createAndGo', and 'destroy' are 
+         supported.  
+        
+         If the connection endpoint does not exist, the entry could 
+         not be created. 
+        
+         If the associated ATM connection is de-routed or deleted, the 
+         connection endpoint is gone. The associated row entry will be 
+         removed automatically."
+    ::= { oamLoopbackSegEndPointEntry 3 }
+
+oamLoopbackPingCompletionTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE oamLoopbackPingMIBTrapPrefix
+    VARIABLES {
+        oamLoopbackPingCompleted }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A oamLoopbackPingCompleted trap is sent at the completion 
+        of a sequence of OAM loopback cells if such a trap was 
+        requested when the sequence was initiated."
+    ::= 1
+
+ciscoOamPingMIBGroup OBJECT IDENTIFIER ::= { ciscoOamPingMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing the ability to invoke 
+--    the sending of OAM loopback cells.
+--  objects
+--    oamLoopbackPingInterface, oamLoopbackPingVpi, 
+--    oamLoopbackPingVci, oamLoopbackPingCount, oamLoopbackPingType, 
+--    oamLoopbackPingLocation, oamLoopbackPingLocationFlag, 
+--    oamLoopbackPingTimeout, oamLoopbackPingDelay, 
+--    oamLoopbackPingTrapOnCompletion, oamLoopbackPingSentCells, 
+--    oamLoopbackPingReceivedCells, oamLoopbackPingMinRtt, 
+--    oamLoopbackPingAvgRtt, oamLoopbackPingMaxRtt, 
+--    oamLoopbackPingCompleted, oamLoopbackPingEntryOwner, 
+--    oamLoopbackPingEntryStatus
+
+ciscoOamPing2MIBGroup OBJECT IDENTIFIER ::= { ciscoOamPingMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing the ability to invoke 
+--    the sending of OAM loopback cells.
+--  objects
+--    oamLoopbackPingInterface, oamLoopbackPingVpi, 
+--    oamLoopbackPingVci, oamLoopbackPingCount, oamLoopbackPingType, 
+--    oamLoopbackPingLocation, oamLoopbackPingLocationFlag, 
+--    oamLoopbackPingTimeout, oamLoopbackPingDelay, 
+--    oamLoopbackPingTrapOnCompletion, oamLoopbackPingSentCells, 
+--    oamLoopbackPingReceivedCells, oamLoopbackPingMinRtt, 
+--    oamLoopbackPingAvgRtt, oamLoopbackPingMaxRtt, 
+--    oamLoopbackPingCompleted, oamLoopbackPingEntryOwner, 
+--    oamLoopbackPingEntryStatus, oamLoopbackPingDir, 
+--    oamLoopbackPingOperStatus, oamLoopbackPingExecTime
+
+ciscoOamPingSegEndPointGroup OBJECT IDENTIFIER ::= { ciscoOamPingMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the ability to provision  
+--    ATM connection endpoints to be OAM segment loopback endpoint.
+--  objects
+--    oamLoopSegRowStatus
+
+ciscoOamPingMIBGroupRev3 OBJECT IDENTIFIER ::= { ciscoOamPingMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the ability to invoke 
+--    the sending of OAM loopback cells.
+--  objects
+--    oamLoopbackPingInterface, oamLoopbackPingVpi, 
+--    oamLoopbackPingVci, oamLoopbackPingCount, oamLoopbackPingType, 
+--    oamLoopbackPingLocation, oamLoopbackPingLocationFlag, 
+--    oamLoopbackPingTimeout, oamLoopbackPingDelay, 
+--    oamLoopbackPingTrapOnCompletion, oamLoopbackPingSentCells, 
+--    oamLoopbackPingReceivedCells, oamLoopbackPingMinRtt, 
+--    oamLoopbackPingAvgRtt, oamLoopbackPingMaxRtt, 
+--    oamLoopbackPingCompleted, oamLoopbackPingEntryOwner, 
+--    oamLoopbackPingEntryStatus, oamLoopbackPingDir, 
+--    oamLoopbackPingOperStatus, oamLoopbackPingExecTime, 
+--    oamLoopbackPingAvgRttuSec, oamLoopbackPingMinRttuSec, 
+--    oamLoopbackPingMaxRttuSec
+
+oamLoopbackNotificationsGroup OBJECT IDENTIFIER ::= { ciscoOamPingMIBGroups 4 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications for OAM loopback ping test.
+--  notifications
+--    oamLoopbackPingCompletionTrap
+
+ciscoOamPingMIBCompliance OBJECT IDENTIFIER ::= { ciscoOamPingMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the Cisco OAM MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoOamPingMIBGroup
+
+ciscoOamPingMIBCompliance2 OBJECT IDENTIFIER ::= { ciscoOamPingMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the Cisco OAM MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoOamPing2MIBGroup
+--   MandGroup
+--    oamLoopbackNotificationsGroup
+--   OptGroup
+--    ciscoOamPingSegEndPointGroup
+
+ciscoOamPingMIBCompliance3 OBJECT IDENTIFIER ::= { ciscoOamPingMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the Cisco OAM MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoOamPingMIBGroupRev3
+--   MandGroup
+--    oamLoopbackNotificationsGroup
+--   OptGroup
+--    ciscoOamPingSegEndPointGroup
+
+
+END
+

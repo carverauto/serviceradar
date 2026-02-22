@@ -1,0 +1,243 @@
+-- *****************************************************************
+-- CISCO-OSPF-CAPABILITY.my: OSPF MIB AGENT-CAPABILITIES
+-- 
+-- Oct 2002, Roy Jose
+--
+-- Copyright (c) 2002 by Cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+
+CISCO-OSPF-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+	MODULE-IDENTITY
+		FROM SNMPv2-SMI
+	AGENT-CAPABILITIES
+		FROM SNMPv2-CONF
+	ciscoAgentCapability
+		FROM CISCO-SMI;
+
+ciscoOspfCapability	MODULE-IDENTITY
+		LAST-UPDATED	"200704260000Z"
+		ORGANIZATION    "Cisco Systems, Inc."
+		CONTACT-INFO
+			"	Cisco Systems
+				Customer Service
+			
+			Postal:	170 West Tasman Drive
+				San Jose, CA  95134
+				USA
+
+			   Tel:	+1 800 553-NETS
+			
+			E-mail:	cs-ospf@cisco.com"
+		DESCRIPTION
+			"Agent capabilities for the OSPF MIB."
+                REVISION "200704260000Z"
+                DESCRIPTION
+			"Updated the ACCESS definition for 
+			ospfIfAuthKey, ospfIfStatus, 
+			ospfIfMulticastForwarding, ospfIfDemand,
+			ospfIfAuthType, ospfVirtIfAuthKey and 
+			ospfVirtIfAuthType"
+                REVISION "200211260000Z"
+                DESCRIPTION
+                        "Initial version of the MIB Module"
+
+	::= { ciscoAgentCapability 287 }
+
+ciscoOspfCapabilityV12R025S AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "Cisco IOS 12.0(26)S, IOS 12.2(31)SB2, IOS 12.2(18)SXF2, 
+		 IOS 12.2(18)SXE, IOS 12.3(4)T"
+STATUS		current
+DESCRIPTION	"CISCO-OSPF-MIB capabilites"
+
+SUPPORTS	OSPF-MIB
+INCLUDES	{ ospfBasicGroup, ospfAreaGroup, ospfStubAreaGroup,
+                  ospfLsdbGroup, ospfHostGroup, ospfIfGroup,
+                  ospfIfMetricGroup, ospfVirtIfGroup, ospfNbrGroup,
+                  ospfVirtNbrGroup, ospfExtLsdbGroup, 
+                  ospfAreaAggregateGroup }
+
+VARIATION	ospfAuthType
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfImportAsExtern
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfAreaSummary
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfAreaStatus
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfStubMetric
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfStubStatus
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfStubMetricType
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfHostMetric
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfHostStatus
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfAreaId
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfType
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfAdminStat
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfRtrPriority
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfTransitDelay
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfRetransInterval
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfHelloInterval
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfRtrDeadInterval
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfPollInterval
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfAuthKey
+ACCESS		read-only
+DESCRIPTION	"Readable but not useful as partially implemented"
+
+VARIATION	ospfIfStatus
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfMulticastForwarding
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfDemand
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfAuthType
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfMetricValue
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfIfMetricStatus
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfVirtIfTransitDelay
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfVirtIfRetransInterval
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfVirtIfHelloInterval
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfVirtIfRtrDeadInterval
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfVirtIfAuthKey
+ACCESS		read-only
+DESCRIPTION	"Readable but not useful as partially implemented"
+
+VARIATION	ospfVirtIfStatus
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfVirtIfAuthType
+ACCESS		read-only
+DESCRIPTION	"Readable but not useful as partially implemented"
+
+VARIATION	ospfNbrPriority
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfNbmaNbrStatus
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfAreaAggregateStatus
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfAreaAggregateEffect
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfRouterId
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfAdminStat
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfASBdrRtrStatus
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfTOSSupport
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+
+VARIATION	ospfExtLsdbLimit
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfMulticastExtensions
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfExitOverflowInterval
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+VARIATION	ospfDemandExtensions
+ACCESS		read-only
+DESCRIPTION	"Unable to create or modify"
+
+	::= { ciscoOspfCapability 1 }
+
+END

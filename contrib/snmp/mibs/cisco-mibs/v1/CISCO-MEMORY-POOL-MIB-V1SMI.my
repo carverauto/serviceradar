@@ -1,0 +1,449 @@
+-- MIB file created 18-Sep-2013 11:38:17, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-MEMORY-POOL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-MEMORY-POOL-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DisplayString, TruthValue
+            FROM SNMPv2-TC-v1
+    Percent
+            FROM CISCO-QOS-PIB-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoMemoryPoolMIB OBJECT IDENTIFIER ::= { ciscoMgmt 48 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201309180000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Postal: Cisco Systems, Inc.
+--    170 West Tasman Drive
+--    San Jose, CA 95134-1706
+--    USA
+--    
+--    Tel: +1 408 526 4000
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    MIB module for monitoring memory pools
+--  RevDate
+--    201309180000Z
+--  RevDescr
+--    Added new notification ciscoMemoryPoolLowMemoryNotif.
+--    Added new notification ciscoMemoryPoolLowMemoryRecoveryNotif.
+--    Added new object ciscoMemoryPoolLowMemoryNotifEnable.
+--    Added new object ciscoMemoryPoolLowMemoryNotifThreshold.
+--    Added new group ciscoMemoryPoolGroupRev1 which deprecates 
+--    ciscoMemoryPoolGroup.
+--    Added new compliance ciscoMemoryPoolComplianceRev2 which
+--    deprecates ciscoMemoryPoolComplianceRev1.
+--  RevDate
+--    200107310000Z
+--  RevDescr
+--    Added a new table, ciscoMemoryPoolUtilizationTable, which
+--    provides information about memory utilization.
+--  RevDate
+--    199602010000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoMemoryPoolObjects OBJECT IDENTIFIER ::= { ciscoMemoryPoolMIB 1 }
+ciscoMemoryPoolNotifications OBJECT IDENTIFIER ::= { ciscoMemoryPoolMIB 2 }
+ciscoMemoryPoolMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoMemoryPoolNotifications 0 }
+ciscoMemoryPoolConformance OBJECT IDENTIFIER ::= { ciscoMemoryPoolMIB 3 }
+ciscoMemoryPoolCompliances OBJECT IDENTIFIER ::= { ciscoMemoryPoolConformance 1 }
+ciscoMemoryPoolGroups OBJECT IDENTIFIER ::= { ciscoMemoryPoolConformance 2 }
+
+CiscoMemoryPoolTypes ::= INTEGER(1..65535)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents the different types of memory pools that
+--    may be present in a managed device.  Memory pools can
+--    be roughly categorized into two groups, predefined
+--    pools and dynamic pools.  The following pool types
+--    are currently predefined:
+--        1:  processor memory
+--        2:  i/o memory
+--        3:  pci memory
+--        4:  fast memory
+--        5:  multibus memory
+--    
+--    Dynamic pools will have a pool type value greater than
+--    any of the predefined types listed above.
+--    
+--    Note that only the processor pool is required to be
+--    supported by all devices.  Support for other pool types
+--    is dependent on the device being managed.
+
+ciscoMemoryPoolTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoMemoryPoolEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of memory pool monitoring entries."
+    ::= { ciscoMemoryPoolObjects 1 }
+
+ciscoMemoryPoolEntry OBJECT-TYPE
+    SYNTAX CiscoMemoryPoolEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the memory pool monitoring table."
+    INDEX { ciscoMemoryPoolType }
+    ::= { ciscoMemoryPoolTable 1 }
+
+CiscoMemoryPoolEntry ::= SEQUENCE {
+    ciscoMemoryPoolType CiscoMemoryPoolTypes,
+    ciscoMemoryPoolName DisplayString,
+    ciscoMemoryPoolAlternate INTEGER,
+    ciscoMemoryPoolValid TruthValue,
+    ciscoMemoryPoolUsed Gauge,
+    ciscoMemoryPoolFree Gauge,
+    ciscoMemoryPoolLargestFree Gauge,
+    ciscoMemoryPoolLowMemoryNotifThreshold Percent
+    }
+
+ciscoMemoryPoolType OBJECT-TYPE
+    SYNTAX CiscoMemoryPoolTypes
+--    Rsyntax INTEGER(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of memory pool for which this entry
+        contains information."
+    ::= { ciscoMemoryPoolEntry 1 }
+
+ciscoMemoryPoolName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A textual name assigned to the memory pool.  This
+        object is suitable for output to a human operator,
+        and may also be used to distinguish among the various
+        pool types, especially among dynamic pools."
+    ::= { ciscoMemoryPoolEntry 2 }
+
+ciscoMemoryPoolAlternate OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether or not this memory pool has an
+        alternate pool configured.  Alternate pools are
+        used for fallback when the current pool runs out
+        of memory.
+        
+        If an instance of this object has a value of zero,
+        then this pool does not have an alternate.  Otherwise
+        the value of this object is the same as the value of
+        ciscoMemoryPoolType of the alternate pool."
+    ::= { ciscoMemoryPoolEntry 3 }
+
+ciscoMemoryPoolValid OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether or not the remaining objects in
+        this entry contain accurate data.  If an instance
+        of this object has the value false (which in and of
+        itself indicates an internal error condition), the
+        values of the remaining objects in the conceptual row
+        may contain inaccurate information (specifically, the
+        reported values may be less than the actual values)."
+    ::= { ciscoMemoryPoolEntry 4 }
+
+ciscoMemoryPoolUsed OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of bytes from the memory pool
+        that are currently in use by applications on the
+        managed device."
+    ::= { ciscoMemoryPoolEntry 5 }
+
+ciscoMemoryPoolFree OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of bytes from the memory pool
+        that are currently unused on the managed device.
+        
+        Note that the sum of ciscoMemoryPoolUsed and
+        ciscoMemoryPoolFree is the total amount of memory
+        in the pool"
+    ::= { ciscoMemoryPoolEntry 6 }
+
+ciscoMemoryPoolLargestFree OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the largest number of contiguous bytes
+        from the memory pool that are currently unused on
+        the managed device."
+    ::= { ciscoMemoryPoolEntry 7 }
+
+ciscoMemoryPoolLowMemoryNotifThreshold OBJECT-TYPE
+    SYNTAX Percent
+--    Rsyntax INTEGER(0..100)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to indicate the threshold value in
+        percentage of free memory remaining in a memory pool.
+        If the free memory available goes below this threshold value and
+        if ciscoMemoryPoolLowMemoryNotifEnable is set to 'true',
+        ciscoMemoryPoolLowMemoryNotif will be generated. When the
+        available free memory comes back to the threshold value
+        ciscoMemoryPoolLowMemoryRecoveryNotif will be generated."
+    ::= { ciscoMemoryPoolEntry 8 }
+
+ciscoMemoryPoolUtilizationTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoMemoryPoolUtilizationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of memory pool utilization entries. Each of the
+        objects provides a general idea of how much of the memory
+        pool has been used over a given period of time. It is
+        determined as a weighted decaying average."
+    ::= { ciscoMemoryPoolObjects 2 }
+
+ciscoMemoryPoolUtilizationEntry OBJECT-TYPE
+    SYNTAX CiscoMemoryPoolUtilizationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the memory pool utilization table."
+    INDEX { ciscoMemoryPoolType }
+-- Augments ciscoMemoryPoolEntry
+    ::= { ciscoMemoryPoolUtilizationTable 1 }
+
+CiscoMemoryPoolUtilizationEntry ::= SEQUENCE {
+    ciscoMemoryPoolUtilization1Min Percent,
+    ciscoMemoryPoolUtilization5Min Percent,
+    ciscoMemoryPoolUtilization10Min Percent
+    }
+
+ciscoMemoryPoolUtilization1Min OBJECT-TYPE
+    SYNTAX Percent
+--    Rsyntax INTEGER(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the memory pool utilization for 1 minute."
+    ::= { ciscoMemoryPoolUtilizationEntry 1 }
+
+ciscoMemoryPoolUtilization5Min OBJECT-TYPE
+    SYNTAX Percent
+--    Rsyntax INTEGER(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the memory pool utilization for 5 minutes."
+    ::= { ciscoMemoryPoolUtilizationEntry 2 }
+
+ciscoMemoryPoolUtilization10Min OBJECT-TYPE
+    SYNTAX Percent
+--    Rsyntax INTEGER(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the memory pool utilization for 10 minutes."
+    ::= { ciscoMemoryPoolUtilizationEntry 3 }
+
+ciscoMemoryPoolLowMemoryNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable or disable the generation of
+        notification when the available memory in the system has fallen
+        below ciscoMemoryPoolLowMemoryNotifThreshold and on recovery.
+        
+        Setting this object to 'true' will generate
+        ciscoMemoryPoolLowMemoryNotif and 
+        ciscoMemoryPoolLowMemoryRecoveryNotif. 
+        
+        Setting this object to 'false' will disable the generation of
+        ciscoMemoryPoolLowMemoryNotif and
+        ciscoMemoryPoolLowMemoryRecoveryNotif."
+    ::= { ciscoMemoryPoolObjects 3 }
+
+ciscoMemoryPoolLowMemoryNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoMemoryPoolNotifications
+    VARIABLES {
+        ciscoMemoryPoolName, ciscoMemoryPoolUsed }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the percentage of free
+        memory in the system has fallen below
+        ciscoMemoryPoolLowMemoryNotifThreshold and when the value of
+        ciscoMemoryPoolLowMemoryNotifEnable is set to 'true'.
+        
+        ciscoMemoryPoolName indicates the name of the memory pool for
+        which the notification is being generated.
+        
+        ciscoMemoryPoolUsed indicates the used memory in bytes for the
+        memory pool."
+    ::= 1
+
+ciscoMemoryPoolLowMemoryRecoveryNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoMemoryPoolNotifications
+    VARIABLES {
+        ciscoMemoryPoolName, ciscoMemoryPoolUsed }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the percentage of free
+        memory in the system has returned to
+        ciscoMemoryPoolLowMemoryNotifThreshold after suffering from a
+        low memory. This notification is generated when the value of
+        ciscoMemoryPoolLowMemoryNotifEnable is set to 'true'. This
+        notification is generated as a recovery notification for
+        ciscoMemoryPoolLowMemoryNotif.
+        
+        ciscoMemoryPoolName indicates the name of the memory pool for
+        which the notification is being generated.
+        
+        ciscoMemoryPoolUsed indicates the used memory in bytes for the
+        memory pool."
+    ::= 2
+
+ciscoMemoryPoolGroup OBJECT IDENTIFIER ::= { ciscoMemoryPoolGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing memory pool monitoring.
+--  objects
+--    ciscoMemoryPoolName, ciscoMemoryPoolAlternate, 
+--    ciscoMemoryPoolValid, ciscoMemoryPoolUsed, 
+--    ciscoMemoryPoolFree, ciscoMemoryPoolLargestFree
+
+ciscoMemoryPoolUtilizationGroup OBJECT IDENTIFIER ::= { ciscoMemoryPoolGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    An optional group providing a collection of memory pool
+--    utilization objects.
+--  objects
+--    ciscoMemoryPoolUtilization1Min, 
+--    ciscoMemoryPoolUtilization5Min, 
+--    ciscoMemoryPoolUtilization10Min
+
+ciscoMemoryPoolNotificationCtrlGroup OBJECT IDENTIFIER ::= { ciscoMemoryPoolGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of all the notification control objects.
+--  objects
+--    ciscoMemoryPoolLowMemoryNotifEnable
+
+ciscoMemoryPoolGroupRev1 OBJECT IDENTIFIER ::= { ciscoMemoryPoolGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing memory pool monitoring.
+--  objects
+--    ciscoMemoryPoolName, ciscoMemoryPoolAlternate, 
+--    ciscoMemoryPoolValid, ciscoMemoryPoolUsed, 
+--    ciscoMemoryPoolFree, ciscoMemoryPoolLargestFree, 
+--    ciscoMemoryPoolLowMemoryNotifThreshold
+
+ciscoMemoryPoolNotificationGroup OBJECT IDENTIFIER ::= { ciscoMemoryPoolGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of all the notifications supported in the
+--    CISCO-MEMORY-POOL-MIB.
+--  notifications
+--    ciscoMemoryPoolLowMemoryNotif, 
+--    ciscoMemoryPoolLowMemoryRecoveryNotif
+
+ciscoMemoryPoolCompliance OBJECT IDENTIFIER ::= { ciscoMemoryPoolCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Memory Pool MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoMemoryPoolGroup
+
+ciscoMemoryPoolComplianceRev1 OBJECT IDENTIFIER ::= { ciscoMemoryPoolCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Memory Pool MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoMemoryPoolGroup
+--   OptGroup
+--    ciscoMemoryPoolUtilizationGroup
+
+ciscoMemoryPoolComplianceRev2 OBJECT IDENTIFIER ::= { ciscoMemoryPoolCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Memory Pool MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoMemoryPoolGroupRev1
+--   OptGroup
+--    ciscoMemoryPoolUtilizationGroup
+--   OptGroup
+--    ciscoMemoryPoolNotificationGroup
+--   OptGroup
+--    ciscoMemoryPoolNotificationCtrlGroup
+
+
+END
+

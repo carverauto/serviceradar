@@ -1,0 +1,205 @@
+-- MIB file created 12-Apr-2004 19:22:25, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-BBSM-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-BBSM-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DateAndTime
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoBbsmMIB OBJECT IDENTIFIER ::= { ciscoMgmt 358 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200404030000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-bbsm@cisco.com
+--  Descr
+--    This mib is designed to send BBSM specific
+--     notifications.  There are variables that contain detail data
+--     that are bind to a notification. The SNMP Manager that 
+--     receives the notifications should look at the binding 
+--     variables for further details of the notification data.
+--    
+--     BBSM stands for Building Broadband Service Manager.  It is a 
+--     software-based service platform that enables customers to 
+--     create, market, and operate broadband access services, 
+--     such as high-speed Internet access with plug-and-play, 
+--     multiple authentication and billing options and Web-based 
+--     management, reporting, and configuration.
+--  RevDate
+--    200404030000Z
+--  RevDescr
+--    Initial revision of this MIB module.
+
+ciscoBbsmNotifications OBJECT IDENTIFIER ::= { ciscoBbsmMIB 0 }
+ciscoBbsmMIBObjects OBJECT IDENTIFIER ::= { ciscoBbsmMIB 1 }
+ciscoBbsmEventInfo OBJECT IDENTIFIER ::= { ciscoBbsmMIBObjects 1 }
+ciscoBbsmMIBConformance OBJECT IDENTIFIER ::= { ciscoBbsmMIB 2 }
+ciscoBbsmMIBCompliances OBJECT IDENTIFIER ::= { ciscoBbsmMIBConformance 1 }
+ciscoBbsmMIBGroups OBJECT IDENTIFIER ::= { ciscoBbsmMIBConformance 2 }
+
+cbbsmEventDescription OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The cbbsmEventDescription binds with notification. 
+         It displays the description of an event that caused 
+         a notification to be sent.
+         
+         Examples of cbbsmEventDescription value would be 
+         'Failed to connect to RADIUS server xx.yy.zz.aa' or 
+         'Failed to connect to ICS server xx.yy.zz.aa'"
+    ::= { ciscoBbsmEventInfo 1 }
+
+cbbsmEventSource OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The cbbsmEventSource binds with a notification. It displays
+         the source of an event that caused the notification to be 
+         sent.  The cbbsmEventSource also binds with 
+         cbbsmEventDescription.
+        
+         Examples of cbbsmEventSource value would be 
+         'BBSM_RADIUS' or 
+         'BBSM_ICS' "
+    ::= { ciscoBbsmEventInfo 2 }
+
+cbbsmEventID OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The cbbsmEventID binds with a notification. It displays  
+         event ID of an event that caused the notification to be 
+         sent. The cbbsmEventID also binds with 
+         cbbsmEventDescription.
+        
+         Examples of a cbbsmEventID would be 1, 2, ..."
+    ::= { ciscoBbsmEventInfo 3 }
+
+cbbsmEventType OBJECT-TYPE
+    SYNTAX INTEGER {
+        error(1),
+        warning(2),
+        information(3)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The cbbsmEventType binds with the notification. It displays
+         the event type of an event that caused notification to be 
+         sent.  The cbbsmEventType also binds with 
+         cbbsmEventDescription.
+        
+         error(1) : An Error event indicates a significant problem, 
+         such as loss of data or loss of functionality.
+         
+         warning(2): A Warning event is not necessarily significant,
+         but may indicate a possible future problem.
+        
+         information(3): An Information event describes the 
+         successful operation of an application, driver, or service."
+    ::= { ciscoBbsmEventInfo 4 }
+
+cbbsmEventTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The cbbsmEventTime binds with the notification. It is a
+         date and time string that displays the time of the event
+         that caused notification to be sent."
+    ::= { ciscoBbsmEventInfo 5 }
+
+ciscoBbsmEvent TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoBbsmMIB
+    VARIABLES {
+        cbbsmEventDescription, cbbsmEventSource, cbbsmEventID, 
+        cbbsmEventType, cbbsmEventTime }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Notification of a BBSM event.  The details of the
+         event is binded in variables listed.  These variables
+         are identical to the same event logged on the Microsoft
+         Event Viewer.  
+        
+         For example, if BBSM had problem connecting to RADIUS
+         server and SNMP Service on BBSM is configured to send
+         notifications, a notification of ciscoBbsmEvent will 
+         be sent and binded variables will have following values
+         cbbsmEventDescription = 'Failed to connect to RADIUS server
+         xx.yy.zz.aa'
+         cbbsmEventSource = 'BBSM_RADIUS'
+         cbbsmEventID = '1'
+         cbbsmEventType = 2
+         "
+    ::= 1
+
+ciscoBbsmMIBGroup OBJECT IDENTIFIER ::= { ciscoBbsmMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A set of objects providing details of a event
+--    to a Cisco agent.
+--  objects
+--    cbbsmEventDescription, cbbsmEventSource, cbbsmEventID, 
+--    cbbsmEventType, cbbsmEventTime
+
+ciscoBbsmMIBNotificationGroup OBJECT IDENTIFIER ::= { ciscoBbsmMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Set of notifications implemented in this module.
+--  notifications
+--    ciscoBbsmEvent
+
+ciscoBbsmMIBCompliance OBJECT IDENTIFIER ::= { ciscoBbsmMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco BBSM MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoBbsmMIBGroup
+--   MandGroup
+--    ciscoBbsmMIBNotificationGroup
+
+
+END
+

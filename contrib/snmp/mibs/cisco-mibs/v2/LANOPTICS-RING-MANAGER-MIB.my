@@ -1,0 +1,1020 @@
+-- *****************************************************************
+-- L A N O P T I C S - R I N G - M A N A G E R - M I B . m y
+-- 
+-- March 1996, Keith Horil
+--
+-- Copyright (c) 1996 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+-- This mib was developed by LanOptics
+
+
+LANOPTICS-RING-MANAGER-MIB DEFINITIONS ::= BEGIN
+
+-- MIB II Definitions for Ring Manager Option
+
+IMPORTS
+         OBJECT-TYPE
+       	        FROM RFC-1212
+         enterprises, Counter, IpAddress
+       	        FROM RFC1155-SMI
+         DisplayString, PhysAddress
+                FROM RFC1213-MIB;
+
+	 BITMAP ::= INTEGER  
+	 RING-CONFIGURATION ::= OCTET STRING
+
+	lanOptics    OBJECT IDENTIFIER  ::= { enterprises 224 }
+
+	lanOpticsDot5Monitor OBJECT IDENTIFIER  ::= { lanOptics 5 }
+	-- This extension will implement some of RFC1231 for the
+	-- Management module in the Hub if Token-Ring is installed.
+
+   rmServerReportingTo OBJECT-TYPE
+     SYNTAX  IpAddress
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This gives the IP address for the reporting manager."
+     ::= { lanOpticsDot5Monitor 1 }
+
+   rmRingStatus  OBJECT-TYPE
+     SYNTAX  INTEGER { 
+       -- normal (0) ,
+       beaconing (1) ,
+       single-station (2) ,
+       errors-increasing (3)  ,
+       excessive-errors (4)
+     } 
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable indicates the curent ring status."
+     ::= { lanOpticsDot5Monitor 2 }
+
+   rmServerHealthText  OBJECT-TYPE
+     SYNTAX  DisplayString
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable describes the status of the ring
+	server in a textural manner."
+     ::= { lanOpticsDot5Monitor 3 }
+
+   rmServerHealth    OBJECT-TYPE
+     SYNTAX  INTEGER {
+       -- normal (0) ,
+       initial-State (1) ,
+       not-Active (2)
+     } 
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will describe the status of the ring
+	server."
+     ::= { lanOpticsDot5Monitor 4 }
+
+   rmRingEventInLog    OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"The number of events currently in the internal 
+	event log."
+     ::= { lanOpticsDot5Monitor 5 }
+
+   rmRingEventTable    OBJECT-TYPE
+     SYNTAX  SEQUENCE OF RmRingEventEntry
+     ACCESS  not-accessible
+     STATUS  mandatory
+     DESCRIPTION
+	"A table containing the last events.
+	The detailed structure is TBD."
+     ::= { lanOpticsDot5Monitor 6 }
+
+   rmRingEventEntry    OBJECT-TYPE
+     SYNTAX  RmRingEventEntry
+     ACCESS  not-accessible
+     STATUS  mandatory
+     DESCRIPTION
+	"An entry containing one event.
+	The index into the table is the event number (32 bits int),
+        where each byte represented by an index digit."
+         INDEX { INTEGER , INTEGER , INTEGER , INTEGER }  
+   ::= { rmRingEventTable 1 }
+
+   RmRingEventEntry ::=   SEQUENCE{
+	 rmRingEvent   
+	     OCTET STRING
+     }
+
+   rmRingEvent   OBJECT-TYPE
+     SYNTAX  OCTET STRING
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will give the data structure 
+        describing a ring event in an internal format"
+     ::= { rmRingEventEntry 1 }
+
+   rmRingBeaconingStatus OBJECT-TYPE
+     SYNTAX  OCTET STRING
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will give the data structure 
+	describing the beaconing state of the ring."
+     ::= { lanOpticsDot5Monitor 7 }
+
+   rmRingIsoErrorStatus OBJECT-TYPE
+     SYNTAX  OCTET STRING
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will give the data structure
+	describing the isolating error state of the ring."
+     ::= { lanOpticsDot5Monitor 8 }
+
+   rmRingSingleStationStatus OBJECT-TYPE
+     SYNTAX  OCTET STRING
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will give the data structure 
+	describing the single station state of the ring."
+     ::= { lanOpticsDot5Monitor 9 }
+
+   rmRingFullConfiguration OBJECT-TYPE
+     SYNTAX  RING-CONFIGURATION
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable gives the ring configuration as 
+	known to the server. Each MAC address is represented by 6
+        bytes. The direction is up-stream."
+     ::= { lanOpticsDot5Monitor 10 }
+
+   rmRingConfigurationUpdate OBJECT-TYPE
+     SYNTAX  RING-CONFIGURATION
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will give a sequence of changes in the 
+        ring configuration for the monitored ring."
+     ::= { lanOpticsDot5Monitor 11 }
+
+rmServerInitProcess OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will initialize the server (reset the 
+         management module)."
+     ::= { lanOpticsDot5Monitor 12 }
+
+   rmServerAdminState OBJECT-TYPE
+     SYNTAX  BITMAP
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will indicate administrative status
+	of the server.
+	IDLE - 0
+	The bit # (LSB = 0):
+	REM  - bit 0 on
+	CRS  - bit 1 on
+	RPS  - bit 2 on
+	LBS  - bit 3 on"
+     ::= { lanOpticsDot5Monitor 13 }
+   
+   rmServerOperatingState OBJECT-TYPE
+     SYNTAX  BITMAP
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+     "This variable will indicate operating status of
+	the server:
+	IDLE - all 0
+	The bit # (LSB = 0):
+	REM  - bit 0 on
+	CRS  - bit 1 on
+	RPS  - bit 2 on
+	LBS  - bit 3 on"
+     ::= { lanOpticsDot5Monitor 14 }
+
+   rmServerAdminParameters OBJECT-TYPE
+     SYNTAX  BITMAP
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+	"The required bit per event disabled/enabled.
+	 The bit # (LSB = 0):
+	 Nullevent(0),
+	 Nodenoresponseevent(1),
+	 Pollprocessfailevent(2),
+	 Criticnodejoinedringevent(3),
+	 Noderemovedevent(4),
+	 Activemonitorerrorevent(5),
+	 Newactivemonitorevent(6),
+	 Naunchangeevent(7),
+	 Claimtokenevent(8),
+	 Ringpurgeevent(9),
+	 Activemonitorpresentevent(10),
+	 Standbymonitorpresentevent(11),
+	 Softerrorreportevent(12),
+	 Ringstatusevent(13),
+	 Congestthresholdexccededevent(14),
+  	 Congestthresholdendedevent(15),
+  	 Nonisolatingthresholdexccededevent(16),
+  	 Impendthresholdexccededevent(17),
+  	 Excessivethresholdexcededevent(18),
+  	 Errorratedecayevent(19),
+  	 Adaptererrorevent(20),
+  	 Responseevent(21),
+  	 Pollprocessevent(22),
+  	 Beaconevent(23),
+  	 Nodeleftringevent(24),
+  	 Nodejoinedringevent(25),
+  	 Criticnodeleftringevent(26)"
+     ::= { lanOpticsDot5Monitor 15 }
+
+   rmServerOperatingParameters OBJECT-TYPE
+     SYNTAX  BITMAP
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"The required bit per event disabled/enabled.
+	 The bit # (LSB = 0):
+	 Nullevent(0),
+	 Nodenoresponseevent(1),
+	 Pollprocessfailevent(2),
+	 Criticnodejoinedringevent(3),
+	 Noderemovedevent(4),
+	 Activemonitorerrorevent(5),
+	 Newactivemonitorevent(6),
+	 Naunchangeevent(7),
+	 Claimtokenevent(8),
+	 Ringpurgeevent(9),
+	 Activemonitorpresentevent(10),
+	 Standbymonitorpresentevent(11),
+	 Softerrorreportevent(12),
+	 Ringstatusevent(13),
+	 Congestthresholdexccededevent(14),
+  	 Congestthresholdendedevent(15),
+  	 Nonisolatingthresholdexccededevent(16),
+  	 Impendthresholdexccededevent(17),
+  	 Excessivethresholdexcededevent(18),
+  	 Errorratedecayevent(19),
+  	 Adaptererrorevent(20),
+  	 Responseevent(21),
+  	 Pollprocessevent(22),
+  	 Beaconevent(23),
+  	 Nodeleftringevent(24),
+  	 Nodejoinedringevent(25),
+  	 Criticnodeleftringevent(26)"
+     ::= { lanOpticsDot5Monitor 16 }
+
+   rmDeviceStatusTable OBJECT-TYPE
+     SYNTAX  SEQUENCE OF RmDeviceEntry
+     ACCESS  not-accessible
+     STATUS  mandatory
+     DESCRIPTION
+	"A table containing device parameters and 
+	configuration."
+     ::= { lanOpticsDot5Monitor 17 }
+
+   rmDeviceEntry OBJECT-TYPE
+     SYNTAX  RmDeviceEntry
+     ACCESS  not-accessible
+     STATUS  mandatory
+     DESCRIPTION
+	"An entry containing device parameters and 
+	configuration.
+	The index to the table is the MAC address of
+	the device."
+     INDEX   { rmDeviceMacAddress }
+     ::= { rmDeviceStatusTable 1 }
+
+    RmDeviceEntry ::= SEQUENCE{
+	rmDeviceMacAddress  
+	      PhysAddress,
+	rmDeviceUpstream  
+	      PhysAddress,
+	rmDeviceAdminState     
+	      INTEGER,
+	rmDeviceOperateState
+	      INTEGER,
+	rmDevicePhysLocation
+	      INTEGER,
+	rmDeviceGroupAddress
+	      INTEGER,
+	rmDeviceFunctionAddress 
+	      INTEGER,
+	rmDeviceProductID
+	      OCTET STRING,
+	rmDeviceStationID
+	      INTEGER,
+	rmDeviceStationStatus
+	      OCTET STRING,
+	rmDeviceFunctionClass
+	      INTEGER,
+	rmDeviceAccessPriority
+	      INTEGER,
+	rmDeviceMicroLevel
+	      OCTET STRING,
+        rmDeviceMonitored
+	      INTEGER,
+        rmDeviceDaysAllowed
+	      INTEGER,
+        rmDeviceHoursAllowed
+	      INTEGER
+	}
+
+   rmDeviceMacAddress     OBJECT-TYPE
+     SYNTAX  PhysAddress
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 1 }
+
+   rmDeviceUpstream       OBJECT-TYPE
+     SYNTAX  PhysAddress
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 2 }
+
+   rmDeviceAdminState OBJECT-TYPE
+     SYNTAX  INTEGER {
+	removed (4)
+     }   
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+	"The required state of the adapter. 
+	- only removed is supported."
+     ::= { rmDeviceEntry 3 }
+
+  rmDeviceOperateState OBJECT-TYPE
+     SYNTAX  INTEGER {
+	open (1),
+	closed (2),
+	removed (4),
+	neverInserted (8)
+     }   
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+     " The operating state of the adapter."
+     ::= { rmDeviceEntry 4 }
+
+   rmDevicePhysLocation   OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 5 }
+
+   rmDeviceGroupAddress   OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 6 }
+
+   rmDeviceFunctionAddress OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 7 }
+
+   rmDeviceProductID      OBJECT-TYPE
+     SYNTAX  OCTET STRING
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 8 }
+
+   rmDeviceStationID      OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 9 }
+
+   rmDeviceStationStatus  OBJECT-TYPE
+     SYNTAX  OCTET STRING
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 10 }
+
+   rmDeviceFunctionClass   OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 11 }
+
+   rmDeviceAccessPriority OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 12 }
+
+   rmDeviceMicroLevel     OBJECT-TYPE
+     SYNTAX  OCTET STRING
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 13 }
+
+   rmDeviceMonitored      OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 14 }
+
+   rmDeviceDaysAllowed    OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 15 }
+
+   rmDeviceHoursAllowed    OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-only
+     STATUS  mandatory
+     ::= { rmDeviceEntry 16 }
+
+   rmRingPollProcessStatus OBJECT-TYPE
+     SYNTAX  OCTET STRING
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will give the data structure 
+	describing the poll process status of the ring."
+     ::= { lanOpticsDot5Monitor 18 }
+
+-- variables 18 to 34 are currently not supported
+--
+-- rmRingIsoImpendingThreshold OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the isolating soft error
+--mpending threshold."
+--   ::= { lanOpticsDot5Monitor 19 }
+--
+-- rmRingIsoExcessiveThreshold OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the isolating soft error
+--xcessive threshold."
+--   ::= { lanOpticsDot5Monitor 20 }
+--
+-- rmRingIsoDecrementValue OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the isolating soft error
+--ecrement value."
+--   ::= { lanOpticsDot5Monitor 21 }
+--
+-- rmRingIsoDecrementInterval OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the isolating soft error
+--ecrement time interval."
+--   ::= { lanOpticsDot5Monitor 22 }
+--
+-- rmRingCongestionTabThreshold OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the Congestion
+--hreshold."
+--   ::= { lanOpticsDot5Monitor 23 }
+--
+-- rmRingLostFramesThreshold OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the non isolating 
+--ost frames soft error threshold."
+--   ::= { lanOpticsDot5Monitor 24 }
+--
+-- rmRingReceiveCongestThreshold OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the non isolating 
+--eceiver congestion soft error threshold."
+--   ::= { lanOpticsDot5Monitor 25 }
+--
+-- rmRingFrameCopiedErrorThreshold OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the non isolating 
+--rame copied error soft error threshold."
+--   ::= { lanOpticsDot5Monitor 26 }
+--
+-- rmRingFrequencyErrorThreshold OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the non isolating 
+--requency error soft error threshold."
+--   ::= { lanOpticsDot5Monitor 27 }
+--
+-- rmRingTokenErrorThreshold OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the non isolating 
+--oken error soft error threshold."
+--   ::= { lanOpticsDot5Monitor 28 }
+--
+-- rmRingIsoTabFullThreshold OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the non isolating 
+--so table full error threshold."
+--   ::= { lanOpticsDot5Monitor 29 }
+--
+-- rmRingMinDecrementThreshold OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the non isolating 
+--inimum decrement error soft error threshold."
+--   ::= { lanOpticsDot5Monitor 30 }
+--
+-- rmRingCongestTabFullThreshold OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the non isolating 
+--ongestion table full error threshold."
+--   ::= { lanOpticsDot5Monitor 31 }
+--
+-- rmServerMacBufFullThreshold OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the non isolating 
+--AC addresses buffer full error threshold."
+--   ::= { lanOpticsDot5Monitor 32 }
+--
+-- rmRingStatusBufFullThreshold OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the status change
+--uffer full threshold."
+--   ::= { lanOpticsDot5Monitor 33 }
+--
+-- rmServerSoftwareVersion OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-only
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the software version
+--f the server."
+--   ::= { lanOpticsDot5Monitor 34 }
+--
+   rmRingNumber OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will give the local ring number."
+     ::= { lanOpticsDot5Monitor 35 }
+
+   rmRingSoftErrorTimer OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will give the ring soft
+	error timer (in units of 10 milliseconds)."
+     ::= { lanOpticsDot5Monitor 36 }
+
+   rmRingIsolatingTab OBJECT-TYPE
+     SYNTAX  OCTET STRING
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will give the ring isolating table."
+     ::= { lanOpticsDot5Monitor 37 }
+
+   rmRingCongestTab OBJECT-TYPE
+     SYNTAX  OCTET STRING
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will give the ring congestion table."
+     ::= { lanOpticsDot5Monitor 38 }
+
+   rmRingNonIsolatingTab OBJECT-TYPE
+     SYNTAX  OCTET STRING
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will give the ring non isolating 
+	table."
+     ::= { lanOpticsDot5Monitor 39 }
+
+-- variables 40 - 41 currently not supported
+
+-- rmRingExcToNormal OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the ring excessive to
+--ormal threshold."
+--   ::= { lanOpticsDot5Monitor 40 }
+--
+-- rmRingImpToNormal OBJECT-TYPE
+--   SYNTAX  INTEGER
+--   ACCESS  read-write
+--   STATUS  mandatory
+--   DESCRIPTION
+--This variable will give the ring impending to
+--ormal threshold."
+--   ::= { lanOpticsDot5Monitor 41 }
+
+   rmRingAutoRemove OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+     "This variable will enable/disable auto removal of
+     a node when the isolating threshold is exceeded or
+     the congestion threshold is exceeded."
+     ::= { lanOpticsDot5Monitor 42 }
+
+   rmRingAllowedDaysPartition1 OBJECT-TYPE
+     SYNTAX  INTEGER (1..7)
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+     "This variable is the first partition in the
+     days time exis.
+     The partitions define ranges in units of
+     days in which some device are allowed
+     to enter the ring and some are not."
+     ::= { lanOpticsDot5Monitor 43 }
+
+   rmRingAllowedDaysPartition2 OBJECT-TYPE
+     SYNTAX  INTEGER (1..7)
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+     "This variable is the second partition in the
+     days time exis.
+     The partitions define ranges in units of
+     days in which some devices 
+     are allowed to enter the ring and some are not.
+     The value should be higher than Partition1"
+     ::= { lanOpticsDot5Monitor 44 }
+
+   rmRingAllowedHoursPartition1 OBJECT-TYPE
+     SYNTAX  INTEGER (1..24)
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+     "This variable is the first partition in the
+     hours time exis.
+     The partitions define ranges in units of
+     hours (1-24 hours) in which some devices 
+     are allowed to enter the ring and some are not."
+     ::= { lanOpticsDot5Monitor 45 }
+
+   rmRingAllowedHoursPartition2 OBJECT-TYPE
+     SYNTAX  INTEGER (1..24)
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+     "This variable is the second partition in the
+     hours time exis.
+     The partitions define ranges in units of
+     hours (1-24 hours) in which some devices 
+     are allowed to enter the ring and some are not.
+     The value should be higher than Partition1."
+     ::= { lanOpticsDot5Monitor 46 }
+
+   rmServerPowerOn OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+     "This variable indicates if the server is powered
+     on since the last poll."
+     ::= { lanOpticsDot5Monitor 47 }
+
+
+-- Token-ring related alerts data
+
+   rmTRLastErrorClass OBJECT-TYPE
+     SYNTAX  INTEGER{
+       -- no-error(0),
+       adapter-error(1),
+       beaconing(2),
+       iso-increasing (3),
+       iso-excessive (4),
+       iso-decay (5),
+       congestion (6)
+     }
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var contains the error class of the last
+         Token-Ring error reported by the agent."
+     ::= { lanOpticsDot5Monitor 48 }
+
+   rmTRLastErrorType OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var contains the error type of the last
+         Token-Ring error, depending on the error class"
+     ::= { lanOpticsDot5Monitor 49 }
+
+   rmTRFaultDomainNode1 OBJECT-TYPE
+     SYNTAX  PhysAddress
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var contains the MAC address of the first
+         node in the last error fault domain."
+     ::= { lanOpticsDot5Monitor 50 }
+
+   rmTRFaultDomainNode2 OBJECT-TYPE
+     SYNTAX  PhysAddress
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var contains the MAC address of the second
+         node in the last error fault domain."
+     ::= { lanOpticsDot5Monitor 51 }
+
+-- Token ring events counters
+
+   rmIsoTresholdExceededCount OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number that Isloating Treshold
+        has been exceeded (exessive error status of the ring) 
+        since the agent is up or reset."
+     ::= { lanOpticsDot5Monitor 52 }
+
+   rmNonIsoTresholdExceededCount OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number that Non Isloating Treshold
+        has been exceeded since the agent is up."
+     ::= { lanOpticsDot5Monitor 53 }
+
+   rmCongestionTresholdExceededCount OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number that Congestion Treshold
+        has been exceeded since the agent is up."
+     ::= { lanOpticsDot5Monitor 54 }
+
+
+   rmBeaconCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of Beacons
+        for the whole ring since the agent is up."
+     ::= { lanOpticsDot5Monitor 55 }
+
+   rmSpareCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "Spare Counter for future use"
+     ::= { lanOpticsDot5Monitor 56 }
+
+   rmPurgeCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of ring Purges
+         since the agent is up."
+     ::= { lanOpticsDot5Monitor 57 }
+
+   rmClaimCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of Token Claims
+        since the agent is up."
+     ::= { lanOpticsDot5Monitor 58 }
+
+   rmAdapterResetCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of times the agent adapter
+         has to reset itself since the agent is up."
+     ::= { lanOpticsDot5Monitor 59 }
+
+   rmLostFramesCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of Lost Frames events
+        for the whole ring since the agent is up."
+     ::= { lanOpticsDot5Monitor 60 }
+
+   rmCongestionCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of Congestion events
+        for the whole ring since the agent is up."
+     ::= { lanOpticsDot5Monitor 61 }
+
+   rmFrameCopyCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of Frame Copy events
+        for the whole ring since the agent is up."
+     ::= { lanOpticsDot5Monitor 62 }
+
+   rmFrequencyErrorCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of Frequency Error events
+        for the whole ring since the agent is up."
+     ::= { lanOpticsDot5Monitor 63 }
+
+   rmTokenCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of Token error events
+        for the whole ring since the agent is up."
+     ::= { lanOpticsDot5Monitor 64 }
+
+   rmLineCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of Line error events
+        for the whole ring since the agent is up."
+     ::= { lanOpticsDot5Monitor 65 }
+
+   rmInternalCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of Internal error events
+        for the whole ring since the agent is up."
+     ::= { lanOpticsDot5Monitor 66 }
+
+   rmBurstCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of Burst error events
+        for the whole ring since the agent is up."
+     ::= { lanOpticsDot5Monitor 67 }
+
+   rmARIFCICounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of ARI/FCI  events
+        for the whole ring since the agent is up."
+     ::= { lanOpticsDot5Monitor 68 }
+
+   rmAbortCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of Abort events
+        for the whole ring since the agent is up."
+     ::= { lanOpticsDot5Monitor 69 }
+
+   rmPollFailCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of Poll Failed events
+        for the whole ring since the agent is up."
+     ::= { lanOpticsDot5Monitor 70 }
+
+   rmNoResponseCounter OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts the total number of No Response events
+        for the whole ring since the agent is up."
+     ::= { lanOpticsDot5Monitor 71 }
+
+   rmWholeRingCounters OBJECT-TYPE
+     SYNTAX  OCTET STRING
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+        "This var counts a list of all the above counters (52-71) for
+        convenience. Each counter occupies 32 bits of this
+        structure in the order of the related variables.
+        For internal use only."
+     ::= { lanOpticsDot5Monitor 72 }
+ 
+   rmResetOldDevicesSetup OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+        "This var resets existing agent setup for all devices, e.g:
+         monitored, not-allowed, etc."
+     ::= { lanOpticsDot5Monitor 73 }
+
+   rmResetErrorCounters OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+        "This var resets existing agent error counters."
+     ::= { lanOpticsDot5Monitor 74 }
+
+   rmSetCurrentTime OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+        "This var sets the current time (for security settings).
+         The time is the number of seconds elapsed since midnight,
+         December 31, 1899.   "
+     ::= { lanOpticsDot5Monitor 75 }
+
+   rmRingFirstSplitConfiguration OBJECT-TYPE
+     SYNTAX  RING-CONFIGURATION
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will give the first part of the ring
+         configuration upto 256 bytes including header
+         (for agents with limited buffer for a single octet).
+         Retrieving this variable and several 'nexts'
+         enables to compose the whole ring configuration."
+     ::= { lanOpticsDot5Monitor 76 }
+
+   rmRingNextSplitConfiguration OBJECT-TYPE
+     SYNTAX  RING-CONFIGURATION
+     ACCESS  read-only
+     STATUS  mandatory
+     DESCRIPTION
+	"This variable will give the next part of the ring configuration
+         relating to rmRingFirstSplitConfiguration or previous variable
+         of this type. Upto 256 bytes are given
+         (for agents with limited buffer for a single octet). 
+         See previous variable for more details."
+     ::= { lanOpticsDot5Monitor 77 }
+
+END

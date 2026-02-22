@@ -1,0 +1,271 @@
+-- MIB file created 06-May-2003 15:01:19, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LRE-CPE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LRE-CPE-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    InterfaceIndex, ifIndex
+            FROM IF-MIB
+    dot1dTpFdbAddress
+            FROM BRIDGE-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoLreCpeMIB OBJECT IDENTIFIER ::= { ciscoMgmt 340 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200303120000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--            Postal: 170 W Tasman Drive
+--                    San Jose, CA  95134
+--                    USA
+--    
+--            Tel: +1 800 553-NETS
+--    
+--            E-mail: switchsnmp@cisco.com
+--  Descr
+--    The MIB module for the Cisco Long Reach Ethernet 
+--     Customer Premise Equipment device information.
+--    
+--     *** ABBREVIATIONS, ACRONYMS, AND SYMBOLS ***
+--    
+--     CPE - Customer Premise Equipment
+--     DSL - Digital Subscriber Loop
+--     VDSL - Very High Speed DSL
+--     LRE - Long Reach Ethernet
+--  RevDate
+--    200303120000Z
+--  RevDescr
+--    Initial version of the Cisco Long Reach Ethernet CPE MIB
+
+ciscoLreCpeMIBObjects OBJECT IDENTIFIER ::= { ciscoLreCpeMIB 1 }
+clreCpeDot1dTp  OBJECT IDENTIFIER ::= { ciscoLreCpeMIBObjects 1 }
+clreCpePort     OBJECT IDENTIFIER ::= { ciscoLreCpeMIBObjects 2 }
+clreCpeMIBNotifications OBJECT IDENTIFIER ::= { ciscoLreCpeMIB 0 }
+clreCpeMIBNotificationsPrefix OBJECT IDENTIFIER ::= { clreCpeMIBNotifications 0 }
+clreCpeMIBConformance OBJECT IDENTIFIER ::= { ciscoLreCpeMIB 2 }
+clreCpeMIBCompliances OBJECT IDENTIFIER ::= { clreCpeMIBConformance 1 }
+clreCpeMIBGroups OBJECT IDENTIFIER ::= { clreCpeMIBConformance 2 }
+
+clreCpeDot1dTpFdbTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClreCpeDot1dTpFdbEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table that supplements the information from the BRIDGE-MIB.
+        The BRIDGE-MIB tracks the MAC address to switch interface 
+        mapping in the dot1dTpFdbTable. On the long reach ethernet 
+        switch, CPE devices connect to the switch interfaces. Each 
+        CPE device has one or more ports. This table maps a 
+        MAC address on the switch to an interface associated with a 
+        CPE port."
+    ::= { clreCpeDot1dTp 1 }
+
+clreCpeDot1dTpFdbEntry OBJECT-TYPE
+    SYNTAX ClreCpeDot1dTpFdbEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry that supplements the information in the 
+        dot1dTpFdbTable table from the BRIDGE-MIB."
+    INDEX { dot1dTpFdbAddress }
+    ::= { clreCpeDot1dTpFdbTable 1 }
+
+ClreCpeDot1dTpFdbEntry ::= SEQUENCE {
+    clreCpeDot1dBasePortIfIndex InterfaceIndex
+    }
+
+clreCpeDot1dBasePortIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the instance of the ifIndex object,
+        define in MIB-II, for the interface corresponding 
+        to this CPE port. The Forwarding database on the 
+        switch tracks a MAC address and its associated
+        switch interface in the dot1dTpFdbTable table. 
+        This object adds information about which port 
+        on the CPE the MAC address was learnt on."
+    ::= { clreCpeDot1dTpFdbEntry 1 }
+
+clreCpePortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClreCpePortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of LRE CPE port entries. The number of entries is 
+        determined by the number of Long Reach Ethernet interfaces 
+        (to which the CPE attaches) on the switch and the number 
+        of Fast Ethernet ports each CPE supports."
+    ::= { clreCpePort 1 }
+
+clreCpePortEntry OBJECT-TYPE
+    SYNTAX ClreCpePortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry containing information for a particular CPE 
+        Fast Ethernet port. The entries are created as new 
+        CPE devices are discovered. A new CPE device is discovered
+        when the LRE link between that CPE device and the LRE switch
+        becomes operational. These entries are only valid for 
+        ifIndexes of ifType ethernetCsmacd(6)."
+    INDEX { ifIndex }
+    ::= { clreCpePortTable 1 }
+
+ClreCpePortEntry ::= SEQUENCE {
+    clreCpePortAdminStatus INTEGER,
+    clreCpePortAdminSpeed INTEGER,
+    clreCpePortAdminDuplex INTEGER,
+    clreCpePortAdminProtected TruthValue,
+    clreCpePortOperProtected TruthValue
+    }
+
+clreCpePortAdminStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2),
+        testing(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The desired state of the CPE port. The testing(3)
+        state indicates that no operational packets can be
+        passed.  When a managed system initializes, all
+        CPE ports start with clreCpePortAdminStatus in 
+        the down(2) state.  As a result of either explicit 
+        management action or per configuration information 
+        retained by the managed system, clreCpePortAdminStatus
+        is then changed to either the up(1) or testing(3) states 
+        (or remains in the down(2) state)."
+    ::= { clreCpePortEntry 1 }
+
+clreCpePortAdminSpeed OBJECT-TYPE
+    SYNTAX INTEGER {
+        autoDetect(1),
+        s10000000(10000000),
+        s100000000(100000000)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the speed of this CPE Fast Ethernet 
+        port. When set to autoDetect(1), the CPE port negotiates 
+        with its peer for the optimum speed, either 
+        s10000000(10000000) or s100000000(100000000). 
+        If the peer does not support the autoDetect(1) 
+        capability, the CPE port speed defaults to 
+        s10000000(10000000)."
+    DEFVAL { autoDetect }
+    ::= { clreCpePortEntry 2 }
+
+clreCpePortAdminDuplex OBJECT-TYPE
+    SYNTAX INTEGER {
+        autoDetect(1),
+        fullDuplex(2),
+        halfDuplex(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the duplex of this CPE Fast Ethernet
+        port. When set to autoDetect(1), the CPE port negotiates 
+        with its peer for the optimum duplex setting, either 
+        fullDuplex(2) or halfDuplex(3). If the peer does not support 
+        the autoDetect(1) capability, this CPE port's duplex 
+        defaults to halfDuplex(3)."
+    DEFVAL { autoDetect }
+    ::= { clreCpePortEntry 3 }
+
+clreCpePortAdminProtected OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object configures a CPE Fast Ethernet port as a 
+        protected port when its value is set to true. Data 
+        traffic is disallowed between two CPE ports configured
+        as protected ports. When the value of this object is set 
+        to false, the protected port property of this CPE port 
+        is removed. The value of this object can be set to true 
+        only on those CPE ports that support the protected port 
+        function.Note that the value of this object represents
+        the desired state of the port. The actual state of the 
+        port may have a different value."
+    DEFVAL { false }
+    ::= { clreCpePortEntry 4 }
+
+clreCpePortOperProtected OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value represented by this object is the actual 
+        protected port state of the CPE port. The object value 
+        is true when this CPE port is configured as a protected 
+        port. Data packets are not forwarded between two CPE 
+        ports configured as protected ports."
+    ::= { clreCpePortEntry 5 }
+
+clreCpeDot1dTpGroup OBJECT IDENTIFIER ::= { clreCpeMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of MIB objects used to monitor the 
+--    transparent learning bridge on the LRE CPE.
+--  objects
+--    clreCpeDot1dBasePortIfIndex
+
+clreCpePortGroup OBJECT IDENTIFIER ::= { clreCpeMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of MIB objects used to manage and monitor 
+--    LRE CPE Fast Ethernet ports.
+--  objects
+--    clreCpePortAdminStatus, clreCpePortAdminSpeed, 
+--    clreCpePortAdminDuplex, clreCpePortAdminProtected, 
+--    clreCpePortOperProtected
+
+clreCpeMIBCompliance OBJECT IDENTIFIER ::= { clreCpeMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for switches supporting the 
+--    LRE CPE devices.
+--  Module
+--    >>current<<
+--   MandGroup
+--    clreCpePortGroup
+--   OptGroup
+--    clreCpeDot1dTpGroup
+
+
+END
+

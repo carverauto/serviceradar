@@ -1,0 +1,1625 @@
+-- *****************************************************************
+-- CISCO-ACL-MIB
+--
+-- Definitions of managed objects describing Cisco Access Control
+-- Lists.
+--
+-- March 2013, Kapil Jain, Jorge Serpa
+--
+-- Copyright (c) 2013 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-ACL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter64,
+    Unsigned32,
+    Integer32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowStatus
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetPortNumber,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    ifIndex
+        FROM IF-MIB
+    CiscoIpProtocol
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoACLMIB MODULE-IDENTITY
+    LAST-UPDATED    "201303270000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+
+    DESCRIPTION
+        "This MIB module defines objects that describe Cisco Access
+        Control Lists (ACL).
+
+        This MIB describes different objects that enable the
+        network administrator to remotely configure ACLs, apply them
+        to interfaces and monitor their usage statistics.
+
+        A typical application of this MIB module will facilitate
+        monitoring of ACL match (sometimes referred as hit) counts.
+        However, by no means does the definition of this MIB module
+        prevent other applications from using it.
+
+        An ACL is an ordered list of statements that deny or permit
+        packets based on matching fields contained within the packet
+        header (layer 3 source and destination addresses, layer 4
+        protocol, layer 4 source and destination port numbers, etc.) In
+        addition there is an implicit *Deny All* at the end of the ACL.
+        ACLs are used to perform packet filtering to control
+        which packets are allowed through the network. Such control
+        can help limit network traffic, and restrict the access of
+        applications and devices on the network. Each one of these
+        statements is referred to as an Access List Control Entry
+        (ACE).
+        Here is an example of an ACL configuration.
+            ipv4 access-list V4Example
+             10 permit tcp any any
+            !
+            ipv6 access-list V6Example
+             10 permit tcp any any
+            !
+
+        The mechanism for monitoring ACL usage is by configuring, in
+        the desired ACEs a counter label. A counter label is a name
+        that is given to a counter and is defined in any ACE. ACEs
+        that share the same Counter label name will have their counters
+        aggregated into the same label.
+        Here is an example of how to use counter labels.
+            ipv4 access-list V4CounterExample
+             10 permit tcp any any counter CountPermits
+             20 permit udp any any counter CountPermits
+
+        The same applies to IPv6 ACLs.
+
+        This MIB consists of following tables:
+            * caAclCfgTable
+                Defines the ACLs configured in the device.
+            * caAclIPV4ACECfgTable
+                Defines the ACEs that make up an IPV4 ACL.
+            * caAclIPV6ACECfgTable
+                Defines the ACEs that make up an IPV6 ACL.
+            * caAclAccessGroupCfgTable
+                Defines the Access Control Groups (ACG) applied to
+                interfaces on the device.
+            * caAclLabelIntfStatsTable
+                Defines the statistics for a specific  ACE with counter
+                labels attached to interfaces on the device.
+            "
+    REVISION        "201303270000Z"
+    DESCRIPTION
+        "The initial version of this MIB module."
+    ::= { ciscoMgmt 808 }
+
+
+-- ********************************************************************
+-- * Top-Level Trees                                                  *
+-- ********************************************************************
+
+caAclMIBObjects     OBJECT IDENTIFIER  ::= { ciscoACLMIB 1 }
+caAclMIBConformance OBJECT IDENTIFIER  ::= { ciscoACLMIB 2 }
+
+caAclConfiguration  OBJECT IDENTIFIER    ::= { caAclMIBObjects 1 }
+caAclStats          OBJECT IDENTIFIER    ::= { caAclMIBObjects 2 }
+
+caAclMIBACEConform  OBJECT IDENTIFIER    ::= { caAclMIBConformance 1 }
+
+caAclMIBACECompliances OBJECT IDENTIFIER ::= { caAclMIBACEConform 1 }
+
+caAclMIBCfgGroups   OBJECT IDENTIFIER      ::= { caAclMIBACEConform 2 }
+
+
+-- ********************************************************************
+-- * Textual Conventions                                              *
+-- ********************************************************************
+
+CaAclTrafficDirection ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Enumeration value indicating the direction of the ACL
+        ingress - in the ingress (input) direction,
+        egress  - in the egress (output) direction."
+    SYNTAX          INTEGER {
+                        ingress(1),
+                        egress(2)
+                    }
+
+CaAclACLIndex ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "A unique value, greater than zero, for each ACL name in the
+        managed system. It is recommended that these values be assigned
+        contiguously starting from 1. The value for each ACL name must
+        remains constant at least from one  re-initialization of the
+        entity's network management system to the next
+        re-initialization."
+    SYNTAX          Unsigned32 (1..4294967295)
+
+CaAclSequenceNumber ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "A unsigned 32-bit integer value."
+    SYNTAX          Unsigned32 (1..4294967295)
+
+CaAclPortOperator ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention represents the operator that will be
+        applied on the transport layer source/destination ports. The
+        port in packets to be filtered and the port (or port range in
+        case of range(5)).
+        lt(1) - match ports that are small than the configured value.
+        gt(2) - match ports that are greater than the configured value.
+        eq(3) - match ports that are equal to the configured value.
+        neq(4) - match ports that are not equal to the configured value.
+        range(5) - match ports in the range of configured values,
+        inclusive."
+    SYNTAX          INTEGER {
+                        lt(1),
+                        gt(2),
+                        eq(3),
+                        neq(4),
+                        range(5)
+                    }
+
+CaAclAction       ::= TEXTUAL-CONVENTION
+    STATUS           current
+    DESCRIPTION
+        "Enumeration value indicating the action to be taken on packets
+        that match the ACE.
+        permit(1) the packet will be considered for further processing.
+        deny(2) the packet will be dropped without any further
+        processing."
+    SYNTAX          INTEGER {
+                      permit(1),
+                      deny(2)
+                    }
+
+CaAclLogOption      ::= TEXTUAL-CONVENTION
+    STATUS         current
+    DESCRIPTION
+        "Enumeration value indicating the log option that is to be
+        applied to an ACE. Currently the options are log-input and
+        log. The difference between log and logInput is that logInput
+        logs all the information as in log, with the addition of
+        ingress interface as well as the MAC address of the device
+        that last handled the packet."
+    SYNTAX          INTEGER {
+                       log(1),
+                       logInput(2)
+                    }
+
+CaAclTcpFlagsMatch  ::= TEXTUAL-CONVENTION
+    STATUS         current
+    DESCRIPTION
+        "An enumeration value indicating the type of matching that
+        is to be done on the TCP flags field of the packet, providing
+        that the packet being filtered is a TCP packet.
+        matchAny(1) - take caAclAction if any of TCP flags in the
+        packet match the configured value.
+        matchAll(2) - take caAclAction only if all the TCP flags in
+        packet match the configured value.
+        matchNone(3) - take caAclAction only if none of the TCP flags
+        in the packet match the configure value.
+        "
+    SYNTAX          INTEGER {
+                        matchAny(1),
+                        matchAll(2),
+                        matchNone(3)
+                    }
+
+CaAclPrecedenceValue ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "An enumeration value indicating the value of the precedence
+        field. It is specified as a number between 0 and 7, as defined
+        in RFC-791."
+    SYNTAX          INTEGER {
+                        routine(0),
+                        priority(1),
+                        immediate(2),
+                        flash(3),
+                        flashOverride(4),
+                        critical(5),
+                        internet(6),
+                        network(7)
+                    }
+
+-- ********************************************************************
+-- ACL entry table                                                    *
+-- ********************************************************************
+
+caAclCfgTable       OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CaAclCfgTableEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A table of ACL definitions. Each entry in this table defines
+        a unique IPV4 or IPV6 ACL."
+    ::= { caAclConfiguration 1 }
+
+caAclCfgTableEntry  OBJECT-TYPE
+   SYNTAX          CaAclCfgTableEntry
+   MAX-ACCESS      not-accessible
+   STATUS          current
+   DESCRIPTION
+        "A conceptual row in the caAclTable. Each entry of this table
+        consists of acl index and the address type. This is so that
+        the table may contain both IPV4 and IPV6 ACLs."
+    INDEX          {
+                       caAclIndex,
+                       caAclAddressType
+                   }
+    ::= { caAclCfgTable 1 }
+
+CaAclCfgTableEntry ::= SEQUENCE {
+    caAclIndex          CaAclACLIndex,
+    caAclAddressType    InetAddressType,
+    caAclName           SnmpAdminString,
+    caAclRowStatus      RowStatus
+}
+
+caAclIndex          OBJECT-TYPE
+    SYNTAX          CaAclACLIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary (system assigned) index for each ACL name. The
+        index is unique for each ACL name in the device, but is further
+        qualified by the address family.
+
+        For example, consider the following configuration:
+            ipv4 access-list ACL1
+             10 permit ipv4 any any
+            !
+            ipv6 access-list ACL1
+             10 permit ipv6 any any
+
+        In this case the caAclIndex value for both ACLs will be the
+        same."
+    ::= { caAclCfgTableEntry 1 }
+
+caAclAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object defines the address family of the ACL."
+    ::= { caAclCfgTableEntry 2 }
+
+caAclName        OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string that identifies the ACL name."
+    ::= { caAclCfgTableEntry 3 }
+
+caAclRowStatus   OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create, modify, or delete an entry
+        in the caAclTable.
+
+        A row can be created using the 'CreateAndGo' option. When the
+        row is successfully created, the RowStatus will be set to
+        active by the agent. Once a row becomes active, values in
+        any other column within the row cannot be modified.
+
+        A row may be deleted by setting the RowStatus for 'destroy'."
+    ::= { caAclCfgTableEntry 4 }
+
+
+-- ********************************************************************
+-- IPV4 ACE entry table                                               *
+-- ********************************************************************
+
+caAclIPV4ACECfgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CaAclIPV4ACECfgTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of IPV4 ACE definitions. The ACE definition controls
+        whether packets are accepted or rejected. The access control
+        may be applied before sending the packet to the forwarding
+        engine, or may be applied after the packet is processed by the
+        forwarding engine.
+
+        If two ACE entries with the same sequence number are configured
+        the latter will overwrite the former."
+    ::= { caAclConfiguration 2 }
+
+caAclIPV4ACECfgTableEntry OBJECT-TYPE
+    SYNTAX          CaAclIPV4ACECfgTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in the caAclIPV4ACLTable. Each entry of this
+        table consists of a set of match criteria for a given ACL."
+    INDEX           {
+                        caAclIndex,
+                        caAclAddressType,
+                        caAclIPV4ACESequenceNumber
+                    }
+    ::= { caAclIPV4ACECfgTable 1 }
+
+CaAclIPV4ACECfgTableEntry ::= SEQUENCE {
+    caAclIPV4ACESequenceNumber          CaAclSequenceNumber,
+    caAclIPV4ACEAction                  CaAclAction,
+    caAclIPV4ACEProtocol                CiscoIpProtocol,
+    caAclIPV4ACESourceAddress           InetAddress,
+    caAclIPV4ACESourceWildCardMask      InetAddress,
+    caAclIPV4ACESourceNetworkGroup      SnmpAdminString,
+    caAclIPV4ACESourcePortOperator      CaAclPortOperator,
+    caAclIPV4ACESourcePort              InetPortNumber,
+    caAclIPV4ACESourcePortUpper         InetPortNumber,
+    caAclIPV4ACESourcePortGroup         SnmpAdminString,
+    caAclIPV4ACEDestinationAddress      InetAddress,
+    caAclIPV4ACEDestinationWildCardMask InetAddress,
+    caAclIPV4ACEDestinationNetworkGroup SnmpAdminString,
+    caAclIPV4ACEDestinationPortOperator CaAclPortOperator,
+    caAclIPV4ACEDestinationPort         InetPortNumber,
+    caAclIPV4ACEDestinationPortUpper    InetPortNumber,
+    caAclIPV4ACEDestinationPortGroup    SnmpAdminString,
+    caAclIPV4ACEDscpValue               Unsigned32,
+    caAclIPV4ACETcpFlagsValue           Unsigned32,
+    caAclIPV4ACETcpFlagsMask            Unsigned32,
+    caAclIPV4ACETcpFlagsMatchType       CaAclTcpFlagsMatch,
+    caAclIPV4ACETosValue                Unsigned32,
+    caAclIPV4ACEPrecedenceValue         CaAclPrecedenceValue,
+    caAclIPV4ACELogOption               CaAclLogOption,
+    caAclIPV4ACECounterLabel            SnmpAdminString,
+    caAclIPV4ACERemark                  SnmpAdminString,
+    caAclIPV4ACERowStatus               RowStatus
+}
+
+caAclIPV4ACESequenceNumber OBJECT-TYPE
+    SYNTAX          CaAclSequenceNumber
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies an ACE within an ACL. Sequence
+        numbers are assigned to each permit/deny statement, causing the
+        system to insert the statement in that numbered position within
+        the ACL. If two ACE entries with the same sequence number are
+        configured, the latter one will overwrite the former."
+    ::= { caAclIPV4ACECfgTableEntry 1 }
+
+caAclIPV4ACEAction OBJECT-TYPE
+    SYNTAX          CaAclAction
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of action to be taken if the
+        packet matches the given criteria.
+
+        If it is set to permit(1), all packets matching this ACE will
+        be allowed for further processing.
+
+        If it is set to deny(2), all packets matching this ACE will
+        be discarded."
+    ::= { caAclIPV4ACECfgTableEntry 2 }
+
+caAclIPV4ACEProtocol OBJECT-TYPE
+    SYNTAX          CiscoIpProtocol
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the layer 3 protocol type to be
+        filtered by the ACE. Protocol numbers are defined in the
+        Network Working Group Request For Comment documents."
+    REFERENCE
+        "RFC-790, Assigned Numbers, September 1981, Section
+        Assigned Internet Protocol Numbers."
+    ::= { caAclIPV4ACECfgTableEntry 3 }
+
+caAclIPV4ACESourceAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object determines the address of the network or host from
+        which the packet is being sent. If this object value is 0.0.0.0
+        and the value of caAclIPV4ACESourceWildCardMask object in the
+        same entry is 255.255.255.255, this entry matches any source
+        address.
+
+        If this object value is not 0.0.0.0 and the value of
+        caAclIPV4ACESourceWildCardMask is 0.0.0.0, this entry matches
+        specific host address defined in this object."
+    ::= { caAclIPV4ACECfgTableEntry 4 }
+
+caAclIPV4ACESourceWildCardMask OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object determines the mask of wild card address bits
+        for caAclIPV4ACESourceAddress. Wild card masking is to indicate
+        to the system whether to check or ignore the corresponding
+        IP address bits when comparing the address bits in an ACL
+        to a packet being submitted to the ACL. The default wild card
+        mask is 0.0.0.0. The wild card mask is the inverse of a
+        regular subnet mask. If the mask value 0.0.0.255 is applied to
+        1.2.3.0."
+    ::= { caAclIPV4ACECfgTableEntry 5 }
+
+caAclIPV4ACESourceNetworkGroup OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the Source Network Object Group from
+         which the packet is being sent."
+    ::= { caAclIPV4ACECfgTableEntry 6 }
+
+caAclIPV4ACESourcePortOperator OBJECT-TYPE
+    SYNTAX          CaAclPortOperator
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the operation to be performed to the layer
+        source port field. Source port fields are present only for
+        IGMP, ICMP, SCTP, TCP, and UDP protocols.
+
+        If caAclIPV4ACEProtocol is none of the ones listed above, this
+        field should set to noOperator(1), which means not comparison
+        is to be performed.
+
+        If this field is set to range(5) then two port numbers are
+        necessary. I.e., Both caAclIPV4ACESourcePort and
+        caAclIPV4ACESourcePortUpper need to be provided."
+    ::= { caAclIPV4ACECfgTableEntry 7 }
+
+caAclIPV4ACESourcePort      OBJECT-TYPE
+    SYNTAX              InetPortNumber
+    MAX-ACCESS          read-create
+    STATUS              current
+    DESCRIPTION
+        "This object defines the source port number of the layer 4
+        protocol. This is the field to be matched with the specified
+        source port based on the caAclIPV4ACESourcePortOperator. If
+        caAclIPV4ACESourcePortOperator is range(5) then this object
+        will have the inclusive lower bound of the source port range
+        that is to be matched."
+    ::= { caAclIPV4ACECfgTableEntry 8 }
+
+caAclIPV4ACESourcePortUpper OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the inclusive upper bound of the layer 4
+        source port range that is to be matched."
+    ::= { caAclIPV4ACECfgTableEntry 9 }
+
+caAclIPV4ACESourcePortGroup    OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the Source Port Object Group from which
+        the packet is being sent."
+    ::= { caAclIPV4ACECfgTableEntry 10 }
+
+caAclIPV4ACEDestinationAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object determines the address of the network or host to
+        which the packet is being sent. If this object value is 0.0.0.0
+        and the value of caAclIPV4ACLDestinationWildCardMask object in
+        the same entry is 255.255.255.255, this entry matches any
+        source IP address.
+
+        If this object value is not 0.0.0.0 and the value of
+        caAclIPV4ACLDestinationWildCardMask is 0.0.0.0, this entry
+        matches the specific host address defined in this object."
+    ::= { caAclIPV4ACECfgTableEntry 11 }
+
+caAclIPV4ACEDestinationWildCardMask OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object determines the mask of wild card address bits
+        for caAclIPV4ACLDestinationAddress. Wild card masking is to
+        indicate to the system whether to check or ignore the
+        corresponding IP address bits when comparing the address
+        bits in an ACE to a packet being submitted to the ACE. The
+        default wild card mask is 0.0.0.0. The wild card mask is the
+        inverse of a regular subnet mask. If the mask value 0.0.0.255
+        is applied to the address 1.2.3.4, it will match all traffic
+        from subnet 1.2.3.0."
+    ::= { caAclIPV4ACECfgTableEntry 12 }
+
+caAclIPV4ACEDestinationNetworkGroup OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the Destination Network Object Group to
+         which the packet is being sent."
+    ::= { caAclIPV4ACECfgTableEntry 13 }
+
+
+caAclIPV4ACEDestinationPortOperator OBJECT-TYPE
+    SYNTAX          CaAclPortOperator
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the operation to be performed to the layer
+        destination port field. Source port fields are present only for
+        IGMP, ICMP, SCTP, TCP, and UDP protocols.
+
+        If caAclIPV4ACLProtocol is none of the ones listed above, this
+        field should set to noOperator(1), which means not comparison
+        is to be performed.
+
+        If this field is set to range(5) then two port numbers are
+        necessary. I.e., Both caAclIPV4ACEDestinationPort and
+        caAclIPV4ACEDestinationPortUpper need to be provided."
+    ::= { caAclIPV4ACECfgTableEntry 14 }
+
+caAclIPV4ACEDestinationPort      OBJECT-TYPE
+    SYNTAX                   InetPortNumber
+    MAX-ACCESS               read-create
+    STATUS                   current
+    DESCRIPTION
+        "This object defines the destination port number of the layer
+        4 protocol. This is the field to be matched with the specified
+        destination port based on the caAclIPV4ACLSourceOperator. If
+        caAclIPV4ACLDestinationOperator is range(5) then this object
+        will have the inclusive lower bound of the destination port
+        range that is to be matched."
+    ::= { caAclIPV4ACECfgTableEntry 15 }
+
+caAclIPV4ACEDestinationPortUpper OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the inclusive upper bound of the layer 4
+        destination port range that is to be matched."
+    ::= { caAclIPV4ACECfgTableEntry 16 }
+
+caAclIPV4ACEDestinationPortGroup    OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the Source Port Object Group to which the
+        packet is being sent."
+    ::= { caAclIPV4ACECfgTableEntry 17 }
+
+caAclIPV4ACEDscpValue OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..63)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the dscp value that will be considered
+        in the match criteria against the value in the packet."
+    ::= { caAclIPV4ACECfgTableEntry 18 }
+
+caAclIPV4ACETcpFlagsValue OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the value of the TCP flags which will
+        be considered in the match criteria based on
+        caAclIPV4ACLTcpFlagsMatchType.
+        Users can select any desired combination of the TCP flags
+        on which to filter TCP packets."
+    ::= { caAclIPV4ACECfgTableEntry 19 }
+
+caAclIPV4ACETcpFlagsMask OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the mask value of the TCP flags field."
+    ::= { caAclIPV4ACECfgTableEntry 20 }
+
+caAclIPV4ACETcpFlagsMatchType OBJECT-TYPE
+    SYNTAX          CaAclTcpFlagsMatch
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the type of matching to be done on the
+        TCP flags field."
+    ::= { caAclIPV4ACECfgTableEntry 21 }
+
+caAclIPV4ACETosValue OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..16)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the value of the TOS field to be filtered.
+        Packets can be filtered by the TOS level as specified by a
+        number from 0 to 15. Use the value 16 to indicate that the
+        TOS field should be ignored during matching."
+    ::= { caAclIPV4ACECfgTableEntry 22 }
+
+caAclIPV4ACEPrecedenceValue OBJECT-TYPE
+    SYNTAX          CaAclPrecedenceValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of the precedence field to be
+        filtered."
+    REFERENCE
+        "RFC-791, Internet Protocol Darpa Internet Program Protocol
+        Specification, September 1981."
+    ::= { caAclIPV4ACECfgTableEntry 23 }
+
+caAclIPV4ACELogOption    OBJECT-TYPE
+    SYNTAX           CaAclLogOption
+    MAX-ACCESS       read-create
+    STATUS           current
+    DESCRIPTION
+        "This object defines the value of the log option field to be
+        applied to packets that match this ACE entry."
+    ::= { caAclIPV4ACECfgTableEntry 24 }
+
+caAclIPV4ACECounterLabel OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the counter label name for this ACE.
+        ACEs that share the same counter label name will have their
+        hit counts aggregated into the same counter label name."
+    ::= { caAclIPV4ACECfgTableEntry 25 }
+
+caAclIPV4ACERemark OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..100))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines a comment in the ACL. It helps the user
+        to define some meaningful comment  to identify the ACE
+        quickly, or to know the purpose of a set of ACEs.
+        This field is not used during packet matching."
+    ::= { caAclIPV4ACECfgTableEntry 26 }
+
+caAclIPV4ACERowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create, modify, or delete an entry
+        in the caAclIPV4ACLTable.
+
+        A row can be created using the 'CreateAndGo' option. When the
+        row is successfully created, the RowStatus will be set to
+        active by the agent.
+
+        A row may be deleted by setting the RowStatus for 'destroy'.
+
+        The minimum objects required to delete a row in this table
+        is simply the sequence number (caAclIPV4ACESequenceNumber)."
+    ::= { caAclIPV4ACECfgTableEntry 27 }
+
+
+-- ********************************************************************
+-- IPV6 ACE entry table                                               *
+-- ********************************************************************
+
+caAclIPV6ACECfgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CaAclIPV6ACECfgTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of IPV6 ACE definitions. The ACE definition controls
+        whether packets are accepted or rejected. The access control
+        may be applied before sending the packet to the forwarding
+        engine, or may be applied after the packet is processed by the
+        forwarding engine."
+    ::= { caAclConfiguration 3 }
+
+caAclIPV6ACECfgTableEntry OBJECT-TYPE
+    SYNTAX          CaAclIPV6ACECfgTableEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in the caAclIPV6ACLTable. Each entry of this
+        table consists of a set of match criteria for a given ACL."
+    INDEX           {
+                        caAclIndex,
+                        caAclAddressType,
+                        caAclIPV6ACESequenceNumber
+                    }
+    ::= { caAclIPV6ACECfgTable 1 }
+
+CaAclIPV6ACECfgTableEntry ::= SEQUENCE {
+    caAclIPV6ACESequenceNumber          CaAclSequenceNumber,
+    caAclIPV6ACEAction                  CaAclAction,
+    caAclIPV6ACEProtocol                CiscoIpProtocol,
+    caAclIPV6ACESourceAddress           InetAddress,
+    caAclIPV6ACESourcePrefixLength      Integer32,
+    caAclIPV6ACESourceNetworkGroup      SnmpAdminString,
+    caAclIPV6ACESourcePortOperator      CaAclPortOperator,
+    caAclIPV6ACESourcePort              InetPortNumber,
+    caAclIPV6ACESourcePortUpper         InetPortNumber,
+    caAclIPV6ACESourcePortGroup         SnmpAdminString,
+    caAclIPV6ACEDestinationAddress      InetAddress,
+    caAclIPV6ACEDestinationPrefixLength Integer32,
+    caAclIPV6ACEDestinationNetworkGroup SnmpAdminString,
+    caAclIPV6ACEDestinationPortOperator CaAclPortOperator,
+    caAclIPV6ACEDestinationPort         InetPortNumber,
+    caAclIPV6ACEDestinationPortUpper    InetPortNumber,
+    caAclIPV6ACEDestinationPortGroup    SnmpAdminString,
+    caAclIPV6ACETrafficClassValue       Unsigned32,
+    caAclIPV6ACETcpFlagsValue           Unsigned32,
+    caAclIPV6ACETcpFlagsMask            Unsigned32,
+    caAclIPV6ACETcpFlagsMatchType       CaAclTcpFlagsMatch,
+    caAclIPV6ACELogOption               CaAclLogOption,
+    caAclIPV6ACECounterLabel            SnmpAdminString,
+    caAclIPV6ACERemark                  SnmpAdminString,
+    caAclIPV6ACERowStatus               RowStatus
+}
+
+caAclIPV6ACESequenceNumber OBJECT-TYPE
+    SYNTAX          CaAclSequenceNumber
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies an ACE within an ACL. Sequence
+        numbers are assigned to each permit/deny statement, causing the
+        system to insert the statement in that numbered position within
+        the ACL."
+    ::= { caAclIPV6ACECfgTableEntry 1 }
+
+caAclIPV6ACEAction OBJECT-TYPE
+    SYNTAX          CaAclAction
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of action to be taken if the
+        packet matches the given criteria.
+
+        If it is set to permit(1), all packets matching this ACE will
+        be allowed for further processing.
+
+        If it is set to deny(2), all packets matching this ACE will
+        be discarded."
+    ::= { caAclIPV6ACECfgTableEntry 2 }
+
+caAclIPV6ACEProtocol OBJECT-TYPE
+    SYNTAX          CiscoIpProtocol
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the protocol type to be filtered by
+        the ACE. Protocol numbers are defined in the Network Working
+        Group Request For Comment (RFC) documents."
+    REFERENCE
+        "RFC-790, Assigned Numbers, September 1981, Section
+        Assigned Internet Protocol Numbers."
+    ::= { caAclIPV6ACECfgTableEntry 3 }
+
+caAclIPV6ACESourceAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object determines the address of the network or host from
+        which the packet is being sent. If this object value is 0::0
+        and the value of caAclIPV6ACLSourcePrefixLength is 0 then this
+        matches any source address.
+
+        If this object value is not 0::0 and the value of
+        caAclIPV6ACLSourcePrefixLength is less than 128, this entry
+        matches the all the addresses that are in the sub-net.
+
+        If this object value is 0::0 and the value of
+        caAclIPV6ACLSourcePrefixLength is also 0, this entry matches
+        all hosts."
+    ::= { caAclIPV6ACECfgTableEntry 4 }
+
+caAclIPV6ACESourcePrefixLength OBJECT-TYPE
+    SYNTAX          Integer32 (0..128)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object determines the number of bits in the field
+        caAclIPV6ACLSourceAddress to be checked.
+
+        If the value of this object is 0, then the source address
+        in the packet must match caAclIPV6ACESourceAddress exactly
+        for the ACE action to be taken."
+    ::= { caAclIPV6ACECfgTableEntry 5 }
+
+caAclIPV6ACESourceNetworkGroup OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the Source Network Object Group from
+         which the packet is being sent."
+    ::= { caAclIPV6ACECfgTableEntry 6 }
+
+caAclIPV6ACESourcePortOperator OBJECT-TYPE
+    SYNTAX          CaAclPortOperator
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the operation to be performed to the layer
+        source port field. Source port fields are present only for
+        IGMP, ICMP, SCTP, TCP, and UDP protocols.
+
+        If caAclIPV6ACLProtocol is none of the ones listed above, this
+        field should set to noOperator(1), which means not comparison
+        is to be performed.
+
+        If this field is set to range(5) then two port numbers are
+        necessary. I.e., Both caAclIPV6ACLSourcePort and
+        caAclIPV6ACLSourcePortUpper need to be provided."
+    ::= { caAclIPV6ACECfgTableEntry 7 }
+
+caAclIPV6ACESourcePort      OBJECT-TYPE
+    SYNTAX              InetPortNumber
+    MAX-ACCESS          read-create
+    STATUS              current
+    DESCRIPTION
+        "This object defines the source port number of the layer 4
+        protocol. This is the field to be matched with the specified
+        source port based on the caAclIPV6ACLSourceOperator. If
+        caAclIPV6ACLSourceOperator is range(5) then this object wail
+        have the inclusive lower bound of the source port range that
+        is to be matched."
+    ::= { caAclIPV6ACECfgTableEntry 8 }
+
+caAclIPV6ACESourcePortUpper OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the inclusive upper bound of the layer 4
+        source port range that is to be matched."
+    ::= { caAclIPV6ACECfgTableEntry 9 }
+
+caAclIPV6ACESourcePortGroup    OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the Source Port Object Group from which
+        the packet is being sent."
+    ::= { caAclIPV6ACECfgTableEntry 10 }
+
+caAclIPV6ACEDestinationAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object determines the address of the network or host to
+        which the packet is being sent. If this object value is 0::0
+        and the value of caAclIPV6ACLSourcePrefixLength is 0 then this
+        matches any source address.
+
+        If this object value is not 0::0 and the value of
+        caAclIPV6ACLSourcePrefixLength is less than 128, this entry
+        matches the all the addresses that are in the sub-net.
+
+        If this object value is 0::0 and the value of
+        caAclIPV6ACLSourcePrefixLength is also 0, this entry matches
+        all osts."
+    ::= { caAclIPV6ACECfgTableEntry 11 }
+
+caAclIPV6ACEDestinationPrefixLength OBJECT-TYPE
+    SYNTAX          Integer32 (0..128)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object determines the number of bits in the field
+        caAclIPV6ACLDestinationAddress to be checked.
+
+        If the value of this object is 0, then the source address
+        in the packet must match caAclIPV6ACEDestinationAddress exactly
+        for the ACE action to be taken."
+    ::= { caAclIPV6ACECfgTableEntry 12 }
+
+caAclIPV6ACEDestinationNetworkGroup OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the Source Network Object Group to which
+         the packet is being sent."
+    ::= { caAclIPV6ACECfgTableEntry 13 }
+
+
+caAclIPV6ACEDestinationPortOperator OBJECT-TYPE
+    SYNTAX          CaAclPortOperator
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the operation to be performed to the layer
+        destination port field. Source port fields are present only for
+        IGMP, ICMP, SCTP, TCP, and UDP protocols.
+
+        If caAclIPV6ACLProtocol is none of the ones listed above, this
+        field should set to noOperator(1), which means no comparison
+        is to be performed.
+
+        If this field is set to range(5) then two port numbers are
+        necessary. I.e., Both caAclIPV6ACLDestinationPort and
+        caAclIPV6ACLDestinationPortUpper need to be provided."
+    ::= { caAclIPV6ACECfgTableEntry 14 }
+
+caAclIPV6ACEDestinationPort      OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the destination port number of the layer
+        4 protocol. This is the field to be matched with the specified
+        destination port based on the caAclIPV6ACLSourceOperator. If
+        caAclIPV6ACLDestinationOperator is range(5) then this object
+        will have the inclusive lower bound of the destination port
+        range that is to be matched."
+    ::= { caAclIPV6ACECfgTableEntry 15 }
+
+caAclIPV6ACEDestinationPortUpper OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the inclusive upper bound of the layer 4
+        destination port range that is to be matched."
+    ::= { caAclIPV6ACECfgTableEntry 16 }
+
+caAclIPV6ACEDestinationPortGroup    OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the Source Port Object Group to which the
+        packet is being sent."
+    ::= { caAclIPV6ACECfgTableEntry 17 }
+
+caAclIPV6ACETrafficClassValue OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the traffic class value that will be
+        considered in the match criteria against the value in the
+        packet."
+    ::= { caAclIPV6ACECfgTableEntry 18 }
+
+caAclIPV6ACETcpFlagsValue OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the value of the TCP flags which will
+        be considered in the match criteria based on
+        caAclIPV6ACLTcpFlagsMatchType.
+        Users can select any desired combination of the TCP flags
+        on which to filter TCP packets."
+    REFERENCE
+        "RFC-793,  Transmission Control Protocol, Darpa Internet
+        Program Protocol Specification, September 1981."
+    ::= { caAclIPV6ACECfgTableEntry 19 }
+
+caAclIPV6ACETcpFlagsMask OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the mask value of the TCP flags field."
+    ::= { caAclIPV6ACECfgTableEntry 20 }
+
+caAclIPV6ACETcpFlagsMatchType OBJECT-TYPE
+    SYNTAX          CaAclTcpFlagsMatch
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the type of matching to be done on the
+        TCP flags field."
+    ::= { caAclIPV6ACECfgTableEntry 21 }
+
+caAclIPV6ACELogOption    OBJECT-TYPE
+    SYNTAX           CaAclLogOption
+    MAX-ACCESS       read-create
+    STATUS           current
+    DESCRIPTION
+        "This object defines the value of the log option field to be
+        applied to packets that match this ACE entry."
+    ::= { caAclIPV6ACECfgTableEntry 22 }
+
+
+caAclIPV6ACECounterLabel OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines the counter label name for this ACE.
+        ACEs that share the same counter label name will have their
+        hit counts aggregated into the same counter label name."
+    ::= { caAclIPV6ACECfgTableEntry 23 }
+
+caAclIPV6ACERemark OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..100))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object defines a comment in the ACL. It helps the user
+        to define some meaningful comment  to identify the ACE
+        quickly, or to know the purpose of a set of ACEs.
+        This field is not used during packet matching."
+    ::= { caAclIPV6ACECfgTableEntry 24 }
+
+caAclIPV6ACERowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create, modify, or delete an entry
+        in the caAclIPV6ACLTable.
+
+        A row can be created using the 'CreateAndGo' option. When the
+        row is successfully created, the RowStatus will be set to
+        active by the agent.
+
+        A row may be deleted by setting the RowStatus for 'destroy'.
+
+        The minimum objects required to delete a row in this table
+        is simply the sequence number (caAclIPV6ACESequenceNumber)."
+    ::= { caAclIPV6ACECfgTableEntry 25 }
+
+
+-- ********************************************************************
+-- IP access group entry configuration table                          *
+-- ********************************************************************
+
+caAclAccessGroupCfgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CaAclAccessGroupCfgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the ACLs configured on the device and
+        applied on an interface in the ingress or egress direction."
+    ::= { caAclConfiguration 4 }
+
+caAclAccessGroupCfgEntry OBJECT-TYPE
+    SYNTAX          CaAclAccessGroupCfgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry describes an ACL configured on the device and
+        applied to an interface."
+    INDEX           {
+                        ifIndex,
+                        caAclAccessGroupCfgAddressType,
+                        caAclAccessGroupDirection,
+                        caAclAccessGroupSequenceNumber
+                    }
+    ::= { caAclAccessGroupCfgTable 1 }
+
+CaAclAccessGroupCfgEntry ::= SEQUENCE {
+    caAclAccessGroupACL               CaAclACLIndex,
+    caAclAccessGroupCfgAddressType    InetAddressType,
+    caAclAccessGroupDirection         CaAclTrafficDirection,
+    caAclAccessGroupSequenceNumber    CaAclSequenceNumber,
+    caAclAccessGroupRowStatus         RowStatus
+}
+
+caAclAccessGroupACL            OBJECT-TYPE
+    SYNTAX          CaAclACLIndex
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The name of the ACL associated with this entry."
+    ::= { caAclAccessGroupCfgEntry 1 }
+
+
+caAclAccessGroupCfgAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry describes the address family of the access group
+        being applied on the interface."
+    ::= { caAclAccessGroupCfgEntry 2 }
+
+caAclAccessGroupDirection OBJECT-TYPE
+    SYNTAX          CaAclTrafficDirection
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object defines the direction in which the ACL is
+        applied."
+    ::= { caAclAccessGroupCfgEntry 3 }
+
+caAclAccessGroupSequenceNumber OBJECT-TYPE
+    SYNTAX          CaAclSequenceNumber
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the order that Access Group
+        applied to a interface. It can be used by platforms that
+        support applying more than one Access List per address
+        family per direction.
+        For example:
+            interface GigabitEthernet 0/0
+             ipv4 access-group ACL1 ACL2 ACL2 ingress
+            !
+        "
+    ::= { caAclAccessGroupCfgEntry 4 }
+
+caAclAccessGroupRowStatus   OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create, modify, or delete an entry in
+        the caAclAccessGroupCfgTable.
+        A row can be created using the 'CreateAndGo' option. When the
+        row is successfully created, the RowStatus will be set to
+        active by the agent. Once a row becomes active, values in
+        any other column within the row cannot be modified.
+
+        A row may be deleted by setting the RowStatus for 'destroy'."
+    ::= { caAclAccessGroupCfgEntry 5 }
+
+
+-- ********************************************************************
+-- Label interface statistics table                                   *
+-- ********************************************************************
+
+caAclLabelIntfStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CaAclLabelIntfStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes the statistics for all ACEs with assigned
+        counter labels, attached to interfaces on the device.
+
+        An entry in this table is created when an ACL containing an ACE
+        that references the specified counter label name is applied to
+        an interface.
+
+        An entry in this table is deleted when an ACL containing an ACE
+        that references the specified counter lable name is removed
+        from an interface."
+    ::= { caAclStats 1 }
+
+caAclLabelIntfStatsEntry OBJECT-TYPE
+    SYNTAX          CaAclLabelIntfStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table provides the aggregated counters for
+        all ACEs applied on the given interface/direction that have
+        been assigned the same counter label."
+    INDEX           {
+                        ifIndex,
+                        caAclAccessGroupCfgAddressType,
+                        caAclAccessGroupDirection,
+                        caAclIntfStatsCounterLabelName
+                    }
+    ::= { caAclLabelIntfStatsTable 1 }
+
+CaAclLabelIntfStatsEntry ::= SEQUENCE {
+    caAclIntfStatsCounterLabelName    SnmpAdminString,
+    caAclIntfStatsPackets             Counter64,
+    caAclIntfStatsOctets              Counter64
+}
+
+caAclIntfStatsCounterLabelName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The counter label index associated with this set of
+        statistics."
+    ::= { caAclLabelIntfStatsEntry 1 }
+
+caAclIntfStatsPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets that match this counter label."
+    ::= { caAclLabelIntfStatsEntry 2 }
+
+caAclIntfStatsOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of octets that match this counter label."
+    ::= { caAclLabelIntfStatsEntry 3 }
+
+
+-- ********************************************************************
+-- Units of Conformance
+-- ********************************************************************
+
+caAclMIBCfgGroup        OBJECT-GROUP
+    OBJECTS         {
+                        caAclName,
+                        caAclRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing ACLs."
+    ::= { caAclMIBCfgGroups 1 }
+
+caAclIPV4ACLMIBACEGroup OBJECT-GROUP
+    OBJECTS         {
+                        caAclIPV4ACEAction,
+                        caAclIPV4ACEProtocol,
+                        caAclIPV4ACESourceAddress,
+                        caAclIPV4ACESourceWildCardMask,
+                        caAclIPV4ACESourceNetworkGroup,
+                        caAclIPV4ACESourcePortOperator,
+                        caAclIPV4ACESourcePort,
+                        caAclIPV4ACESourcePortUpper,
+                        caAclIPV4ACESourcePortGroup,
+                        caAclIPV4ACEDestinationAddress,
+                        caAclIPV4ACEDestinationWildCardMask,
+                        caAclIPV4ACEDestinationNetworkGroup,
+                        caAclIPV4ACEDestinationPortOperator,
+                        caAclIPV4ACEDestinationPort,
+                        caAclIPV4ACEDestinationPortUpper,
+                        caAclIPV4ACEDestinationPortGroup,
+                        caAclIPV4ACEDscpValue,
+                        caAclIPV4ACETcpFlagsValue,
+                        caAclIPV4ACETcpFlagsMask,
+                        caAclIPV4ACETcpFlagsMatchType,
+                        caAclIPV4ACETosValue,
+                        caAclIPV4ACEPrecedenceValue,
+                        caAclIPV4ACELogOption,
+                        caAclIPV4ACECounterLabel,
+                        caAclIPV4ACERemark,
+                        caAclIPV4ACERowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group is a collection of objects providing IPV4 ACE
+        feature."
+    ::= { caAclMIBCfgGroups 2 }
+
+caAclIPV6ACLMIBACEGroup OBJECT-GROUP
+    OBJECTS         {
+                        caAclIPV6ACEAction,
+                        caAclIPV6ACEProtocol,
+                        caAclIPV6ACESourceAddress,
+                        caAclIPV6ACESourcePrefixLength,
+                        caAclIPV6ACESourceNetworkGroup,
+                        caAclIPV6ACESourcePortOperator,
+                        caAclIPV6ACESourcePort,
+                        caAclIPV6ACESourcePortUpper,
+                        caAclIPV6ACESourcePortGroup,
+                        caAclIPV6ACEDestinationAddress,
+                        caAclIPV6ACEDestinationPrefixLength,
+                        caAclIPV6ACEDestinationNetworkGroup,
+                        caAclIPV6ACEDestinationPortOperator,
+                        caAclIPV6ACEDestinationPort,
+                        caAclIPV6ACEDestinationPortUpper,
+                        caAclIPV6ACEDestinationPortGroup,
+                        caAclIPV6ACETcpFlagsValue,
+                        caAclIPV6ACETcpFlagsMask,
+                        caAclIPV6ACETcpFlagsMatchType,
+                        caAclIPV6ACETrafficClassValue,
+                        caAclIPV6ACELogOption,
+                        caAclIPV6ACECounterLabel,
+                        caAclIPV6ACERemark,
+                        caAclIPV6ACERowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group is a collection of objects providing IPV6 ACE
+        feature."
+    ::= { caAclMIBCfgGroups 3 }
+
+caAclMIBAccessGroupCfgGroup OBJECT-GROUP
+    OBJECTS         {
+                        caAclAccessGroupACL,
+                        caAclAccessGroupRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the objects describing the access group
+        configuration."
+    ::= { caAclMIBCfgGroups 4 }
+
+caAclMIBCounterGroup OBJECT-GROUP
+    OBJECTS         {
+                        caAclIntfStatsPackets,
+                        caAclIntfStatsOctets
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the objects describing the ACE
+        counter label."
+    ::= { caAclMIBCfgGroups 5 }
+
+caAclMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This compliance statement specifies the minimal requirements
+        that an implementation must meet in order to claim full
+        compliance with the definitions of the C-ACL-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        caAclMIBCfgGroup
+                     }
+    GROUP            caAclMIBAccessGroupCfgGroup
+    DESCRIPTION
+        "This group is mandatory except for systems that do not
+        support filtering IPV4 and or IPV6 packets."
+    GROUP            caAclIPV4ACLMIBACEGroup
+    DESCRIPTION
+        "This group is mandatory except for systems that do not
+        support IPV4 ACLs."
+    GROUP            caAclIPV6ACLMIBACEGroup
+    DESCRIPTION
+        "This group is mandatory except for systems that do not
+        support IPV6 ACLs."
+    GROUP            caAclMIBCounterGroup
+    DESCRIPTION
+        "This group is mandatory except for systems that do not
+        support ACL counter gathering statistics."
+    OBJECT           caAclName
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclRowStatus
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACEAction
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACEProtocol
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACESourceAddress
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACESourceWildCardMask
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACESourceNetworkGroup
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACESourcePortOperator
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACESourcePort
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACESourcePortUpper
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACESourcePortGroup
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACEDestinationAddress
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACEDestinationWildCardMask
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACEDestinationNetworkGroup
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACEDestinationPortOperator
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACEDestinationPort
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACEDestinationPortUpper
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACEDestinationPortGroup
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACEDscpValue
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACETcpFlagsValue
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACETcpFlagsMask
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACETcpFlagsMatchType
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACETosValue
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACEPrecedenceValue
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACELogOption
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACECounterLabel
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACERemark
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV4ACERowStatus
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACEAction
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACEProtocol
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACESourceAddress
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACESourcePrefixLength
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACESourceNetworkGroup
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACESourcePortOperator
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACESourcePort
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACESourcePortUpper
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACESourcePortGroup
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACEDestinationAddress
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACEDestinationPrefixLength
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACEDestinationNetworkGroup
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACEDestinationPortOperator
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACEDestinationPort
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACEDestinationPortUpper
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACEDestinationPortGroup
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACETrafficClassValue
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACETcpFlagsValue
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACETcpFlagsMask
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACETcpFlagsMatchType
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACELogOption
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACECounterLabel
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACERemark
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclIPV6ACERowStatus
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclAccessGroupACL
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+    OBJECT           caAclAccessGroupRowStatus
+    MIN-ACCESS       read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    ::= { caAclMIBACECompliances 1 }
+
+END
+
+
+
+

@@ -1,0 +1,541 @@
+CISCO-APPLIANCE-REDUNDANCY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, 
+    NOTIFICATION-TYPE,
+    OBJECT-TYPE,
+    Counter32,
+    Unsigned32
+            FROM SNMPv2-SMI
+    InetAddressType,
+    InetAddress
+            FROM INET-ADDRESS-MIB
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    DateAndTime,
+    TruthValue,
+    TimeInterval,
+    TEXTUAL-CONVENTION
+	    FROM SNMPv2-TC
+    MODULE-COMPLIANCE, 
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+            FROM SNMPv2-CONF
+    ciscoMgmt
+            FROM CISCO-SMI;
+
+ciscoApplianceRedundancyMIB MODULE-IDENTITY
+    LAST-UPDATED    "200412230000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+                    "Cisco Systems
+                     Customer Service
+
+             Postal: 170 W. Tasman Drive
+                     San Jose, CA 95134
+                     USA
+
+             Tel:    +1 800 553-NETS
+
+             E-mail: cs-wlse@cisco.com"
+    DESCRIPTION
+        "This mib defines the SNMP objects to report the status of 
+         High Availability (HA) functionality in Cisco network 
+         management appliance devices. The HA functinality is
+         achieved via the redundancy of network management appliance
+         devices.
+
+         An network management appliance is a device which combines 
+         hardware and software to provide specific network management
+         services. Cisco WLSE, Wireless Service Engine (WLSE) is such
+         an appliance.
+
+         The High Availability is achieved via redundancy of 
+         appliances. This redundancy scheme is designed to support 
+         hardware or software failure of the appliances in a non-
+         disruptive manner. Redundancy is achieved by configuring
+         a cluster of two appliances with one common virtual IP 
+         address. The data is mirrored from the active appliance to 
+         the standby appliance at regular intervals.
+
+         One of the appliances is in active mode, performing all 
+         normal functions. The other appliance is in warm standby 
+         mode; that is, the appliance is up but no application
+         services are running. 
+
+         Both the active and standby appliances have their own IP 
+         addresses. The active appliance also owns the virtual IP 
+         address to which all the service requests are made.
+
+         The active appliance and standby appliance periodically poll
+         each other. If the standby appliance cannot reach the active
+         appliance, it will become the active appliance. This is 
+         called a switchover event. The switchover can be caused by 
+         other causes, for example, via user commands.
+
+         Both the active and standby appliances should implement 
+         this MIB and report any exceptions caused by switchover 
+         events."
+
+    ::= { ciscoMgmt 458 }
+
+ciscoApplRedundancyMIBObjects  OBJECT IDENTIFIER 
+        ::= { ciscoApplianceRedundancyMIB 1 }
+
+carConfigObjects OBJECT IDENTIFIER 
+        ::= { ciscoApplRedundancyMIBObjects 1 }
+
+carSwitchOverObjects OBJECT IDENTIFIER 
+        ::= { ciscoApplRedundancyMIBObjects 2 }
+
+-- Textual Conventions
+
+CarRedundancyState ::= TEXTUAL-CONVENTION
+    STATUS    current
+    DESCRIPTION
+        "States of the HA redundancy: 
+
+         notConfigured      - The appliance is not configured for 
+                              redundancy.
+
+         starting           - The appliance is configured for redundancy
+                              and is initializing. This state could 
+                              apply to both active and standby 
+                              appliances.
+
+         active             - The appliance is the active appliance.
+
+         preStandby         - The appliance is configured to be 
+                              standby and is attempting to restore 
+                              data from the active appliance and is not
+                              yet in the standby mode.
+
+         standby            - The appliance is warm standby mode.
+
+         activeLostStandby  - The active appliance is not getting any 
+                              response from the standby appliance.
+
+         activeLostNetwork  - The active appliance is not getting any 
+                              response from the standby appliance or 
+                              from the default gateway. There is 
+                              possibly network issue.
+
+         standbyLostNetwork - The standby appliance is not getting any
+                              response from the active appliance or 
+                              from the default gateway. There is 
+                              possibly network issue."
+
+    SYNTAX INTEGER {
+           notConfigured (1),
+           starting (2),
+           active (3),
+           preStandby (4),
+           standby (5),
+           activeLostStandby (6),
+           activeLostNetwork (7),
+           standbyLostNetwork (8)
+           }   
+
+CarSwitchOverReason ::= TEXTUAL-CONVENTION
+    STATUS    current
+    DESCRIPTION
+        "Cause of HA switchover event.
+
+         lossConnWithActive - Switchover is caused by loss of 
+                              connectivity to active appliance.
+
+         forcedSwitchOver   - Switchover is caused by user command.
+
+         unknown            - Unknown reason."
+
+    SYNTAX INTEGER {
+           lossConnWithActive(1),
+           forcedSwitchOver(2),
+           unknown(3)
+           }
+
+-- HA Device Configuration data
+
+carRedundancySyncInterval OBJECT-TYPE 
+    SYNTAX      TimeInterval
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Time interval at which the active and standby appliances
+         are synchronized. Synchronization consists of incrementally
+         backing up the data on the active appliance and restoring
+         on the standby appliance."
+    ::= { carConfigObjects 1 }
+
+carRedundancyCheckInterval OBJECT-TYPE 
+    SYNTAX      TimeInterval
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Time interval to check the availability status of each
+         appliance. Both the active and standby appliances will
+         check the status of each other in this time interval.
+         If the standby appliance is not able to connect to the
+         active appliance during this check, it will become the
+         active appliance."
+    ::= { carConfigObjects 2 }
+
+carRedundancyState  OBJECT-TYPE
+    SYNTAX      CarRedundancyState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The HA redundancy state of this appliance device."
+    DEFVAL      { notConfigured }
+    ::= { carConfigObjects 3 }
+
+carNotificationEnabled  OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Enable or disable HA switchover event notifications via SNMP."
+    DEFVAL      { false } 
+    ::= { carConfigObjects 4 }
+
+carHAAddressTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CarHAAddressEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table keeps the current configuration of the address 
+         information of the active and standby appliances. There is an
+         entry in this table corresponding to each network interface
+         that is configured for redundancy. Thus, the number of 
+         entries in this table corresponds to the number of interfaces
+         configured for redundancy."
+    ::= { carConfigObjects 5 }
+
+carHAAddressEntry OBJECT-TYPE
+    SYNTAX      CarHAAddressEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing address information for HA configuration
+         on a network interface."
+    INDEX { carHAAddrTableIndex }
+    ::= { carHAAddressTable 1 }
+
+CarHAAddressEntry::=
+    SEQUENCE {
+        carHAAddrTableIndex        InterfaceIndexOrZero,
+        carVirtualAddressType      InetAddressType,
+        carVirtualAddress          InetAddress,
+        carMyAddressType           InetAddressType,
+        carMyAddress               InetAddress,
+        carPeerAddressType         InetAddressType,
+        carPeerAddress             InetAddress
+    }
+
+carHAAddrTableIndex OBJECT-TYPE
+    SYNTAX      InterfaceIndexOrZero
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This index matches the interface number for which the Virtual 
+         IP configuration is maintained. For example, the Virtual IP
+         configured on interface eth0 will be index 0. Entry for eth1 
+         will be index 1,... and so on."
+    ::= { carHAAddressEntry  1 }
+
+carVirtualAddressType  OBJECT-TYPE 
+    SYNTAX      InetAddressType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The type of address stored in carVirtualAddress."
+    ::= { carHAAddressEntry 2 }
+
+carVirtualAddress  OBJECT-TYPE 
+    SYNTAX      InetAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The virtual IP address configured for this interface. The type
+		 of this mib variable is defined in carVirtualAddressType.
+         This address binds to the active appliance at all times.
+         All the management requests should be made to this address."
+    ::= { carHAAddressEntry 3 }
+
+carMyAddressType  OBJECT-TYPE 
+    SYNTAX      InetAddressType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The type of address stored in carMyAddress"
+    ::= { carHAAddressEntry 4 }
+
+carMyAddress  OBJECT-TYPE 
+    SYNTAX      InetAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The IP address of the interface configured for this HA 
+         configuration in this appliance. The type of this mib variable
+         is defined in carMyAddressType. Note this value will not be 
+         affected by switchover events."
+    ::= { carHAAddressEntry 5 }
+
+carPeerAddressType  OBJECT-TYPE 
+    SYNTAX      InetAddressType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The type of address stored in carPeerAddress"
+    ::= { carHAAddressEntry 6 }
+
+carPeerAddress  OBJECT-TYPE 
+    SYNTAX      InetAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The IP address of the interface configured for this HA 
+         configuration in the peer appliance. The type of this mib 
+         variable is defined in carPeerAddressType. Note this value 
+         will not be affected by switchover events."
+    ::= { carHAAddressEntry 7 }
+
+-- HA SwitchOver data
+
+carLastSwitchOverReason OBJECT-TYPE 
+    SYNTAX      CarSwitchOverReason
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Cause for the most recent switchover."
+    ::= { carSwitchOverObjects 1 }
+
+carLastSwitchOverTime    OBJECT-TYPE 
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The local date and time when the last switchover event 
+		 occurred and was logged to the system."
+    ::= { carSwitchOverObjects 2 }
+
+carTotalSwitchOvers  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of all HA switchover events."
+    ::= { carSwitchOverObjects 3 }
+
+carMaxSwitchOverHistoryRecords  OBJECT-TYPE
+    SYNTAX      Unsigned32 (0..1024)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The maximun number of records to keep in 
+         carSwitchOverHistoryTable. New records will replace the old 
+         records on a first-in-first-out basis.
+
+         A value of 0 indicates no history will be retained."
+    DEFVAL      { 20 }
+    ::= { carSwitchOverObjects 4 }
+
+carSwitchOverHistoryTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CarSwitchOverHistEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table keeps an history of HA switchover
+         events. The maximum number of records is equal 
+         or less than carMaxSwitchOverRecords."
+    ::= { carSwitchOverObjects 5 }
+
+carSwitchOverHistEntry OBJECT-TYPE
+    SYNTAX      CarSwitchOverHistEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry containing information about a HA switchover event."
+    INDEX { carSWHistTableIndex }
+    ::= { carSwitchOverHistoryTable 1 }
+
+CarSwitchOverHistEntry::=
+    SEQUENCE {
+        carSWHistTableIndex               Unsigned32,
+        carSWHistActiveNodeAddressType    InetAddressType,
+        carSWHistActiveNodeAddress        InetAddress,
+        carSWHistStandbyNodeAddressType   InetAddressType,
+        carSWHistStandbyNodeAddress       InetAddress,
+        carSWHistEventTime                DateAndTime,
+        carSWHistEventReason              CarSwitchOverReason
+       }
+
+carSWHistTableIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..4294967295)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An monotonically increasing number for the sole purpose 
+         of indexing entries. When it reaches maximum value, the agent 
+         sets it back to 1."
+    ::= { carSwitchOverHistEntry 1 }
+
+carSWHistActiveNodeAddressType  OBJECT-TYPE 
+    SYNTAX      InetAddressType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Represents the type of address stored in 
+         carSWHistActiveNodeAddress."
+    ::= { carSwitchOverHistEntry 2 }
+
+carSWHistActiveNodeAddress  OBJECT-TYPE 
+    SYNTAX      InetAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The address of the active appliance after the switchover 
+         event. carSWHistActiveNodeAddressType specifies the type of 
+         this mib variable."
+    ::= { carSwitchOverHistEntry 3 }
+
+carSWHistStandbyNodeAddressType  OBJECT-TYPE 
+    SYNTAX      InetAddressType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Represents the type of address stored in
+         carSWHistStandbyNodeAddress."
+    ::= { carSwitchOverHistEntry 4 }
+
+carSWHistStandbyNodeAddress  OBJECT-TYPE 
+    SYNTAX      InetAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The address of the standby appliance after the switchover 
+         event. carSWHistStandbyNodeAddressType specifies the type
+         of this mib variable."
+    ::= { carSwitchOverHistEntry 5 }
+
+carSWHistEventTime    OBJECT-TYPE 
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The local date and time when the switchover event occurred
+         and was logged to the system."
+    ::= { carSwitchOverHistEntry 6 }
+
+carSWHistEventReason    OBJECT-TYPE 
+    SYNTAX      CarSwitchOverReason
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Cause of the switchover event."
+    ::= { carSwitchOverHistEntry 7 }
+
+-- Notifications
+
+carHAMIBNotifPrefix OBJECT IDENTIFIER 
+        ::= { ciscoApplianceRedundancyMIB 2 }
+
+carHAMIBNotifications OBJECT IDENTIFIER 
+        ::= { carHAMIBNotifPrefix 0 }
+
+carSwitchOverNotification NOTIFICATION-TYPE
+    OBJECTS { 
+        carSWHistEventTime,
+        carSWHistEventReason,
+        carSWHistActiveNodeAddressType,
+        carSWHistActiveNodeAddress,
+        carSWHistStandbyNodeAddressType,
+        carSWHistStandbyNodeAddress
+    }
+    STATUS  current
+    DESCRIPTION
+        "This notification is sent when a switchover event happened.
+         This notification can be enabled or disabled via 
+         carNotificationEnabled."
+    ::= { carHAMIBNotifications 1 }
+
+-- conformance
+
+ciscoHAMIBConformance OBJECT IDENTIFIER 
+    ::= { ciscoApplianceRedundancyMIB 3 }
+
+ciscoHAMIBCompliances OBJECT IDENTIFIER 
+    ::= { ciscoHAMIBConformance 1 }
+
+ciscoHAMIBGroups OBJECT IDENTIFIER 
+    ::= { ciscoHAMIBConformance 2 }
+
+-- compliance
+
+ciscoHAMIBCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for entities which implement the 
+         CISCO-APPLIANCE-HIGH-AVAILABILITY-MIB."
+
+    MODULE  -- This module
+        MANDATORY-GROUPS { 
+            ciscoHAConfigDataGroup,
+			ciscoHASwitchOverDataGroup
+        }
+
+        GROUP ciscoHAExceptionNotifGroup
+        DESCRIPTION
+          "This group is optional."
+    ::= { ciscoHAMIBCompliances 1 }
+
+-- Units of conformance
+
+ciscoHAConfigDataGroup OBJECT-GROUP
+    OBJECTS {
+        carVirtualAddressType,
+        carVirtualAddress,
+        carMyAddressType,
+        carMyAddress,
+        carPeerAddressType,
+        carPeerAddress,
+        carRedundancySyncInterval,
+        carRedundancyCheckInterval,
+        carRedundancyState,
+        carNotificationEnabled
+    }
+    STATUS  current
+    DESCRIPTION 
+        "A collection of objects that enable the switchover event
+         notification for the HA network elements."
+    ::= { ciscoHAMIBGroups 1 }
+
+ciscoHASwitchOverDataGroup OBJECT-GROUP
+    OBJECTS {
+        carLastSwitchOverReason,
+        carLastSwitchOverTime,
+        carTotalSwitchOvers,
+        carMaxSwitchOverHistoryRecords,
+        carSWHistActiveNodeAddressType,
+        carSWHistActiveNodeAddress,
+        carSWHistStandbyNodeAddressType,
+        carSWHistStandbyNodeAddress,
+        carSWHistEventTime,
+        carSWHistEventReason
+    }
+    STATUS  current
+    DESCRIPTION 
+        "A collection of objects that record the switchover events
+         for HA network elements."
+    ::= { ciscoHAMIBGroups 2 }
+
+ciscoHAExceptionNotifGroup NOTIFICATION-GROUP
+    NOTIFICATIONS {
+    carSwitchOverNotification
+    }
+    STATUS  current
+    DESCRIPTION 
+        "A collection of the monitored exception events."
+    ::= { ciscoHAMIBGroups 3 }
+
+END

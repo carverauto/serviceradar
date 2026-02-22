@@ -1,0 +1,2883 @@
+-- Copyright 1995, 1996, 1997, 1998, 1999, 2000 by Cisco Systems Inc.
+-- All rights reserved.
+
+
+CISCO-TS-STACK-MIB DEFINITIONS ::= BEGIN
+
+
+  IMPORTS
+
+   TimeTicks,
+   IpAddress, 
+   Counter, 
+   enterprises
+           FROM RFC1155-SMI
+
+   Timeout
+           FROM RFC1493
+
+   OBJECT-TYPE
+           FROM RFC-1212
+
+   DisplayString,
+   sysName,
+   sysLocation
+           FROM RFC1213-MIB
+
+   ringStationIfIndex,
+   ringStationMacAddress
+           FROM RFC-1513
+
+   ifName
+           FROM IF-MIB
+
+   TRAP-TYPE
+           FROM RFC-1215
+
+   cisco,
+   workgroup
+           FROM CISCO-SMI;
+
+
+tsStack OBJECT IDENTIFIER ::= { workgroup 32 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    0003200000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--     Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    MIB for the Cat3900 and Cat3920 Token Ring switches.
+
+
+-- MAC address (in canonical format)
+
+   MacAddr ::= OCTET STRING (SIZE(6))
+
+
+-- Managed Groups defined in this module
+
+-- Global objects
+
+ciscoTsMain	OBJECT IDENTIFIER ::= { tsStack 1 }
+
+-- Configuration objects
+
+ciscoTsConfig	OBJECT IDENTIFIER ::= { ciscoTsMain 1 }
+
+-- Rack/Stack Management Group
+
+ciscoTsStack	OBJECT IDENTIFIER ::= { tsStack 2 }
+
+-- Module Management Group 
+
+ciscoTsModule	OBJECT IDENTIFIER ::= { tsStack 3 }
+
+-- Port Level Managed Group
+
+ciscoTsPort	OBJECT IDENTIFIER ::= { tsStack 4 }
+
+-- Probe Management Group
+
+ciscoTsProbe	OBJECT IDENTIFIER ::= { tsStack 5 }
+
+-- Virtual LAN (TrCRF & TrBRF) Management Group
+
+ciscoTsVLANS	OBJECT IDENTIFIER ::= { tsStack 6 }
+
+-- TokenChannel Management Group
+
+ciscoTsTChannel	OBJECT IDENTIFIER ::= { tsStack 7 }
+
+-- Filter Configuration Group
+
+ciscoTsFilter	OBJECT IDENTIFIER ::= { tsStack 8 }
+
+-- Uplink MIBs
+
+ciscoTsUplinkMIBs   OBJECT IDENTIFIER ::= { tsStack 9 }
+
+-- Configuration objects
+
+ciscoTsIpAddr OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+                "The IP address of the current Token Ring
+                 Bridge Relay Facility (TrBRF)."
+	::= { ciscoTsConfig 1 }
+
+ciscoTsNetMask OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+                "The subnet mask of the current TrBRF."
+	::= { ciscoTsConfig 2 }
+
+ciscoTsDefaultGateway OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+                "IP default gateway of the current TrBRF."
+	::= { ciscoTsConfig 3 }
+
+ciscoTsSysCurTime OBJECT-TYPE
+	SYNTAX	DisplayString (SIZE (1..128))
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Current time at the switch. To set the time
+	         use the format yyyy mm dd hh mm ss. All 
+		 fields are required. Setting this object will
+                 reset the time in all the switches in the stack 
+                 to the new value."
+	::= { ciscoTsConfig 4 }
+
+ciscoTsConfiguration OBJECT-TYPE
+	SYNTAX	INTEGER 
+		{ 
+			stand-alone(1), 
+			back-to-back(2), 
+			prostack-matrix(3) 
+		}
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The stack configuration of the system. A
+                 system can exist in three possible configurations.
+
+                 1. Stand alone mode where the system has only one
+                 switch and is not connected to any other switches.
+
+                 2. Back to Back mode in which a pair of
+                 switches are connected back to back through Stack
+		 Port.
+
+                 3. Matrix mode in which the stack has
+                 up to eight switches connected to a Matrix
+                 through the Stack Port."
+	::= { ciscoTsConfig 5 }
+
+ciscoTsNumSwitches OBJECT-TYPE
+	SYNTAX	INTEGER 
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of switches in the stack."
+	::= { ciscoTsConfig 6 }
+
+ciscoTsStackStatus OBJECT-TYPE
+	SYNTAX	INTEGER  { running(1) , updating(2)}
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Stack status indicates if the stack is going through
+		 the Stack Management Update protocol. Management stations
+		 should check this status if they receive a genErr on a
+		 SET request for any of the stack wide attributes."
+	::= { ciscoTsConfig 7 }
+
+ciscoTsTftpServer OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"TFTP sever's IP address."
+	::= { ciscoTsConfig 8}
+
+ciscoTsTftpServerTrBRF OBJECT-TYPE
+	SYNTAX	INTEGER (1..1024) 
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"TrBRF to which the server is connected."
+	::= { ciscoTsConfig 9 }
+
+ciscoTsTftpFileLoc OBJECT-TYPE
+	SYNTAX	DisplayString (SIZE(0..256))
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Path and filename of the binary file on the server."
+	::= { ciscoTsConfig 10 }
+
+ciscoTsTftpDownload OBJECT-TYPE
+	SYNTAX	INTEGER (0..9)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Setting this to any number between 1 and 8 starts a TFTP
+		download for that box. Setting this to 9 starts a TFTP
+		download for all boxes in a stack. This object will always
+		return a zero on a get request. If RMON is enabled on the
+        switch or stack, then setting this object will cause the RMON
+        feature to be disabled until the switch or stack is rebooted."
+	::= { ciscoTsConfig 11 }
+
+ciscoTsTftpDownloadStatus OBJECT-TYPE
+	SYNTAX	INTEGER { writing(1), complete(2), other(3) }
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Reading complete(2) from this object means the write
+		to flash has succeeded and the switch is ready to be
+		rebooted."
+	::= { ciscoTsConfig 12 }
+
+ciscoTsProStackMatrixStatus OBJECT-TYPE
+	SYNTAX	INTEGER { primary(1), secondary(2) , none(3), failed(4)}
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Status of the Active Matrix module in the stack. 
+		This object is set to none(3) if the switch is not 
+		connected to a Matrix."
+	::= { ciscoTsConfig 13 }
+
+ciscoTsNumMatrixModules OBJECT-TYPE
+	SYNTAX	INTEGER 
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of Matrix modules in the stack. This object 
+		 is set to zero if the switch is not connected to a
+		 Matrix."
+	::= { ciscoTsConfig 14 }
+
+ciscoTsStackReset  OBJECT-TYPE
+	SYNTAX	INTEGER 
+                  { 
+                        running(1), 
+                        coldReset(2), 
+                        warmReset(3)
+                  }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Operational status of the controlling switch in the stack. 
+		Setting this value to either coldReset(2) or warmReset(3) 
+		will cause all boxes in the stack to cold start or warm 
+		start after a predefined time delay."
+	::= { ciscoTsConfig 15 }
+
+ciscoTsStackRMONStatistics  OBJECT-TYPE
+	SYNTAX	INTEGER { enable(1), disable(2) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Used to enable or disable the collection of RMON
+                statistics on the switch/stack. After changing the
+                state of this object, the switch must be rebooted for
+                the changes to take effect."
+	::= { ciscoTsConfig 16 }
+
+-- Trap Receiver Table
+
+ciscoTsTrapRcvrTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsTrapRcvrEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Trap Receiver Table for each TrBRF."
+	::= { ciscoTsConfig 25 }
+
+ciscoTsTrapRcvrEntry OBJECT-TYPE
+	SYNTAX	CiscoTsTrapRcvrEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the TrBRF specific trap
+                 receiver table."
+
+	INDEX	{ ciscoTsTrapRcvrIndex }
+	::= { ciscoTsTrapRcvrTable 1 }
+
+CiscoTsTrapRcvrEntry ::= SEQUENCE {
+	ciscoTsTrapRcvrIndex		INTEGER,
+	ciscoTsTrapRcvrStatus		INTEGER,
+	ciscoTsTrapRcvrIpAddress	IpAddress,
+	ciscoTsTrapRcvrComm		DisplayString,
+	ciscoTsTrapRcvrTrBRFs	OCTET STRING
+        }
+
+ciscoTsTrapRcvrIndex OBJECT-TYPE
+	SYNTAX	INTEGER (1..65535)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Trap receiver index for each entry. The switch only allows
+        20 entries into this table." 
+	::= { ciscoTsTrapRcvrEntry 1 }
+
+ciscoTsTrapRcvrStatus OBJECT-TYPE
+	SYNTAX	INTEGER {
+		other(1),	-- none of the following
+		valid(2),	-- a valid entry
+		invalid(3),	-- an invalid entry
+		create(4)	-- create row
+		}
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Setting the value of this object to invalid(3)
+		deletes the row from the table.  The value
+		invalid(3) should never be returned on a GET.  
+
+                Setting this value to create(4) causes a new row
+                to be created if the row does not already exist.
+                To create a new row set ciscoTsTrapRcvrStatus to 
+                create(4) and ciscoTsTrapRcvrIndex to any valid 
+		index which does not already exist.
+
+		The value returned on GETs should be valid(2) or
+		other(1), which is used to indicate any other
+		condition."
+	::= { ciscoTsTrapRcvrEntry 2 }
+
+
+ciscoTsTrapRcvrIpAddress OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"IP address for an SNMP manager that is to receive
+		the trap."
+	::= { ciscoTsTrapRcvrEntry 3 }
+
+ciscoTsTrapRcvrComm OBJECT-TYPE
+	SYNTAX	DisplayString (SIZE (1..16))
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Community string to use in outgoing traps."
+	::= { ciscoTsTrapRcvrEntry 4 }
+
+ciscoTsTrapRcvrTrBRFs OBJECT-TYPE
+	SYNTAX	OCTET STRING (SIZE(128))
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"TrBRFs on which traps to this target are sent.
+		Each octet within the value of this object 
+                specifies a set of eight TrBRFs, with the first 
+		octet specifying TrBRFs 1 through 8, the second 
+		octet specifying TrBRFs 9 through 16, etc.  
+		Within each octet, the most significant bit 
+		represents the lowest numbered TrBRF, and the 
+		least significant bit represents the highest 
+		numbered TrBRF.  Thus, each TrBRF of the stack
+                is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that TrBRF is included in the set of
+                TrBRFs sending traps; the TrBRF is not included 
+		if its bit has a value of '0'. The default is all zeros.
+		Reading all of the entries in the ciscoTsTrBRFInfoTable
+		will give the possible valid bits that can be set. A value
+		of all FF's will enable traps on all configured TrBRFs."
+	::= { ciscoTsTrapRcvrEntry 5 }
+
+-- Stack management group
+
+ciscoTsStackTable OBJECT-TYPE 
+	SYNTAX	SEQUENCE OF CiscoTsStackEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Stack information table. This table provides
+                 the current configuration of the stack. It also
+                 provides a mapping of Switch Numbers to their 
+                 addresses.  There is one entry in this table
+                 for each switch in the stack.  Entries cannot
+                 be administratively created/deleted.
+
+                 The Management Application is required to retrieve this
+                 table and verify its own view of the stack periodically
+                 and/or when it receives a trap indicating a change in the 
+		 stack configuration."
+	::= { ciscoTsStack 1 }
+
+ciscoTsStackEntry OBJECT-TYPE
+	SYNTAX	CiscoTsStackEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the Stack Table"
+	INDEX	{ ciscoTsStackSwitchNumber, ciscoTsStackSwitchBIAddr }
+	::= { ciscoTsStackTable 1 }
+
+CiscoTsStackEntry ::= SEQUENCE {
+	ciscoTsStackSwitchNumber		INTEGER,
+	ciscoTsStackSwitchBIAddr		MacAddr,
+	ciscoTsStackSwitchLAAddr		MacAddr,
+	ciscoTsStackSwitchFwVersion		DisplayString,
+	ciscoTsStackSwitchHwVersion		DisplayString,
+	ciscoTsStackSwitchUptime		TimeTicks,
+	ciscoTsStackSwitchStatus		INTEGER,
+	ciscoTsStackSwitchTemperature		INTEGER,
+	ciscoTsStackSwitchMemory		INTEGER,
+	ciscoTsStackSwitchSPANPort		INTEGER,
+	ciscoTsStackSwitchSPANMonitoredPort 	INTEGER,
+	ciscoTsStackSwitchFeatureStatus		INTEGER,
+	ciscoTsStackSwitchFeatureKey		INTEGER,
+	ciscoTsStackSwitchPorts			OCTET STRING,
+	ciscoTsStackSwitchAgingTime		INTEGER,
+	ciscoTsStackSwitchAgingLevel		INTEGER,
+	ciscoTsStackSwitchXmitFrames		Counter,
+	ciscoTsStackSwitchRcvdFrames		Counter,
+	ciscoTsStackSwitchRcvdErrFrames		Counter,
+	ciscoTsStackSwitchLostFrames		Counter,
+	ciscoTsStackSwitchPendingSendRqsts	Counter,
+	ciscoTsStackSwitchXmitErrFrames		Counter,
+	ciscoTsStackSwitchCurrActStations	Counter,
+	ciscoTsStackSwitchLargestNumStations 	Counter,
+	ciscoTsStackSwitchMaxAddressChain	Gauge,
+	ciscoTsStackSwitchAddressTblFulls	Counter,
+	ciscoTsStackSwitchId			OBJECT IDENTIFIER,
+	ciscoTsStackSwitchSPANMonitoredTrCRFs	OCTET STRING,
+	ciscoTsStackSwitchPwrSupplyStatus	INTEGER
+	}
+
+ciscoTsStackSwitchNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Switch number as determined by the port number
+		that the switch is connected to in a Matrix or as 
+		determined by the Stack Management software when two 
+		switches are connected back to back."
+	::= { ciscoTsStackEntry 1 }
+
+ciscoTsStackSwitchBIAddr  OBJECT-TYPE
+	SYNTAX	MacAddr
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The burned in MAC address of the switch."
+	::= { ciscoTsStackEntry 2 }
+
+ciscoTsStackSwitchLAAddr  OBJECT-TYPE
+	SYNTAX	MacAddr
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The locally administered MAC address of the switch.
+		After writing to this object, you must reset the switch."
+	::= { ciscoTsStackEntry 3 }
+
+ciscoTsStackSwitchFwVersion  OBJECT-TYPE
+	SYNTAX	DisplayString (SIZE (1..128))
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Version number for the firmware running on the switch."
+	::= { ciscoTsStackEntry 4 }
+
+ciscoTsStackSwitchHwVersion  OBJECT-TYPE
+	SYNTAX	DisplayString (SIZE (1..128))
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Hardware version number for the switch."
+	::= { ciscoTsStackEntry 5 }
+
+ciscoTsStackSwitchUptime  OBJECT-TYPE
+	SYNTAX	TimeTicks
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Time ticks since the switch was last reset."
+	::= { ciscoTsStackEntry 6 }
+
+ciscoTsStackSwitchStatus  OBJECT-TYPE
+	SYNTAX	INTEGER 
+                  { 
+                        running(1), 
+                        coldReset(2), 
+                        warmReset(3)
+                  }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Operational status of the box. Setting this value
+                 to either coldReset(2) or warmReset(3) will cause
+                 cold start or warm start to occur after a predefined
+                 time delay."
+	::= { ciscoTsStackEntry 7 }
+
+ciscoTsStackSwitchTemperature  OBJECT-TYPE
+	SYNTAX	INTEGER 
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Temperature of each switch reported in degrees Celsius."
+	::= { ciscoTsStackEntry 8 }
+
+ciscoTsStackSwitchMemory  OBJECT-TYPE
+	SYNTAX	INTEGER (0..32)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Installed memory on the switch in MB."
+	::= { ciscoTsStackEntry 9 }
+
+ciscoTsStackSwitchSPANPort OBJECT-TYPE
+	SYNTAX	INTEGER (0..32)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Port number to be used for the Switch Port Analyzer.
+		 Setting this object to zero turns off the SPAN function."
+	::= { ciscoTsStackEntry 10 }
+
+ciscoTsStackSwitchSPANMonitoredPort OBJECT-TYPE
+	SYNTAX	INTEGER (0..32)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Port monitored by the SPAN function."
+	::= { ciscoTsStackEntry 11 }
+
+ciscoTsStackSwitchFeatureStatus OBJECT-TYPE
+	SYNTAX	INTEGER { standard(1), enhanced(2) , unknown(3)}
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"This object indicates whether the switch is enabled 
+		 to support enhanced features."
+	::= { ciscoTsStackEntry 12 }
+
+ciscoTsStackSwitchFeatureKey OBJECT-TYPE
+	SYNTAX	INTEGER
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Feature key to enable enhanced features. See the
+		manual for information pertaining to enabling possible
+		enhanced features."
+	::= { ciscoTsStackEntry 13 }
+
+ciscoTsStackSwitchPorts OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(4))
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"A bit mask representing all the ports present in this
+                switch. Each octet within the value of this object 
+                specifies a set of eight ports, with the first octet 
+                specifying ports 1 through 8, the second octet specifying 
+                ports 9 through 16, etc.  Within each octet, the most
+                significant bit represents the lowest numbered
+                port, and the least significant bit represents the
+                highest numbered port.  Thus, each port of the
+                switch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of
+                ports in this switch; the port is not included in this
+		switch if its bit has a value of '0'." 
+        ::= { ciscoTsStackEntry 14 }
+
+ciscoTsStackSwitchAgingTime OBJECT-TYPE
+        SYNTAX  INTEGER (0..9999)
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+		"Aging time in minutes for the master address table entries
+		 on this switch."
+	::= { ciscoTsStackEntry 15 }
+
+ciscoTsStackSwitchAgingLevel OBJECT-TYPE
+	SYNTAX	INTEGER  (0..90)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Threshold to demand age the master address table. All
+	         numbers refer to percentage of the address table. The
+		 only values accepted by the agent are 50,60,70,80,90
+		 and 0. Setting the value to 0 disables demand aging."
+	::= { ciscoTsStackEntry 16 }
+
+ciscoTsStackSwitchXmitFrames OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Frames transmitted by the CPU."
+	::= { ciscoTsStackEntry 18 }
+
+ciscoTsStackSwitchRcvdFrames OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Frames received for processing by the CPU."
+	::= { ciscoTsStackEntry 19 }
+
+ciscoTsStackSwitchRcvdErrFrames OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Error frames received by the CPU."
+	::= { ciscoTsStackEntry 20 }
+
+ciscoTsStackSwitchLostFrames OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Frames lost by the CPU while trying to transmit."
+	::= { ciscoTsStackEntry 21 }
+
+ciscoTsStackSwitchPendingSendRqsts OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Frames queued in the CPU's transmit buffer."
+	::= { ciscoTsStackEntry 22 }
+
+ciscoTsStackSwitchXmitErrFrames OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"Frames in error due to buffer overflows or drops
+		in the CPU."
+	::= { ciscoTsStackEntry 23 }
+
+ciscoTsStackSwitchCurrActStations OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"The number of station address entries currently active
+		in the switch."
+	::= { ciscoTsStackEntry 24 }
+
+ciscoTsStackSwitchLargestNumStations OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"The largest number of active stations ever seen on the
+		switch since the last reboot, or clearing of statistics."
+	::= { ciscoTsStackEntry 25 }
+
+ciscoTsStackSwitchMaxAddressChain OBJECT-TYPE
+        SYNTAX  Gauge
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"The longest chain of addresses anywhere in the CPU's 
+		address hash table."
+	::= { ciscoTsStackEntry 26 }
+
+ciscoTsStackSwitchAddressTblFulls OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"The number of times a hash table chain has filled up."
+	::= { ciscoTsStackEntry 27 }
+
+ciscoTsStackSwitchId  OBJECT-TYPE
+	SYNTAX	OBJECT IDENTIFIER
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The object ID used to uniquely identify the type of
+		 Cisco token ring switch."
+	::= { ciscoTsStackEntry 28 }
+
+ciscoTsStackSwitchSPANMonitoredTrCRFs OBJECT-TYPE
+	SYNTAX	OCTET STRING (SIZE(128))
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Token Ring Concentrator Facilities (TrCRFs) for which 
+                traffic on the port specified by
+		ciscoTsStackSwitchSPANMonitoredPort should be monitored.
+		Individual TrCRFs can be selected for monitoring only
+		on trunk ports.
+		
+		Each octet within the value of this object 
+                specifies a set of eight TrCRFs, with the first 
+		octet specifying TrCRFs 1 through 8, the second 
+		octet specifying TrCRFs 9 through 16, etc.  
+		Within each octet, the most significant bit 
+		represents the lowest numbered TrCRF, and the 
+		least significant bit represents the highest 
+		numbered TrCRF.  Thus, each TrCRF of the stack
+                is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that TrCRF is included in the set of
+                TrCRFs for which traffic should be monitored ;
+		the TrCRF is not included if its bit has a value of '0'.
+		The default is all zeros.
+
+		Get requests for this object will return all zeros 
+		if ciscoTsStackSwitchSPANMonitoredPort specifies a
+		non-trunk port.  Set requests for this object will
+		be rejected with a 'badValue' error if
+		ciscoTsStackSwitchSPANMonitoredPort specifies a
+		non-trunk port.  "
+	::= { ciscoTsStackEntry 29 }
+
+ciscoTsStackSwitchPwrSupplyStatus OBJECT-TYPE
+        SYNTAX  INTEGER {
+			unknown(1),
+			internal-only(2),
+			internal-no-backup(3),
+			internal-backup-will-reset(4),
+			external-no-backup(5),
+			external-backup-no-reset(6)
+			}
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"The status of the power supply of the switch. The values
+		have the following meanings:
+
+		unknown(1) : 
+		The status is not known.
+
+		internal-only(2) : 
+		The switch is not capable of redundant power.
+
+		internal-no-backup(3) : 
+		The switch is capable of redundant power, but is currently 
+		operating on the internal supply with no RPS attached.
+
+		internal-backup-will-reset(4) : 
+		The switch is capable of redundant power and is currently
+		opertaing on the internal supply. A RPS is attached, but
+		if the internal supply fails there will be a reset.
+
+		external-no-backup(5) :
+		The switch is capable of redundant power and is currently
+		operating on a single external RPS connection.
+
+		external-backup-no-reset(6) :
+		The switch is capable of redundant power and is currently
+		operating with a y-connected external RPS. If one supply
+		in the RPS fails there will be no interuption of operation."
+	::= { ciscoTsStackEntry 30 }
+
+-- Module Configuration Table
+
+ciscoTsModTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsModEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Module configuration table.  There is one entry
+                 in the table for each module in a stack.
+                 Entries cannot be administratively created/deleted." 
+	::= { ciscoTsModule 1 }
+
+ciscoTsModEntry OBJECT-TYPE
+	SYNTAX	CiscoTsModEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the Module Table"
+	INDEX	{ ciscoTsModSwitchNumber, ciscoTsModNumber }
+	::= { ciscoTsModTable 1 }
+
+CiscoTsModEntry ::= SEQUENCE {
+        ciscoTsModSwitchNumber	INTEGER,
+	ciscoTsModNumber	INTEGER,
+	ciscoTsModState		INTEGER,
+	ciscoTsModType		INTEGER,
+	ciscoTsModRevision	DisplayString,
+	ciscoTsModFwVer		DisplayString,
+	ciscoTsModNumPorts	INTEGER,
+	ciscoTsModUptime	TimeTicks
+	}
+
+ciscoTsModSwitchNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Switch number as determined by the port number
+		that the switch is connected to in a
+		Matrix or as determined by the Stack Management 
+		software when two switches are connected back
+		to back."
+	::= { ciscoTsModEntry 1 }
+
+ciscoTsModNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..4)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The module number."
+	::= { ciscoTsModEntry 2 }
+
+ciscoTsModState  OBJECT-TYPE
+	SYNTAX	INTEGER { nomodule(1), running(2) , faulty(3) }
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The state indicates the current operational state of the
+		 module."
+	::= { ciscoTsModEntry 3 }
+
+ciscoTsModType  OBJECT-TYPE
+	SYNTAX	INTEGER 
+		{
+		 system(1),		-- Base T/R Ports and CPU
+		 proStack(2),	 	-- Stack Port Module
+		 proPort4TR(3),		-- 4 port expansion
+		 proPort4Fiber(4),	-- 4 port fiber 
+		 proPortISL-FX(5),	-- FX ISL uplink module
+		 proPortISL-TX(6),	-- TX ISL uplink module
+		 proPortATM155Fiber(8),	-- ATM Module - Fiber
+		 proPortATM155UTP(9),	-- TX ATM Module - UTP
+		 unknown(10),		-- Unknown Module
+		 none(11)		-- Slot is empty
+		}
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The type of module plugged in to the slot. Module type 
+		 system(1) represents the mother board with the CPU and
+		 system memory. Module state none(10) represents a slot 
+		 with no modules plugged in (indicated by ciscoTsModState)."
+	::= { ciscoTsModEntry 4 }
+
+ciscoTsModRevision  OBJECT-TYPE
+	SYNTAX	DisplayString
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The module revision number."
+	::= { ciscoTsModEntry 5 }
+
+ciscoTsModFwVer  OBJECT-TYPE
+	SYNTAX	DisplayString
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The module's firmware version."
+	::= { ciscoTsModEntry 6 }
+
+ciscoTsModNumPorts  OBJECT-TYPE
+	SYNTAX	INTEGER
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of ports in the module."
+	::= { ciscoTsModEntry 7 }
+
+ciscoTsModUptime  OBJECT-TYPE
+	SYNTAX	TimeTicks
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Time ticks since the module was last reset."
+	::= { ciscoTsModEntry 8 }
+
+-- ciscoTs Port tables
+
+ciscoTsPortCfgTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsPortCfgEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"A table of configuration information about each port.
+                 There is one entry for each port in a stack.  Entries
+                 cannot be administratively created/deleted."
+	::= { ciscoTsPort 1 }
+
+ciscoTsPortCfgEntry OBJECT-TYPE
+	SYNTAX	CiscoTsPortCfgEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of rows in the port configuration table."
+	INDEX	{ ciscoTsStackSwitchNumber, ciscoTsPortCfgNumber }
+	::= { ciscoTsPortCfgTable 1 }
+
+CiscoTsPortCfgEntry ::= SEQUENCE {
+	ciscoTsPortCfgNumber			INTEGER,
+ 	ciscoTsPortCfgModNumber			INTEGER,
+	ciscoTsPortCfgIfIndex			INTEGER,
+	ciscoTsPortCfgResetStats		INTEGER,
+	ciscoTsPortCfgResetAddrs		INTEGER,
+	ciscoTsPortCfgAddrAgingTime		INTEGER,
+	ciscoTsPortCfgDemandAgingLevel		INTEGER,
+	ciscoTsPortCfgErrLoThreshold		INTEGER,
+	ciscoTsPortCfgErrHiThreshold		INTEGER,
+	ciscoTsPortCfgErrSampling		INTEGER,
+	ciscoTsPortCfgMaxTransmitUnit		INTEGER,
+	ciscoTsPortCfgMaxExplorerRate		INTEGER,
+	ciscoTsPortCfgSetACbits			INTEGER,
+	ciscoTsPortCfgEarlyTokenRlse		INTEGER,
+	ciscoTsPortCfgForwardingMode		INTEGER,
+	ciscoTsPortCfgActualForwardingMode	INTEGER,
+	ciscoTsPortCfgPortMode			INTEGER,
+	ciscoTsPortCfgActualPortMode		INTEGER,
+	ciscoTsPortCfgPriorityThres		INTEGER,
+	ciscoTsPortCfgMinXmitPriority		INTEGER,
+	ciscoTsPortCfgCfgLossInterval		INTEGER,
+	ciscoTsPortCfgCfgLossThres		INTEGER,
+	ciscoTsPortCfgBcastSuppresion		INTEGER,
+	ciscoTsPortCfgCDPTimeToLive 		INTEGER,
+	ciscoTsPortCfgSpanningTreeMode 		INTEGER,
+	ciscoTsPortCfgSecurityMode 		INTEGER,
+        ciscoTsPortCfgSoftErrThreshold          INTEGER,
+        ciscoTsPortCfgSoftErrReportInterval     INTEGER,
+        ciscoTsPortCfgSoftErrorMonitoring       INTEGER
+	}
+
+ciscoTsPortCfgNumber OBJECT-TYPE
+	SYNTAX	INTEGER (1..32)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"A unique value for each port entry.  The value
+		corresponds the port number."
+	::= { ciscoTsPortCfgEntry 1 }
+
+ciscoTsPortCfgModNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..4)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Module number of the module that contains this port."
+	::= { ciscoTsPortCfgEntry 2 }
+
+ciscoTsPortCfgIfIndex OBJECT-TYPE
+	SYNTAX	INTEGER 
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"A pointer to the entry in the ifTable corresponding
+                 to this port."
+	::= { ciscoTsPortCfgEntry 3 }
+
+ciscoTsPortCfgResetStats OBJECT-TYPE
+	SYNTAX	INTEGER {
+		other(1),	-- none of the following
+		running(2),	-- port is functioning
+		reset(3)	-- reset port counters
+		}
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Setting this object to reset(3) causes all
+		traffic counters for this port to be set to zero.
+		Also the value of ciscoTsPortStatsResetTimer is set to
+		zero."
+	::= { ciscoTsPortCfgEntry 4 }
+
+ciscoTsPortCfgResetAddrs OBJECT-TYPE
+	SYNTAX	INTEGER {
+		other(1),	-- none of the following
+		running(2),	-- port is functioning
+		reset(3)	-- clear address table &
+		}		--  reset port counters
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Setting this object to reset(3) clears all
+		address table entries for this port as well as
+		setting all port traffic counters to zero and
+		setting ciscoTsPortStatsResetTimer to zero."
+	::= { ciscoTsPortCfgEntry 5 }
+
+ciscoTsPortCfgAddrAgingTime OBJECT-TYPE
+	SYNTAX	INTEGER (0..9999)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+                "Port level address aging time in minutes. Setting this object
+		 to zero disables address aging."
+	::= { ciscoTsPortCfgEntry 6 }
+
+ciscoTsPortCfgDemandAgingLevel OBJECT-TYPE
+	SYNTAX	INTEGER  (0..90)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Threshold to demand age the port address table. All
+	         numbers refer to percentage of the address table. The
+		 only values accepted by the agent are 50,60,70,80,90
+		 and 0. Setting the value to 0 disables demand aging."
+	::= { ciscoTsPortCfgEntry 7 }
+
+ciscoTsPortCfgErrLoThreshold OBJECT-TYPE
+	SYNTAX	INTEGER (0..100)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Lower error rate threshold which causes the port to
+		transition from store and forward mode to cut-through mode."
+	::= { ciscoTsPortCfgEntry 8 }
+
+ciscoTsPortCfgErrHiThreshold OBJECT-TYPE
+	SYNTAX	INTEGER (0..100)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Upper error rate threshold which causes the port to
+		transition from cut-through mode to store and forward mode."
+	::= { ciscoTsPortCfgEntry 9 }
+
+ciscoTsPortCfgErrSampling OBJECT-TYPE
+	SYNTAX	INTEGER (0..60)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Error sampling interval in minutes."
+	::= { ciscoTsPortCfgEntry 10 }
+
+ciscoTsPortCfgMaxTransmitUnit OBJECT-TYPE
+	SYNTAX	INTEGER 
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"MTU size. The valid values for this object are 1500,
+		4472, 8144 and 17800. The value specified cannot exceed 
+		the vtpVlanMTU (see Cisco VTP MIB) for the TrBRF that 
+		this port is a member of.  Set requests for invalid values 
+		will be rejected with a 'badValue' error."
+	::= { ciscoTsPortCfgEntry 11 }
+
+ciscoTsPortCfgMaxExplorerRate OBJECT-TYPE
+	SYNTAX	INTEGER (-1..5000)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Explorer frame forwarding rate per second throttle.
+		A value of (-1) disables explorer frame throttling." 
+	::= { ciscoTsPortCfgEntry 12 }
+
+ciscoTsPortCfgSetACbits OBJECT-TYPE
+	SYNTAX	INTEGER {enabled(1), disabled(2)}
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Specifies if the AC bits shall be set unconditionally
+		when a port forwards certain LLC frames."
+	::= { ciscoTsPortCfgEntry 13 }
+
+ciscoTsPortCfgEarlyTokenRlse OBJECT-TYPE
+	SYNTAX	INTEGER {enabled(1), disabled(2)}
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Early token release operation."
+	::= { ciscoTsPortCfgEntry 14 }
+
+ciscoTsPortCfgForwardingMode OBJECT-TYPE
+	SYNTAX	INTEGER { auto(1),
+	                  storeandforward(2),
+	                  cutthru(3),
+			  unknown(4) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Operational frame switching mode for the port. When in
+		auto mode the port uses the Direct Cut algorithm to place
+		the port in either cutthru(3) or storeandforward(2) mode."
+	::= { ciscoTsPortCfgEntry 15 }
+
+ciscoTsPortCfgActualForwardingMode OBJECT-TYPE
+	SYNTAX	INTEGER { storeandforward(1), 
+	                  cutthru(2),
+			  unknown(3) }
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Actual operational frame switching mode for the port."
+	::= { ciscoTsPortCfgEntry 16 }
+
+ciscoTsPortCfgPortMode OBJECT-TYPE
+	SYNTAX	INTEGER { auto(1), 
+	                  hdx-Port(2),
+			  hdx-Station(3),
+			  fdx-Port(4),
+			  fdx-Station(5),
+			  ri-ro(6),
+			  passive-probe(7),
+			  unknown(8) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Port operation mode.  Only the HDX and FDX modes can be
+		auto detected. Note, that passive-probe(7) mode can not be
+		set with this object. The passive-probe(7) mode is set
+		automatically when a passive probe is defined in the
+		ciscoTsPassiveProbeTable.  Note also that ri-ro(6) is only
+		valid for ports 19, 20 (Catalyst 3900), and ports on a fiber 
+		module."
+	::= { ciscoTsPortCfgEntry 17 }
+
+ciscoTsPortCfgActualPortMode OBJECT-TYPE
+	SYNTAX	INTEGER { hdx-Port(1),
+			  hdx-Station(2),
+			  fdx-Port(3),
+			  fdx-Station(4),
+			  ri-ro(5),
+			  passive-probe(6),
+			  unknown(7) }
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The actual port operation mode. If the port is in auto mode,
+		this object will return the mode that the port opened in."
+	::= { ciscoTsPortCfgEntry 18 }
+
+ciscoTsPortCfgPriorityThres OBJECT-TYPE
+	SYNTAX	INTEGER (0..7)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The highest token-ring frame priority that shall go to
+		the low-priority transmit queue."
+	::= { ciscoTsPortCfgEntry 19 }
+
+ciscoTsPortCfgMinXmitPriority OBJECT-TYPE
+	SYNTAX	INTEGER (0..6)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The minimum token priority that will be used for
+		transmit."
+	::= { ciscoTsPortCfgEntry 20 }
+
+ciscoTsPortCfgCfgLossThres OBJECT-TYPE
+     SYNTAX   INTEGER (1..100)
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of configuration loss events (described in
+          TsPortCfgLossRC) during the sample period which, if
+          exceeded, should cause the port to be disabled. If the
+          port is disabled by this function the port must be
+          manually re-enabled."
+     ::= { ciscoTsPortCfgEntry 21 }
+
+ciscoTsPortCfgCfgLossInterval OBJECT-TYPE
+     SYNTAX   INTEGER (1..60)
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "The sampling period, in minutes, for which the port
+          monitors to determine if the configuration loss threshold has
+          been exceeded."
+     ::= { ciscoTsPortCfgEntry 22 }
+
+ciscoTsPortCfgBcastSuppresion OBJECT-TYPE
+     SYNTAX   INTEGER (0..100)
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "The number of broadcast frames per second allowed to be
+	 forwarded by this port.  Any broadcast frames exceeding
+	 this watermark will not be forwarded by the port. Setting this
+	 object to 0 turns broadcast suppression off."
+     ::= { ciscoTsPortCfgEntry 23 }
+
+ciscoTsPortCfgCDPTimeToLive OBJECT-TYPE
+	SYNTAX	INTEGER(0..255)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The advertised time-to-live parameter on all CDP messages
+		generated by this switch on this port."
+	::= { ciscoTsPortCfgEntry 24 }
+
+ciscoTsPortCfgSpanningTreeMode  OBJECT-TYPE
+	SYNTAX	INTEGER { auto(1), forwarding(2), blocking(3), unknown(4) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Used when configuring manual spanning tree. Setting
+		this object to forwarding(2) or blocking(3) overrides
+		the TrCRF's spanning tree's algorithm for this port." 
+	::= { ciscoTsPortCfgEntry 25 }
+
+ciscoTsPortCfgSecurityMode  OBJECT-TYPE
+	SYNTAX	INTEGER { normal(1), 
+			  secure-src-addrs(2),
+			  secure-dest-addrs(3),
+			  secure-src-and-dest-addrs(4) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Port security mode is used to disable address learning
+		at a port where an allow-source or allow-destination
+		MAC address filter is configured.  A value of normal(1)
+		indicates that the port is not configured for security.
+		A value of secure-src-addrs(2) indicates that learning
+		for source addresses is disabled.  A value of
+		secure-dest-addrs(3) indicates that learning for
+		destination addresses is disabled.  A value of 
+		secure-src-and-dest-addrs(4) indicates that learning is
+		disabled for both source and destination addresses."
+	::= { ciscoTsPortCfgEntry 26 }
+
+ciscoTsPortCfgSoftErrThreshold  OBJECT-TYPE
+	SYNTAX	INTEGER (1..255)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The number of soft errors reported from a station 
+                connected to this port which, if exceeded, should
+                cause a soft error exceeded trap to be issued. The
+                error counters being monitored and compared to this
+                threshold value are all of the error counters in the
+                ringStationTable (see RFC 1513)."
+                DEFVAL { 100 }
+	::= { ciscoTsPortCfgEntry 27 }
+
+ciscoTsPortCfgSoftErrReportInterval  OBJECT-TYPE
+	SYNTAX	INTEGER (0..65535)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The sampling period, in seconds, in which each station
+                connected to this port will be monitored for excessive
+                soft error reports. If a station reports more than
+                ciscoTsPortCfgSoftErrThreshold errors within the sampling
+                period a trap will be issued to the management station(s).
+                Setting a value of 0 will cause no traps to be sent for
+                this port."
+                DEFVAL { 60 }
+	::= { ciscoTsPortCfgEntry 28 }
+
+ciscoTsPortCfgSoftErrorMonitoring  OBJECT-TYPE
+	SYNTAX	INTEGER { enable(1), disable(2) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Used to enable or disable, for this port, the collection
+                of soft error statistics and the sending of traps when
+                the configured error threshold is exceeded. If RMON 
+                statistics collection is not enabled, then the soft error
+                statistics will only be available from the console."
+                DEFVAL { disable }
+	::= { ciscoTsPortCfgEntry 29 }
+
+ciscoTsPortStatsTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsPortStatsEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"A table of statistical information about each port.
+                 There is one entry for each port in a stack.  Entries
+                 cannot be administratively created/deleted"
+	::= { ciscoTsPort 2 }
+
+ciscoTsPortStatsEntry OBJECT-TYPE
+	SYNTAX	CiscoTsPortStatsEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of rows in the port statistics table."
+	INDEX	{ ciscoTsStackSwitchNumber, ciscoTsPortStatsNumber }
+	::= { ciscoTsPortStatsTable 1 }
+
+CiscoTsPortStatsEntry ::= SEQUENCE {
+	ciscoTsPortStatsNumber			INTEGER,
+ 	ciscoTsPortStatsModNumber		INTEGER,
+	ciscoTsPortStatsIfIndex			INTEGER,
+	ciscoTsPortStatsRcvLocalFrames		Counter,
+	ciscoTsPortStatsForwardedFrames		Counter,
+	ciscoTsPortStatsStations		Counter,
+	ciscoTsPortStatsSWHandledFrames		Counter,
+	ciscoTsPortStatsLocalStations		Counter,
+	ciscoTsPortStatsRemoteStations		Counter,
+	ciscoTsPortStatsUnknownStaFrames	Counter,
+	ciscoTsPortStatsResetTimer		TimeTicks,
+	ciscoTsPortStatsInFrames		Counter,
+	ciscoTsPortStatsOutFrames		Counter,
+	ciscoTsPortStatsLongFrames		Counter,
+	ciscoTsPortStatsShortFrames		Counter,
+	ciscoTsPortStatsInBufOverflows		Counter,
+	ciscoTsPortStatsOutBufOverflows		Counter,
+	ciscoTsPortStatsRcvBcasts		Counter,
+	ciscoTsPortStatsRcvMcasts		Counter,
+	ciscoTsPortStatsSwitchedFrames		Counter,
+	ciscoTsPortStatsPktsInErrors		Counter,
+	ciscoTsPortStatsAddrChainOverflows	Counter,
+	ciscoTsPortStatsTableOverflows		Counter,
+	ciscoTsPortStatsCfgLoss			Counter,
+	ciscoTsPortStatsCfgLossRC		INTEGER,
+	ciscoTsPortStatsTrCRF			OCTET STRING,
+	ciscoTsPortStatsAutoDisableRC		INTEGER
+	}
+
+ciscoTsPortStatsNumber OBJECT-TYPE
+	SYNTAX	INTEGER (1..32)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"A unique value for each port entry.  The value
+		corresponds the port number."
+	::= { ciscoTsPortStatsEntry 1 }
+
+ciscoTsPortStatsModNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..4)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Module number of the module that contains this port."
+	::= { ciscoTsPortStatsEntry 2 }
+
+ciscoTsPortStatsIfIndex OBJECT-TYPE
+	SYNTAX	INTEGER 
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"A pointer to the entry in the ifTable corresponding
+                 to this port."
+	::= { ciscoTsPortStatsEntry 3 }
+
+ciscoTsPortStatsRcvLocalFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of frames received where the destination
+		station address is on this port."
+	::= { ciscoTsPortStatsEntry 4 }
+
+ciscoTsPortStatsForwardedFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of frames received on this port and
+		 forwarded to another port or to the system module 
+                 for processing."
+	::= { ciscoTsPortStatsEntry 5 }
+
+ciscoTsPortStatsStations OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of active stations in the address table for this
+		port."
+	::= { ciscoTsPortStatsEntry 6 }
+
+ciscoTsPortStatsSWHandledFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of frames received on this port and
+		delivered to the system module for processing."
+	::= { ciscoTsPortStatsEntry 7 }
+
+ciscoTsPortStatsLocalStations OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of stations on this port which belong to
+		the local segment."
+	::= { ciscoTsPortStatsEntry 8 }
+
+ciscoTsPortStatsRemoteStations OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of stations on this port which belong to
+		another segment."
+	::= { ciscoTsPortStatsEntry 9 }
+
+ciscoTsPortStatsUnknownStaFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of unicast frames received on this port
+		and forwarded to the system module for processing
+		because the source or destination station address 
+		is not in the port's forwarding table."
+	::= { ciscoTsPortStatsEntry 10 }
+
+ciscoTsPortStatsResetTimer OBJECT-TYPE
+	SYNTAX	TimeTicks
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Time (in 100th second ticks) since the port
+		counters were reset."
+	::= { ciscoTsPortStatsEntry 11 }
+
+ciscoTsPortStatsInFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of frames received on this port."
+	::= { ciscoTsPortStatsEntry 12 }
+
+ciscoTsPortStatsOutFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of frames transmitted by this port."
+	::= { ciscoTsPortStatsEntry 13 }
+
+ciscoTsPortStatsLongFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of frames received on this port which were
+		 too long."
+	::= { ciscoTsPortStatsEntry 14 }
+
+ciscoTsPortStatsShortFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of frames received on this port which were
+		 too short."
+	::= { ciscoTsPortStatsEntry 15 }
+
+ciscoTsPortStatsInBufOverflows OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of frames received on this port which
+		 caused a receive buffer overflow."
+	::= { ciscoTsPortStatsEntry 16 }
+
+ciscoTsPortStatsOutBufOverflows OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of frames which could not be transmitted
+		 from this port because of transmit buffer overflow."
+	::= { ciscoTsPortStatsEntry 17 }
+
+ciscoTsPortStatsRcvBcasts OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of broadcast frames received on this port
+		without errors."
+	::= { ciscoTsPortStatsEntry 18 }
+
+ciscoTsPortStatsRcvMcasts OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of multicast frames received on this port
+		without errors."
+	::= { ciscoTsPortStatsEntry 19 }
+
+ciscoTsPortStatsSwitchedFrames OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of frames switched on this port."
+	::= { ciscoTsPortStatsEntry 20 }
+
+ciscoTsPortStatsPktsInErrors OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Total number of packets received or transmitted
+		 from this port in which there was an error."
+	::= { ciscoTsPortStatsEntry 21 }
+
+ciscoTsPortStatsAddrChainOverflows OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of times an address chain was full when trying to 
+		 add an entry to the port address table."
+	::= { ciscoTsPortStatsEntry 22 }
+
+ciscoTsPortStatsTableOverflows OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Number of times the address table  was full when trying 
+		 to add an entry to the port address table."
+	::= { ciscoTsPortStatsEntry 23 }
+
+ciscoTsPortStatsCfgLoss OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of events, as described in ciscoTsPortCfgLossRC,
+          after the port has completed the join process and
+          then lost communication."
+     ::= { ciscoTsPortStatsEntry 24 }
+
+ciscoTsPortStatsCfgLossRC OBJECT-TYPE
+     SYNTAX   INTEGER {
+                  wire-fault(1),
+                  lobe-test-fail(2),
+                  tkp-mac-frame-rcv-in-txi-mode(3),
+                  heart-beat-fail(4),
+                  txi-new-station(5),
+                  txi-protocol-error(6),
+		  no-cfg-loss(7)
+                  }
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Reason code describing the cause of the latest 
+	  configuration loss.  A value of no-cfg-loss(7) will
+	  be returned when there has not been a configuration
+	  loss."
+     ::= { ciscoTsPortStatsEntry 25 }
+
+ciscoTsPortStatsTrCRF OBJECT-TYPE
+    SYNTAX  OCTET STRING (SIZE(128))
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+    	"The TrCRF or TrCRFs that a port is assigned to. Only trunk
+	ports such as ISL and ATM can be members of multiple TrCRFs.
+        Each octet within the value of this object specifies a set of
+	eight TrCRFs, with the first octet specifying TrCRFs 1 through 8,
+	the second octet specifying TrCRFs 9 through 16, etc.  Within 
+	each octet, the most significant bit represents the lowest 
+	numbered TrCRF, and the least significant bit represents the 
+	highest numbered TrCRF.  Thus, each TrCRF of the stack is 
+	represented by a single bit within the value of this object.
+	If that bit has a value of '1', then the port is assigned to
+	that TrCRF.  If that bit has a value of '0', then the port is not
+	assigned to the TrCRF."
+    ::= { ciscoTsPortStatsEntry 26 }
+	
+ciscoTsPortStatsAutoDisableRC OBJECT-TYPE
+     SYNTAX   INTEGER {
+                  not-disabled(1),
+                  unknown(2),
+                  speed-error(3),
+		  remove-received(4),
+                  disabled-by-DRiP(5)
+                  }
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Reason code describing the cause for a port having been
+	  disabled by the switch software.  A value of not-disabled(1)
+	  will be returned when the port has not been disabled by the
+	  switch software."
+     ::= { ciscoTsPortStatsEntry 27 }
+
+-- Passive Probe port
+
+ciscoTsPassiveProbeTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsPassiveProbeEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Passive probe port configuration table.  There
+                 are always two entries in the table.  These
+                 entries cannot be administratively deleted and
+                 no rows can be created."
+	::= { ciscoTsProbe 1 }
+
+ciscoTsPassiveProbeEntry OBJECT-TYPE
+	SYNTAX	CiscoTsPassiveProbeEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the table."
+	INDEX { ciscoTsStackSwitchNumber, ciscoTsPassiveProbeIndex }
+	::= { ciscoTsPassiveProbeTable 1 }
+
+CiscoTsPassiveProbeEntry ::= SEQUENCE {
+	ciscoTsPassiveProbeIndex		INTEGER,
+	ciscoTsPassiveProbePort			INTEGER,
+	ciscoTsPassiveProbeMonitoredPort	INTEGER,
+	ciscoTsPassiveProbeDirection		INTEGER
+	}
+
+ciscoTsPassiveProbeIndex OBJECT-TYPE
+	SYNTAX	INTEGER (1..2)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Index into the Passive Probe port table.
+		The following table describes the configuration
+		options for the ciscoTsPassiveProbeTable. The
+		PortMode column represents the operational mode
+		of the ciscoTsPassiveProbeMonitoredPort.
+
+		Index     PortMode     Probe Direction
+		---------------------------------------------
+		  1         HDX            both  
+		  1         FDX            receive
+		  2         HDX            both
+		  2         FDX            transmit
+
+		Set the objects in this table according to
+		how you want to monitor the traffic."
+	::= { ciscoTsPassiveProbeEntry 1 }
+
+ciscoTsPassiveProbePort OBJECT-TYPE
+	SYNTAX	INTEGER (0..28)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The port that is configured to mirror traffic
+		from another port in the switch. This is the port
+		to which you can connect an RMON probe.  Setting this
+		object to zero turns off the passive probe."
+	::= { ciscoTsPassiveProbeEntry 2 }
+
+ciscoTsPassiveProbeMonitoredPort OBJECT-TYPE
+	SYNTAX	INTEGER (0..28)
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The port that will have its traffic mirrored onto
+		the probe port. Set this object to a non-zero value
+		to have that port's traffic copied to the monitoring
+		port. The default value is 0."
+	::= { ciscoTsPassiveProbeEntry 3 }
+
+ciscoTsPassiveProbeDirection OBJECT-TYPE
+	SYNTAX	INTEGER { transmit(1), --FDX ports only
+                          receive(2),  --FDX ports only
+			  both(3),	--HDX ports only
+			  unknown(4)
+	                 }
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Direction of traffic flow that is being monitored."
+	::= { ciscoTsPassiveProbeEntry 4 }
+
+-- TrCRF Config and Info Table 
+-- Supports dynamic configuration of TrCRFS
+
+ciscoTsTrCRFInfoTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsTrCRFInfoEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"TrCRF information table.  There is one entry
+                 for each TrCRF in a stack.  Entries are administratively
+                 created and deleted via the vtpEditControlTable."
+	::= { ciscoTsVLANS 1 }
+
+ciscoTsTrCRFInfoEntry OBJECT-TYPE
+	SYNTAX	CiscoTsTrCRFInfoEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the TrCRF Table"
+	INDEX	{ ciscoTsTrCRFInfoTrCRFNumber }
+	::= { ciscoTsTrCRFInfoTable 1 }
+
+CiscoTsTrCRFInfoEntry ::= SEQUENCE {
+	ciscoTsTrCRFInfoTrCRFNumber			INTEGER,
+	ciscoTsTrCRFInfoName				DisplayString,
+	ciscoTsTrCRFInfoSpanningTreeProtoSpecification	INTEGER,
+	ciscoTsTrCRFInfoSpanningTreeBridgeForwardDelay	Timeout,
+	ciscoTsTrCRFInfoSpanningTreeBridgeHelloTime	Timeout,
+	ciscoTsTrCRFInfoSpanningTreeBridgeMaxAge	Timeout,
+	ciscoTsTrCRFInfoSpanningTreeInternalPortMode	INTEGER
+	}
+
+ciscoTsTrCRFInfoTrCRFNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..1024)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Unique identifier for this entry in the TrCRF
+		table. Corresponds to the TrCRF number.
+		It is also the index into the vtpVLANEntry table which
+		is in the VTP MIB."
+	::= { ciscoTsTrCRFInfoEntry 1 }
+
+ciscoTsTrCRFInfoName OBJECT-TYPE
+	SYNTAX	DisplayString (SIZE (1..32))
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"User defined name of the TrCRF. The name can only be
+		set in the VTP MIB."
+	::= { ciscoTsTrCRFInfoEntry 2 }
+
+ciscoTsTrCRFInfoSpanningTreeProtoSpecification	OBJECT-TYPE
+	SYNTAX	INTEGER { none(1), cisco(2), ieee(3), auto(4) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The Spanning Tree Protocol to run on this TrCRF."
+	::= { ciscoTsTrCRFInfoEntry 3 }
+
+ciscoTsTrCRFInfoSpanningTreeBridgeForwardDelay  OBJECT-TYPE
+	SYNTAX	Timeout
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The value used as the Forwarding Delay in this TrCRF. 
+		The range for this parameter is 400 to 3000 and is related
+		to the  value  of dtrSpanningTreeBridgeMaxAge. See 802.1D-1990
+		for the relationship between dot1dStpBridgeMaxAge and
+		dot1dStpBridgeForwardDelay. The granularity of this timer is
+		specified to be 1/100 of a second. This agent will return a
+		'badValue' error if a set is attempted to a value which is
+		not a whole number of seconds."
+	::= { ciscoTsTrCRFInfoEntry 4 }
+
+ciscoTsTrCRFInfoSpanningTreeBridgeHelloTime  OBJECT-TYPE
+	SYNTAX	Timeout
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The value to be used as the Hello Time in this TrCRF.
+		The range for this parameter is 100 to 1000.  The granularity
+		of this timer is specified to be 1/100 of a second.  This
+		agent will return a 'badValue' error if a set is attempted 
+		to a value which is not a whole number of seconds."
+	::= { ciscoTsTrCRFInfoEntry 5 }
+
+ciscoTsTrCRFInfoSpanningTreeBridgeMaxAge  OBJECT-TYPE
+	SYNTAX	Timeout
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The value to be used as the Max Age in this TrCRF.
+		The range for this parameter is 600 to 4000 and is related
+		to the value of dtrSpanningTreeBridgeHelloTime.  See 
+		802.1D-1990 for the relationship between dot1dStpBridgeMaxAge
+		and dot1dStpBridgeHelloTime. The granularity of this timer 
+		is specified to be 1/100 of a second. This agent will return
+		a 'badValue' error if a set is attempted to a value which 
+		is not a whole number of seconds."
+	::= { ciscoTsTrCRFInfoEntry 6 }
+
+ciscoTsTrCRFInfoSpanningTreeInternalPortMode  OBJECT-TYPE
+	SYNTAX	INTEGER { auto(1), forwarding(2), blocking(3) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Used when configuring manual spanning tree. Setting
+		this object to forwarding(2) or blocking(3) overrides
+		the spanning tree's algorithm for TrCRF's logical
+		internal port that connects it to the TrBRF."
+	::= { ciscoTsTrCRFInfoEntry 7 }
+
+-- TrBRF information Table
+
+ciscoTsTrBRFInfoTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsTrBRFInfoEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"TrBRF information table.  There is one entry
+                 for each TrBRF in a stack.  Entries are administratively
+                 created and deleted via the vtpEditControlTable."
+	::= { ciscoTsVLANS 2 }
+
+ciscoTsTrBRFInfoEntry OBJECT-TYPE
+	SYNTAX	CiscoTsTrBRFInfoEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the TrBRF Table"
+	INDEX	{ ciscoTsTrBRFInfoTrBRFNumber }
+	::= { ciscoTsTrBRFInfoTable 1 }
+
+CiscoTsTrBRFInfoEntry ::= SEQUENCE {
+	ciscoTsTrBRFInfoTrBRFNumber			INTEGER,
+	ciscoTsTrBRFInfoName				DisplayString,
+	ciscoTsTrBRFInfoIpState				INTEGER,
+	ciscoTsTrBRFInfoIpAddress			IpAddress,
+	ciscoTsTrBRFInfoIpSubnetMask			IpAddress,
+	ciscoTsTrBRFInfoIpDefaultGateway		IpAddress,
+	ciscoTsTrBRFInfoStpMode				INTEGER,
+	ciscoTsTrBRFInfoIEEEStpUsesBridgeFuncAddr	INTEGER
+	}
+
+ciscoTsTrBRFInfoTrBRFNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..1024)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Unique identifier for this entry in the TrBRF
+		table. Corresponds to the TrBRF number.
+		It is also the index into the vtpVLANEntry table which
+		is in the VTP MIB."
+	::= { ciscoTsTrBRFInfoEntry 1 }
+
+ciscoTsTrBRFInfoName OBJECT-TYPE
+	SYNTAX	DisplayString (SIZE (1..32))
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"User defined name of the TrBRF.  The name can only be
+		set in the VTP MIB."
+	::= { ciscoTsTrBRFInfoEntry 2 }
+
+ciscoTsTrBRFInfoIpState  OBJECT-TYPE
+	SYNTAX	INTEGER { ip-disabled(1), 
+			  bootp-when-needed(2), 
+			  bootp-always(3) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		 "IP configuration for this TrBRF."
+	::= { ciscoTsTrBRFInfoEntry 3 }
+
+ciscoTsTrBRFInfoIpAddress  OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+                "IP Address assigned to this TrBRF. Changes to the
+                 IP Address of the TrBRF to which the management
+                 station belongs cause loss of connectivity until
+                 the management station updates its information about
+                 the IP Address."
+	::= { ciscoTsTrBRFInfoEntry 4 }
+
+ciscoTsTrBRFInfoIpSubnetMask  OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The subnet mask for this TrBRF."
+	::= { ciscoTsTrBRFInfoEntry 5 }
+
+ciscoTsTrBRFInfoIpDefaultGateway  OBJECT-TYPE
+	SYNTAX	IpAddress
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"The IP Address of the default gateway for this TrBRF."
+	::= { ciscoTsTrBRFInfoEntry 6 }
+
+ciscoTsTrBRFInfoStpMode OBJECT-TYPE
+	SYNTAX	INTEGER { enable(1), disable(2) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"This object is used to enable or disable the Spanning Tree
+		Protocol for this TrBRF."
+	::= { ciscoTsTrBRFInfoEntry 7 }
+
+ciscoTsTrBRFInfoIEEEStpUsesBridgeFuncAddr OBJECT-TYPE
+	SYNTAX	INTEGER { no(1), yes(2) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"Enables the IEEE Spanning Tree Protocol at the TrBRF
+		level to use the IBM bridge functional address instead
+		of the default IEEE functional address."
+	::= { ciscoTsTrBRFInfoEntry 8 }
+
+-- Transited VLANs
+
+ciscoTsTransitedConfiguredTrCRFs OBJECT-TYPE
+    SYNTAX  OCTET STRING (SIZE(128))
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+            "A string of octets containing one bit per TrCRF in the management
+            domain.  The first octet corresponds to TrCRFs with
+	    ciscoTsTrCRFInfoTrCRFNumber 1 through 8; the second octet to
+	    TrCRFs 9 through 16; etc.  The most significant bit of each octet
+	    corresponds to the lowest value ciscoTsTrCRFInfoTrCRFNumber in
+	    that octet.  If the bit correspond to a TrCRF is set to '1', then
+	    the TrCRF is a transited configured TrCRF on the local device.
+	    (Default TrCRFs which must transit the local device are
+            always considered to be 'transited configured TrCRFs'.)  Any
+	    attempt to:  set a bit string which has more bits set than the
+	    local device can transit; or does not have all bits set
+	    corresponding to default TrCRFs which must transit the device;
+	    or set any bits corresponding to non-existant TrCRFs (TrCRFs
+	    whose IDs are not defined in the management domain) will be
+	    rejected with a 'badValue' error."
+    ::= { ciscoTsVLANS 3 }
+
+ciscoTsTransitedTrCRFs OBJECT-TYPE
+    SYNTAX  OCTET STRING (SIZE(128))
+    ACCESS  read-only
+    STATUS  mandatory        
+    DESCRIPTION
+            "A string of octets containing one bit per TrCRF in the management
+            domain.  The first octet corresponds to TrCRFs with
+	    ciscoTsTrCRFInfoTrCRFNumber 1 through 8; the second octet to
+	    TrCRFs 9 through 16; etc.  The most significant bit of each octet
+	    corresponds to the lowest value ciscoTsTrCRFInfoTrCRFNumber in that
+	    octet.  If the bit corresponding to a TrCRF is set to '1', then
+	    the TrCRF transits the local device either because it was 
+	    configured to or because it was selected to automatically by the
+	    selection algorithm."
+    ::= { ciscoTsVLANS 4 }
+
+ciscoTsTransitedConfiguredTrBRFs OBJECT-TYPE
+    SYNTAX  OCTET STRING (SIZE(128))
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+            "A string of octets containing one bit per TrBRF in the management
+            domain.  The first octet corresponds to TrBRFs with
+	    ciscoTsTrBRFInfoTrBRFNumber 1 through 8; the second octet to
+	    TrBRFs 9 through 16; etc.  The most significant bit of each octet
+	    corresponds to the lowest value ciscoTsTrBRFInfoTrBRFNumber in
+	    that octet.  If the bit correspond to a TrBRF is set to '1', then
+	    the TrBRF is a transited configured TrBRF on the local device.
+	    (Default TrBRFs which must transit the local device are
+            always considered to be 'transited configured TrBRFs'.)  Any
+	    attempt to:  set a bit string which has more bits set than the
+	    local device can transit; or does not have all bits set
+	    corresponding to default TrBRFs which must transit the device;
+	    or set any bits corresponding to non-existant TrBRFs (TrBRFs
+	    whose IDs are not defined in the management domain) will be
+	    rejected with a 'badValue' error."
+    ::= { ciscoTsVLANS 5 }
+
+ciscoTsTransitedTrBRFs OBJECT-TYPE
+    SYNTAX  OCTET STRING (SIZE(128))
+    ACCESS  read-only
+    STATUS  mandatory        
+    DESCRIPTION
+            "A string of octets containing one bit per TrBRF in the management
+            domain.  The first octet corresponds to TrBRFs with
+	    ciscoTsTrBRFInfoTrBRFNumber 1 through 8; the second octet to
+	    TrBRFs 9 through 16; etc.  The most significant bit of each octet
+	    corresponds to the lowest value ciscoTsTrBRFInfoTrBRFNumber in that
+	    octet.  If the bit corresponding to a TrBRF is set to '1', then
+	    the TrBRF transits the local device either because it was 
+	    configured to or because it was selected to automatically by the
+	    selection algorithm."
+    ::= { ciscoTsVLANS 6 }
+
+-- TokenChannel Table. 
+
+ciscoTsTCTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsTCEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"The TokenChannel table.  There are always eight entries
+                 in the table, one for each possible channel.  These
+                 entries cannot be administratively deleted and no
+                 entries may be created."
+	::= { ciscoTsTChannel 1 }
+
+ciscoTsTCEntry OBJECT-TYPE
+	SYNTAX	CiscoTsTCEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the TokenChannel 
+                 table."
+	INDEX	{ ciscoTsTCSwitchNumber, ciscoTsTCNumber }
+	::= { ciscoTsTCTable 1 }
+
+CiscoTsTCEntry ::= SEQUENCE {
+	ciscoTsTCSwitchNumber	INTEGER,
+	ciscoTsTCNumber		INTEGER,
+        ciscoTsTCPorts		OCTET STRING,
+	ciscoTsTCStatus		INTEGER,
+        ciscoTsTCActivePorts    OCTET STRING
+        }
+
+ciscoTsTCSwitchNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Switch number determined by the port number
+		that the switch is connected to in a
+		Matrix or as determined by the Stack Management 
+		software when two switches are connected back
+		to back."
+	::= { ciscoTsTCEntry 1 }
+
+ciscoTsTCNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The unique identifier for this row. Corresponds to the 
+		TokenChannel number."
+	::= { ciscoTsTCEntry 2 }
+
+ciscoTsTCPorts OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(4))
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The set of ports in this switch which are active in this 
+                channel. Each octet within the value of this object 
+                specifies a set of eight ports, with the first octet 
+                specifying ports 1 through 8, the second octet specifying 
+                ports 9 through 16, etc.  Within each octet, the most
+                significant bit represents the lowest numbered
+                port, and the least significant bit represents the
+                highest numbered port.  Thus, each port of the
+                switch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of
+                configured ports; the port is not included if its bit has
+                a value of '0'. Set requests containing '1' values in
+                one or more bit positions which do not have a '1' value
+                in the corresponding position in ciscoTsStackSwitchPorts
+                will fail with a 'badValue' error.
+
+		The maximum number of ports in a channel and
+		therefore the maximum number of bits in this object
+		containing '1' values is 8."
+        ::= { ciscoTsTCEntry 3 }
+
+ciscoTsTCStatus OBJECT-TYPE
+        SYNTAX  INTEGER { up(1), down(2), reduced(3) }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The current running status of the channel."
+        ::= { ciscoTsTCEntry 4 }
+
+ciscoTsTCActivePorts OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(4))
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The set of ports in this switch which are active in this 
+                channel. Each octet within the value of this object 
+                specifies a set of eight ports, with the first octet 
+                specifying ports 1 through 8, the second octet specifying 
+                ports 9 through 16, etc.  Within each octet, the most
+                significant bit represents the lowest numbered
+                port, and the least significant bit represents the
+                highest numbered port.  Thus, each port of the
+                switch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of active
+                ports; the port is not included if its bit has a
+                value of '0'.    
+
+                The maximum number of ports in a channel and
+                therefore the maximum number of bits in this object
+                containing '1' values is 8."
+        ::= { ciscoTsTCEntry 5 }
+
+-- ciscoTs Filter Group
+
+-- Start Protocol Class Filter Table
+
+ciscoTsProtocolClassFilterTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsProtocolClassFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"DSAP and SNAP Filter Class table. This table is global
+		for the entire stack."
+	::= { ciscoTsFilter 1 }
+
+ciscoTsProtocolClassFilterEntry OBJECT-TYPE
+	SYNTAX	CiscoTsProtocolClassFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the filter class table.
+                 There are 15 entries in the table, one for each
+                 protocol class.  These entries cannot be 
+                 administratively deleted and no entries may be
+                 created."
+	INDEX	{ ciscoTsProtocolClassFilterIndex }
+	::= { ciscoTsProtocolClassFilterTable 1 }
+
+CiscoTsProtocolClassFilterEntry ::= SEQUENCE {
+	ciscoTsProtocolClassFilterIndex		INTEGER,
+	ciscoTsProtocolClassFilterEtype		OCTET STRING,
+	ciscoTsProtocolClassFilterDSAPs		OCTET STRING
+        }
+
+ciscoTsProtocolClassFilterIndex  OBJECT-TYPE
+	SYNTAX	INTEGER (1..15)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Protocol class table index."
+        ::= { ciscoTsProtocolClassFilterEntry 1 }
+
+ciscoTsProtocolClassFilterEtype  OBJECT-TYPE
+	SYNTAX	OCTET STRING
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"This is the two byte ether-type for this protocol
+		class. Only one ether type may be set per protocol
+		class. Setting an illegal ether type will result in a
+		'badValue' error. Only 8 ether types can be configured.
+		This object is only configurable for the first 8 protocol
+		class objects."
+        ::= { ciscoTsProtocolClassFilterEntry 2 }
+
+ciscoTsProtocolClassFilterDSAPs  OBJECT-TYPE
+	SYNTAX	OCTET STRING
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"This is the list of DSAPs associated with a 
+		protocol class. Up to sixteen DSAPs may be specified
+		per protocol class.  If any DSAP is an illegal value
+		the entire object will be rejected."
+        ::= { ciscoTsProtocolClassFilterEntry 3 }
+
+-- End Protocol Class Filter Table
+
+-- Start Protocol Filter Table
+
+ciscoTsProtocolFilterTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsProtocolFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"DSAP and SNAP Filter table. This table allows you
+		to assign protocol classes and settings for each port.
+                There is one entry in the table for each protocol
+                class which has been enabled for filtering."
+	::= { ciscoTsFilter 2 }
+
+ciscoTsProtocolFilterEntry OBJECT-TYPE
+	SYNTAX	CiscoTsProtocolFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the filter table."
+	INDEX	{ ciscoTsStackSwitchNumber,
+		  ciscoTsProtocolFilterPort,
+		  ciscoTsProtocolClassFilterIndex
+		}
+	::= { ciscoTsProtocolFilterTable 1 }
+
+CiscoTsProtocolFilterEntry ::= SEQUENCE {
+	ciscoTsProtocolFilterPort		INTEGER,
+	ciscoTsProtocolFilterBlockingMode	INTEGER,
+	ciscoTsProtocolFilterTranspMode		INTEGER
+        }
+
+ciscoTsProtocolFilterPort  OBJECT-TYPE
+	SYNTAX	INTEGER (1..32)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"This is the port in the switch to which this table
+		entry corresponds."
+        ::= { ciscoTsProtocolFilterEntry 1 }
+
+ciscoTsProtocolFilterBlockingMode  OBJECT-TYPE
+	SYNTAX	INTEGER { all(1),
+	                  sr(2),
+			  nsr(3),
+			  none(4) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"This determines the frame types that will be blocked
+		for this protocol class on this port. Setting the
+		values causes the following:
+
+		all(1)  - causes all frames in this class to be blocked
+		sr(2)   - causes source route frames in this class to 
+		          be blocked
+		nsr(3)  - causes non source routed frames in this class 
+		          to be blocked
+		none(4) - allow all frames in this protocol class. This
+		           is the default value."
+        ::= { ciscoTsProtocolFilterEntry 2 }
+
+ciscoTsProtocolFilterTranspMode  OBJECT-TYPE
+	SYNTAX	INTEGER { enable(1), disable(2) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"If this port is in a SRT configured TrCRF, then
+		setting this object will allow transparent bridging
+		of frames in this protocol class. Setting this object
+		to disable disallows transparent bridging of frames in 
+		this protocol class. The default value is enable."
+        ::= { ciscoTsProtocolFilterEntry 3 }
+
+-- End Protocol Filter Table
+	
+-- Destination MAC Filter Table
+
+ciscoTsMACDestFilterTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsMACDestFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"A table of destination filters set up in the switch.
+		New filters are created by adding entries to this
+		table.  Note that values for all of the relevant objects
+		for a particular type of filter must be specified in a
+		single SNMP set operation on creation of a filter.  Set
+		operations which do not contain all of the required objects
+		for a given filter type will fail with an error-status
+		of 'genErr'.  The objects required for each filter type are
+		as follows:
+		
+		ciscoTsMACDestFilterType   |   Required Objects for Creation
+		========================   |   =============================
+		block-dest(1)              |   ciscoTsMACDestFilterPorts
+		---------------------------|--------------------------------
+                allow-dest(2)              |   ciscoTsMACDestFilterPorts
+		---------------------------|--------------------------------
+                limited-multicast(3)       |   ciscoTsMACDestFilterPorts
+                                           |   ciscoTsMACDestFilterExitMask
+		---------------------------|--------------------------------
+                force-dest(4)              |   ciscoTsMACDestFilterPorts
+                                           |   ciscoTsMACDestFilterRemoteBox
+                                           |   ciscoTsMACDestFilterRemotePort 
+
+		Since the indices for the table are switch number, MAC
+		address, and filter type, the instance information for a given
+		object specifies which filter is being created.  For example,
+		a set request for
+
+		      ciscoTsMACDestFilterPorts.s.a1.a2.a3.a4.a5.a6.t
+
+		will create a filter of type 't' (as enumerated for
+		ciscoTsMACDestFilterType) for MAC address a1:a2:a3:a4:a5:a6
+		on switch number 's'. "
+	::= { ciscoTsFilter 3 }
+
+ciscoTsMACDestFilterEntry OBJECT-TYPE
+	SYNTAX	CiscoTsMACDestFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the filter table."
+	INDEX	{ 
+		ciscoTsMACDestFilterSwitchNumber, 
+		ciscoTsMACDestFilterStationAddress,
+		ciscoTsMACDestFilterType
+		}
+	::= { ciscoTsMACDestFilterTable 1 }
+
+CiscoTsMACDestFilterEntry ::= SEQUENCE {
+        ciscoTsMACDestFilterSwitchNumber	INTEGER,
+        ciscoTsMACDestFilterStationAddress	MacAddr,
+        ciscoTsMACDestFilterType		INTEGER,
+        ciscoTsMACDestFilterPorts		OCTET STRING,
+	ciscoTsMACDestFilterExitMask		OCTET STRING,
+	ciscoTsMACDestFilterRemoteBox		INTEGER,
+	ciscoTsMACDestFilterRemotePort		INTEGER,
+	ciscoTsMACDestFilterStatus		INTEGER
+        }
+
+ciscoTsMACDestFilterSwitchNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Switch number determined by the port number
+		that the switch is connected to in a
+		Matrix or as determined by the Stack Management 
+		software when two switches are connected back
+		to back."
+        ::= { ciscoTsMACDestFilterEntry 1 }
+
+ciscoTsMACDestFilterStationAddress OBJECT-TYPE
+        SYNTAX  MacAddr
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The destination MAC address in a frame to which
+                this entry's filtering information applies."
+	::= { ciscoTsMACDestFilterEntry 2 }
+
+ciscoTsMACDestFilterType OBJECT-TYPE
+        SYNTAX  INTEGER {
+		block-dest(1),
+		allow-dest(2),
+		limited-multicast(3),
+		force-dest(4)
+                }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+		 "There are three types of destination MAC address
+		 filters:
+		 (1) Block destination address at specific ports.
+		 Indicates that the specified ports must not send frames
+		 to the specified destination station address.
+		 (2) Allow destination address at specific ports.
+		 Indicates that the specified ports must send frames to
+		 the specified destination stations only.
+		 (3) Force destination address to specific ports.
+		 This may be used for two purposes:
+		 a. Allow forwarding to a unicast address, which has
+		 not been learned.
+		 b. Limit forwarding of a multicast address to certain
+		 ports. Note, that this filter will only be applied to
+		 NSR frames.
+		 (4) Limited Multicast of address on filtered port(s) to
+		 specified exit mask of ports."
+        ::= { ciscoTsMACDestFilterEntry 3 }
+
+ciscoTsMACDestFilterPorts OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(4))
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The set of ports to which this filter is applied.
+                Each octet within the value of this object specifies 
+                a set of eight ports, with the first octet specifying 
+                ports 1 through 8, the second octet specifying ports 9
+                through 16, etc.  Within each octet, the most
+                significant bit represents the lowest numbered
+                port, and the least significant bit represents the
+                highest numbered port.  Thus, each port of the
+                switch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of
+                ports; the port is not included if its bit has a
+                value of '0'."
+        ::= { ciscoTsMACDestFilterEntry 4 }
+
+ciscoTsMACDestFilterExitMask OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(4))
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The set of output ports to which a limited multicast
+		filter is applied. This object only has a value for
+		Limited Multicast filters.
+                Each octet within the value of this object specifies 
+                a set of eight ports, with the first octet specifying 
+                ports 1 through 8, the second octet specifying ports 9
+                through 16, etc.  Within each octet, the most
+                significant bit represents the lowest numbered
+                port, and the least significant bit represents the
+                highest numbered port.  Thus, each port of the
+                switch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of
+                ports; the port is not included if its bit has a
+                value of '0'."
+        ::= { ciscoTsMACDestFilterEntry 5 }
+
+ciscoTsMACDestFilterRemoteBox OBJECT-TYPE
+	SYNTAX INTEGER (1..8)
+	ACCESS read-write
+	STATUS mandatory
+	DESCRIPTION 
+		"The remote switch to be used for a force destination filter."
+	::= { ciscoTsMACDestFilterEntry 6 }
+
+ciscoTsMACDestFilterRemotePort OBJECT-TYPE
+	SYNTAX INTEGER (1..32)
+	ACCESS read-write
+	STATUS mandatory
+	DESCRIPTION 
+		"The remote port to be used for a force destination filter."
+	::= { ciscoTsMACDestFilterEntry 7 }
+
+ciscoTsMACDestFilterStatus OBJECT-TYPE
+	SYNTAX INTEGER { valid(1), invalid(2) }
+	ACCESS read-write
+	STATUS mandatory
+	DESCRIPTION 
+		"A get request always returns valid(1). Set this object
+	         to invalid(2) to delete an entry."
+	::= { ciscoTsMACDestFilterEntry 8 }
+
+-- End Destination MAC Filter Table
+
+-- Source MAC Filter Table
+
+ciscoTsMACSourceFilterTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsMACSourceFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"A table of source filters set up in the switch.
+		New filters are created by adding entries to this
+		table.  Note that values for all of the relevant objects
+		for a particular type of filter must be specified in a
+		single SNMP set operation on creation of a filter.  Set
+		operations which do not contain all of the required objects
+		for a given filter type will fail with an error-status
+		of 'genErr'.  The objects required for each filter type are
+		as follows:
+		
+		ciscoTsMACSourceFilterType  |  Required Objects for Creation
+		==========================  |  =============================
+		block-src(1)                |  ciscoTsMACSourceFilterPorts
+		----------------------------|-------------------------------
+                allow-src(2)                |  ciscoTsMACSourceFilterPorts
+
+		Since the indices for the table are switch number, MAC
+		address, and filter type, the instance information for a given
+		object specifies which filter is being created.  For example,
+		a set request for
+
+		      ciscoTsMACSourceFilterPorts.s.a1.a2.a3.a4.a5.a6.t
+
+		will create a filter of type 't' (as enumerated for
+		ciscoTsMACSourceFilterType) for MAC address a1:a2:a3:a4:a5:a6
+		on switch number 's'. "
+	::= { ciscoTsFilter 4 }
+
+ciscoTsMACSourceFilterEntry OBJECT-TYPE
+	SYNTAX	CiscoTsMACSourceFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the filter table."
+	INDEX	{ 
+		ciscoTsMACSourceFilterSwitchNumber, 
+		ciscoTsMACSourceFilterStationAddress,
+		ciscoTsMACSourceFilterType
+		}
+	::= { ciscoTsMACSourceFilterTable 1 }
+
+CiscoTsMACSourceFilterEntry ::= SEQUENCE {
+        ciscoTsMACSourceFilterSwitchNumber	INTEGER,
+        ciscoTsMACSourceFilterStationAddress	MacAddr,
+        ciscoTsMACSourceFilterType		INTEGER,
+        ciscoTsMACSourceFilterPorts		OCTET STRING,
+	ciscoTsMACSourceFilterStatus		INTEGER
+        }
+
+ciscoTsMACSourceFilterSwitchNumber  OBJECT-TYPE
+	SYNTAX	INTEGER (1..8)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"Switch number determined by the port number
+		that the switch is connected to in a
+		Matrix or as determined by the Stack Management 
+		software when two switches are connected back
+		to back."
+        ::= { ciscoTsMACSourceFilterEntry 1 }
+
+ciscoTsMACSourceFilterStationAddress OBJECT-TYPE
+        SYNTAX  MacAddr
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The destination MAC address in a frame to which
+                this entry's filtering information applies."
+	::= { ciscoTsMACSourceFilterEntry 2 }
+
+ciscoTsMACSourceFilterType OBJECT-TYPE
+        SYNTAX  INTEGER {
+		    block-source(1),
+		    allow-source(2)
+                }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "There are two types of source address filters:
+		(1) Block source address at specific ports.
+		Indicates that the specific source addresses must not
+		send frames from specified ports.
+		(2) Allow source address at specific ports.
+		Indicates that only the specified source addresses must
+		send frames from the specified ports."
+        ::= { ciscoTsMACSourceFilterEntry 3 }
+
+ciscoTsMACSourceFilterPorts OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(4))
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The set of ports to which this filter is applied.
+                Each octet within the value of this object specifies 
+                a set of eight ports, with the first octet specifying 
+                ports 1 through 8, the second octet specifying ports 9
+                through 16, etc.  Within each octet, the most
+                significant bit represents the lowest numbered
+                port, and the least significant bit represents the
+                highest numbered port.  Thus, each port of the
+                switch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of
+                ports; the port is not included if its bit has a
+                value of '0'."
+        ::= { ciscoTsMACSourceFilterEntry 4 }
+
+ciscoTsMACSourceFilterStatus OBJECT-TYPE
+	SYNTAX INTEGER { valid(1), invalid(2) }
+	ACCESS read-write
+	STATUS mandatory
+	DESCRIPTION 
+		"A get request always returns valid(1). Set this object
+	         to invalid(2) to delete an entry."
+	::= { ciscoTsMACSourceFilterEntry 5 }
+
+
+ciscoTsDupAddrFilterTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsDupAddrFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"A table of MAC addresses that have been identified as
+		 duplicates within an address scope.  There is one
+                 entry in the tale for each such address.  Entries
+                 cannot be administratively created/deleted."
+	::= { ciscoTsFilter 5 }
+
+ciscoTsDupAddrFilterEntry OBJECT-TYPE
+	SYNTAX	CiscoTsDupAddrFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of rows in the duplicate address table."
+	INDEX	{ ciscoTsDupAddrFilterSwitchNumber,
+		  ciscoTsDupAddrFilterStationAddress }
+	::= { ciscoTsDupAddrFilterTable 1 }
+
+CiscoTsDupAddrFilterEntry ::= SEQUENCE {
+	ciscoTsDupAddrFilterSwitchNumber	INTEGER,
+	ciscoTsDupAddrFilterStationAddress	MacAddr,
+	ciscoTsDupAddrFilterPorts		OCTET STRING
+	}
+
+ciscoTsDupAddrFilterSwitchNumber  OBJECT-TYPE
+        SYNTAX  INTEGER (1..8)
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Switch number determined by the port number
+                that the switch is connected to in a
+                Matrix or as determined by the Stack Management
+                software when two switches are connected back
+                to back."
+        ::= { ciscoTsDupAddrFilterEntry 1 }
+
+ciscoTsDupAddrFilterStationAddress  OBJECT-TYPE
+	SYNTAX	MacAddr
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"The MAC address that has been identified as being
+		 a duplicate.  All frames having this MAC address as their
+		 source address are being discarded at the ports specified
+		 in ciscoTsDupAddrFilterPorts."
+	::= { ciscoTsDupAddrFilterEntry 2 }
+	
+ciscoTsDupAddrFilterPorts OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(4))
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+		"A bit mask representing all the ports on which this
+		duplicate MAC address is currently being filtered.
+                Each octet within the value of this object specifies a set
+		of eight ports, with the first octet specifying ports 1
+		through 8, the second octet specifying ports 9 through 16,
+		etc.  Within each octet, the most significant bit represents
+		the lowest numbered port, and the least significant bit
+		represents the highest numbered port.  Thus, each port of
+		the switch is represented by a single bit within the
+                value of this object.  If that bit has a value of
+                '1' then that port is included in the set of
+                ports in this switch; the port is not included in this
+		switch if its bit has a value of '0'." 
+        ::= { ciscoTsDupAddrFilterEntry 3 }
+
+
+-- Start Trunk Protocol Filter Table
+
+ciscoTsTrunkProtocolFilterTable OBJECT-TYPE
+	SYNTAX	SEQUENCE OF CiscoTsTrunkProtocolFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"DSAP and SNAP Filter table for trunk ports which support
+		protocol filters on a per-TrCRF basis. This table allows you
+		to assign protocol classes and settings for each TrCRF on
+		each trunk port.  There is one entry in the table for
+                each (switch, port, TrCRF, protocol class) tuple for which
+                filtering has been enabled."
+	::= { ciscoTsFilter 6 }
+
+ciscoTsTrunkProtocolFilterEntry OBJECT-TYPE
+	SYNTAX	CiscoTsTrunkProtocolFilterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		"Definition of each row in the filter table."
+	INDEX	{ ciscoTsStackSwitchNumber,
+		  ciscoTsTrunkProtocolFilterPort,
+		  ciscoTsTrCRFInfoTrCRFNumber,
+		  ciscoTsProtocolClassFilterIndex
+		}
+	::= { ciscoTsTrunkProtocolFilterTable 1 }
+
+CiscoTsTrunkProtocolFilterEntry ::= SEQUENCE {
+	ciscoTsTrunkProtocolFilterPort		INTEGER,
+	ciscoTsTrunkProtocolFilterBlockingMode	INTEGER,
+	ciscoTsTrunkProtocolFilterTranspMode	INTEGER
+        }
+
+ciscoTsTrunkProtocolFilterPort  OBJECT-TYPE
+	SYNTAX	INTEGER (1..32)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION
+		"This is the port in the switch to which this table
+		entry corresponds."
+        ::= { ciscoTsTrunkProtocolFilterEntry 1 }
+
+ciscoTsTrunkProtocolFilterBlockingMode  OBJECT-TYPE
+	SYNTAX	INTEGER { all(1),
+	                  sr(2),
+			  nsr(3),
+			  none(4) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"This determines the frame types that will be blocked
+		for this protocol class on this TrCRF on this port. Setting
+		the values causes the following:
+
+		all(1)  - causes all frames in this class to be blocked
+		sr(2)   - causes source route frames in this class to 
+		          be blocked
+		nsr(3)  - causes non source routed frames in this class 
+		          to be blocked
+		none(4) - allow all frames in this protocol class. This
+		          is the default value."
+        ::= { ciscoTsTrunkProtocolFilterEntry 2 }
+
+ciscoTsTrunkProtocolFilterTranspMode  OBJECT-TYPE
+	SYNTAX	INTEGER { enable(1), disable(2) }
+	ACCESS	read-write
+	STATUS	mandatory
+	DESCRIPTION
+		"If this port is in a SRT configured TrCRF, then
+		setting this object will allow transparent bridging
+		of frames in this protocol class. Setting this object
+		to disable disallows transparent bridging of frames in 
+		this protocol class. The default value is enable."
+        ::= { ciscoTsTrunkProtocolFilterEntry 3 }
+
+-- End Protocol Filter Table
+
+-- Trap definitions
+
+ciscoTsStackCfgChange TRAP-TYPE
+        ENTERPRISE  ciscoTsConfig
+        VARIABLES   { sysName, sysLocation, ciscoTsNumSwitches }    
+        DESCRIPTION
+		"This trap is generated when there is a change in the 
+		 stack configuration i.e. when either a new switch is 
+		 added to the stack or a switch leaves a stack.
+		 ciscoTsNumSwitches indicates the current number of switches
+		 which are part of the stack. The management station should 
+		 update its stack information according to the stack table."
+        ::= 1
+
+ciscoTsStackProStackMatrixChange TRAP-TYPE
+        ENTERPRISE  ciscoTsConfig
+        VARIABLES   { sysName, sysLocation, ciscoTsProStackMatrixStatus }
+        DESCRIPTION
+		"This trap is generated when the stack switches over
+		 from primary to secondary Matrix or from 
+		 secondary back to primary Matrix."
+        ::= 2
+
+ciscoTsStackTempChange TRAP-TYPE
+        ENTERPRISE  ciscoTsStack
+        VARIABLES   { sysName, sysLocation, ciscoTsStackSwitchTemperature }
+        DESCRIPTION
+                "This trap is generated when the temperature in a 
+                 switch exceeds normal or returns to normal."    
+        ::= 3
+
+ciscoTsStackPwrStatusChange TRAP-TYPE
+        ENTERPRISE  ciscoTsStack
+        VARIABLES   { sysName, sysLocation, ciscoTsStackSwitchPwrSupplyStatus }
+        DESCRIPTION
+                "This trap is generated when the status of the power supply
+		changes."
+        ::= 4
+
+-- Per Port Traps
+
+ciscoTsPortStrNFwdEntry TRAP-TYPE
+   ENTERPRISE  ciscoTsPort
+   VARIABLES   { sysName, sysLocation, ciscoTsPortCfgActualForwardingMode }    
+   DESCRIPTION
+	"This trap is generated when a port automatically
+	enters store and forward mode when the error rate 
+	exceeds the threshold."
+   ::= 1
+
+ciscoTsPortCfgLossTrap TRAP-TYPE
+   ENTERPRISE  ciscoTsPort
+   VARIABLES   { sysName, sysLocation, ciscoTsPortStatsCfgLoss }
+   DESCRIPTION
+	"This trap occurs when a port is disabled because
+	it has exceeded its Configuration Loss Threshold
+	within the configured Sampling Period."
+   ::= 2
+							  
+ciscoTsBeaconStart TRAP-TYPE
+   ENTERPRISE  ciscoTsPort
+   VARIABLES { sysName, sysLocation, ciscoTsPortCfgNumber }
+   DESCRIPTION
+	"This trap is generated when a port or a station local to a
+	port begins to beacon.  It is sent out only when a ring status
+	change indicates that a station is beaconing." 
+   ::= 3
+								      
+ciscoTsBeaconEnd TRAP-TYPE
+   ENTERPRISE  ciscoTsPort
+   VARIABLES   { sysName, sysLocation, ciscoTsPortCfgNumber }
+   DESCRIPTION
+	"This trap is generated when the ring status change indicates
+	that a ring is no longer beaconing. This trap only occurs only
+	once when the status actually changes."
+   ::= 4
+
+ciscoTsDuplicateMACAddr TRAP-TYPE
+   ENTERPRISE  ciscoTsPort
+   VARIABLES   { sysName, sysLocation, ciscoTsPortCfgNumber }
+   DESCRIPTION
+	"This trap is generated when a duplicate MAC address is detected
+	on a port in a TrCRF which already has learned that MAC address."
+   ::= 5
+
+ciscoTsPortSoftErrExceededTrap TRAP-TYPE
+   ENTERPRISE  ciscoTsPort
+   VARIABLES   { sysName, sysLocation, ciscoTsStackSwitchNumber,
+                ciscoTsPortCfgNumber,ringStationIfIndex,                 
+                ringStationMacAddress, ifName }
+   DESCRIPTION
+        "This trap is generated when a station local to a port
+        exceeds its Soft Error Threshold within the configured         
+        interval."
+   ::= 6
+
+-- Traps for the Spanning Tree Protocol
+
+ciscoTsTrCRFNewRoot TRAP-TYPE
+        ENTERPRISE  ciscoTsVLANS
+        VARIABLES   { sysName, sysLocation, ciscoTsTrCRFInfoTrCRFNumber }    
+        DESCRIPTION
+                "This trap is a TrCRF specific version of the
+                newRoot trap as described in RFC1493.
+        
+                The newRoot trap indicates that the sending agent
+                has become the new root of the Spanning Tree; the
+                trap is sent by a bridge soon after its election
+                as the new root, e.g., upon expiration of the
+                Topology Change Timer immediately subsequent to
+                its election.  Implementation of this trap is
+                optional."
+        ::= 1
+
+ciscoTsTrCRFTopologyChange TRAP-TYPE
+        ENTERPRISE  ciscoTsVLANS
+        VARIABLES   { sysName, sysLocation, ciscoTsTrCRFInfoTrCRFNumber }    
+        DESCRIPTION
+                "This trap is a TrCRF specific version of the
+                topologyChange trap as described in RFC1493.
+                
+                A topologyChange trap is sent by a bridge when
+                any of its configured ports transitions from the
+                Learning state to the Forwarding state, or from
+                the Forwarding state to the Blocking state.  The
+                trap is not sent if a newRoot trap is sent for the
+                same transition.  Implementation of this trap is
+                optional."
+        ::= 2
+
+ciscoTsTrBRFNewRoot TRAP-TYPE
+        ENTERPRISE  ciscoTsVLANS
+        VARIABLES   { sysName, sysLocation, 
+	              ciscoTsTrBRFInfoTrBRFNumber }    
+        DESCRIPTION
+                "This trap is a TrBRF specific version of the
+                newRoot trap as described in RFC1493.
+        
+                The newRoot trap indicates that the sending agent
+                has become the new root of the Spanning Tree; the
+                trap is sent by a bridge soon after its election
+                as the new root, e.g., upon expiration of the
+                Topology Change Timer immediately subsequent to
+                its election.  Implementation of this trap is
+                optional."
+        ::= 3
+
+ciscoTsTrBRFTopologyChange TRAP-TYPE
+        ENTERPRISE  ciscoTsVLANS
+        VARIABLES   { sysName, sysLocation, 
+	              ciscoTsTrBRFInfoTrBRFNumber }    
+        DESCRIPTION
+                "This trap is a TrBRF specific version of the
+                topologyChange trap as described in RFC1493.
+                
+                A topologyChange trap is sent by a bridge when
+                any of its configured ports transitions from the
+                Learning state to the Forwarding state, or from
+                the Forwarding state to the Blocking state.  The
+                trap is not sent if a newRoot trap is sent for the
+                same transition.  Implementation of this trap is
+                optional."
+        ::= 4
+
+-- Traps for TokenChannels
+
+ciscoTsTokenChannelFailed TRAP-TYPE
+        ENTERPRISE  ciscoTsTChannel
+        VARIABLES   { sysName, sysLocation, ciscoTsTCPorts }    
+        DESCRIPTION
+                "This trap is sent when one of the links in an
+                 TokenChannel fail. The variable ciscoTsTCPorts
+                 contains the ports which are operational in the
+                 TokenChannel."   
+        ::= 1
+
+ciscoTsTokenChannelStatus TRAP-TYPE
+        ENTERPRISE  ciscoTsTChannel
+        VARIABLES   { sysName, sysLocation, ciscoTsTCStatus,
+                      ciscoTsTCPorts, ciscoTsTCActivePorts }    
+        DESCRIPTION
+                "This trap is sent to report a TokenChannel or 
+                 ISLChannel status change.  The variable ciscoTsTCStatus
+                 contains the current channel status.  The variable 
+                 ciscoTsTCPorts contains the ports which are configured 
+                 in the channel.  The variable ciscoTsTCActivePorts 
+                 contains the ports which are active in the channel."
+        ::= 2
+END

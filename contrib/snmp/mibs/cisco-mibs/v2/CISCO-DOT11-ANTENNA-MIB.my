@@ -1,0 +1,274 @@
+-- *******************************************************************
+-- CISCO-DOT11-ANTENNA-MIB.my
+--
+-- December 2003, Parthasarathy V, Prasanna V
+--
+-- Copyright (c) 2003-2004, 2011 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-DOT11-ANTENNA-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS 
+        MODULE-IDENTITY, 
+        OBJECT-TYPE,
+        Integer32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        TruthValue
+                FROM SNMPv2-TC
+        ifIndex
+                FROM IF-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+--********************************************************************
+--*  MODULE IDENTITY
+--********************************************************************
+
+ciscoDot11AntennaMIB       MODULE-IDENTITY
+        LAST-UPDATED       "201602150000Z"
+        ORGANIZATION       "Cisco System Inc."
+        CONTACT-INFO  
+                   "        Cisco Systems,
+                            Customer Service
+                            Postal: 170 West Tasman Drive
+	 		            San Jose, CA  95134
+			            USA
+                            Tel: +1 800 553-NETS                 
+                 
+                            E-mail: cs-dot11@cisco.com"
+
+        DESCRIPTION
+                "This MIB is intended to be implemented on 802.11
+                Access Points and Wireless Bridges to provide
+                information about the antennas connected to their
+                802.11 interfaces.  The NMS retrieves the configured
+                antenna parameters and uses it to calculate the
+                recommended radio settings to be applied to the Access
+                Points being managed to achieve optimum coverage and
+                throughput.
+
+                                   GLOSSARY
+
+                Access Point ( AP )
+
+                An entity that contains an 802.11 medium access
+                control ( MAC ) and physical layer ( PHY ) interface
+                and provides access to the distribution services via
+                the wireless medium for associated clients.
+
+                Wireless Bridge
+
+                An 802.11 entity that provides wireless connectivity
+                between two wired LAN segments and is used in point-
+                to-point or point-multipoint configurations.
+
+                Repeater-AP
+
+                A repeater is a 'wireless AP' that is attached to a
+                parent AP on an 802.11 primary port.  The Ethernet
+                port is disabled in a Repeater-AP.
+
+                Antenna
+
+                A passive device connected to the 802.11 interface
+                that is used for transmission and reception of the
+                radio signals.  Antennas transmit radio signals
+                in all directions (omnidirectional) or in a
+                particular direction(directional, high-gain).
+
+                Antenna Gain
+
+                The Antenna Gain is the measure of the amount of
+                amplification done on the input radio signal by
+                the antenna.  Amplification is done by virtue of
+                focussing the RF radiation into a tighter beam.
+                Antenna Gain is expressed as dBi units.
+
+                Attenuator
+
+                An attenuator circuit allows a known source of power
+                to be reduced by a predetermined factor usually
+                expressed as decibels.  This power reduction is
+                achieved by the attenuator without introducing
+                distortion.  An attenuator may be used in either
+                audio or radio signal circuits. "
+		
+        REVISION      "201602150000Z"		
+        DESCRIPTION
+                "Changed ciscoDot11AntennaMIB OID from 3333 to 384. "		
+        REVISION      "200312080000Z"
+        DESCRIPTION
+                "Initial version of this MIB module. "
+        ::= { ciscoMgmt 384 }
+
+cDot11AntennaMIBObjects OBJECT IDENTIFIER 
+        ::= { ciscoDot11AntennaMIB 1 }
+
+cDot11AntennaGlobal OBJECT IDENTIFIER 
+        ::= { cDot11AntennaMIBObjects 1 }
+
+--********************************************************************
+--*  Antenna Specification parameters  
+--********************************************************************
+cDot11AntennaTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CDot11AntennaEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table holds the specification of the antenna
+                connected to the 802.11 interfaces of an
+                infrastructure device like an AP or Bridge.
+
+                The table gets populated when the administrator
+                configures the 802.11 interface with information
+                about the antenna connected to it.
+
+                This table has a sparse dependent relationship
+                with ifTable defined in IF-MIB.  There exists an
+                entry in this table corresponding to the entry for
+                each dot11 interface found in ifTable.  This table is
+                not applicable to virtual dot11 interfaces. "
+        ::= { cDot11AntennaGlobal 1 }
+
+cDot11AntennaEntry OBJECT-TYPE
+        SYNTAX     CDot11AntennaEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry corresponds to the set of operational
+                 parameters of the antenna connected to the
+                 802.11 interface identified by ifIndex. "  
+        INDEX   { ifIndex }
+        ::=     { cDot11AntennaTable 1 }
+
+CDot11AntennaEntry ::=
+        SEQUENCE  {
+                 cDot11AntennaIsGainConfigured TruthValue,
+                 cDot11AntennaResultantGain    Integer32 
+        }
+
+cDot11AntennaIsGainConfigured OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This flag indicates whether the 802.11 interface is
+                connected to an external antenna and/or the attenuator
+                and configured with the resultant gain or not.
+
+                If the interface has an external antenna and/or an
+                attenuator connected to it and has been configured
+                with the resultant gain, the value of this object
+                is 'true'.
+
+                This object, when 'false', indicates that both the
+                external antenna and the attenuator are physically
+                disconnected from the 802.11 interface.  Also,
+                the query to the object cDot11AntennaResultantGain
+                returns the default gain corresponding to the PHY
+                type of that 802.11 interface when this object's
+                value is 'false'. "
+        ::= { cDot11AntennaEntry 1 }
+
+cDot11AntennaResultantGain OBJECT-TYPE
+        SYNTAX     Integer32(-128..128)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, expressed in dB, is used to
+                calculate the appropriate radio settings for the
+                wireless infrastructure devices being managed.
+
+                The semantics are as follows.
+
+                For a dot11 interface without an external antenna
+                and an attenuator connected to it, the value of
+                this object is the default gain corresponding to the
+                PHY type of that respective interface.
+
+                If the particular dot11 interface is connected to an
+                external antenna in the presence of an attenuator, 
+                this object holds the value that is the resultant of
+                the gain of the antenna as specified by the antenna's
+                hardware specification and the attenuation introduced
+                by the attenuator, as configured by the administrator.
+
+                In the absence of an attenuator, the value held by
+                this object is the exact value of the gain of the
+                external antenna configured by the administrator as
+                specified by the antenna's hardware specification,
+                if an external antenna is connected to the 802.11
+                interface.
+
+                In the absence of an external antenna, if the
+                attenuator is present, the value of this object is
+                is the amount of attenuation that is intended to be
+                introduced to control the output power, as
+                configured by the administrator.
+
+                The value of this object is reverted back by the
+                agent to the default gain corresponding to the PHY
+                type of the particular 802.11 interface, when both
+                the external antenna and the attenuator are
+                physically disconnected from the particular interface
+                and the gain configured earlier is cleared by the
+                administrator. "
+        ::= { cDot11AntennaEntry 2 }
+
+--********************************************************************
+--*  End of Antenna Configuration Parameters
+--********************************************************************
+
+--********************************************************************
+--   Conformance information
+--********************************************************************
+
+cDot11AntennaMIBConform OBJECT IDENTIFIER 
+        ::= { ciscoDot11AntennaMIB 2 }
+cDot11AntennaMIBCompliances OBJECT IDENTIFIER 
+        ::= { cDot11AntennaMIBConform 1 }
+cDot11AntennaMIBGroups OBJECT IDENTIFIER 
+        ::= { cDot11AntennaMIBConform 2 }
+
+--********************************************************************
+--*    Compliance statements  
+--********************************************************************
+
+cDot11AntennaMIBCompliance MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+                "The compliance statement for the SNMP entities that
+                 implement the ciscoDot11AntennaMIB module."
+        MODULE MANDATORY-GROUPS {
+                cDot11AntennaGlobalGroup
+             }
+        ::= { cDot11AntennaMIBCompliances 1 }
+
+--********************************************************************
+--*    Units of conformance  
+--********************************************************************
+
+cDot11AntennaGlobalGroup OBJECT-GROUP
+        OBJECTS {
+                 cDot11AntennaIsGainConfigured,
+                 cDot11AntennaResultantGain
+                }                
+        STATUS     current
+        DESCRIPTION
+                "This collection of objects provide information about
+                 the antenna connected to the 802.11 interfaces of a
+                 WLAN infrastructure device like an Access Point or
+                 a Bridge. "
+        ::= { cDot11AntennaMIBGroups 1 }
+
+--********************************************************************
+--*   End of units of conformance  
+--********************************************************************
+
+END
+
+

@@ -1,0 +1,352 @@
+-- *****************************************************************
+-- CISCO-NPORT-VIRTUALIZATION-MIB.my: N_port Virtualization (NPV) MIB
+-- June 2008, Madhava Cheethirala
+--   
+-- Copyright (c) 2008 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-NPORT-VIRTUALIZATION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    RowStatus,
+    TruthValue,
+    TimeStamp,
+    StorageType
+        FROM SNMPv2-TC
+    InterfaceIndex
+        FROM IF-MIB
+    InterfaceIndexList
+        FROM CISCO-IF-EXTENSION-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoNportVirtualizationMIB MODULE-IDENTITY
+    LAST-UPDATED    "200806130000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553 -NETS
+            E-mail: cs-san@cisco.com"
+    DESCRIPTION
+        "The MIB module for the management of N_port
+        Virtualization or NPV within the framework of Cisco's 
+        N_port virtualization (NPV) Architecture.
+
+        N_Port virtualization reduces the number of Fibre 
+        Channel domain IDs in SANs. Switches operating in the 
+        NPV mode do not join a fabric; rather, they pass traffic 
+        between NPV core switch links and end-devices, which 
+        eliminates the domain IDs for these edge switches.
+
+        Glossary of terms Used in this MIB:
+        ----------------------------------
+
+        SAN                - Storage Area Network
+
+        VSAN               - Virtual Storage Area Network,
+                             Similar to a VLAN.
+
+        NPV                - N Port Virtualization, a technique
+                             using which the number of domain IDs
+                             in fibre channel fabric can be reduced,
+                             leading to easier management. 
+                             When operating in this mode, a fibre 
+                             channel switch (typically, 
+                             a fabric/blade switch)
+                             acts as a HBA with respect to the 
+                             fibre channel fabric and as a switch 
+                             with respect to the connected devices.
+
+        NPV Device         - A fibre channel switch working in NPV
+                             special mode.
+
+        NPV Core Switch    - A fibre channel edge switch connected to 
+                             one or more NPV devices.
+
+        Server             - Host connected to the NPV device.
+                             Typically, a Blade Server connected to 
+                             Blade switch in NPV mode in a Blade 
+                             Chassis.
+
+        Server Interface   - Interface on the NPV Device that connects
+                             to end devices(hosts/disks). Also, known
+                             as F-port, as it operates in F port mode.
+
+        External Interface - Interface on the NPV Device that 
+                             connects to the NPV Core Switch.
+                             Also known as NP-port as it operates
+                             in NP port mode.
+
+        Traffic Map        - Traffic map is a way to restrict traffic 
+                             flow from an interface to only a set of 
+                             interfaces. In NPV device, traffic map
+                             can be used to present a server interface
+                             to the fibre channel fabric only through
+                             one of the valid external interfaces
+                             specified in the set of interfaces."
+    REVISION        "200806130000Z"
+    DESCRIPTION
+        "Initial version of this MIB."
+    ::= { ciscoMgmt 660 }
+
+
+ciscoNportVirtualizationMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoNportVirtualizationMIB 0 }
+
+ciscoNportVirtualizationMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoNportVirtualizationMIB 1 }
+
+ciscoNportVirtualizationMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoNportVirtualizationMIB 2 }
+
+cnpvConfiguration  OBJECT IDENTIFIER
+    ::= { ciscoNportVirtualizationMIBObjects 1 }
+
+cnpvGlobal  OBJECT IDENTIFIER
+    ::= { cnpvConfiguration 1 }
+
+cnpvTrafficMap  OBJECT IDENTIFIER
+    ::= { cnpvConfiguration 2 }
+
+
+-- NPV Global Configurations
+
+cnpvTrafficAutoLoadbalance OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object enables/disables automatic rebalancing of the
+        server to external interface assignments such that number of 
+        server interface assigned to the external interfaces are 
+        evenly distributed as much as possible. Redistribution of the 
+        server interfaces are done with the constraints of VSANs 
+        assigned to the interfaces and traffic maps specifying which 
+        external interface a server interface can take. 
+
+        When this feature is enabled or when an external interface comes
+        up, then the switch reevaluates the current distribution
+        and determines if a rebalancing is required. 
+
+        During the move of server interface from one external 
+        interface to another, there is a temporary traffic disruption 
+        for that server interface." 
+    ::= { cnpvGlobal 1 }
+-- NPV Traffic Map configuration
+
+cnpvTrafficMapTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnpvTrafficMapEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing information on the assignment of
+        traffic map interfaces to an interface."
+    ::= { cnpvTrafficMap 1 }
+
+cnpvTrafficMapEntry OBJECT-TYPE
+    SYNTAX          CnpvTrafficMapEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cnpvTrafficMapTable.
+
+        This table contains entries for each of the interfaces
+        which has been assigned a set of interfaces for traffic
+        mapping.
+
+        Traffic mapping is a technique used in NPV device to 
+        restrict the usage of external interface(s) for forwarding 
+        the traffic from server interface to the fibre channel fabric.
+
+        If an interface comes up as a server interface and finds
+        a corresponding entry in this table, then the switch 
+        software will assign a valid external interface from
+        this list, if any. Once assigned, that assigned external 
+        interface will be used for forwarding the traffic from
+        the server interface to the fibre channel fabric. 
+
+        If an interface comes up as a server interface and
+        finds an entry in this table, but with no valid list of
+        external interfaces, then the switch software keeps the
+        server interface in operationally down state until 
+        at least one of the interface in the list becomes a 
+        valid external interface. 
+
+        If an interface comes up as a server interface and it 
+        can not find an entry in this table, then any of the 
+        available external interfaces can be assigned to that 
+        server interface.
+
+        Entries can be created and destroyed to this table via 
+        cnpvTrafficMapRowStatus object. Columnar objects can be 
+        modified when the corresponding cnpvTrafficMapRowStatus 
+        is 'active'."
+    INDEX           { cnpvTrafficMapFromIfIndex } 
+    ::= { cnpvTrafficMapTable 1 }
+
+CnpvTrafficMapEntry ::= SEQUENCE {
+        cnpvTrafficMapFromIfIndex   InterfaceIndex,
+        cnpvTrafficMapToIfIndexList InterfaceIndexList,
+        cnpvTrafficMapLastChange    TimeStamp,
+        cnpvTrafficMapStorageType   StorageType,
+        cnpvTrafficMapRowStatus     RowStatus
+}
+
+cnpvTrafficMapFromIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The ifIndex of the interface for the traffic to be
+        mapped from." 
+    ::= { cnpvTrafficMapEntry 1 }
+
+cnpvTrafficMapToIfIndexList OBJECT-TYPE
+    SYNTAX          InterfaceIndexList (SIZE  (4..256))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The list of interfaces to which the traffic needs
+        to be mapped to.
+
+        This object is a list of interfaces presented as
+        an Octet string of interface indices or ifindex-es.
+
+        The list should contain at least one interface and at most
+        all the interfaces in the switch up to 64 interfaces.
+        The 64 interfaces max-limit is due to the size of this
+        object.
+        
+        Specifying this object is mandatory for the creation of a
+        row in cnpvTrafficMapTable." 
+    ::= { cnpvTrafficMapEntry 2 }
+
+cnpvTrafficMapLastChange OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime at the time of the last
+        change to this traffic map entry.
+
+        When there has not been any change to the traffic
+        map entry, the value of this field will be that 
+        of the entry creation time." 
+    ::= { cnpvTrafficMapEntry 3 }
+
+cnpvTrafficMapStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL          { volatile } 
+    ::= { cnpvTrafficMapEntry 4 }
+
+cnpvTrafficMapRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+        The row can be made 'active' only if value of corresponding
+        instance of cnpvTrafficMapToIfIndexList is provided." 
+    ::= { cnpvTrafficMapEntry 5 }
+ 
+
+-- Conformance
+
+ciscoNportVirtualizationMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoNportVirtualizationMIBConform 1 }
+
+ciscoNportVirtualizationMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoNportVirtualizationMIBConform 2 }
+
+
+ciscoNportVirtualizationMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the NPV feature."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cnpvTrafficMapGroup }
+
+    OBJECT          cnpvTrafficMapRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Only three values 'createAndGo', 'destroy' and
+        'active' out of the six enumerated values need to be
+        supported."
+
+    OBJECT          cnpvTrafficAutoLoadbalance
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cnpvTrafficMapToIfIndexList
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cnpvTrafficMapStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoNportVirtualizationMIBCompliances 1 }
+
+-- Units of Conformance
+
+cnpvTrafficMapGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnpvTrafficAutoLoadbalance,
+                        cnpvTrafficMapToIfIndexList,
+                        cnpvTrafficMapStorageType,
+                        cnpvTrafficMapRowStatus,
+                        cnpvTrafficMapLastChange
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for displaying and configuring
+        NPV."
+    ::= { ciscoNportVirtualizationMIBGroups 1 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

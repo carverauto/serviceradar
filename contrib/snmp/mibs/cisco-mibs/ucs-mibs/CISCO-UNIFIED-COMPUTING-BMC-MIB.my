@@ -1,0 +1,267 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-BMC-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- BMC management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-BMC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsBmcSELCntEqptClassId,
+    CucsBmcSELCntEqptInstIdPropId,
+    CucsBmcSELCntStatsClassId
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsBmcObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        BMC management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 5 }
+
+cucsBmcSELCounterTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsBmcSELCounterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter managed object table"
+    ::= { cucsBmcObjects 1 }
+
+cucsBmcSELCounterEntry OBJECT-TYPE
+    SYNTAX           CucsBmcSELCounterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsBmcSELCounterTable table."
+    INDEX { cucsBmcSELCounterInstanceId }
+    ::= { cucsBmcSELCounterTable 1 }
+
+CucsBmcSELCounterEntry ::= SEQUENCE {
+    cucsBmcSELCounterInstanceId                                      CucsManagedObjectId,
+    cucsBmcSELCounterDn                                              CucsManagedObjectDn,
+    cucsBmcSELCounterRn                                              SnmpAdminString,
+    cucsBmcSELCounterBitmask                                         SnmpAdminString,
+    cucsBmcSELCounterCollInterval                                    Gauge32,
+    cucsBmcSELCounterContClassId                                     CucsBmcSELCntEqptClassId,
+    cucsBmcSELCounterContInstId                                      SnmpAdminString,
+    cucsBmcSELCounterContInstIdPropId                                CucsBmcSELCntEqptInstIdPropId,
+    cucsBmcSELCounterEqptClassId                                     CucsBmcSELCntEqptClassId,
+    cucsBmcSELCounterEqptInstId                                      SnmpAdminString,
+    cucsBmcSELCounterEqptInstIdPropId                                CucsBmcSELCntEqptInstIdPropId,
+    cucsBmcSELCounterGlobalId                                        SnmpAdminString,
+    cucsBmcSELCounterLocalId                                         SnmpAdminString,
+    cucsBmcSELCounterPcGlobalId                                      SnmpAdminString,
+    cucsBmcSELCounterPcLocalId                                       SnmpAdminString,
+    cucsBmcSELCounterStatsClassId                                    CucsBmcSELCntStatsClassId,
+    cucsBmcSELCounterStatsPropId                                     INTEGER,
+    cucsBmcSELCounterThreshold                                       Gauge32,
+    cucsBmcSELCounterValue                                           SnmpAdminString
+}
+
+cucsBmcSELCounterInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsBmcSELCounterEntry 1 }
+
+cucsBmcSELCounterDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:dn managed object property"
+    ::= { cucsBmcSELCounterEntry 2 }
+
+cucsBmcSELCounterRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:rn managed object property"
+    ::= { cucsBmcSELCounterEntry 3 }
+
+cucsBmcSELCounterBitmask OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:bitmask managed object property"
+    ::= { cucsBmcSELCounterEntry 4 }
+
+cucsBmcSELCounterCollInterval OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:collInterval managed object property"
+    ::= { cucsBmcSELCounterEntry 5 }
+
+cucsBmcSELCounterContClassId OBJECT-TYPE
+    SYNTAX       CucsBmcSELCntEqptClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:contClassId managed object property"
+    ::= { cucsBmcSELCounterEntry 6 }
+
+cucsBmcSELCounterContInstId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:contInstId managed object property"
+    ::= { cucsBmcSELCounterEntry 7 }
+
+cucsBmcSELCounterContInstIdPropId OBJECT-TYPE
+    SYNTAX       CucsBmcSELCntEqptInstIdPropId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:contInstIdPropId managed
+        object property"
+    ::= { cucsBmcSELCounterEntry 8 }
+
+cucsBmcSELCounterEqptClassId OBJECT-TYPE
+    SYNTAX       CucsBmcSELCntEqptClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:eqptClassId managed object property"
+    ::= { cucsBmcSELCounterEntry 9 }
+
+cucsBmcSELCounterEqptInstId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:eqptInstId managed object property"
+    ::= { cucsBmcSELCounterEntry 10 }
+
+cucsBmcSELCounterEqptInstIdPropId OBJECT-TYPE
+    SYNTAX       CucsBmcSELCntEqptInstIdPropId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:eqptInstIdPropId managed
+        object property"
+    ::= { cucsBmcSELCounterEntry 11 }
+
+cucsBmcSELCounterGlobalId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:globalId managed object property"
+    ::= { cucsBmcSELCounterEntry 12 }
+
+cucsBmcSELCounterLocalId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:localId managed object property"
+    ::= { cucsBmcSELCounterEntry 13 }
+
+cucsBmcSELCounterPcGlobalId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:pcGlobalId managed object property"
+    ::= { cucsBmcSELCounterEntry 14 }
+
+cucsBmcSELCounterPcLocalId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:pcLocalId managed object property"
+    ::= { cucsBmcSELCounterEntry 15 }
+
+cucsBmcSELCounterStatsClassId OBJECT-TYPE
+    SYNTAX       CucsBmcSELCntStatsClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:statsClassId managed object property"
+    ::= { cucsBmcSELCounterEntry 16 }
+
+cucsBmcSELCounterStatsPropId OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:statsPropId managed object property"
+    ::= { cucsBmcSELCounterEntry 17 }
+
+cucsBmcSELCounterThreshold OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:threshold managed object property"
+    ::= { cucsBmcSELCounterEntry 18 }
+
+cucsBmcSELCounterValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS bmc:SELCounter:value managed object property"
+    ::= { cucsBmcSELCounterEntry 19 }
+
+END

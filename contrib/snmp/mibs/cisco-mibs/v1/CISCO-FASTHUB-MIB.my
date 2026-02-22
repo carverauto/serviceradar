@@ -1,0 +1,1505 @@
+
+CISCO-FASTHUB-MIB
+
+
+DEFINITIONS ::= BEGIN
+
+IMPORTS
+        Counter, TimeTicks, IpAddress
+                FROM RFC1155-SMI
+        TRAP-TYPE
+                FROM RFC-1215
+        OBJECT-TYPE
+                FROM RFC-1212
+        local
+                FROM CISCO-SMI
+       sysName, DisplayString
+                FROM RFC1213-MIB;
+
+
+ciscoFastHubMIB      OBJECT IDENTIFIER
+
+        -- LAST-UPDATED        "9609050000Z"
+        -- ORGANIZATION        "Cisco Systems, Inc."
+        -- CONTACT-INFO
+        --         "       Cisco Systems
+	--                 Customer Service
+        --
+        --         Postal: 170 W Tasman Drive
+        --                 San Jose, CA  95134
+        --                 USA
+        --
+        --            Tel: +1 800 553-NETS
+        --
+        --         E-mail: tuyenq@cisco.com"
+        -- DESCRIPTION
+        --         "MIB for the FastHub 116T+/116C,
+        --                      FastHub 216T,
+        --                      FastHub 316T/316C."
+
+        ::= { local 11 }
+
+
+ciscoFastHubMIBObjects OBJECT IDENTIFIER ::= { ciscoFastHubMIB 1 }
+
+
+-- textual conventions
+
+VisualLEDMap ::= OCTET STRING
+
+              -- A bit array where the presence of a particular bit
+              -- indicates a lit visual LED for a port.
+
+              -- Each octet within the value of this object specifies a set
+              -- of eight visual LEDs, with the first octet specifying LEDs
+              -- for ports 1 through 8, the second octet specifying LEDs 9
+              -- through 16, etc.   Within each octet, the most significant
+              -- bit represents the lowest numbered LED, and the least
+              -- significant bit represents the highest numbered LED. Thus,
+              -- each LED is represented by a single bit within the value of
+              -- this object. If that bit has a value of '1' then that LED
+              -- is currently lit; the LED is not lit if its bit has a
+              -- value of '0'.
+
+
+-- The FastHub Repeater product line supports the full MIB-II which
+-- applies to the protocol layers supporting the Repeater's SNMP agent.
+-- In addition, the RFC-1516 standard Repeater MIB plus substantial private
+-- MIB extentions are required in order to support full management of the
+-- repeater's functionality.  This file lists the private extentions.
+
+-- These MIB extentions are written in accordance with RFC 1221,
+-- "Concise MIB Definitions," an Internet memo defining a format
+-- for producing MIB definition modules.
+
+-- The FastHub 316 is a stackable repeater system supporting hot-insertable
+-- repeater enclosures called units. Each unit can house multiple modules where
+-- a module may also be hot insertable. A module is equivalent to an RFC-1516
+-- groups of ports. The entire FastHub stack is managed as one entity using
+-- a single SNMP Agent called the Supervisor. The Supervisor itself resides
+-- in a hot-insertable module. Management redundancy is supported by allowing
+-- multiple such modules to coexist in the same stack, with one module
+-- providing the primary supervisory contact while the others operate in a
+-- standby role.
+
+
+mrStack              OBJECT IDENTIFIER ::= { ciscoFastHubMIBObjects 1 }
+
+mrSupervisorLog      OBJECT IDENTIFIER ::= { ciscoFastHubMIBObjects 2 }
+
+mrStackUnit          OBJECT IDENTIFIER ::= { ciscoFastHubMIBObjects 3 }
+
+mrNetMgmt            OBJECT IDENTIFIER ::= { ciscoFastHubMIBObjects 4 }
+
+mrUpgrade            OBJECT IDENTIFIER ::= { ciscoFastHubMIBObjects 5 }
+
+
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--                                                                        |
+--                       Stack Information                                |
+--                                                                        |
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--
+-- The mrStack group manages the stackable functionalities of FastHub.
+--
+
+
+mrStackUnitCapacity OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This object returns the maximum number of repeater units
+                 that can be stacked in the system and managed as one
+                 repeater."
+
+        ::= { mrStack 1 }
+
+
+mrStackNumberOfUnitsPresent OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This object returns the current number of repeater units
+                 in the stack."
+
+        ::= { mrStack 2 }
+
+
+mrStackSelectPrimarySupervisorUnit OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "In a multi-unit FastHub stack with more than one Supervisor
+                 management module installed, this object selects which
+                 unit and hence, which Supervisor module, should have the
+                 primary management role. The value specified is a unit
+                 number that corresponds to an integer index into the
+                 mrStackUnitTable.
+
+                 Once a primary management unit has been chosen, the
+                 remaining management modules, if any, will automatically
+                 assume the standby role."
+
+        ::= { mrStack 3 }
+
+
+mrStackPOSTSelect OBJECT-TYPE
+        SYNTAX  INTEGER { normal(1), abbreviated(2) }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "normal(1),     -- standard length test
+                 abbreviated(2) -- shortened test
+
+                 This object configures the type of Supervisor Power On
+                 Self Test FastHub will run upon power up. The normal(1)
+                 setting runs the lengthy and complete version of the
+                 self test. The abbreviated(2) setting shortens some of
+                  the RAM tests to reduce the start up time."
+
+        ::= { mrStack 4 }
+
+
+mrStackReset OBJECT-TYPE
+        SYNTAX  INTEGER { reset(1), noReset(2) }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "reset(1)       -- reset
+                 noReset(2),    -- do nothing
+
+                 A write to this object with reset(1) causes a complete
+                 reset of the repeater hardware and the Supervisor but
+                 does not run the POST. All FastHub configuration
+                 parameters are retained and all network related statistics
+                 in the system are cleared. Setting this object to
+                 noReset(2) has no effect. FastHub will always return
+                 noReset(2) when this object is read."
+
+        ::= { mrStack 5 }
+
+
+mrStackDefaultReset OBJECT-TYPE
+        SYNTAX  INTEGER { reset(1), noReset(2) }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "reset(1)       -- reset
+                 noReset(2),    -- do nothing
+
+                 A write to this object with reset(1) causes a complete
+                 reset of the repeater hardware and the Supervisor but does
+                 not run the POST. All FastHub configuration parameters
+                 revert to their default factory settings, and all network
+                 related statistics in the system are cleared. Setting this
+                 object to noReset(2) has no effect. FastHub will always
+                 return noReset(2) when this object is read."
+
+        ::= { mrStack 6 }
+
+
+mrStackClearStatistics OBJECT-TYPE
+        SYNTAX  INTEGER { clear(1), noClear(2) }
+        ACCESS  read-write
+        STATUS  obsolete
+        DESCRIPTION
+                "clear(1)       -- clear interface statistics
+                 noClear(2),    -- do nothing
+
+                 A write to this object with noClear(2) results in no
+                 action. A write of clear(1) will cause FastHub to reset
+                 all repeater statistics to zero. FastHub will also update
+                 the object rptrGroupLastOperStatusChange for all applicable
+                 repeater groups.
+
+                 This object always returns noClear(2) when read."
+
+        ::= { mrStack 7 }
+
+
+mrStackShortJabberLoopCorrections OBJECT-TYPE
+        SYNTAX  Counter
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This object contains a count of the number of times a short
+                 event loop or jabber loop condition--caused by loopback
+                 cables--was detected and corrected."
+
+        ::= { mrStack 8 }
+
+
+
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--                                                                        |
+--                       Supervisor Log                                   |
+--                                                                        |
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--
+-- FastHub implements a system log containing entries for system state
+-- changes, user console access, and unusual events detected by the
+-- Supervisor.
+--
+
+mrSupervisorLogTableClear OBJECT-TYPE
+        SYNTAX  INTEGER { clear(1), noClear(2) }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "clear(1)       -- clear current mrSupervisorLogTable
+                 noClear(2),    -- do nothing
+
+                 A write to this object with noClear(2) results in no
+                 action. A write of clear(1) will clear all current
+                 entries in the mrSupervisorLogTable. A new entry will
+                 then be added to log this clear action.
+
+                 This object always return noClear(2) when read."
+
+        ::= { mrSupervisorLog 1 }
+
+
+mrSupervisorLogTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF MrSupervisorLogEntry
+        ACCESS  not-accessible
+        STATUS  mandatory
+        DESCRIPTION
+                "The mrSupervisorLogTable provides read access to the
+                 Supervisor log. Each table entry, identified by a unique
+                 index, holds one DisplayString object containing the logged
+                 information. The entire table can be retrieved one entry
+                 at a time using the get-next operation. The table can be
+                 cleared using the object sysConfigClearLogTable."
+
+        ::= { mrSupervisorLog 2 }
+
+
+mrSupervisorLogEntry     OBJECT-TYPE
+        SYNTAX  MrSupervisorLogEntry
+        ACCESS  not-accessible
+        STATUS  mandatory
+        DESCRIPTION
+                "Supervisor Log entry."
+
+        INDEX   { mrSupervisorLogIndex }
+
+        ::= { mrSupervisorLogTable 1 }
+
+
+MrSupervisorLogEntry ::=
+        SEQUENCE {
+                mrSupervisorLogIndex
+                        INTEGER,
+                mrSupervisorLogTime
+                        DisplayString,
+                mrSupervisorLogInfo
+                        DisplayString,
+                mrSupervisorLogRelativeTime
+                        TimeTicks
+        }
+
+
+mrSupervisorLogIndex OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "A value identifying a unique entry in the
+                 mrSupervisorLogTable."
+
+        ::= { mrSupervisorLogEntry 1 }
+
+
+mrSupervisorLogTime OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  obsolete
+        DESCRIPTION
+                "Text string containing the date and time this log entry
+                 was created."
+
+        ::= { mrSupervisorLogEntry 2 }
+
+
+mrSupervisorLogInfo OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "A free formatted display string containing some descriptive
+                 text about a certain system state change."
+
+        ::= { mrSupervisorLogEntry 3 }
+
+
+mrSupervisorLogRelativeTime OBJECT-TYPE
+        SYNTAX  TimeTicks
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                  "The value of sysUpTime when this log entry was
+                  created. A value of 0 indicates that the entry was 
+		  logged before the last reset."
+
+        ::= { mrSupervisorLogEntry 4 }
+
+
+
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--                                                                        |
+--                      Stack Unit Table                                  |
+--                                                                        |
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--
+-- The FastHub stackable repeater system consists of one or more hot-
+-- insertable enclosures called units. Each unit houses one or more group
+-- of repeater ports as described by RFC-1516. The mrStackUnitTable
+-- describes the units and identifies their associated RFC-1516 groups.
+--
+
+
+mrStackUnitTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF MrStackUnitEntry
+        ACCESS  not-accessible
+        STATUS  mandatory
+        DESCRIPTION
+                "The mrStackUnitTable provides configuration information
+                 about hot-insertable enclosures. Each table entry,
+                 identified by a unique index, describes one such enclosure
+                 (called unit)."
+
+        ::= { mrStackUnit 1 }
+
+
+mrStackUnitEntry OBJECT-TYPE
+        SYNTAX  MrStackUnitEntry
+        ACCESS  not-accessible
+        STATUS  mandatory
+        DESCRIPTION
+                "Stack unit table entry."
+
+        INDEX   { mrStackUnitIndex }
+
+        ::= { mrStackUnitTable 1 }
+
+
+MrStackUnitEntry ::=
+        SEQUENCE {
+                mrStackUnitIndex
+                        INTEGER,
+                mrStackUnitPresent
+                        INTEGER,
+                mrStackUnitFirstGroupIndex
+                        INTEGER,
+                mrStackUnitLastGroupIndex
+                        INTEGER,
+                mrStackUnitSupervisorPresent
+                        INTEGER,
+                mrStackUnitSupervisorMajorVersion
+                        INTEGER,
+                mrStackUnitSupervisorMinorVersion
+                        INTEGER,
+                mrStackUnitSupervisorBootstrapMajorVersion
+                        INTEGER,
+                mrStackUnitSupervisorBootstrapMinorVersion
+                        INTEGER,
+                mrStackUnitPOSTResult
+                        OCTET STRING,
+                mrStackUnitSupervisorIsPrimary
+                        INTEGER,
+                mrStackUnitExpansionModulePresent
+                        INTEGER,
+                mrStackUnitPortVisualIndicatorSelect
+                        INTEGER,
+                mrStackUnitBasePortVisualIndicatorGreenMap
+                        VisualLEDMap,
+                mrStackUnitBasePortVisualIndicatorAmberMap
+                        VisualLEDMap,
+                mrStackUnitExpansionPortVisualIndicatorGreenMap
+                        VisualLEDMap,
+                mrStackUnitExpansionPortVisualIndicatorAmberMap
+                        VisualLEDMap,
+                mrStackUnitActivityVisualIndicator
+                        INTEGER,
+                mrStackUnitCollisionVisualIndicator
+                        INTEGER,
+                mrStackUnitRPSStatus
+                        INTEGER,
+                mrStackUnitRPSVisualIndicator
+                        INTEGER,
+                mrStackUnitSerialNumber
+                        DisplayString
+        }
+
+
+mrStackUnitIndex OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "A number identifying a unique FastHub unit. This number
+                 corresponds to the physical box unit number in the stack."
+
+        ::= { mrStackUnitEntry 1 }
+
+
+mrStackUnitPresent OBJECT-TYPE
+        SYNTAX  INTEGER { true(1), false(2) }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This object contains true(1) if the unit identified by
+                 mrStackUnitIndex is present in the stack.
+                 The object contains false(2) otherwise.
+
+                 Default value: false(2)."
+
+        ::= { mrStackUnitEntry 2 }
+
+
+mrStackUnitFirstGroupIndex OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This object contains a value which corresponds to an
+                 RFC-1516 group index. It identifies the first of the one
+                 or more repeater groups present in this unit. All groups
+                 belonging to a same FastHub unit are indexed using
+                 consecutive integer values."
+
+        ::= { mrStackUnitEntry 3 }
+
+
+mrStackUnitLastGroupIndex OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This object contains a value which corresponds to an
+                 RFC-1516 group index. It identifies the last of the one
+                 or more repeater groups present in this unit. All groups
+                 belonging to a same FastHub unit are indexed using
+                 consecutive integer values."
+
+        ::= { mrStackUnitEntry 4 }
+
+
+mrStackUnitSupervisorPresent OBJECT-TYPE
+        SYNTAX  INTEGER { true(1), false(2) }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This object contains true(1) if a Supervisor module is
+                 installed in the unit. The object contains false(2)
+                 otherwise.
+
+                 Default value: false(2)."
+
+        ::= { mrStackUnitEntry 5 }
+
+
+mrStackUnitSupervisorMajorVersion OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "If a Supervisor module is installed in the unit, this
+                 object returns its major firmware version number. This
+                 object contains 0 if the unit does not have a Supervisor
+                 module installed.
+
+                 Default value: 0."
+
+        ::= { mrStackUnitEntry 6 }
+
+
+mrStackUnitSupervisorMinorVersion OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "If a Supervisor module is installed in the unit, this
+                 object returns its minor firmware version number. This
+                 object contains 0 if the unit does not have a Supervisor
+                 module installed.
+
+                 Default value: 0."
+
+        ::= { mrStackUnitEntry 7 }
+
+
+mrStackUnitSupervisorBootstrapMajorVersion OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "If a Supervisor module is installed in the unit, this
+                 object returns its major bootstrap version number. This
+                 object contains 0 if the unit does not have a Supervisor
+                 module installed.
+
+                 Default value: 0."
+
+        ::= { mrStackUnitEntry 8 }
+
+
+mrStackUnitSupervisorBootstrapMinorVersion OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "If a Supervisor module is installed in the unit, this
+                 object returns its minor bootstrap version number. This
+                 object contains 0 if the unit does not have a Supervisor
+                 module installed.
+
+                 Default value: 0."
+
+        ::= { mrStackUnitEntry 9 }
+
+
+mrStackUnitPOSTResult OBJECT-TYPE
+        SYNTAX  OCTET STRING
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "A bit array where the presence of a particular bit indicates
+                 a failure of a particular Power On Self Test (POST).
+
+                 Each octet within the value of this object specifies a set
+                 of 8 POST tests, with the first octet specifying tests
+                 1 through 8, the second octet specifying tests 9
+                 through 16, etc.   Within each octet, the most significant
+                 bit represents the lowest numbered test, and the least
+                 significant bit represents the highest numbered test. Thus,
+                 each test is represented by a single bit within the value of
+                 this object. If that bit has a value of '1' then that test
+                 has failed; the test has passed if its bit has a value of
+                 '0'.
+
+                 The defined POST tests are:
+
+                 Number   POST Test
+                 ------   ---------
+                    1     Supervisor RAM
+                    2     EIA/TIA-232 console port
+                    3     Ethernet address
+                    4     Timer interrupt
+                    5     Real time clock
+                    6     Non-volatile RAM
+                    7     Port loopback
+
+                 Default value: string of length 0."
+
+        ::= { mrStackUnitEntry 10 }
+
+
+mrStackUnitSupervisorIsPrimary OBJECT-TYPE
+        SYNTAX  INTEGER { true(1), false(2) }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "true(1),       -- unit contains the primary management module
+                 false(2)       -- unit has no management module or contains
+                                -- a standby management module
+
+                 If the current unit has a management module installed
+                 (mrStackUnitSupervisorPresent is true), this object
+                 indicates whether the module is acting as the primary
+                 management Supervisor. If there is no management module
+                 present, this object will return the value false(2).
+
+                 Default value: false(2)."
+
+        ::= { mrStackUnitEntry 11 }
+
+
+mrStackUnitExpansionModulePresent OBJECT-TYPE
+        SYNTAX  INTEGER { true(1), false(2) }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This object contains true(1) if an expansion module is
+                 installed in the unit. The object contains false(2)
+                 otherwise.
+
+                 Default value: false(2)."
+
+        ::= { mrStackUnitEntry 12 }
+
+
+mrStackUnitPortVisualIndicatorSelect OBJECT-TYPE
+        SYNTAX  INTEGER { portStatus(1),
+                          unitNumber(2),
+                          utilization(3)
+                        }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "portStatus(1),         -- LED shows port link/activity
+                 unitNumber(2),         -- LED shows unit number
+                 utilization(3)         -- LED shows utilization
+
+                 This object reflects what is currently selected as the port
+                 visual indication mode. The portStatus(1) mode uses the
+                 visual LEDs to indicate port link and activity status.
+                 The unitNumber(2) mode shows the position of the unit in
+                 the stack (the unit number). The utilization(3) mode
+                 uses the port visual LEDs to display the repeater backplane
+                 bandwidth utilization.
+
+                 Default value: portStatus(1)."
+
+        ::= { mrStackUnitEntry 13 }
+
+
+mrStackUnitBasePortVisualIndicatorGreenMap OBJECT-TYPE
+        SYNTAX  VisualLEDMap
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The current value of the green visual LED map,
+                 representing link or activity, for ports on
+                 the unit's main board.
+
+                 Default value: string of length 0."
+
+         ::= { mrStackUnitEntry 14 }
+
+
+mrStackUnitBasePortVisualIndicatorAmberMap OBJECT-TYPE
+        SYNTAX  VisualLEDMap
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The current value of the amber visual LED map,
+                 representing disabled status, for ports on
+                 the unit's main board.
+
+                 Default value: string of length 0."
+
+         ::= { mrStackUnitEntry 15 }
+
+
+mrStackUnitExpansionPortVisualIndicatorGreenMap OBJECT-TYPE
+        SYNTAX  VisualLEDMap
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The current value of the green visual LED map,
+                 representing link or activity, for ports on
+                 the unit's expansion module.
+
+                 Default value: string of length 0."
+
+         ::= { mrStackUnitEntry 16 }
+
+
+mrStackUnitExpansionPortVisualIndicatorAmberMap OBJECT-TYPE
+        SYNTAX  VisualLEDMap
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The current value of the amber visual LED map,
+                 representing disabled status, for ports on
+                 the unit's expansion module.
+
+                 Default value: string of length 0."
+
+         ::= { mrStackUnitEntry 17 }
+
+
+mrStackUnitActivityVisualIndicator OBJECT-TYPE
+        SYNTAX  INTEGER { true(1), false(2) }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This object has the value true(1) when the unit activity
+                 visual LED is lit. Otherwise, it has the value false(2).
+
+                 Initial value: false(2)."
+
+        ::= { mrStackUnitEntry 18 }
+
+
+mrStackUnitCollisionVisualIndicator OBJECT-TYPE
+        SYNTAX  INTEGER { true(1), false(2) }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This object has the value true(1) when the unit collision
+                 visual LED is lit. Otherwise, it has the value false(2).
+
+                 Initial value: false(2)."
+
+        ::= { mrStackUnitEntry 19 }
+
+
+mrStackUnitRPSStatus OBJECT-TYPE
+        SYNTAX  INTEGER { notPresent(1),
+                          connectedFunctional(2),
+                          connectedNotFunctional(3),
+                          functionalPrimaryFailed(4)
+                        }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "notPresent(1),                 -- no RPS present
+                 connectedFunctional(2),        -- both internal and RPS
+                                                   supplying power
+                 conectedNotFunctional(3),      -- RPS connected but is down
+                 functionalPrimaryFailed(4)     -- RPS is supplying power
+
+                 This object shows the status of the remote redundant power
+                 supply connected to the unit. This MIB object returns
+                 notPresent(1) when there is no RPS connected to the unit.
+                 This object returns connectedFunctional(2) if there is a RPS
+                 and both internal and RPS are supplying power to the unit.
+                 It returns connectedNotFunctional(3) if the RPS is connected
+                 but down. It returns functionalPrimaryFailed(4) if the
+                 internal power supply failed and RPS is supplying power to
+                 the unit.
+
+                 Default value: notPresent(1)."
+
+        ::= { mrStackUnitEntry 20 }
+
+
+mrStackUnitRPSVisualIndicator OBJECT-TYPE
+        SYNTAX  INTEGER { off(1), green(2), amber(3) }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This object has one of the following values:
+
+                 off(1),        -- no RPS present
+                 green(2),      -- RPS healthy
+                 amber(3)       -- RPS not healthy
+
+                 Initial value: off(1)."
+
+        ::= { mrStackUnitEntry 21 }
+
+mrStackUnitSerialNumber OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "This object has the serial number of the unit."
+
+        ::= { mrStackUnitEntry 22 }
+	
+
+
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--                                                                        |
+--                      Network Management                                |
+--                                                                        |
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--
+-- Objects related to the use and control of the FastHub Supervisor
+-- in-band and out-of-band management functions are defined in this group.
+-- Among these are the mrNetMgmtSetClientTable containing the Set Client IP
+-- address list, and the mrNetMgmtTrapClientTable which configures the IP
+-- addresses and SNMP community strings for the Management workstations
+-- that receive and process traps.
+--
+
+
+mrNetMgmtIpAddress OBJECT-TYPE
+        SYNTAX  IpAddress
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The FastHub Supervisor IP address. FastHub may
+                 automatically discover a value for this object using BOOTP,
+                 or DHCP. The object value is also duplicated in the
+                 MIB-II ipAddrTable.
+
+                 A write to this object will take effect immediately,
+                 replacing the previous address, if any.
+
+                 Default value: 0.0.0.0, or no address."
+
+        ::= { mrNetMgmt 1 }
+
+
+mrNetMgmtIpSubnetMask OBJECT-TYPE
+        SYNTAX  IpAddress
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The FastHub Supervisor IP subnet mask. The firmware may
+                 automatically discover a value for this object using
+                 BOOTP, DHCP or RARP. The object value is also duplicated
+                 in the MIB-II ipAddrTable.
+
+                 A write to this object will take effect immediately,
+                 replacing the previous subnet mask, if any.
+
+                 Default value: 0.0.0.0, or no mask."
+
+        ::= { mrNetMgmt 2 }
+
+
+mrNetMgmtDefaultGateway OBJECT-TYPE
+        SYNTAX  IpAddress
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The IP address of a default gateway. A write to this object
+                 will take effect immediately, replacing the previous
+                 address, if any.
+
+                 Default value: 0.0.0.0, or no gateway address."
+
+        ::= { mrNetMgmt 3 }
+
+
+mrNetMgmtEnableAuthenTraps OBJECT-TYPE
+        SYNTAX  INTEGER { enabled(1), disabled(2) }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "enabled(1),    -- trap generation is enabled
+                 disabled(2)    -- trap generation is disabled
+
+                 Indicates whether the SNMP Agent is allowed to generate
+                 authenticationFailure traps. The value of this object
+                 overrides any configuration information; as such, it
+                 provides a means whereby all authenticationFailure traps
+                 may be disabled(2). This object manipulates the same value
+                 for the MIB-II snmpEnableAuthenTraps object instance. The
+                 value is duplicated here for convenience.
+
+                 Default value: enabled(1)."
+
+        ::= { mrNetMgmt 4 }
+
+
+mrNetMgmtEnableRIP OBJECT-TYPE
+        SYNTAX  INTEGER { enabled(1), disabled(2) }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "enabled(1),    -- RIP listener is enabled
+                 disabled(2)    -- RIP listener is disabled
+
+                 This object controls whether the FastHub Supervisor
+                 will run the Routing Information Protocol listener to
+                 automatically discover IP gateways.
+
+                 Default value: enabled(1)."
+
+        ::= { mrNetMgmt 6 }
+
+
+mrNetMgmtConsoleInactTime OBJECT-TYPE
+        SYNTAX  INTEGER( 0..65500 )
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The number of seconds (minimum of 30) of Management
+                 Console session inactivity to wait before ending the
+                 session. Once a session has ended, the user must resupply
+                 the Console password to regain access. A value of zero
+                 indicates no timeout.
+
+                 Default value: 0."
+
+        ::= { mrNetMgmt 7 }
+
+
+mrNetMgmtConsolePasswordThreshold OBJECT-TYPE
+        SYNTAX  INTEGER( 0..65500 )
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The number of consecutive invalid password attempts
+                 allowed before the Management Console is shut down for
+                 a configured duration. A zero value permits unlimited
+                 attempts.
+
+                 Default value: 3."
+
+        ::= { mrNetMgmt 8 }
+
+
+mrNetMgmtConsoleSilentTime OBJECT-TYPE
+        SYNTAX  INTEGER( 0..65500 )
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The number of minutes during which the Management Console
+                 will be unavailable after repeated failed attempts to log
+                 on. A zero value specifies no silent time.
+
+                 Default value: 0."
+
+        ::= { mrNetMgmt 9 }
+
+
+mrNetMgmtModemInitString OBJECT-TYPE
+        SYNTAX  DisplayString (SIZE(0..48))
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "A string of up to 48 characters used to configured a modem
+                 connected to the RS-232 port. Specify this string if the
+                 modem is not Hayes compatible. Only the initialization
+                 commands need to be specified (i.e., do not specify any
+                 modem prefix string such as the AT attention sequence, or
+                 any suffix such as the CR character). This string takes
+                 effect after every line hang-up.
+
+                 Default value: string of length 0."
+
+        ::= { mrNetMgmt 10 }
+
+
+mrNetMgmtModemDialString OBJECT-TYPE
+        SYNTAX  DisplayString (SIZE(0..48))
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "This string of up to 48 characters contains a phone number
+                 used to establish a modem connection with a remote site. Only
+                 the phone number needs be specified (i.e., do not specify
+                 any dial prefix string such as ATDT). Leave this string empty
+                 (the default value), if the dial-out capability is not desired.
+                 This string takes effect after every line hang-up.
+
+                 Default value: string of length 0."
+
+        ::= { mrNetMgmt 11 }
+
+
+mrNetMgmtModemDialDelay OBJECT-TYPE
+        SYNTAX  INTEGER( 0..65500 )
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "Specifies a delay in seconds between every dial-out failure.
+                 The value zero indicates an infinite delay (no retry after
+                 the first failure). Normally, FastHub will attempt a dial-out
+                 if the mrNetMgmtModemDialString object is non-empty. If the
+                 dial-out fails, and auto-answer has been disabled on this
+                 system, the firmware will retry the dial-out after this delay
+                 has passed. If auto-answer is enabled and the first dial-out
+                 attempt fails, the system will immediately go into auto-answer
+                 mode.
+
+                 Default value: 300."
+
+        ::= { mrNetMgmt 12 }
+
+
+mrNetMgmtModemAutoAnswer OBJECT-TYPE
+        SYNTAX  INTEGER { enabled(1), disabled(2) }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "Specifies whether the system should be in auto-answer mode
+                 and only accepts incoming calls. Note that the system will
+                 always attempt a dial-out first if mrNetMgmtModemDialString
+                 is non-empty. Valid values are enabled(1) and disabled(2).
+
+                 Default value: enabled(1)."
+
+        ::= { mrNetMgmt 13 }
+
+
+mrNetMgmtDomainServer1IpAddress OBJECT-TYPE
+        SYNTAX  IpAddress
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The IP address of a Domain Name Server (DNS) which FastHub
+                 uses to resolve domain names to IP addresses. A set on this
+                 object takes effect the next time FastHub has to resolve a
+                 domain name.
+
+                 Default value: 0.0.0.0, or no address."
+
+        ::= { mrNetMgmt 14 }
+
+
+mrNetMgmtDomainServer2IpAddress OBJECT-TYPE
+        SYNTAX  IpAddress
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The IP address of a second Domain Name Server (DNS) which
+                 FastHub uses to resolve domain names to IP addresses. A set
+                 on this object takes effect the next time FastHub needs to
+                 resolve a domain name.
+
+                 Default value: 0.0.0.0, or no address."
+
+        ::= { mrNetMgmt 15 }
+
+
+mrNetMgmtDefaultSearchDomain OBJECT-TYPE
+        SYNTAX  DisplayString (SIZE(0..63))
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "A string of up to 63 characters specifying a default domain
+                 search path. When FastHub needs to resolve a domain name
+                 that is not fully specified, it appends this default domain
+                 path to the name and continues the resolution attempt.
+
+                 Default value: string of length 0."
+
+        ::= { mrNetMgmt 16 }
+
+
+
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--                                                                        |
+--                      Set Client Table                                  |
+--                                                                        |
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--
+-- A table of 4 entries, each of which contains the name or IP address of
+-- a Management workstation permitted to issue Set requests. Such a
+-- workstation is called a Set Client. The table is considered empty when
+-- all names/addresses are empty, the default; in which case, any Set
+-- request with a valid Set community string is allowed. If at least one
+-- name/address is specified, then an incoming Set request must match its
+-- source IP address with one of the addresses in the table before the
+-- Set is allowed.
+--
+
+
+mrNetMgmtSetClientTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF MrNetMgmtSetClientEntry
+        ACCESS  not-accessible
+        STATUS  mandatory
+        DESCRIPTION
+                "Table (4 entries) containing a list of names/IP addresses
+                 of workstations permitted to issue SET requests.  Such a
+                 workstation is called a Set client.  If this table is
+                 empty then any SET request with a matching SET community
+                 string is allowed.  If at least one Set client is specified,
+                 then an incoming SET request must have its source IP
+                 address matched against an entry in this table before the
+                 SET is allowed."
+
+        ::= { mrNetMgmt 17 }
+
+
+mrNetMgmtSetClientEntry OBJECT-TYPE
+        SYNTAX  MrNetMgmtSetClientEntry
+        ACCESS  not-accessible
+        STATUS  mandatory
+        DESCRIPTION
+                "A name/IP address of a manager station allowed to issue
+                 SET requests to this management agent."
+
+        INDEX   { mrNetMgmtSetClientIndex }
+
+        ::= { mrNetMgmtSetClientTable 1 }
+
+
+MrNetMgmtSetClientEntry ::=
+        SEQUENCE {
+                mrNetMgmtSetClientIndex
+                        INTEGER,
+                mrNetMgmtSetClientName
+                        DisplayString,
+                mrNetMgmtSetClientStatus
+                        INTEGER
+         }
+
+
+
+mrNetMgmtSetClientIndex OBJECT-TYPE
+        SYNTAX  INTEGER( 1..4 )
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Identifier of a particular table entry."
+
+        ::= { mrNetMgmtSetClientEntry 1 }
+
+
+mrNetMgmtSetClientName OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The Set Client's name or IP address.
+
+                 Default value: string of length 0."
+
+        ::= { mrNetMgmtSetClientEntry 2 }
+
+
+mrNetMgmtSetClientStatus OBJECT-TYPE
+        SYNTAX  INTEGER { other(1),
+                          invalid(2),
+                          permanent(3)
+                        }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "other(1)        -- none of the following
+                 invalid(2)      -- an invalid entry
+                 permanent(3)    -- a valid entry that is in use
+
+                 Setting this object to the value invalid(2) has the effect
+                 of invalidating the corresponding entry. That is, it
+                 effectively disassociates the name/IP address identified
+                 with said entry from the table. It is an implementation-
+                 specific matter as to whether the agent removes an
+                 invalidated entry from the table. Accordingly, management
+                 stations must be prepared to receive tabular information
+                 from agents that corresponds to entries not currently in
+                 use.
+
+                 Default value: permanent(3)."
+
+        ::= { mrNetMgmtSetClientEntry 3 }
+
+
+
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--                                                                        |
+--                      Trap Client Table                                 |
+--                                                                        |
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--
+-- A table of 4 entries containing a list of Management stations that are
+-- to receive traps generated from this agent. Such stations are termed
+-- Trap Clients. An entry having an empty name/address or an empty community
+-- string is considered invalid and will be ignored.
+--
+
+
+mrNetMgmtTrapClientTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF MrNetMgmtTrapClientEntry
+        ACCESS  not-accessible
+        STATUS  mandatory
+        DESCRIPTION
+                "Table (4 entries) containing a list of Network Management
+                 Stations that are to receive traps generated by this
+                 Network Management Agent.  Such an NMS is called a
+                 Trap client."
+
+        ::= { mrNetMgmt 18 }
+
+
+mrNetMgmtTrapClientEntry OBJECT-TYPE
+        SYNTAX  MrNetMgmtTrapClientEntry
+        ACCESS  not-accessible
+        STATUS  mandatory
+        DESCRIPTION
+                "A destination address and community string to a particular
+                 trap client."
+
+        INDEX   { mrNetMgmtTrapClientIndex }
+
+        ::= { mrNetMgmtTrapClientTable 1 }
+
+
+MrNetMgmtTrapClientEntry ::=
+        SEQUENCE {
+                mrNetMgmtTrapClientIndex
+                        INTEGER,
+                mrNetMgmtTrapClientName
+                        DisplayString,
+                mrNetMgmtTrapClientComm
+                        DisplayString,
+                mrNetMgmtTrapClientStatus
+                        INTEGER
+         }
+
+
+mrNetMgmtTrapClientIndex OBJECT-TYPE
+        SYNTAX  INTEGER( 1..4 )
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Identifier of a particular table entry."
+
+        ::= { mrNetMgmtTrapClientEntry 1 }
+
+
+mrNetMgmtTrapClientName OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The Trap Client's name or IP address.
+
+                 Default value: string of length 0."
+
+        ::= { mrNetMgmtTrapClientEntry 2 }
+
+
+mrNetMgmtTrapClientComm OBJECT-TYPE
+        SYNTAX  DisplayString( SIZE(0..32) )
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The community string (up to 32 characters) used for traps
+                 sent to this Trap Client.
+
+                 Default value: string of length 0."
+
+        ::= { mrNetMgmtTrapClientEntry 3 }
+
+
+mrNetMgmtTrapClientStatus OBJECT-TYPE
+        SYNTAX  INTEGER { other(1),
+                          invalid(2),
+                          permanent(3)
+                        }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "other(1)        -- none of the following
+                 invalid(2)      -- an invalid entry
+                 permanent(3)    -- a valid entry that is in use
+
+                 Setting this object to the value invalid(2) has the effect
+                 of invalidating the corresponding entry. That is, it
+                 effectively disassociates the name/community string
+                 identified with said entry from the table. It is an
+                 implementation-specific matter as to whether the agent
+                 removes an invalidated entry from the table. Accordingly,
+                 management stations must be prepared to receive tabular
+                 information from agents that corresponds to entries not
+                 currently in use.
+
+                 Default value: permanent(3)."
+
+        ::= { mrNetMgmtTrapClientEntry 4 }
+
+
+
+
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--                                                                        |
+--                      Firmware Upgrade                                  |
+--                                                                        |
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--
+-- The mrUpgrade group is used to control and monitor all FastHub in-band
+-- firmware upgrade operations. It also provides information about the
+-- FLASH read-write non-volatile memory containing the primary Supervisor
+-- firmware.
+--
+
+
+mrUpgradeFlashSize OBJECT-TYPE
+        SYNTAX  INTEGER
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The size in kilobytes of FLASH memory installed in the
+                 system. For example: 128 equals 131072 bytes (128 times
+                 1024 bytes).
+
+                 Default value: 1024 (one megabyte)."
+
+        ::= { mrUpgrade 1 }
+
+
+mrUpgradeLastUpgradeTime OBJECT-TYPE
+        SYNTAX  DisplayString( SIZE(0..80) )
+        ACCESS  read-only
+        STATUS  obsolete
+        DESCRIPTION
+                "A string containing the date and time of the last upgrade
+                 of the primary Supervisor firmware. The string is in net
+                 ASCII and conforms exactly to one of the following format:
+
+                 'Wed Dec 27 15:19:15 1995'
+
+                 Default value: string of length 0."
+
+        ::= { mrUpgrade 2 }
+
+
+mrUpgradeLastUpgradeSource OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The name or IP address of the TFTP node which last sent
+                 a Supervisor firmware image to upgrade the FLASH memory
+                 contents. If the last upgrade was from the RS-232 console,
+                 this object would contain 'console port' or 'diagnostic
+                 console port'.
+
+                 Default value: string of length 0."
+
+        ::= { mrUpgrade 3 }
+
+
+mrUpgradeLastUpgradeStatus OBJECT-TYPE
+        SYNTAX  INTEGER { none(1),
+                          inProgress(2),
+                          success(3),
+                          failure(4)
+                        }
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "Indicates the status of the last upgrade. The object can
+                 have one of the following values:
+
+                 none(1),        -- no upgrade has been done
+                 inProgress(2),  -- upgrade still in progress
+                 success(3),     -- last upgrade was successful
+                 failure(4)      -- last upgrade failed
+
+                 Default value: none(1)."
+
+        ::= { mrUpgrade 4 }
+
+
+mrUpgradeTFTPServerAddress OBJECT-TYPE
+        SYNTAX  DisplayString
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "This object names the TFTP server from which a firmware
+                 file can be downloaded using the built-in TFTP protocol.
+                 This is the in-band system-directed upgrade method. The
+                 download may be initiated by setting the
+                 mrUpgradeTFTPInitiate to upgrade(1), or via an out-of-band
+                 management action.
+
+                 If the first non-blank character in
+                 mrUpgradeTFTPServerAddress is a NetASCII numeral, the name
+                 is assumed to be an IP address. Otherwise, the name is
+                 assumed to be a fully qualified Domain Name Server name,
+                 and the DNS protocol will be used to resolve it to an IP
+                 address.
+
+                 Default value: string of length 0."
+
+        ::= { mrUpgrade 5 }
+
+
+mrUpgradeTFTPLoadFilename OBJECT-TYPE
+        SYNTAX  DisplayString( SIZE(0..80) )
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "The name of the file containing a firmware upgrade image
+                 on the host whose address is given by mrUpgradeTFTPServerAddress.
+
+                 Default value: string of length 0."
+
+        ::= { mrUpgrade 6 }
+
+
+mrUpgradeTFTPInitiate OBJECT-TYPE
+        SYNTAX  INTEGER { upgrade(1), noUpgrade(2) }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "upgrade(1),    -- no action
+                 noUpgrade(2)   -- initiate an upgrade
+
+                 Setting this object to noUpgrade(2) results in no action.
+                 When set to upgrade(1), FastHub will attempt to download a
+                 firmware file whose name is given by
+                 mrUpgradeTFTPLoadFilename, from the server whose address
+                 is given by mrUpgradeTFTPServerAddress. Both
+                 mrUpgradeTFTPServerAddress and mrUpgradeTFTPLoadFilename
+                 must be non-empty for the upgrade to proceed. The object
+                 always returns noUpgrade(2) when read.
+
+                 Default value: noUpgrade(2)."
+
+        ::= { mrUpgrade 7 }
+
+
+mrUpgradeTFTPAccept OBJECT-TYPE
+        SYNTAX  INTEGER { enabled(1), disabled(2) }
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+                "enabled(1),    -- accept TFTP upgrade request
+                 disabled(2)    -- do not accept TFTP upgrade request
+
+                 When set to disabled(2), FastHub will refuse TFTP write
+                 requests from workstations. When enabled(1), a user at
+                 a workstations may send a firmware file using the TFTP
+                 protocol to upgrade the current primary Supervisor firmware.
+                 This is the in-band workstation-directed upgrade method.
+
+                 Default value: enabled(1)."
+
+        ::= { mrUpgrade 8 }
+
+
+
+
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--                                                                        |
+--                    The FastHub Enterprise Specific Traps               |
+--                                                                        |
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+logonIntruder TRAP-TYPE
+        ENTERPRISE  ciscoFastHubMIBObjects
+        VARIABLES   { sysName }
+        DESCRIPTION
+                "A user is repeatedly trying to log on to the Management
+                 Console using an invalid password. The number of attempts
+                 exceeds the preset limit given in
+                 mrNetMgmtConsolePasswordThreshold. Depending on how the
+                 object mrNetMgmtConsoleSilentTime is configured, FastHub
+                 may shut down the Management Console following the
+                 generation of this trap."
+
+        ::= 0
+
+
+hubStackDiagnostic TRAP-TYPE
+        ENTERPRISE  ciscoFastHubMIBObjects
+        VARIABLES   { sysName }
+        DESCRIPTION
+                "FastHub issues this trap when its Power On Self Test (POST)
+                 code does not pass all tests. Some failures are catastrophic
+                 and may prevent the generation of this trap."
+
+        ::= 1
+
+
+rpsFailed TRAP-TYPE
+        ENTERPRISE  ciscoFastHubMIBObjects
+        VARIABLES   { sysName }
+        DESCRIPTION
+                "A redundant power source is connected to FastHub but a
+                 failure exists in the power system."
+
+        ::= 2
+
+
+ipAddressChange TRAP-TYPE
+        ENTERPRISE  ciscoFastHubMIBObjects
+        VARIABLES   { sysName }
+        DESCRIPTION
+                "The ipAddressChange trap is issued when the FastHub
+                 Supervisor is unable to complete its DHCPDISCOVER/
+                 DHCPREQUEST process, or when it fails to extend the
+                 lease for the current address, or when it accepts an
+                 address change from the user."
+
+        ::= 3
+
+
+END
+

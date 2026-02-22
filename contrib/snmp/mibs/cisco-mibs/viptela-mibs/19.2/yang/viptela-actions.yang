@@ -1,0 +1,2622 @@
+module viptela-actions {
+  namespace "http://viptela.com/actions";
+  prefix viptela-actions;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import viptela-common {
+    prefix viptela;
+  }
+  import viptela-system {
+    prefix viptela-system;
+  }
+    prefix tailf;
+  }
+  import tailf-xsd-types {
+    prefix xs;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:support@viptela.com";
+  description
+    "This module defines data model for Viptela actions";
+
+  revision 2019-08-15 {
+    description
+      "Release version: 19.2";
+  }
+  revision 2018-11-01 {
+    description
+      "Release version: 18.4";
+  }
+  revision 2018-08-20 {
+    description
+      "Release version: 18.3.1";
+  }
+  revision 2018-06-25 {
+    description
+      "Release version: 18.3";
+  }
+  revision 2018-04-25 {
+    description
+      "Release version: 18.2";
+  }
+  revision 2018-03-15 {
+    description
+      "Release version: 18.1.1";
+  }
+  revision 2018-01-16 {
+    description
+      "Release version: 17.2.3";
+  }
+  revision 2017-11-01 {
+    description
+      "Release version: 17.2.1";
+  }
+  revision 2017-08-01 {
+    description
+      "Release version: 17.2";
+  }
+  revision 2017-05-25 {
+    description
+      "Release version: 17.1.1";
+  }
+  revision 2017-04-06 {
+    description
+      "Release version: 17.1";
+  }
+  revision 2017-02-15 {
+    description
+      "Release version: 16.3.2";
+  }
+  revision 2017-02-06 {
+    description
+      "Release version: 16.3.1";
+  }
+  revision 2016-11-16 {
+    description
+      "Release version: 16.3";
+  }
+  revision 2016-10-25 {
+    description
+      "Release version: 16.2.10";
+  }
+  revision 2016-10-24 {
+    description
+      "Release version: 16.2.4";
+  }
+  revision 2016-08-10 {
+    description
+      "Release version: 16.2.2";
+  }
+  revision 2016-08-01 {
+    description
+      "Release version: 16.2.1";
+  }
+  revision 2016-06-09 {
+    description
+      "Release version: 16.2";
+  }
+  revision 2016-04-22 {
+    description
+      "Release version: 16.1.1";
+  }
+  revision 2016-03-15 {
+    description
+      "Release version: 16.1";
+  }
+  revision 2016-01-30 {
+    description
+      "Release version: 15.4.3";
+  }
+  revision 2015-12-28 {
+    description
+      "Release version: 15.4.1";
+  }
+  revision 2015-12-01 {
+    description
+      "Release version: 15.4.0";
+  }
+  revision 2015-10-31 {
+    description
+      "Release version: 15.3.5";
+  }
+  revision 2015-09-27 {
+    description
+      "Release version: 15.3.3";
+  }
+  revision 2015-09-01 {
+    description
+      "Release version: 15.3.1";
+  }
+  revision 2015-07-01 {
+    description
+      "Release version: 15.3";
+  }
+  revision 2015-06-01 {
+    description
+      "Release version: 15.2.8";
+  }
+  revision 2015-05-01 {
+    description
+      "Release version: 15.2";
+  }
+  revision 2015-02-01 {
+    description
+      "Release version: 15.1";
+  }
+  revision 2014-12-01 {
+    description
+      "Release version: 14.3";
+  }
+  revision 2014-07-01 {
+    description
+      "Release version: 14.2";
+  }
+  revision 2013-02-12 {
+    description
+      "Initial revision";
+  }
+
+  typedef zone-based-firewall-decision-enum {
+    type enumeration {
+      enum "zbf-invalid";
+      enum "inspect-new";
+      enum "inspect-existing";
+      enum "pass";
+      enum "drop";
+    }
+  }
+
+  container clock {
+    description "System clock";
+    viptela:action "set" {
+      description "Set system clock";
+      input {
+        leaf time {
+          description "Current time";
+          type xs:time;
+          mandatory true;
+        }
+        leaf date {
+          description "Current date (between 2000-01-01 and 2060-12-31)";
+          type xs:date;
+          mandatory true;
+        }
+      }
+      output {
+        leaf status {
+          type enumeration {
+            enum "success";
+            enum "failure";
+          }
+        }
+        leaf error-reason {
+          type viptela:named-type;
+        }
+      }
+    }
+  }
+  container request {
+    description "Perform an action";
+    container ipsec {
+      description "Standards-based IPsec";
+      viptela:action "ike-rekey" {
+        description "Rekey IKE sessions";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+          leaf interface {
+            description "IPsec interface";
+            mandatory true;
+            type string {
+              length "1..64";
+              description "IPsec interface name";
+            }
+          }
+        }
+      }
+      viptela:action "ipsec-rekey" {
+        description "Rekey IKE-based IPsec sessions";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+          leaf interface {
+            description "IPsec interface";
+            mandatory true;
+            type string {
+              length "1..64";
+              description "IPsec interface name";
+            }
+          }
+        }
+      }
+    }
+    container control-port-hop {
+      when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+      viptela:action "port-hop" {
+        description "Start hopping ports to overcome stale NAT entries";
+        input {
+          leaf color {
+            description "TLOC color";
+            type viptela:color-enum;
+            mandatory true;
+          }
+        }
+      }
+    }
+    container control-tunnel {
+      description "Add and delete control tunnels to triage control connectivity issues";
+      when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+      viptela:action "add" {
+        description "Add a control tunnel to forwarding database";
+        input {
+          leaf local-private-ip {
+            description "Private local IP";
+            type inet:ip-address;
+            mandatory true;
+          }
+          leaf local-private-port {
+            description "Private local port";
+            type uint16;
+            mandatory true;
+          }
+          leaf remote-public-ip {
+            description "Public remote IP";
+            type inet:ip-address;
+            mandatory true;
+          }
+          leaf remote-public-port {
+            description "Public remote port";
+            type uint16;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "delete" {
+        description "Delete a control tunnel from forwarding database";
+        input {
+          leaf local-private-ip {
+            description "Private local IP";
+            type inet:ip-address;
+            mandatory true;
+          }
+          leaf local-private-port {
+            description "Private local port";
+            type uint16;
+            mandatory true;
+          }
+          leaf remote-public-ip {
+            description "Public remote IP";
+            type inet:ip-address;
+            mandatory true;
+          }
+          leaf remote-public-port {
+            description "Public remote port";
+            type uint16;
+            mandatory true;
+          }
+        }
+      }
+    }
+    viptela:action "reboot" {
+      description "Reboot system";
+      input {
+        leaf other-boot-partition {
+          description "Reboot from the other boot partition";
+          type empty;
+        }
+        leaf no-sync {
+          description "Do not sync partitions";
+          type empty;
+        }
+      }
+    }
+    viptela:action "interface-reset" {
+      description "Reset interface";
+      input {
+        leaf vpn {
+          description "VPN ID";
+          type viptela:vpn-id;
+          mandatory true;
+        }
+        leaf interface {
+          description "Interface name";
+          type viptela:named-type;
+          mandatory true;
+        }
+      }
+    }
+    viptela:action "config" {
+      description "Get system config";
+      output {
+        leaf config-text {
+          type string;
+        }
+      }
+    }
+    container history {
+      description "Get Historical information";
+      container statistics {
+        description "Get historical statistics information";
+        viptela:action "list" {
+          description "List all statistics tables";
+          input {
+            leaf stats-name {
+              description "db name";
+              type string;
+            }
+            leaf debug {
+              description "debug option";
+              type empty;
+            }
+          }
+          output {
+            leaf list {
+              type string;
+            }
+            leaf location {
+              type string;
+            }
+            leaf error {
+              type string;
+            }
+          }
+        }
+        viptela:action "clear" {
+          description "Clear a particular statistics table";
+          input {
+            leaf stats-name {
+              description "db name from where to clear statistics";
+              mandatory true;
+              type string;
+            }
+            leaf file-name {
+              description "file to be deleted";
+              type string;
+            }
+            leaf time {
+              description "timestamp of last file to be deleted";
+              type string;
+            }
+          }
+        }
+        viptela:action "disable" {
+          description "Disable statistics collection for a particular table";
+          input {
+            leaf stats-name {
+              description "db name to disable statistics";
+              mandatory true;
+              type string;
+            }
+          }
+        }
+        viptela:action "enable" {
+          description "Enable statistics collection for a particular table";
+          input {
+            leaf stats-name {
+              description "db name to enable statistics";
+              mandatory true;
+              type string;
+            }
+          }
+        }
+        viptela:action "freq" {
+          description "Change frequency of storing statistics";
+          input {
+            leaf stats-name {
+              description "db name whose frequency of storage needs to be changed";
+              mandatory true;
+              type string {
+                length "1..40";
+                description "db name";
+              }
+            }
+            leaf time-period {
+              description "time period between storage of statistics in msec";
+              mandatory true;
+              type uint32;
+            }
+          }
+        }
+        viptela:action "fc_freq" {
+          description "Change frequency of file creation";
+          input {
+            leaf stats-name {
+              description "db name whose frequency of file creation needs to be changed";
+              mandatory true;
+              type string {
+                length "1..40";
+                description "db name";
+              }
+            }
+            leaf time-period {
+              description "time period between storage of statistics in msec";
+              mandatory true;
+              type uint32;
+            }
+          }
+        }
+      }
+    }
+    container cellular {
+      description "Manage cellular modem";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') and 
+         (/viptela-system:system/viptela-system:device-model = 'vedge-100-M' or 
+         /viptela-system:system/viptela-system:device-model = 'vedge-100-WM' or 
+         /viptela-system:system/viptela-system:device-model = 'vedge-100-M2' or
+         /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-4GLTE')";
+      viptela:action "power" {
+        description "Turn modem power on and off for recovery only";
+        input {
+          leaf power_op {
+            description "Modem power on and off for recovery only";
+            mandatory true;
+            type enumeration {
+              enum "on";
+              enum "off";
+            }
+          }
+        }
+      }
+      viptela:action "connector" {
+        description "Enable Modem connector for cert testing only";
+        input {
+          leaf connector_op {
+            description "Enable or disable modem connector for cert testing only";
+            mandatory true;
+            type enumeration {
+              enum "enable";
+              enum "disable";
+            }
+          }
+        }
+      }
+    }
+    container stream {
+      description "Manage device for vManage streaming";
+      viptela:action "status" {
+        description "Enable or disable status streaming";
+        input {
+          leaf operation {
+            description "Enable or disable status streaming";
+            mandatory true;
+            type enumeration {
+              enum "enable";
+              enum "disable";
+            }
+          }
+          leaf frequency {
+            description "Frequency, in seconds";
+            type uint16 {
+              description "Frequency, in seconds";
+            }
+          }
+          leaf duration {
+            description "Duration, in seconds";
+            type uint16 {
+              description "Duration, in seconds";
+            }
+          }
+        }
+      }
+      viptela:action "log" {
+        description "Enable or disable log streaming";
+        input {
+          leaf operation {
+            description "Enable or disable log streaming";
+            mandatory true;
+            type enumeration {
+              enum "enable";
+              enum "disable";
+            }
+          }
+          leaf fname {
+            description "Log file name";
+            type string {
+              length "1..128";
+              description "Log file name";
+            }
+          }
+          leaf session-id {
+            description "Session ID";
+            type string {
+              length "1..128";
+              description "Session ID";
+            }
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf error-reason {
+            type string {
+              length "0..2048";
+            }
+          }
+        }
+      }
+      viptela:action "capture" {
+        description "Enable packet capture";
+        input {
+          leaf operation {
+            description "Enable or disable packet capture";
+            mandatory true;
+            type enumeration {
+              enum "enable";
+              enum "disable";
+              enum "abort";
+            }
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+          leaf interface {
+            description "Interface name";
+            type string;
+            mandatory true;
+          }
+          leaf pcap-type {
+            description "control or data packets";
+            mandatory true;
+            type enumeration {
+              enum "control";
+              enum "data";
+            }
+          }
+          leaf session-id {
+            description "Session ID";
+            mandatory true;
+            type string {
+              length "1..128";
+              description "Session ID";
+            }
+          }
+          leaf src-ip {
+            description "Source IP";
+            type inet:ip-address;
+          }
+          leaf src-port {
+            description "Source port";
+            type uint16 {
+              range "0..65535";
+            }
+          }
+          leaf dst-ip {
+            description "Destination IP";
+            type inet:ip-address;
+          }
+          leaf dst-port {
+            description "Destination port";
+            type uint16 {
+              range "0..65535";
+            }
+          }
+          leaf protocol {
+            description "Protocol";
+            type uint8 {
+              range "0..255";
+            }
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf error-reason {
+            type string {
+              length "0..2048";
+            }
+          }
+        }
+      }
+      viptela:action "speed" {
+        description "Enable speed test";
+        input {
+          leaf mode {
+            description "server or client";
+            mandatory true;
+            type enumeration {
+              enum "client";
+              enum "server";
+            }
+          }
+          leaf src-ip {
+            description "Source system IP";
+            type inet:ip-address;
+            mandatory true;
+          }
+          leaf src-color {
+            description "Source circuit color";
+            type string;
+            mandatory true;
+          }
+          leaf operation {
+            description "Enable or disable log streaming";
+            type enumeration {
+              enum "enable";
+              enum "disable";
+              enum "abort";
+            }
+          }
+          leaf dst-ip {
+            description "Destination system IP";
+            type inet:ip-address;
+          }
+          leaf dst-color {
+            description "Destination circuit color";
+            type string;
+          }
+          leaf port {
+            description "Port";
+            type uint16 {
+              range "0..65535";
+            }
+          }
+          leaf session-id {
+            description "Session ID";
+            type string {
+              length "1..128";
+              description "Session ID";
+            }
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf error-reason {
+            type string {
+              length "0..2048";
+            }
+          }
+        }
+      }
+    }
+    container software {
+      description "Manage system software";
+      viptela:action "download" {
+        description "Download";
+        input {
+          leaf image {
+            description "URL";
+            mandatory true;
+            type string {
+              length "1..512";
+              description "URL";
+            }
+          }
+        }
+      }
+      viptela:action "install-image" {
+        description "Install software image";
+        input {
+          leaf image {
+            description "Path to the software image";
+            mandatory true;
+            type string {
+              length "1..128";
+              description "directory path";
+            }
+          }
+        }
+      }
+      viptela:action "verify-image" {
+        description "Verify signature on software image";
+        input {
+          leaf image {
+            description "Path to the software image";
+            mandatory true;
+            type string {
+              length "1..128";
+              description "directory path";
+            }
+          }
+        }
+      }
+      container verify-upgrade {
+        description "Perform Sanity Check for Upgrade";
+        when "(/viptela-system:system/viptela-system:personality = 'vmanage')";
+        viptela:action "precheck" {
+          description "Pre-check System for Upgrade";
+          input {
+            leaf local-path {
+              description "Local directory path if files are at another location";
+              type string {
+                length "1..512";
+                description "http/ftp/directory path";
+              }
+            }
+            leaf destination-version {
+              description "Destination Version";
+              mandatory true;
+              type string {
+                length "1..32";
+                description "destination version";
+              }
+            }
+          }
+          output {
+            leaf error-dictionary {
+              description "Json Dictionary of errors with detail and solutions";
+              type string;
+            }
+          }
+        }
+        viptela:action "postcheck" {
+          description "Post-check System for Upgrade";
+          output {
+            leaf error-dictionary {
+              description "Json Dictionary of errors with detail and solutions";
+              type string;
+            }
+          }
+        }
+      }
+      viptela:action "remove" {
+        description "Remove software image";
+        input {
+          leaf version {
+            description "Software version to remove";
+            mandatory true;
+            type string;
+          }
+        }
+      }
+      viptela:action "upgrade-confirm" {
+        description "Confirm the software upgrade";
+      }
+      viptela:action "patch-confirm" {
+        description "Confirm the software patch";
+      }
+      viptela:action "set-default" {
+        description "Set default software image";
+        input {
+          leaf version {
+            description "Software version to set as default";
+            mandatory true;
+            type string;
+          }
+        }
+      }
+      viptela:action "activate" {
+        description "Activate software image";
+        input {
+          leaf version {
+            description "Software version to activate";
+            mandatory true;
+            type string;
+          }
+        }
+      }
+      viptela:action "reset" {
+        description "Reset to factory defaults";
+      }
+      viptela:action "install" {
+        description "Download Install and activate software";
+        input {
+          leaf path {
+            description "Path to the software image";
+            mandatory true;
+            type string {
+              length "1..512";
+              description "http/ftp/directory path";
+            }
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+          }
+          leaf reboot {
+            description "Reboot after installation";
+            type empty;
+          }
+          leaf no-sync {
+            description "Do not sync partitions";
+            type empty;
+          }
+          leaf download-timeout {
+            description "Download timeout, in minutes";
+            type uint32 {
+              range "1..1440";
+            }
+          }
+          leaf ztp-upgrade {
+            description "ZTP upgrade";
+            type empty;
+          }
+        }
+      }
+    }
+    container nms {
+      description "Manage NMS components";
+      when "(/viptela-system:system/viptela-system:personality = 'vmanage')";
+      viptela:action "nms-action" {
+        description "Manage NMS components";
+        input {
+          leaf component {
+            mandatory true;
+            type enumeration {
+              enum "application-server";
+              enum "configuration-db";
+              enum "statistics-db";
+              enum "messaging-server";
+              enum "coordination-server";
+              enum "all";
+              enum "data-collection-agent";
+              enum "cloud-agent";
+              enum "container-manager";
+            }
+          }
+          leaf action-type {
+            mandatory true;
+            type enumeration {
+              enum "start";
+              enum "stop";
+              enum "restart";
+              enum "configure";
+              enum "status";
+              enum "reset";
+            }
+          }
+          leaf node-name {
+            type string;
+          }
+        }
+        output {
+          leaf message {
+            type string;
+          }
+        }
+      }
+      viptela:action "nms-container-action" {
+        description "Manage NMS container components";
+        input {
+          leaf container-action-type {
+            mandatory true;
+            type enumeration {
+              enum "start";
+              enum "stop";
+              enum "restart";
+              enum "status";
+              enum "activate";
+              enum "deactivate";
+              enum "activate-metadata";
+              enum "settings";
+              enum "inspect";
+            }
+          }
+          leaf container-name {
+            mandatory true;
+            type string;
+          }
+          leaf container-path {
+            type string;
+          }
+          leaf container-host-ip {
+            type string;
+          }
+          leaf server-url {
+            type string;
+          }
+          leaf checksum {
+            type string;
+          }
+        }
+        output {
+          leaf message {
+            type string;
+          }
+        }
+      }
+      viptela:action "disaster-recovery-action" {
+        description "Manage NMS disaster-recovery functionality";
+        input {
+          leaf disaster-recovery-action-type {
+            mandatory true;
+            type enumeration {
+              enum "status";
+            }
+          }
+        }
+        output {
+          leaf message {
+            type string;
+          }
+        }
+      }
+    }
+    container service-gre {
+      description "Alter service gre control plane status";
+      when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+      viptela:action "cp-up" {
+        description "Bring up gre interface control plane";
+        input {
+          leaf vpn {
+            description "Vpn ID of interface";
+            mandatory true;
+            type viptela:vpn-id;
+          }
+          leaf gre-ifname {
+            description "Gre interface name";
+            mandatory true;
+            type string {
+              length "1..128";
+              description "Gre interface name";
+            }
+          }
+        }
+      }
+      viptela:action "cp-down" {
+        description "Bring down gre interface control plane";
+        input {
+          leaf vpn {
+            description "Vpn ID of interface";
+            mandatory true;
+            type viptela:vpn-id;
+          }
+          leaf gre-ifname {
+            description "Gre interface name";
+            mandatory true;
+            type string {
+              length "1..128";
+              description "Gre interface name";
+            }
+          }
+        }
+      }
+    }
+    container device {
+      when
+        "(/viptela-system:system/viptela-system:vbond/viptela-system:local) and
+         (/viptela-system:system/viptela-system:vbond/viptela-system:ztp-server)";
+      viptela:action "add" {
+        description "Add a vEdge chassis number to ZTP";
+        input {
+          leaf serial {
+            description "Serial number";
+            type string {
+              length "1..40";
+              description "Serial number in board ID public certificate";
+            }
+            mandatory true;
+          }
+          leaf chassis {
+            description "Chassis number";
+            type viptela:chassis-number;
+            mandatory true;
+          }
+          leaf validity {
+            description "Validity";
+            mandatory true;
+            type enumeration {
+              enum "valid";
+              enum "invalid";
+            }
+          }
+          leaf vbond {
+            description "Vbond address";
+            mandatory true;
+            type union {
+              type inet:ip-address {
+                description "IP address";
+              }
+              type inet:domain-name {
+                description "DNS name";
+              }
+            }
+          }
+          leaf port {
+            description "Vbond port";
+            type inet:port-number;
+          }
+          leaf org {
+            description "Organization Name";
+            mandatory true;
+            type string;
+          }
+          leaf entrca {
+            description "Path of the enterprise Root-CA certificate";
+            type string;
+          }
+        }
+      }
+      viptela:action "delete" {
+        description "Delete a vEdge chassis number from ZTP";
+        input {
+          leaf chassis {
+            description "Chassis number";
+            type viptela:chassis-number;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "upload" {
+        description "Upload vEdge chassis number file to ZTP";
+        input {
+          leaf path {
+            description "Path to the chassis-number file.";
+            type string {
+              length "1..128";
+              description "http/ftp/directory path";
+            }
+            mandatory true;
+          }
+        }
+        output {
+          leaf log {
+            type string;
+          }
+        }
+      }
+    }
+    container internal {
+      description "(HIDDEN) Internal actions";
+      container reset {
+        description "Reset system or logs";
+        viptela:action "system" {
+          description "Reset system to factory default state";
+        }
+        viptela:action "cdb" {
+          description "Reset CDB and reboot system";
+        }
+        viptela:action "logs" {
+          description "Reset logs";
+        }
+      }
+      container software {
+        description "Manage system software";
+        viptela:action "patch" {
+          description "Install software";
+          input {
+            leaf path {
+              description "Path to the software image";
+              mandatory true;
+              type string {
+                length "1..128";
+                description "local path";
+              }
+            }
+            leaf vpn {
+              description "Vpn Id";
+              type viptela:vpn-id;
+            }
+          }
+        }
+      }
+      container modem {
+        description "Manage cellular modem";
+        when
+          "(/viptela-system:system/viptela-system:personality = 'vedge') and 
+           (/viptela-system:system/viptela-system:device-model = 'vedge-1000' or 
+           /viptela-system:system/viptela-system:device-model = 'vedge-100-M' or 
+           /viptela-system:system/viptela-system:device-model = 'vedge-100-WM' or 
+           /viptela-system:system/viptela-system:device-model = 'vedge-100-M2' or
+           /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-4G' or
+           /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-4GLTE' or
+           /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-6G')";
+        viptela:action "upgrade" {
+          description "Upgrade firmware";
+          input {
+            leaf path {
+              description "Path to the firmware image";
+              mandatory true;
+              type string {
+                length "1..128";
+                description "local path";
+              }
+            }
+          }
+          output {
+            leaf status {
+              type enumeration {
+                enum "success";
+                enum "failure";
+              }
+            }
+            leaf error-reason {
+              type string {
+                length "0..2048";
+              }
+            }
+          }
+        }
+        viptela:action "reset" {
+          description "Reset modem";
+        }
+        viptela:action "restore-profiles" {
+          description "Restore default modem profiles";
+        }
+        viptela:action "profile-validation" {
+          description "Toggle profile validation check";
+        }
+        viptela:action "set-activation" {
+          description "Set activation";
+        }
+        viptela:action "force-online" {
+          description "Toggle modem mode";
+        }
+        viptela:action "omadm-enable" {
+          description "OMADM enable";
+        }
+        viptela:action "dmlog" {
+          description "DM packet capture";
+          input {
+            leaf filter-name {
+              description "DM capture filter to use";
+              type string;
+            }
+          }
+        }
+        viptela:action "modem-validation" {
+          description "Check modem model and firmware";
+          input {
+            leaf model {
+              mandatory true;
+              type string {
+                length "1..16";
+                description "SKU name eg. vEdge100m-VZ";
+              }
+            }
+          }
+        }
+        viptela:action "gateway-tracking" {
+          description "Gateway tracking action";
+          input {
+            leaf act {
+              mandatory true;
+              type enumeration {
+                enum "nop";
+                enum "stop-start";
+                enum "stop-reset-start";
+              }
+            }
+          }
+        }
+        viptela:action "data-monitor" {
+          description "Monitor data usage";
+          input {
+            leaf op {
+              description "Start or stop data usage monitoring";
+              mandatory true;
+              type enumeration {
+                enum "stop";
+                enum "start";
+              }
+            }
+            leaf plan {
+              description "Data plan in MB";
+              type uint16;
+            }
+            leaf day {
+              description "Billing cycle start date";
+              type uint8 {
+                description "Day of the month <1..31>";
+                range "1..31";
+              }
+            }
+          }
+        }
+      }
+      container wlan {
+        description "Manage wlan";
+        when
+          "(/viptela-system:system/viptela-system:personality = 'vedge') and 
+           (/viptela-system:system/viptela-system:device-model = 'vedge-100-WM' or 
+           /viptela-system:system/viptela-system:device-model = 'vedge-100-W2')";
+        viptela:action "log-level-apd" {
+          description "Set log level for AP daemon";
+          input {
+            leaf vap {
+              mandatory true;
+              type string {
+                length "1..5";
+                description "VAP name";
+              }
+            }
+            leaf log-level {
+              mandatory true;
+              type enumeration {
+                enum "excessive";
+                enum "msgdump";
+                enum "debug";
+                enum "info";
+                enum "warning";
+                enum "error";
+              }
+            }
+          }
+        }
+        viptela:action "log-file-apd" {
+          description "Write AP daemon logs to file";
+          input {
+            leaf vap {
+              mandatory true;
+              type string {
+                length "1..5";
+                description "VAP name";
+              }
+            }
+          }
+        }
+        viptela:action "log-level-drv" {
+          description "Set log level for AP driver";
+          input {
+            leaf vap {
+              mandatory true;
+              type string {
+                length "1..5";
+                description "VAP name";
+              }
+            }
+            leaf log-level {
+              mandatory true;
+              type enumeration {
+                enum "verbose";
+                enum "info";
+                enum "warning";
+                enum "error";
+              }
+            }
+          }
+        }
+      }
+      container vdebug {
+        description "Control vdebug RAM disk logging";
+        viptela:action "no-ramdisk" {
+          description "Turn off vdebug RAM disk use for # days";
+          input {
+            leaf days {
+              description "Days to turn off vdebug RAM disk use (0 to reset)";
+              type uint8 {
+                description "Days to turn off vdebug RAM disk use (1..10, 0 to reset)";
+                range "0..10";
+              }
+              mandatory true;
+            }
+          }
+        }
+      }
+      container cloudexpress {
+        description "Cloudexpress related tools command";
+        when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+        container application {
+          description "Cloudexpress applications related tools command";
+          viptela:action "reload-data" {
+            description "Reload application data from the file";
+          }
+        }
+      }
+      container vedge-cloud {
+        description "vEdge cloud internal commands";
+        when
+          "(/viptela-system:system/viptela-system:personality = 'vedge') and
+           (/viptela-system:system/viptela-system:device-model = 'vedge-cloud')";
+        viptela:action "hardware-emulate" {
+          description "Internal command to emulate the hardware vedge";
+        }
+      }
+      container embargo {
+        description "vEdge embargo check";
+        when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+        viptela:action "check" {
+          description "Internal test command to check for embargo IPs";
+          input {
+            leaf color {
+              description "TLOC color";
+              type viptela:color-enum;
+              mandatory true;
+            }
+            leaf address {
+              description "IP address for this interface";
+              type inet:ip-address;
+              mandatory true;
+            }
+          }
+        }
+      }
+    }
+    container vedge-cloud {
+      description "Activate vEdge cloud with the unique-id and token";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') and
+         (/viptela-system:system/viptela-system:device-model = 'vedge-cloud')";
+      viptela:action "activate" {
+        description "Activate software vedge with the unique-id and token";
+        input {
+          leaf chassis-number {
+            description "chassis number or the UUID provided";
+            type viptela:chassis-number;
+            mandatory true;
+          }
+          leaf token {
+            description "Token provided for this UUID";
+            type viptela:serial-number;
+            mandatory true;
+          }
+        }
+      }
+    }
+    container controller {
+      description "Manage vSmart and vManage serial numbers";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') or
+         (/viptela-system:system/viptela-system:personality = 'vsmart') or
+         (/viptela-system:system/viptela-system:personality = 'vmanage')";
+      container non-vsmart {
+        when
+          "(/viptela-system:system/viptela-system:vbond/viptela-system:local) or
+           (/viptela-system:system/viptela-system:personality = 'vmanage')";
+        viptela:action "add" {
+          description "Add serial number";
+          input {
+            leaf serial-num {
+              description "Serial number";
+              type string {
+                length "1..40";
+                description "Serial number in vSmart/vManage public certificate";
+              }
+              mandatory true;
+            }
+            leaf org-name {
+              description "Organization Name";
+              type string {
+                length "1..128";
+                description "Organization Name";
+              }
+            }
+          }
+          output {
+            leaf status {
+              type enumeration {
+                enum "success";
+                enum "failure";
+              }
+            }
+            leaf error-reason {
+              type viptela:named-type;
+            }
+          }
+        }
+      }
+      viptela:action "delete" {
+        description "Delete serial number";
+        input {
+          leaf serial-num {
+            description "Serial number";
+            type string {
+              length "1..40";
+              description "Serial number in vSmart/vManage public certificate";
+            }
+            mandatory true;
+          }
+          leaf org-name {
+            description "Organization Name";
+            type string {
+              length "0..128";
+              description "Organization Name";
+            }
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf error-reason {
+            type viptela:named-type;
+          }
+        }
+      }
+      viptela:action "reset-version-number" {
+        description "Reset controller serial list version";
+        output {
+          leaf log {
+            type string;
+          }
+        }
+      }
+    }
+    container on-vbond-controller {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vbond') or
+         (/viptela-system:system/viptela-system:vbond/viptela-system:local)";
+      description "Manage vSmart and vManage serial numbers (collocated case)";
+      viptela:action "delete" {
+        description "Delete serial number";
+        input {
+          leaf serial-num {
+            description "Serial number";
+            type string {
+              length "1..40";
+              description "Serial number in board ID public certificate";
+            }
+            mandatory true;
+          }
+          leaf org-name {
+            description "Organization Name";
+            type string {
+              length "0..128";
+              description "Serial number in vSmart/vManage public certificate";
+            }
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf error-reason {
+            type viptela:named-type;
+          }
+        }
+      }
+    }
+    container vedge {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vsmart') or
+         (/viptela-system:system/viptela-system:personality = 'vmanage') or
+         (/viptela-system:system/viptela-system:vbond/viptela-system:local)";
+      description "Manage board ID";
+      viptela:action "add" {
+        description "Add board ID";
+        input {
+          leaf serial-num {
+            description "Serial number";
+            type string {
+              length "1..40";
+              description "Serial number in board ID public certificate";
+            }
+            mandatory true;
+          }
+          leaf chassis-num {
+            description "Chassis number";
+            type viptela:chassis-number;
+            mandatory true;
+          }
+          leaf staging {
+            description "Device is in staging";
+            type empty;
+          }
+          leaf org-name {
+            description "Organization Name";
+            type string {
+              length "1..128";
+              description "Serial number in vSmart/vManage public certificate";
+            }
+          }
+          leaf installed-serial-num {
+            description "Installed Serial number";
+            type string {
+              length "1..40";
+              description "Serial number in the installed certificate after prestaging";
+            }
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf error-reason {
+            type viptela:named-type;
+          }
+        }
+      }
+      viptela:action "delete" {
+        description "Delete board ID";
+        input {
+          leaf chassis-num {
+            description "Chassis number";
+            type viptela:chassis-number;
+            mandatory true;
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf error-reason {
+            type viptela:named-type;
+          }
+        }
+      }
+    }
+    container security {
+      when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+      description "Security related parameters";
+      viptela:action "ipsec-rekey" {
+        description "Perform an IPSEC rekey";
+      }
+    }
+    container certificate {
+      description "Install certificate";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vsmart') or
+         (/viptela-system:system/viptela-system:personality = 'vmanage') or
+         (/viptela-system:system/viptela-system:personality = 'vedge')";
+      viptela:action "install" {
+        description "Install certificate";
+        input {
+          leaf path {
+            description "Path to the software image";
+            type string {
+              length "1..128";
+              description "http/ftp/directory path";
+            }
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+          }
+          leaf file {
+            type string;
+          }
+          leaf vmanage-signed {
+            type empty;
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf log {
+            type string;
+          }
+        }
+      }
+      viptela:action "get-cert" {
+        description "show installed certificate";
+        output {
+          leaf file {
+            type string;
+          }
+        }
+      }
+      container information {
+        description "Get certificate information";
+        when "(/viptela-system:system/viptela-system:personality = 'vmanage')";
+        viptela:action "display" {
+          description "display certificate information";
+          input {
+            leaf certificate-string {
+              description "x509 Certificate";
+              mandatory true;
+              type string;
+            }
+          }
+          output {
+            leaf serial-number {
+              type string;
+            }
+            leaf start-date {
+              type string;
+            }
+            leaf end-date {
+              type string;
+            }
+          }
+        }
+      }
+    }
+    container csr {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vsmart') or
+         (/viptela-system:system/viptela-system:personality = 'vmanage') or
+         (/viptela-system:system/viptela-system:personality = 'vedge')";
+      description "Upload the certificate-signing request";
+      viptela:action "upload" {
+        description "Upload the certificate-signing request";
+        input {
+          leaf path {
+            description "Path to store the CSR";
+            mandatory true;
+            type string {
+              length "1..128";
+              description "http/ftp/directory path";
+            }
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+          }
+          leaf org {
+            description "Organization name in the certificate";
+            type string {
+              length "1..64";
+              description "Organization name in the certificate";
+            }
+          }
+          leaf org-unit {
+            description "Organization-Unit name in the certificate";
+            type string {
+              length "1..64";
+              description "Organization-Unit name in the certificate";
+            }
+          }
+          leaf domain {
+            description "domain name of the certificate";
+            type string {
+              length "1..64";
+              description "domain name in the CSR Common Name";
+            }
+          }
+          leaf country {
+            description "Country field in the CSR";
+            type string {
+              length "1..2";
+              description "Country field in the CSR";
+            }
+          }
+          leaf state {
+            description "State field in the CSR";
+            type string {
+              length "1..128";
+              description "State field in the CSR";
+            }
+          }
+          leaf location {
+            description "Location field in the CSR";
+            type string {
+              length "1..128";
+              description "Location field in the CSR";
+            }
+          }
+          leaf email-address {
+            description "email-address field in the CSR";
+            type string {
+              length "1..255";
+              description "Location field in the CSR";
+            }
+          }
+          leaf regen-rsa {
+            description "Revoke existing RSA key-pair and create new keys";
+            type empty;
+          }
+          leaf regen-uuid {
+            description "Revoke existing UUID and create new UUID";
+            type empty;
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf log {
+            type string;
+          }
+          leaf file {
+            type string;
+          }
+        }
+      }
+      viptela:action "get-csr" {
+        description "show installed certificate-signing-request";
+        output {
+          leaf file {
+            type string;
+          }
+        }
+      }
+    }
+    container vmanage-sign {
+      when "(/viptela-system:system/viptela-system:personality = 'vmanage')";
+      description "Sign the CSR and generate certificate";
+      viptela:action "csr" {
+        description "Sign the CSR and generate certificate";
+        input {
+          leaf serial {
+            description "Serial number of the certificate, in hexadecimal";
+            type string {
+              length "1..64";
+            }
+          }
+          leaf file {
+            type string;
+          }
+          leaf path {
+            description "Path to the CSR";
+            type string;
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf log {
+            type string;
+          }
+          leaf cert {
+            type string;
+          }
+        }
+      }
+    }
+    container vmanage-authentication {
+      description "Configure vManage authentication information";
+      viptela:action "config" {
+        description "Configure vManage authentication information";
+        input {
+          leaf file {
+            description "Information to write to the file";
+            type string {
+              length "1..2048";
+            }
+            mandatory true;
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf error-reason {
+            type string {
+              length "0..2048";
+            }
+          }
+        }
+      }
+    }
+    container vsmart-upload {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vmanage') or 
+         (/viptela-system:system/viptela-system:vbond/viptela-system:local)";
+      description "Upload vSmart serial numbers";
+      viptela:action "serial-file" {
+        description "Upload vSmart serial numbers";
+        input {
+          leaf path {
+            description "Path to the serial file";
+            type string {
+              length "1..128";
+              description "http/ftp/directory path";
+            }
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+          }
+          leaf file {
+            type string;
+          }
+          leaf version {
+            description "vSmart list version number";
+            type uint64;
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf log {
+            type string;
+          }
+        }
+      }
+    }
+    container vedge-upload {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vsmart') or
+         (/viptela-system:system/viptela-system:personality = 'vmanage') or
+         (/viptela-system:system/viptela-system:vbond/viptela-system:local)";
+      description "Upload vEdge serial numbers";
+      viptela:action "serial-file" {
+        description "Upload vEdge serial numbers";
+        input {
+          leaf path {
+            description "Path to the serial file";
+            type string {
+              length "1..128";
+              description "scp/http/ftp/directory path";
+            }
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+          }
+          leaf file {
+            type string;
+          }
+          leaf version {
+            description "vEdge list version number";
+            type uint64;
+          }
+          leaf single-org {
+            description "Indicates the list is for a single organization";
+            type empty;
+          }
+          leaf hash {
+            description "SHA1 hash of the serial file";
+            type string;
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf log {
+            type string;
+          }
+        }
+      }
+    }
+    container vmanage-certificate {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') and 
+         (/viptela-system:system/viptela-system:vbond/viptela-system:local)";
+      description "Upload vmanage certificate UUID list";
+      viptela:action "uuid-upload" {
+        description "Upload vmanage certificate UUID list";
+        input {
+          leaf path {
+            description "Path to the serial file";
+            type string {
+              length "1..128";
+              description "directory path";
+            }
+          }
+        }
+      }
+    }
+    container reverse-proxy {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') and 
+         (/viptela-system:system/viptela-system:vbond/viptela-system:local)";
+      description "Upload reverse-proxy mapping config";
+      viptela:action "mapping-upload" {
+        description "Upload reverse-proxy mapping config";
+        input {
+          leaf path {
+            description "Path to mapping file";
+            mandatory true;
+            type string {
+              length "1..128";
+              description "directory path";
+            }
+          }
+        }
+      }
+    }
+    container root-cert-chain {
+      description "Install root certificate chain";
+      viptela:action "install" {
+        description "Install root certificate chain";
+        input {
+          leaf path {
+            description "Path to the software image";
+            mandatory true;
+            type string {
+              length "1..128";
+              description "http/ftp/directory path";
+            }
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+          }
+          leaf file {
+            type string;
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf log {
+            type string;
+          }
+        }
+      }
+      viptela:action "uninstall" {
+        description "Install root certificate chain";
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf log {
+            type string;
+          }
+        }
+      }
+    }
+    container crash {
+      description "Analyze crashes";
+      viptela:action "fetch-info" {
+        description "Fetch information file on core dump";
+        input {
+          leaf file-name {
+            description "Core file name";
+            type string;
+          }
+        }
+        output {
+          leaf file {
+            description "Core information file";
+            type string;
+          }
+        }
+      }
+    }
+    viptela:action "admin-tech" {
+      description "Collect troubleshooting information for customer support";
+      input {
+        leaf exclude-cores {
+          description "Exclude core files";
+          type empty;
+        }
+        leaf exclude-logs {
+          description "Exclude log files";
+          type empty;
+        }
+        leaf exclude-tech {
+          description "Exclude tech";
+          type empty;
+        }
+        leaf delete-file-name {
+          description " File to be deleted";
+          type string;
+        }
+      }
+      output {
+        leaf file-name {
+          description "Admin tech file";
+          type string;
+        }
+      }
+    }
+    viptela:action "admin-tech-list" {
+      description "Provide list of admin-tech files present on the device";
+      output {
+        leaf file-list {
+          description "List of admin-tech files";
+          type string;
+        }
+      }
+    }
+    container aaa {
+      description "Execute AAA commands";
+      viptela:action "unlock-user" {
+        description "Unlock user";
+        input {
+          leaf user {
+            mandatory true;
+            description "Name of the user";
+            type leafref {
+              path "/viptela-system:system/viptela-system:aaa/viptela-system:user/viptela-system:name";
+            }
+          }
+        }
+      }
+      viptela:action "set-password" {
+        description "Set password for user";
+        input {
+          leaf user {
+            mandatory true;
+            description "Name of the user";
+            type leafref {
+              path "/viptela-system:system/viptela-system:aaa/viptela-system:user/viptela-system:name";
+            }
+          }
+          leaf password {
+            mandatory true;
+            description "Password for the user";
+            type string;
+          }
+        }
+      }
+    }
+    container daemon {
+      description "Manage daemons";
+      when "(/viptela-system:system/viptela-system:personality = 'vmanage')";
+      viptela:action "ncs" {
+        description "NCS daemon";
+        input {
+          leaf restart {
+            description "Restart daemon";
+            mandatory true;
+            type empty;
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+          leaf error-reason {
+            type viptela:named-type;
+          }
+        }
+      }
+    }
+    container vcontainer {
+      description "Manage containers";
+      viptela:action "install-image" {
+        description "Install container image";
+        input {
+          leaf image {
+            description "Path to the installation file";
+            mandatory true;
+            type string {
+              length "1..128";
+            }
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+          }
+        }
+        output {
+          leaf reason {
+            type string;
+          }
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+        }
+      }
+      viptela:action "remove-image" {
+        description "Remove container image";
+        input {
+          leaf image {
+            description "Image to be removed";
+            type string {
+              length "1..128";
+            }
+          }
+        }
+        output {
+          leaf reason {
+            type string;
+          }
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+        }
+      }
+      viptela:action "export" {
+        description "Export container";
+        input {
+          leaf name {
+            description "Name of container instance";
+            type string {
+              length "1..32";
+            }
+          }
+        }
+        output {
+          leaf reason {
+            type string;
+          }
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+            }
+          }
+        }
+      }
+      viptela:action "import" {
+        description "Import container";
+        input {
+          leaf name {
+            description "Name of container instance";
+            mandatory true;
+            type string {
+              length "1..32";
+            }
+          }
+          leaf image {
+            description "Path of the container file";
+            mandatory true;
+            type string {
+              length "1..128";
+            }
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+          }
+        }
+      }
+    }
+  }
+
+  grouping zbf-grouping {
+    container zbf {
+      leaf decision {
+        description "Zone-based firewall decision";
+        type zone-based-firewall-decision-enum;
+      }
+      leaf zone-pair-name {
+        description "Zone-pair name";
+        type string;
+      }
+      leaf source-vpn {
+        description "Source VPN";
+        type uint16 {
+          range "0..65535";
+        }
+      }
+      leaf dest-vpn {
+        description "Destination VPN";
+        type uint16 {
+          range "0..65535";
+        }
+      }
+    }
+  }
+
+  container tools {
+    description "Tools commands";
+    container policy {
+      description "Display next-hop information for a flow";
+      when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+      viptela:action "tunnel-path" {
+        description "Display next-hop information for packets coming from the WAN tunnel";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+          leaf interface {
+            description "Interface name";
+            type string;
+            mandatory true;
+          }
+          leaf source-ip {
+            description "Source IP for the packet";
+            type string;
+            mandatory true;
+          }
+          leaf dest-ip {
+            description "Destination IP for the packet";
+            type string;
+            mandatory true;
+          }
+          leaf protocol {
+            description "Protocol for the packet";
+            type uint8 {
+              range "0..255";
+            }
+            mandatory true;
+          }
+          leaf source-port {
+            description "Source port for the packet";
+            type uint16 {
+              range "0..65535";
+            }
+          }
+          leaf dest-port {
+            description "Destination port for the packet";
+            type uint16 {
+              range "0..65535";
+            }
+          }
+          leaf dscp {
+            description "DSCP value";
+            type uint8 {
+              range "0..63";
+            }
+          }
+          leaf app {
+            description "Application name";
+            type string;
+          }
+          leaf all {
+            description "Show all possible paths";
+            type boolean;
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+              enum "try-again";
+            }
+          }
+          leaf error-reason {
+            type string;
+          }
+          list nexthops {
+            description "List of nexthops";
+            leaf vpn-id {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+            leaf type {
+              description "Next-hop type";
+              type enumeration {
+                enum "nh-blackhole";
+                enum "nh-direct";
+                enum "nh-remote";
+                enum "nh-ipsec";
+                enum "nh-gre";
+                enum "nh-service-gre";
+                enum "nh-local";
+              }
+            }
+            leaf interface {
+              description "Interface name";
+              type string;
+            }
+            leaf source-ip {
+              description "Next-hop source IP";
+              type inet:ip-address;
+            }
+            leaf dest-ip {
+              description "Next-hop destination IP";
+              type inet:ip-address;
+            }
+            leaf source-port {
+              description "Source port for the packet";
+              type uint16 {
+                range "0..65535";
+              }
+            }
+            leaf dest-port {
+              description "Destination port for the packet";
+              type uint16 {
+                range "0..65535";
+              }
+            }
+            leaf local-color {
+              description "Local color for the tunnel";
+              type viptela:color-enum;
+            }
+            leaf remote-color {
+              description "Remote color for the tunnel";
+              type viptela:color-enum;
+            }
+            leaf remote-system-ip {
+              description "Remote system IP";
+              type inet:ip-address;
+            }
+          }
+          uses zbf-grouping;
+        }
+      }
+      viptela:action "service-path" {
+        description "Display next-hop information for a simulated flow coming from service side";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+          leaf interface {
+            description "Interface name";
+            type string;
+            mandatory true;
+          }
+          leaf source-ip {
+            description "Source IP for the packet";
+            type string;
+            mandatory true;
+          }
+          leaf dest-ip {
+            description "Destination IP for the packet";
+            type string;
+            mandatory true;
+          }
+          leaf protocol {
+            description "Protocol for the packet";
+            type uint8 {
+              range "0..255";
+            }
+            mandatory true;
+          }
+          leaf source-port {
+            description "Source port for the packet";
+            type uint16 {
+              range "0..65535";
+            }
+          }
+          leaf dest-port {
+            description "Destination port for the packet";
+            type uint16 {
+              range "0..65535";
+            }
+          }
+          leaf dscp {
+            description "DSCP value";
+            type uint8 {
+              range "0..63";
+            }
+          }
+          leaf app {
+            description "Application name";
+            type string;
+          }
+          leaf all {
+            description "Show all possible paths";
+            type boolean;
+          }
+        }
+        output {
+          leaf status {
+            type enumeration {
+              enum "success";
+              enum "failure";
+              enum "try-again";
+            }
+          }
+          leaf error-reason {
+            type string;
+          }
+          list nexthops {
+            description "List of nexthops";
+            leaf vpn-id {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+            leaf type {
+              description "Next-hop type";
+              type enumeration {
+                enum "nh-blackhole";
+                enum "nh-direct";
+                enum "nh-remote";
+                enum "nh-ipsec";
+                enum "nh-gre";
+                enum "nh-service-gre";
+                enum "nh-local";
+              }
+            }
+            leaf interface {
+              description "Interface name";
+              type string;
+            }
+            leaf source-ip {
+              description "Next-hop source IP";
+              type inet:ip-address;
+            }
+            leaf dest-ip {
+              description "Next-hop destination IP";
+              type inet:ip-address;
+            }
+            leaf source-port {
+              description "Source port for the packet";
+              type uint16 {
+                range "0..65535";
+              }
+            }
+            leaf dest-port {
+              description "Destination port for the packet";
+              type uint16 {
+                range "0..65535";
+              }
+            }
+            leaf local-color {
+              description "Local color for the tunnel";
+              type viptela:color-enum;
+            }
+            leaf remote-color {
+              description "Remote color for the tunnel";
+              type viptela:color-enum;
+            }
+            leaf remote-system-ip {
+              description "Remote system IP";
+              type inet:ip-address;
+            }
+          }
+          uses zbf-grouping;
+        }
+      }
+    }
+    viptela:action "ping" {
+      description "Ping a host";
+      input {
+        leaf host {
+          description "Hostname or IP address of host to check connectivity to";
+          mandatory true;
+          type string;
+        }
+        leaf vpn {
+          description "VPN ID";
+          type viptela:vpn-id;
+        }
+        leaf count {
+          description "Number of ping packets";
+          type uint16;
+        }
+        leaf wait {
+          description "Time to wait for a response, in seconds";
+          type uint16;
+        }
+        leaf size {
+          description "Size of packets, in bytes";
+          type uint16;
+        }
+        leaf source {
+          description "Source interface or IP address";
+          type string;
+        }
+        leaf rapid {
+          description "Rapid ping";
+          type boolean;
+        }
+        leaf fragment {
+          description "fragment";
+          type string;
+        }
+      }
+      output {
+        leaf raw-output {
+          description "Output of ping command";
+          type string;
+        }
+        leaf error-message {
+          description "Error message";
+          type string;
+        }
+      }
+    }
+    viptela:action "nping" {
+      description "Ping a host";
+      input {
+        leaf host {
+          description "Hostname or IP address of host to check connectivity to";
+          mandatory true;
+          type string;
+        }
+        leaf vpn {
+          description "VPN ID";
+          type viptela:vpn-id;
+        }
+        leaf count {
+          description "Number of ping packets";
+          type uint16;
+        }
+        leaf source {
+          description "Source interface or IP address";
+          type string;
+        }
+        leaf rapid {
+          description "Rapid ping";
+          type boolean;
+        }
+        leaf options {
+          description "Nping options";
+          type string;
+        }
+      }
+      output {
+        leaf raw-output {
+          description "Output of ping command";
+          type string;
+        }
+        leaf error-message {
+          description "Error message";
+          type string;
+        }
+      }
+    }
+    viptela:action "traceroute" {
+      description "Trace connectivity to a host";
+      input {
+        leaf host {
+          description "Hostname or IP address of host to check connectivity to";
+          mandatory true;
+          type string;
+        }
+        leaf vpn {
+          description "VPN ID";
+          type viptela:vpn-id;
+        }
+        leaf size {
+          description "Traceroute probe packet length, in bytes";
+          type uint16;
+        }
+        leaf interface {
+          description "Interface through which traceroute sends packets";
+          type string;
+        }
+        leaf options {
+          description "Traceroute options";
+          type string;
+        }
+        leaf max-ttl {
+          description "Maximum number of hops traceroute will probe";
+          type uint16;
+        }
+        leaf wait-time {
+          description "Wait time for a probe response in seconds";
+          type uint16;
+        }
+      }
+      output {
+        leaf raw-output {
+          type string;
+          description "Output of traceroute command";
+        }
+        leaf error-message {
+          description "Error message";
+          type string;
+        }
+      }
+    }
+  }
+  notification system-software-install-status {
+    uses viptela:common-notification-header;
+    uses viptela:install-notification-fields;
+  }
+  notification system-reboot-issued {
+    uses viptela:common-notification-header;
+    leaf reboot-reason {
+      type string;
+    }
+  }
+  notification system-reboot-aborted {
+    uses viptela:common-notification-header;
+    leaf reason {
+      type string;
+    }
+  }
+  notification system-reboot-complete {
+    uses viptela:common-notification-header;
+  }
+}

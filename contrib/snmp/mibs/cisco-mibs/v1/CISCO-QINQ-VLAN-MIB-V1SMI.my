@@ -1,0 +1,414 @@
+-- MIB file created 15-Sep-2006 13:48:16, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-QINQ-VLAN-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-QINQ-VLAN-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    ifIndex
+            FROM IF-MIB
+    VlanId
+            FROM Q-BRIDGE-MIB
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoQinqVlanMIB OBJECT IDENTIFIER ::= { ciscoMgmt 445 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200411290000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--                Cisco Systems
+--                 Customer Service
+--    
+--         Postal: 170 W Tasman Drive
+--                 San Jose, CA  95134
+--                 USA
+--    
+--            Tel: +1 800 553-NETS
+--    
+--         E-mail: cs-7600@cisco.com
+--  Descr
+--    This MIB defines configuration and monitoring capabilities
+--    relating to 802.1QinQ interfaces.  QinQ interfaces are capable
+--    of terminating QinQ traffic and translating QinQ tags.
+--    
+--    IEEE 802.1Q VLAN specification provides for an option to tag
+--    Ethernet frames with two VLAN tags:
+--    
+--    - An inner tag that specifies the customer's VLAN ID.  This tag
+--      is called the 'CE VLAN'.
+--    
+--    - An outer tag that specifies the service provider's VLAN ID.
+--      This tag is called the 'metro tag', or the 'PE VLAN'.
+--    
+--    The combination of inner and outer VLAN tags is used to uniquely
+--    identify a particular customer's service flow.
+--  RevDate
+--    200411290000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoQinqVlanMIBNotifs OBJECT IDENTIFIER ::= { ciscoQinqVlanMIB 0 }
+ciscoQinqVlanMIBObjects OBJECT IDENTIFIER ::= { ciscoQinqVlanMIB 1 }
+ciscoQinqVlanMIBConform OBJECT IDENTIFIER ::= { ciscoQinqVlanMIB 2 }
+cqvTermination  OBJECT IDENTIFIER ::= { ciscoQinqVlanMIBObjects 1 }
+cqvTranslation  OBJECT IDENTIFIER ::= { ciscoQinqVlanMIBObjects 2 }
+ciscoQinqVlanMIBCompliances OBJECT IDENTIFIER ::= { ciscoQinqVlanMIBConform 1 }
+ciscoQinqVlanMIBGroups OBJECT IDENTIFIER ::= { ciscoQinqVlanMIBConform 2 }
+
+CqvVlanIdOrZero ::= Gauge(0..4094)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention is an extension of the VlanId
+--    convention.  The VlanId convention defines a greater than zero
+--    value to identify a VLAN ID in the managed system.  The
+--    CqvVlanIdOrZero convention defines the additional value of
+--    zero.  The value zero is object specific and must therefore be
+--    defined as part of the description of any object that uses this
+--    syntax.  An example of the usage of zero might include
+--    situations where the VLAN ID is unknown.
+--  Refer
+--    RFC-2674, Bridge MIB Extensions, August 1999, Q-BRIDGE-MIB,
+--    E. Bell.
+
+CqvEncapsulationType ::= INTEGER {
+        isl(1),
+        dot1Q(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention defines the different types of VLAN
+--    trunking.
+--    
+--    isl - Inter Switch Link, the Cisco proprietary trunking
+--    protocol.
+--    
+--    dot1Q - IEEE 802.1Q trunking standard.
+
+cqvTerminationTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CqvTerminationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains attributes pertaining to QinQ
+        terminated interfaces.
+        
+        The ifIndex in the INDEX clause identifies the interface
+        that terminates QinQ traffic.
+        
+        A management application can create a conceptual row in this
+        table by setting the cqvTerminationRowStatus to
+        'createAndWait' or 'createAndGo'.
+        
+        A conceptual row in this table cannot be modified while
+        cqvTerminationRowStatus is set to 'active'."
+    ::= { cqvTermination 1 }
+
+cqvTerminationEntry OBJECT-TYPE
+    SYNTAX CqvTerminationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table defines a QinQ terminated interface."
+    INDEX { ifIndex, cqvTerminationPeVlanId, cqvTerminationCeVlanId }
+    ::= { cqvTerminationTable 1 }
+
+CqvTerminationEntry ::= SEQUENCE {
+    cqvTerminationPeVlanId VlanId,
+    cqvTerminationCeVlanId VlanId,
+    cqvTerminationPeEncap CqvEncapsulationType,
+    cqvTerminationRowStatus RowStatus
+    }
+
+cqvTerminationPeVlanId OBJECT-TYPE
+    SYNTAX VlanId
+--    Rsyntax INTEGER(1..4094)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The VLAN ID of the outer tag of a QinQ frame."
+    ::= { cqvTerminationEntry 1 }
+
+cqvTerminationCeVlanId OBJECT-TYPE
+    SYNTAX VlanId
+--    Rsyntax INTEGER(1..4094)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The VLAN ID of the inner tag of a QinQ frame."
+    ::= { cqvTerminationEntry 2 }
+
+cqvTerminationPeEncap OBJECT-TYPE
+    SYNTAX CqvEncapsulationType
+--    Rsyntax INTEGER {
+--        isl(1),
+--        dot1Q(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The encapsulation type of the PE VLAN
+        (cqvTerminationPeVlanId) of a QinQ frame."
+    ::= { cqvTerminationEntry 3 }
+
+cqvTerminationRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object facilitates the creation, modification, or deletion
+        of a conceptual row in this table."
+    ::= { cqvTerminationEntry 4 }
+
+cqvTranslationTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CqvTranslationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table defines the translations performed on QinQ capable
+        interfaces.
+        
+        The ifIndex in the INDEX clause identifies the QinQ interface.
+        
+        A QinQ interface performs the following translations:
+        
+        - Double Tagged to Single Tagged - the inner and outer tags of
+          the frames internal to the switch are replaced with a single
+          trunk VLAN tag when the outgoing frame is transmitted.
+        
+        - Double Tagged to Double Tagged - the outer tag of the frames
+          internal to the switch are replaced with an outer trunk
+          VLAN tag when the outgoing frame is transmitted.  The inner
+          tag remains unchanged in the transmitted frame.
+        
+        The following picture illustrates QinQ translations.
+        
+               <----- Provider Side -----|----- Customer Side ----->
+        
+                     Switch
+        +--------------------------------+
+        |                                |
+        |  +---------------+     +-------|     +------------------+
+        |  | Double Tagged |     |  QinQ |     | Single or Double |
+        |  | Frames        | --> |  Intf | --> | Tagged Frames    |
+        |  +---------------+     +-------|     +------------------+
+        |                                |
+        +--------------------------------+
+        
+        Also, the QinQ interface sets the IEEE 802.1P prioritization
+        bits (P bits) in the outgoing frames by copying the P bits
+        either from the internal frame's outer or inner VLAN tag.
+        
+        A management application can create a conceptual row in this
+        table by setting the cqvTranslationRowStatus to
+        'createAndWait' or 'createAndGo'.
+        
+        A conceptual row in this table cannot be modified while
+        cqvTranslationRowStatus is set to 'active'."
+    ::= { cqvTranslation 1 }
+
+cqvTranslationEntry OBJECT-TYPE
+    SYNTAX CqvTranslationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table contains translation information for
+        a particular QinQ interface."
+    INDEX { ifIndex, cqvTranslationInternalPeVlanId, cqvTranslationInternalCeVlanId }
+    ::= { cqvTranslationTable 1 }
+
+CqvTranslationEntry ::= SEQUENCE {
+    cqvTranslationInternalPeVlanId CqvVlanIdOrZero,
+    cqvTranslationInternalCeVlanId CqvVlanIdOrZero,
+    cqvTranslationTrunkPeVlanId CqvVlanIdOrZero,
+    cqvTranslationTrunkCeVlanId CqvVlanIdOrZero,
+    cqvTranslationType INTEGER,
+    cqvTranslationCosPBits INTEGER,
+    cqvTranslationRowStatus RowStatus
+    }
+
+cqvTranslationInternalPeVlanId OBJECT-TYPE
+    SYNTAX CqvVlanIdOrZero
+--    Rsyntax Gauge(0..4094)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The QinQ outer VLAN ID of an internal double tagged frame.
+        
+        This object will have the value of zero as described in the
+        cqvTranslationType object."
+    ::= { cqvTranslationEntry 1 }
+
+cqvTranslationInternalCeVlanId OBJECT-TYPE
+    SYNTAX CqvVlanIdOrZero
+--    Rsyntax Gauge(0..4094)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The QinQ inner VLAN ID of an internal double tagged frame.
+        
+        This object will have the value of zero as described in the
+        cqvTranslationType object."
+    ::= { cqvTranslationEntry 2 }
+
+cqvTranslationTrunkPeVlanId OBJECT-TYPE
+    SYNTAX CqvVlanIdOrZero
+--    Rsyntax Gauge(0..4094)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The QinQ outer VLAN ID of a trunk VLAN frame.
+        
+        This object will have the value of zero as described in the
+        cqvTranslationType object."
+    ::= { cqvTranslationEntry 3 }
+
+cqvTranslationTrunkCeVlanId OBJECT-TYPE
+    SYNTAX CqvVlanIdOrZero
+--    Rsyntax Gauge(0..4094)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The QinQ inner VLAN ID of a trunk VLAN frame.
+        
+        This object will have the value of zero as described in the
+        cqvTranslationType object."
+    ::= { cqvTranslationEntry 4 }
+
+cqvTranslationType OBJECT-TYPE
+    SYNTAX INTEGER {
+        doubleToSingle(1),
+        doubleToDouble(2),
+        doubleToDoubleOutOfRange(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The QinQ translation type being performed on the interface.
+        
+            'doubleToSingle' - Double tagged to single tagged traffic.
+                               The value of cqvTranslationTrunkPeVlanId
+                               will be zero.  This indicates that the PE
+                               VLAN tag will be absent in the trunk
+                               interface.
+        
+            'doubleToDouble' - Double tagged to double tagged traffic.
+                               The value of the internal PE and CE, and
+                               the trunk PE and CE VLAN IDs are
+                               non-zero.
+        
+            'doubleToDoubleOutOfRange' - Double tagged to double tagged
+                               traffic that does not have a defined
+                               translation. The value of
+                               cqvTranslationInternalCeVlanId  will be
+                               zero.  This indicates that the CE
+                               VLAN tag is being used as a wildcard."
+    ::= { cqvTranslationEntry 5 }
+
+cqvTranslationCosPBits OBJECT-TYPE
+    SYNTAX INTEGER {
+        copyFromOuterTag(1),
+        copyFromInnerTag(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates how the IEEE 802.1P bits (P bits) in the
+        IEEE 802.1Q header of the trunk VLAN are to be set.  The P bits
+        in the trunk VLAN can be set by copying the P bits of the
+        outer PE tag or the inner CE tag.
+        
+            'copyFromOuterTag' - Copy the P bits from the outer PE tag.
+        
+            'copyFromInnerTag' - Copy the P bits from the inner CE tag."
+    DEFVAL { copyFromOuterTag }
+    ::= { cqvTranslationEntry 6 }
+
+cqvTranslationRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object facilitates the creation, modification, or deletion
+        of a conceptual row in this table."
+    ::= { cqvTranslationEntry 7 }
+
+ciscoQinqVlanTerminationGroup OBJECT IDENTIFIER ::= { ciscoQinqVlanMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects for providing configuration for QinQ termination.
+--  objects
+--    cqvTerminationPeEncap, cqvTerminationRowStatus
+
+ciscoQinqVlanTranslationGroup OBJECT IDENTIFIER ::= { ciscoQinqVlanMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects for providing configuration for QinQ translation.
+--  objects
+--    cqvTranslationTrunkPeVlanId, cqvTranslationTrunkCeVlanId, 
+--    cqvTranslationType, cqvTranslationCosPBits, 
+--    cqvTranslationRowStatus
+
+ciscoQinQVlanMIBCompliance OBJECT IDENTIFIER ::= { ciscoQinqVlanMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement the Cisco
+--    QinQ MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoQinqVlanTerminationGroup
+--   MandGroup
+--    ciscoQinqVlanTranslationGroup
+--   ObjVar
+--    cqvTerminationPeEncap
+--   ObjVar
+--    cqvTranslationTrunkPeVlanId
+--   ObjVar
+--    cqvTranslationTrunkCeVlanId
+--   ObjVar
+--    cqvTranslationType
+--   ObjVar
+--    cqvTranslationCosPBits
+--   ObjVar
+--    cqvTranslationRowStatus
+
+
+END
+

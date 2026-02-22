@@ -1,0 +1,104 @@
+-- *****************************************************************
+-- CISCO-ENTITY-DISPLAY-CAPABILITY.my:
+-- Cisco CISCO-ENTITY-DISPLAY-MIB AGENT-CAPABILITIES
+--   
+-- March 2004, Dipesh Gorashia
+--   
+-- Copyright (c) 2004, 2007, 2010 by Cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-ENTITY-DISPLAY-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoEntityDisplayCapability MODULE-IDENTITY
+    LAST-UPDATED    "201011090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-displaymib@cisco.com,
+            cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-ENTITY-DISPLAY-MIB."
+    REVISION        "201011090000Z"
+    DESCRIPTION
+        "Added the agent capabilities statement
+        cEntDisplayCapV12R0250SYPCat6k."
+    REVISION        "200707160000Z"
+    DESCRIPTION
+        "Added the agent capabilities statement
+        cEntDisplayCapV12R0233SXHPCat6k."
+    REVISION        "200403300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 379 }
+
+
+
+cEntDisplayCapCatOSV08R0301Cat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500
+                          and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENTITY-DISPLAY-MIB capabilities."
+
+    SUPPORTS        CISCO-ENTITY-DISPLAY-MIB
+    INCLUDES        {
+                        ceDisplayGroup,
+                        ceDisplayLEDGroup,
+                        ceDisplayAlphaNumericGroup
+                    }
+    ::= { ciscoEntityDisplayCapability 1 }
+
+cEntDisplayCapV12R0233SXHPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENTITY-DISPLAY-MIB capabilities."
+
+    SUPPORTS        CISCO-ENTITY-DISPLAY-MIB
+    INCLUDES        {
+                        ceDisplayGroup,
+                        ceDisplayLEDGroup,
+                        ceDisplayAlphaNumericGroup
+                    }
+    ::= { ciscoEntityDisplayCapability 2 }
+
+cEntDisplayCapV12R0250SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-ENTITY-DISPLAY-MIB capabilities."
+
+    SUPPORTS        CISCO-ENTITY-DISPLAY-MIB
+    INCLUDES        {
+                        ceDisplayGroup,
+                        ceDisplayLEDGroup,
+                        ceDisplayAlphaNumericGroup,
+                        ceDisplayBeaconGroup
+                    }
+    ::= { ciscoEntityDisplayCapability 3 }
+
+END
+
+
+

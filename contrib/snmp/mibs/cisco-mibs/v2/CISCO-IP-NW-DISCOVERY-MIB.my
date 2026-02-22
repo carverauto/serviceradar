@@ -1,0 +1,603 @@
+-- ********************************************************************
+-- CISCO-IP-NW-DISCOVERY-MIB.my
+--   
+-- June   2005, Magesh Iyengar
+--   
+-- Copyright (c) 2005-2006 by cisco Systems, Inc.
+--   
+-- All rights reserved.
+--   
+-- *******************************************************************
+
+CISCO-IP-NW-DISCOVERY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    TestAndIncr
+        FROM SNMPv2-TC
+    InterfaceIndex,
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    FcNameId
+        FROM CISCO-ST-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoIpNetworkDiscoveryMIB MODULE-IDENTITY
+    LAST-UPDATED    "200610030000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553 -NETS
+            E-mail: cs-san@cisco.com"
+    DESCRIPTION
+        "MIB to provide the information about the disjoint
+        IP networks connected to the various gigabit ethernet
+        interfaces in the 'Fabric' and objects to discover 
+        the same.
+
+        It is possible that multiple disjoint IP networks
+        may terminate on a single fibre channel switch
+        in a Fabric.
+
+        This MIB provides ability to initiate, configure and 
+        show discovery results of the IP Networks in 
+        the fabric.
+
+        GLOSSARY: 
+
+        Fabric - The set of physically connected fibre channel 
+                 switches. 
+        WWN    - World Wide Name."
+    REVISION        "200610030000Z"
+    DESCRIPTION
+        "Updated with correct ciscoMgmt number for MODULE-IDENTITY."
+    REVISION        "200508090000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+          ::= { ciscoMgmt 434 }
+
+
+cIpNetworkDiscoveryMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoIpNetworkDiscoveryMIB 0 }
+
+cIpNetworkDiscoveryMIBObjs  OBJECT IDENTIFIER
+    ::= { ciscoIpNetworkDiscoveryMIB 1 }
+
+cIpNetworkDiscoveryConform  OBJECT IDENTIFIER
+    ::= { ciscoIpNetworkDiscoveryMIB 2 }
+
+cIpNetworkDiscoveryConfig  OBJECT IDENTIFIER
+    ::= { cIpNetworkDiscoveryMIBObjs 1 }
+
+cIpNetworkDiscoveryInfo  OBJECT IDENTIFIER
+    ::= { cIpNetworkDiscoveryMIBObjs 2 }
+
+
+-- IP Network Automatic Discovery Information
+cIpNetworkAutomaticDiscovery OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the automatic discovery
+        to find the reachability on the IP networks is enabled 
+        or not in the system. 
+
+        If automatic discovery is not enabled in the system 
+        then the discovery operation can be initiated only 
+        manually by the user.
+
+        The value of this object set to 'true' indicates the
+        automatic discovery for IP network is enabled in 
+        the system.
+
+        The value of this object set to 'false' indicates the
+        automatic discovery for IP network is not enabled in
+        the system."
+    DEFVAL          { false } 
+    ::= { cIpNetworkDiscoveryConfig 1 }
+
+cIpNetworkDiscoveryDelay OBJECT-TYPE
+    SYNTAX          Integer32 (0..5184000 )
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time duration between the
+        state change of an IP interface and the start of 
+        discovery operation of interface, if Automatic 
+        discovery is configured as 'true' in the
+        cIpNetworkAutomaticDiscovery object. The value '0'
+        indicates no delay."
+    DEFVAL          { 10 } 
+    ::= { cIpNetworkDiscoveryConfig 2 }
+
+-- Global Configuration for the IP Network discovery type
+cIpNetworkDiscoveryTypeSpinLock OBJECT-TYPE
+    SYNTAX          TestAndIncr
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to facilitate modification of
+        cIpNetworkDiscoverType, cIpNetworkDiscoverPort
+        objects by multiple managers.
+
+        The procedure for modifying the above two objects 
+        (only if the 'cIpNetworkDiscoveryType' is set to 
+         tcp/udp) are as follows :
+
+        1. Determine the new values for 
+           cIpNetworkDiscoverType, cIpNetworkDiscoverPort
+           objects.
+
+        2. Retrieve the value of 
+           'cIpNetworkDiscoveryTypeSpinLock' object.
+
+        3. Set the value of 'cIpNetworkDiscoveryTypeSpinLock' 
+           object to the retrieved value, and (in the same PDU) 
+           the value of 'cIpNetworkDiscoveryType' to the new 
+           value. If the set fails for the 
+           'cIpNetworkDiscoveryTypeSpinLock' object, go back to 
+           step 2.
+
+        4. Set the value of 'cIpNetworkDiscoveryTypeSpinLock' 
+           object to the retrieved value incremented by one, and 
+           (in the same PDU) the value of 
+           'cIpNetworkDiscoveryPort' object to the  
+           new value. 
+
+        Note that if it's possible to include
+        'cIpNetworkDiscoveryPort' object  in the 
+        (Set Request) PDU of an earlier step, then step 4  
+        can be eliminated." 
+    ::= { cIpNetworkDiscoveryConfig 3 }
+
+cIpNetworkDiscoveryType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        icmp(1),
+                        tcp(2),
+                        udp(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates type of discovery packets to
+        be sent for carrying out the IP network discovery."
+    DEFVAL          { icmp } 
+    ::= { cIpNetworkDiscoveryConfig 4 }
+
+cIpNetworkDiscoveryPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates TCP/UDP port used for of IP network
+        discovery operation, if the cIpNetworkDiscoveryType 
+        object is set to 'tcp' or 'udp'." 
+    ::= { cIpNetworkDiscoveryConfig 5 }
+
+-- Objects for Performing the IP Network Discovery
+cIpNetworkDiscoverySpinLock OBJECT-TYPE
+    SYNTAX          TestAndIncr
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to facilitate modification of
+        cIpNetworkGigEIfIndexToDiscover, 
+        cIpNetworkInetAddrTypeToDiscover,
+        cIpNetworkGigEInetAddrToDiscover
+        and cIpNetworkDiscoveryCommand objects by multiple 
+        managers.
+
+        The procedure for modifying the above four objects are
+        as follows:
+
+        1. For interface specific discovery, determine the new
+           values for cIpNwGigEIfIndexToDiscover,
+           cIpNetworkInetAddrTypeToDiscover,
+           cIpNetworkGigEInetAddrToDiscover objects.
+
+        2. Retrieve the value of 'cIpNetworkDiscoverySpinLock'
+           object.
+
+        3. Set the value of 'cIpNetworkDiscoverySpinLock' 
+           object to the retrieved value, and (in the same PDU) 
+           the value of 'cIpNetworkGigEIfIndexToDiscover' to  
+           the new value. If the set fails for the 
+           'cIpNetworkDiscoverySpinLock' object, go back to 
+           step 2.
+
+        4. Set the value of 'cIpNetworkDiscoverySpinLock' 
+           object to the retrieved value incremented by one, and 
+           (in the same PDU) the value of 
+           'cIpNetworkInetAddrTypeToDiscover' object to the  
+           new value. 
+
+        5. Set the value of 'cIpNetworkDiscoverySpinLock' 
+           object to the retrieved value incremented by two, 
+           and (in the same PDU) the value of 
+           'cIpNetworkGigEInetAddrToDiscover' object to the  
+           new value. 
+
+           If the set fails for 'cIpNetworkDiscoverySpinLock' 
+           object go back to step 2.
+
+
+        6. Set the value of 'cIpNetworkDiscoverySpinLock' 
+           object to the retrieved value incremented by four, and 
+           (in the same PDU) the value of 
+           'cIpNetworkDiscoveryCommand' object to 
+           'interfaceSpecific'. 
+
+           If the set fails for 'cIpNetworkDiscoverySpinLock' 
+           object go back to step 2.
+
+        Note that if it's possible to include
+        'cIpNetworkGigEInetAddrToDiscover' and/or
+        'cIpNetworkDiscoveryCommand' object  in the 
+        (Set Request) PDU of an earlier step, then step 4 (or) 5 
+        (or) 6 can be eliminated." 
+    ::= { cIpNetworkDiscoveryConfig 6 }
+
+cIpNetworkGigEIfIndexToDiscover OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the 'ifIndex' of the specified
+        gigabit ethernet interface for which the IP network 
+        discovery needs to be done incrementally. 
+
+        This object MUST be set to a valid value before or 
+        concurrently with setting the value of the 
+        'cIpNetworkDiscoveryCommand' object
+        to 'interfaceSpecific'." 
+    ::= { cIpNetworkDiscoveryConfig 7 }
+
+cIpNetworkInetAddrTypeToDiscover OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the 'InetAddressType' of the
+        address of the Gigabit ethernet port on which to 
+        perform the discovery.
+
+        This object MUST be set to a valid value before or 
+        concurrently with setting the value of the 
+        'cIpNetworkDiscoveryCommand' object to 
+        'interfaceSpecific'."
+    DEFVAL          { ipv4 } 
+    ::= { cIpNetworkDiscoveryConfig 8 }
+
+cIpNetworkGigEInetAddrToDiscover OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the 'InetAddress' of the specified
+        gigabit ethernet interface specified in the
+        'cIpNetworkGigEIfIndexToDiscover' for which the IP 
+        network discovery needs to be done incrementally. 
+
+        This object MUST be set to a valid value before or 
+        concurrently with setting the value of the 
+        'cIpNetworkDiscoveryCommand' object to 
+        'interfaceSpecific'." 
+    ::= { cIpNetworkDiscoveryConfig 9 }
+
+cIpNetworkDiscoveryCommand OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        all(1),
+                        noOp(2),
+                        interfaceSpecific(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The IP network discovery command to be executed.
+
+        Command                 Remarks
+
+        all                Run IP network discovery for all the 
+                           gigabit ethernet interfaces in the 
+                           fabric. 
+
+        noOp               no operation will be performed.
+
+
+        interfaceSpecific  Run IP network discovery incrementally 
+                           for the gigabit ethernet interface 
+                           specified in the 
+                           'cIpNetworkGigEInterfaceToDiscover',
+                           'cIpNetworkGigEInetAddrToDiscover' and
+                           'cIpNetworkGigESwitchWWNToDiscover'
+                           objects.
+
+        The value of this object when read is always 'noOp'."
+    DEFVAL          { noOp } 
+    ::= { cIpNetworkDiscoveryConfig 10 }
+
+cIpNetworkDiscoveryCmdStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        success(1),
+                        none(2),
+                        inProgress(3),
+                        noGigEInterfaceIndexSpecified(4),
+                        noGigEInetAddrSpecified(5),
+                        noGigESwitchWWNSpecified(6),
+                        invalidGigEInterfaceIndex(7),
+                        invalidGigEInetAddrType(8),
+                        invalidGigEInetAddr(9),
+                        generalFailure(10)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The status of the last IP network discovery command
+        operation.
+
+        success (1) - IP network discovery operation completed 
+                       successfully.
+
+        none (2)    - no IP network discovery operation is 
+                       performed.
+
+        inProgress (3) - discovery operation is in progress.
+
+        noGigEInterfaceIndexSpecified (4) 
+                     - 'ifIndex' of the gigabit eithernet interface 
+                       is not specified, i.e., the value of 
+                       'cIpNetworkGigEInterfaceToDiscover' object 
+                       is set to '0'. 
+        noGigEInetAddrSpecified (5)
+                     - InetAddress of the gigabit eithernet 
+                       interface is not specified, i.e., the 
+                       value of 
+                       'cIpNetworkpGigEInetAddrToDiscover' object 
+                       is set to '0'. 
+        noGigESwitchWWNSpecified (6)
+                     - The Switch WWN of the gigabit eithernet 
+                       interface is not specified, i.e., the value 
+                       of 'cIpNetworkGigESwitchWWNToDiscover'
+                       object is set to '0'. 
+        invalidGigEInterfaceIndex (7)
+                     - 'ifIndex' of the gigabit ethernet interface 
+                       specified in the 
+                       'cIpNetworkGigEInterfaceToDiscover' object
+                       is not valid.
+
+        invalidGigEInetAddrType (8)
+                     - 'InetAddrType' of the gigabit ethernet 
+                       interface specified in the 
+                       'cIpNetworkGigEInetAddrType' object
+                       is not valid.
+
+        invalidGigEInetAddr (9)
+                     - 'InetAddr' of the gigabit ethernet 
+                       interface specified in the 
+                       'cIpNetworkGigEInetAddr' object
+                       is not valid.
+
+        generalFailure (10)- General IP network discovery operation
+                             Failure." 
+    ::= { cIpNetworkDiscoveryConfig 11 }
+-- Disjoint IP Networks Discovered
+
+cIpNetworkTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CIpNetworkEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Represents the discovered list of all IP networks
+        connected to the gigabit ethernet interfaces in 
+        the fabric.
+        The entries in this table are populated by the discovery 
+        process started either by the auto discovery mechanism 
+        or triggered by the user by the setting the 
+        cIpNetworkDiscoveryCommand object to 'all' or 
+        'interfaceSpecific'."
+    ::= { cIpNetworkDiscoveryInfo 1 }
+
+cIpNetworkEntry OBJECT-TYPE
+    SYNTAX          CIpNetworkEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry represents the information about an
+        IP network connected to the gigabit ethernet interface 
+        in the fabric."
+    INDEX           { cIpNetworkIndex } 
+    ::= { cIpNetworkTable 1 }
+
+CIpNetworkEntry ::= SEQUENCE {
+        cIpNetworkIndex     Integer32,
+        cIpNetworkSwitchWWN FcNameId
+}
+
+cIpNetworkIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..65535 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary integer value, greater than zero which
+        uniquely identifies the IP Network discovered in 
+        the fabric." 
+    ::= { cIpNetworkEntry 1 }
+
+cIpNetworkSwitchWWN OBJECT-TYPE
+    SYNTAX          FcNameId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the WWN of the switch which has
+        created the corresponding entry in this table." 
+    ::= { cIpNetworkEntry 2 }
+ 
+
+-- Table for associating gigabit ethernet interfaces
+-- to the IP-network.
+
+cIpNetworkInterfaceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CIpNetworkInterfaceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table consisting of entries for all the gigabit
+        ethernet interfaces, which are connected to the 
+        various IP networks in the Fabric.
+
+        The members of the IP networks are dynamically
+        discovered by the discovery process."
+    ::= { cIpNetworkDiscoveryInfo 2 }
+
+cIpNetworkInterfaceEntry OBJECT-TYPE
+    SYNTAX          CIpNetworkInterfaceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the
+        'cIpNetworkInterfaceTable'.
+        Each row represents a gigabit ethernet interface in 
+        the fabric and its IP network."
+    INDEX           {
+                        cIpNetworkIndex,
+                        cIpNetworkGigEPortSwitchWWN,
+                        cIpNetworkGigEPortIfIndex,
+                        cIpNetworkGigEPortInetAddrType,
+                        cIpNetworkGigEPortInetAddr
+                    } 
+    ::= { cIpNetworkInterfaceTable 1 }
+
+CIpNetworkInterfaceEntry ::= SEQUENCE {
+        cIpNetworkGigEPortSwitchWWN    FcNameId,
+        cIpNetworkGigEPortIfIndex      InterfaceIndex,
+        cIpNetworkGigEPortInetAddrType InetAddressType,
+        cIpNetworkGigEPortInetAddr     InetAddress
+}
+
+cIpNetworkGigEPortSwitchWWN OBJECT-TYPE
+    SYNTAX          FcNameId (SIZE  (8))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the World Wide Name (WWN) of
+        the associated switch in the fabric, of the gigabit 
+        ethernet interface mentioned in corresponding instance 
+        of 'cIpNetworkGigEPortIfIndex' object." 
+    ::= { cIpNetworkInterfaceEntry 1 }
+
+cIpNetworkGigEPortIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the 'ifIndex' of the gigabit
+        ethernet interface in a switch in the fabric.
+        The World Wide Name (WWN) of the switch is mentioned 
+        in the corresponding instance of 
+        'cIpNetworkGigEPortSwitchWWN'.
+
+        The gigabit ethernet interface is connected to the IP 
+        network represented by the value of the
+        corresponding instance of 'cIpNetworkIndex'." 
+    ::= { cIpNetworkInterfaceEntry 2 }
+
+cIpNetworkGigEPortInetAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the InetAddressType of
+        the gigabit ethernet interface." 
+    ::= { cIpNetworkInterfaceEntry 3 }
+
+cIpNetworkGigEPortInetAddr OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4  |  16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the InetAddress of the gigabit
+        ethernet interface mentioned in the corresponding 
+        instance 'cIpNetworkGigEPortIfIndex' object.
+
+        The address is of the type indicated by 
+        'cIpNetworkGigEPortInetAddrType'.
+
+        The gigabit ethernet interface is connected to the IP 
+        network represented by the value of the
+        corresponding instance of 'cIpNetworkIndex'." 
+    ::= { cIpNetworkInterfaceEntry 4 }
+ 
+
+-- Compliance Information
+cIpNetworkDiscoverCompliance  OBJECT IDENTIFIER
+    ::= { cIpNetworkDiscoveryConform 1 }
+
+
+cIpNetworkDiscoveryMIBComp MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the CISCO-IP-NW-DISCOVERY-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cIpNetworkDiscoveryInfoGroup,
+                        cIpNetworkDiscoveryCfgGroup
+                    }
+    ::= { cIpNetworkDiscoverCompliance 1 }
+-- Units of Conformance
+cIpNetworkDiscoveryMIBGroups  OBJECT IDENTIFIER
+    ::= { cIpNetworkDiscoveryConform 2 }
+
+
+cIpNetworkDiscoveryInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cIpNetworkSwitchWWN,
+                        cIpNetworkGigEPortInetAddr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A Collection of objects for the IP networks
+        discovered in the fabric and its 
+        associated gigabit ethernet interfaces details."
+    ::= { cIpNetworkDiscoveryMIBGroups 1 }
+
+cIpNetworkDiscoveryCfgGroup OBJECT-GROUP
+    OBJECTS         {
+                        cIpNetworkAutomaticDiscovery,
+                        cIpNetworkDiscoveryDelay,
+                        cIpNetworkDiscoveryTypeSpinLock,
+                        cIpNetworkDiscoveryType,
+                        cIpNetworkDiscoveryPort,
+                        cIpNetworkDiscoverySpinLock,
+                        cIpNetworkGigEIfIndexToDiscover,
+                        cIpNetworkInetAddrTypeToDiscover,
+                        cIpNetworkGigEInetAddrToDiscover,
+                        cIpNetworkDiscoveryCommand,
+                        cIpNetworkDiscoveryCmdStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A Collection of objects to be configured, for doing
+        the IP network discovery."
+    ::= { cIpNetworkDiscoveryMIBGroups 2 }
+
+END

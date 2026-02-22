@@ -1,0 +1,2632 @@
+-- *****************************************************************
+-- LISP-MIB.my
+--
+-- November 2014, Michael Bassin
+--
+-- Copyright (c) 2014-2015 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- Based on RFC 7052: http://tools.ietf.org/html/rfc7052 
+-- *****************************************************************
+
+LISP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE,
+    mib-2, Unsigned32, Counter64,
+    Integer32, TimeTicks            FROM SNMPv2-SMI        -- RFC 2578
+    TruthValue, TEXTUAL-CONVENTION,
+    TimeStamp                       FROM SNMPv2-TC         -- RFC 2579
+    MODULE-COMPLIANCE, OBJECT-GROUP FROM SNMPv2-CONF       -- RFC 2580
+    MplsL3VpnName
+			 FROM MPLS-L3VPN-STD-MIB                   -- RFC 4382
+    AddressFamilyNumbers
+                 FROM IANA-ADDRESS-FAMILY-NUMBERS-MIB;
+       -- http://www.iana.org/assignments/ianaaddressfamilynumbers-mib
+
+lispMIB MODULE-IDENTITY
+    LAST-UPDATED "201310210000Z" -- 21 October 2013
+    ORGANIZATION
+            "IETF Locator/ID Separation Protocol (LISP) Working Group"
+    CONTACT-INFO
+            "Email: lisp@ietf.org
+             WG charter:
+             http://datatracker.ietf.org/wg/lisp/charter/"
+    DESCRIPTION
+            "This MIB module contains managed objects to support
+             monitoring devices that support the Locator/ID Separation
+             Protocol (LISP).
+
+             Copyright (c) 2013 IETF Trust and the persons identified
+             as authors of the code.  All rights reserved.
+
+             Redistribution and use in source and binary forms, with
+             or without modification, is permitted pursuant to, and
+             subject to the license terms contained in, the Simplified
+             BSD License set forth in Section 4.c of the IETF Trust's
+             Legal Provisions Relating to IETF Documents
+             (http://trustee.ietf.org/license-info)."
+    REVISION     "201310210000Z" -- 21 October 2013
+    DESCRIPTION  "Initial version of the IETF LISP-MIB module.
+                  Published as RFC 7052."
+     ::= { mib-2 220 }
+
+--
+-- Textual Conventions
+--
+
+LispAddressType ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "39a"
+    STATUS current
+    DESCRIPTION
+      "LISP architecture can be applied to a wide variety of
+       address-families.  This textual-convention is a generalization
+       for representing addresses belonging to those address-families.
+       For convenience, this document refers to any such address as a
+       LISP address.  LispAddressType textual-convention consists of
+       the following four-tuple:
+       1. IANA Address Family Number: A field of length 2 octets,
+          whose value is of the form following the assigned
+          AddressFamilyNumbers textual-convention described in
+          IANA-ADDRESS-FAMILY-NUMBERS-MIB DEFINITIONS, available from
+          http://www.iana.org/assignments/ianaaddressfamilynumbers-mib.
+          The enumerations are also listed in [IANA].  Note that this
+          list of address family numbers is maintained by IANA.
+       2. Length of LISP address: A field of length 1 octet, whose
+          value indicates the octet-length of the next (third)
+          field of this LispAddressType four-tuple.
+       3. LISP address: A field of variable length as indicated in
+          the previous (second) field, whose value is an address
+          of the IANA Address Family indicated in the first field
+          of this LispAddressType four-tuple.  Note that any of
+          the IANA Address Families can be represented.
+          Particularly when the address family is LISP Canonical
+          Address Format (LCAF)
+          with IANA-assigned Address Family Number 16387, then the
+          first octet of this field indicates the LCAF type, and the
+          rest of this field is same as the encoding format of the
+          LISP Canonical Address after the length field, as defined
+          in LCAF document.
+       4. Mask-length of address: A field of length 1 octet, whose
+          value is the mask-length to be applied to the LISP
+          address specified in the previous (third) field.
+
+       To illustrate the use of this object, consider the LISP MIB
+       Object below titled lispMapCacheEntry.  This object begins
+       with the following entities:
+
+       lispMapCacheEntry ::= SEQUENCE {
+          lispMapCacheEidLength          INTEGER,
+          lispMapCacheEid                LispAddressType,
+           ... [skip] ...
+
+       Example 1: Suppose that the IPv4 EID-Prefix stored is
+       192.0.2.0/24.  In this case, the values within
+       lispMapCacheEntry would be:
+
+          lispMapCacheEidLength  = 8
+          lispMapCacheEid = 1, 4, 192.0.2.0, 24
+          ... [skip] ...
+
+       where 8 is the total length in octets of the next object
+       (lispMapCacheEID of type LispAddressType).  Then, the value
+       1 indicates the IPv4 AF (per the
+       IANA-ADDRESS-FAMILY-NUMBERS-MIB), the value 4 indicates that
+       the AF is 4 octets in length, 192.0.2.0 is the IPv4 address,
+       and the value 24 is the mask-length in bits.  Note that the
+       lispMapCacheEidLength value of 8 is used to compute the
+       length of the fourth (last) field in lispMapCacheEid to be 1
+       octet -- as computed by 8 - (2 + 1 + 4) = 1.
+
+       Example 2: Suppose that the IPv6 EID-Prefix stored is
+       2001:db8:a::/48.  In this case, the values within
+       lispMapCacheEntry would be:
+
+          lispMapCacheEidLength  = 20
+          lispMapCacheEid = 2, 16, 2001:db8:a::, 48
+          ... [skip] ...
+
+       where 20 is the total length in octets of the next object
+       (lispMapCacheEID of type LispAddressType).  Then, the value
+       2 indicates the IPv6 AF (per the
+       IANA-ADDRESS-FAMILY-NUMBERS-MIB), the value 16 indicates
+       that the AF is 16 octets in length, 2001:db8:a:: is the IPv6
+       address, and the value 48 is the mask-length in bits.  Note
+       that the lispMapCacheEidLength value of 20 is used to
+       compute the length of the fourth (last) field in
+       lispMapCacheEid to be 1 octet -- as computed by
+       20 - (2 + 1 + 16) = 1.
+
+       Example 3: As an example where LCAF is used, suppose
+       that the IPv4 EID-Prefix stored is 192.0.2.0/24 and it
+       is part of LISP Instance ID 101.  In this case, the values
+       within lispMapCacheEntry would be:
+
+          lispMapCacheEidLength  = 14
+          lispMapCacheEid = 16387, 10, 2, 101, 1, 192.0.2.0, 24
+          ... [skip] ...
+
+       where 14 is the total length in octets of the next object
+       (lispMapCacheEID of type LispAddressType).  Then, the value
+       16387 indicates the LCAF AF (see the
+       IANA-ADDRESS-FAMILY-NUMBERS-MIB), the value 10 indicates that
+       the LCAF AF is 10 octets in length in this case, 2 indicates
+       that LCAF Type 2 encoding is used (see the LCAF document), 101
+       gives the Instance ID, 1 gives the AFI (per the
+       IANA-ADDRESS-FAMILY-NUMBERS-MIB) for an IPv4 address, 192.0.2.0
+       is the IPv4 address, and 24 is the mask-length in bits.  Note
+       that the lispMapCacheEidLength value of 14 octets is used to
+       compute the length of the last field in lispMapCacheEid to be 1
+       octet -- as computed by 14 - (2 + 1 + 1 + 3 + 2 + 4) = 1.
+
+       Note: all LISP header formats and locations of specific
+       flags, bits, and fields are as given in the base LISP
+       references of RFC 6830, RFC 6832, and RFC 6833."
+
+    REFERENCE
+        "RFC 6830, Section 14.2 and
+         LISP Canonical Address Format (LCAF), Work in Progress,
+         March 2013."
+    SYNTAX OCTET STRING (SIZE (0..39))
+
+--
+-- Top-level components of this MIB.
+--
+lispObjects       OBJECT IDENTIFIER ::= { lispMIB 1 }
+lispConformance   OBJECT IDENTIFIER ::= { lispMIB 2 }
+
+   lispFeaturesTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispFeaturesEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table represents the ON/OFF status of the
+           various LISP features that can be enabled on LISP devices."
+       REFERENCE
+           "RFC 6830, Section 4, Section 5.5., Section 6.3."
+       ::= { lispObjects 1 }
+
+   lispFeaturesEntry OBJECT-TYPE
+       SYNTAX     LispFeaturesEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in the lispFeaturesTable."
+       INDEX      { lispFeaturesInstanceID,
+                    lispFeaturesAddressFamily }
+       ::= { lispFeaturesTable 1 }
+
+   LispFeaturesEntry ::= SEQUENCE {
+       lispFeaturesInstanceID                     Unsigned32,
+       lispFeaturesAddressFamily                  AddressFamilyNumbers,
+       lispFeaturesItrEnabled                     TruthValue,
+       lispFeaturesEtrEnabled                     TruthValue,
+       lispFeaturesProxyItrEnabled                TruthValue,
+       lispFeaturesProxyEtrEnabled                TruthValue,
+       lispFeaturesMapServerEnabled               TruthValue,
+       lispFeaturesMapResolverEnabled             TruthValue,
+       lispFeaturesMapCacheSize                   Unsigned32,
+       lispFeaturesMapCacheLimit                  Unsigned32,
+       lispFeaturesEtrMapCacheTtl                 Unsigned32,
+       lispFeaturesRlocProbeEnabled               TruthValue,
+       lispFeaturesEtrAcceptMapDataEnabled        TruthValue,
+       lispFeaturesEtrAcceptMapDataVerifyEnabled  TruthValue,
+       lispFeaturesRouterTimeStamp                TimeStamp
+   }
+
+   lispFeaturesInstanceID OBJECT-TYPE
+       SYNTAX     Unsigned32 (0..16777215)
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This represents the Instance ID of the LISP header.
+           An Instance ID in the LISP address encoding helps
+           uniquely identify the AFI-based address space to which
+           a given EID belongs.  Its default value is 0."
+        DEFVAL { 0 }
+        ::= { lispFeaturesEntry 1 }
+
+   lispFeaturesAddressFamily OBJECT-TYPE
+       SYNTAX     AddressFamilyNumbers
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "The IANA Address Family Number of destination address
+           of packets that this LISP device is enabled to process."
+        ::= { lispFeaturesEntry 2 }
+
+   lispFeaturesItrEnabled OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates the status of ITR role on this device.  If
+           this object is true, then the ITR feature is enabled."
+       ::= { lispFeaturesEntry 3 }
+
+   lispFeaturesEtrEnabled OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates the status of ETR role on this device.  If
+           this object is true, then the ETR feature is enabled."
+       ::= { lispFeaturesEntry 4 }
+
+   lispFeaturesProxyItrEnabled OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates the status of Proxy-ITR role on this device.
+           If this object is true, then the Proxy-ITR feature is
+           enabled."
+       ::= { lispFeaturesEntry 5 }
+
+   lispFeaturesProxyEtrEnabled OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates the status of Proxy-ETR role on this device.
+           If this object is true, then the Proxy-ETR feature is
+           enabled."
+       ::= { lispFeaturesEntry 6 }
+
+   lispFeaturesMapServerEnabled OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates the status of Map Server role on this device.
+           If this object is true, then the Map-Server feature is
+           enabled."
+       ::= { lispFeaturesEntry 7 }
+
+   lispFeaturesMapResolverEnabled OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates the status of Map Resolver role on this device.
+           If this object is true, then Map-Resolver feature is
+           enabled."
+       ::= { lispFeaturesEntry 8 }
+
+   lispFeaturesMapCacheSize OBJECT-TYPE
+       SYNTAX     Unsigned32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Size of EID-to-RLOC map-cache on this device."
+       ::= { lispFeaturesEntry 9 }
+
+   lispFeaturesMapCacheLimit OBJECT-TYPE
+       SYNTAX     Unsigned32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Maximum permissible entries in EID-to-RLOC map-cache on
+           this device."
+       ::= { lispFeaturesEntry 10 }
+
+   lispFeaturesEtrMapCacheTtl OBJECT-TYPE
+       SYNTAX     Unsigned32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The stored Record TTL of the EID-to-RLOC map record in
+           the map-cache."
+       ::= { lispFeaturesEntry 11 }
+
+   lispFeaturesRlocProbeEnabled OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates the status of RLOC-Probing feature on this
+           device.  If this object is true, then this feature is
+           enabled."
+       ::= { lispFeaturesEntry 12 }
+
+   lispFeaturesEtrAcceptMapDataEnabled OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates the status of accepting piggybacked mapping
+           data received in a map-request on this device.  If this
+           object is true, then this device accepts piggybacked
+           mapping data."
+       ::= { lispFeaturesEntry 13 }
+
+   lispFeaturesEtrAcceptMapDataVerifyEnabled OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates the status of verifying accepted piggybacked
+           mapping data received in a map-request on this device.
+           If this object is true, then this device verifies
+           accepted piggybacked mapping data."
+       ::= { lispFeaturesEntry 14 }
+
+   lispFeaturesRouterTimeStamp OBJECT-TYPE
+       SYNTAX     TimeStamp
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The value of sysUpTime at which the LISP feature was
+           enabled on this device.
+
+           If this information was present at the most recent
+           reinitialization of the local management subsystem,
+           then this object contains a zero value."
+       DEFVAL { 0 }
+       ::= { lispFeaturesEntry 15 }
+
+   lispIidToVrfTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispIidToVrfEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table represents the mapping of a LISP Instance ID
+           to a VRF."
+       REFERENCE
+           "RFC 6830, Section 5.5., and RFC 4382, Section 7."
+       ::= { lispObjects 2 }
+
+   lispIidToVrfEntry OBJECT-TYPE
+       SYNTAX     LispIidToVrfEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in the lispIidToVrfTable."
+       INDEX      { lispFeaturesInstanceID }
+       ::= { lispIidToVrfTable 1 }
+
+   LispIidToVrfEntry ::= SEQUENCE {
+       lispIidToVrfName                    MplsL3VpnName
+   }
+
+   lispIidToVrfName OBJECT-TYPE
+       SYNTAX     MplsL3VpnName
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The identifier for each VPN that is mapped to the
+           given LISP Instance ID."
+           ::= { lispIidToVrfEntry 1 }
+
+   lispGlobalStatsTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispGlobalStatsEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table provides global statistics for a given
+           Instance ID per address family on a LISP device."
+       REFERENCE
+           "RFC 6830, Section 6.1."
+       ::= { lispObjects 3 }
+
+   lispGlobalStatsEntry OBJECT-TYPE
+       SYNTAX     LispGlobalStatsEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in the
+           lispGlobalStatsTable."
+       INDEX      { lispFeaturesInstanceID,
+                    lispFeaturesAddressFamily }
+       ::= { lispGlobalStatsTable 1 }
+
+   LispGlobalStatsEntry ::= SEQUENCE {
+       lispGlobalStatsMapRequestsIn        Counter64,
+       lispGlobalStatsMapRequestsOut       Counter64,
+       lispGlobalStatsMapRepliesIn         Counter64,
+       lispGlobalStatsMapRepliesOut        Counter64,
+       lispGlobalStatsMapRegistersIn       Counter64,
+       lispGlobalStatsMapRegistersOut      Counter64
+   }
+
+   lispGlobalStatsMapRequestsIn OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Total number of map requests received by this device for
+           any EID-Prefix of the given address family and Instance ID.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of LISP features
+           being removed, which can be detected by observing the value
+           of lispFeaturesRouterTimeStamp."
+       ::= { lispGlobalStatsEntry 1 }
+
+   lispGlobalStatsMapRequestsOut OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Total number of map requests sent by this device for any
+           EID-Prefix of the given address family and Instance ID.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of LISP features
+           being removed, which can be detected by observing the value
+           of lispFeaturesRouterTimeStamp."
+       ::= { lispGlobalStatsEntry 2 }
+
+   lispGlobalStatsMapRepliesIn OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Total number of map replies received by this device for any
+           EID-Prefix of the given address family and Instance ID.
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of LISP features
+           being removed, which can be detected by observing the value
+           of lispFeaturesRouterTimeStamp."
+       ::= { lispGlobalStatsEntry 3 }
+
+   lispGlobalStatsMapRepliesOut OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Total number of map replies sent by this device for any EID
+           prefix of the given address family and Instance ID.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of LISP features
+           being removed, which can be detected by observing the value
+           of lispFeaturesRouterTimeStamp."
+       ::= { lispGlobalStatsEntry 4 }
+
+   lispGlobalStatsMapRegistersIn OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Total number of map registers received by this device for
+           any EID-Prefix of the given address family and Instance ID.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of LISP features
+           being removed, which can be detected by observing the value
+           of lispFeaturesRouterTimeStamp."
+       ::= { lispGlobalStatsEntry 5 }
+
+   lispGlobalStatsMapRegistersOut OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Total number of map registers sent by this device for any
+           EID-Prefix of the given address family and Instance ID.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of LISP features
+           being removed, which can be detected by observing the value
+           of lispFeaturesRouterTimeStamp."
+       ::= { lispGlobalStatsEntry 6 }
+
+   lispMappingDatabaseTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispMappingDatabaseEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table represents the EID-to-RLOC mapping database
+            that contains the EID-Prefix to RLOC mappings configured
+            on an ETR.
+           This table represents all such mappings for the given LISP
+           site to which this device belongs."
+       REFERENCE
+           "RFC 6830, Section 6."
+       ::= { lispObjects 4 }
+
+   lispMappingDatabaseEntry OBJECT-TYPE
+       SYNTAX     LispMappingDatabaseEntry
+
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in lispMappingDatabaseTable."
+       INDEX   { lispMappingDatabaseEidLength,
+                 lispMappingDatabaseEid }
+       ::= { lispMappingDatabaseTable 1 }
+
+   LispMappingDatabaseEntry ::= SEQUENCE {
+       lispMappingDatabaseEidLength        Integer32,
+       lispMappingDatabaseEid              LispAddressType,
+       lispMappingDatabaseLsb              Unsigned32,
+       lispMappingDatabaseEidPartitioned   TruthValue,
+       lispMappingDatabaseTimeStamp        TimeStamp,
+       lispMappingDatabaseDecapOctets      Counter64,
+       lispMappingDatabaseDecapPackets     Counter64,
+       lispMappingDatabaseEncapOctets      Counter64,
+       lispMappingDatabaseEncapPackets     Counter64
+   }
+
+   lispMappingDatabaseEidLength OBJECT-TYPE
+       SYNTAX     Integer32 (5..39)
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This object gives the octet-length of
+           lispMappingDatabaseEid."
+       ::= { lispMappingDatabaseEntry 1 }
+
+   lispMappingDatabaseEid OBJECT-TYPE
+       SYNTAX     LispAddressType
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "The EID-Prefix of the mapping database."
+       ::= { lispMappingDatabaseEntry 2 }
+
+   lispMappingDatabaseLsb OBJECT-TYPE
+       SYNTAX     Unsigned32 (0..4294967295)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The locator status bits for this EID-Prefix."
+       ::= { lispMappingDatabaseEntry 3 }
+
+   lispMappingDatabaseEidPartitioned OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+
+       STATUS     current
+       DESCRIPTION
+           "Indicates if this device is partitioned from the site that
+           contains this EID-Prefix.  If this object is true, then it
+           means this device is partitioned from the site."
+       ::= { lispMappingDatabaseEntry 4 }
+
+   lispMappingDatabaseTimeStamp OBJECT-TYPE
+       SYNTAX     TimeStamp
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The value of sysUpTime at which the EID Prefix information
+           represented by this mapping database entry was configured
+           on this device.
+
+           If this information was present at the most recent
+           reinitialization of the local management subsystem, then
+           this object contains a zero value."
+       DEFVAL { 0 }
+       ::= { lispMappingDatabaseEntry 5 }
+
+   lispMappingDatabaseDecapOctets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of octets, after decapsulation, of LISP packets
+           that were decapsulated by this device addressed to a host
+           within this EID-Prefix.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of LISP features
+           being removed, which can be detected by observing the value
+           of lispMappingDatabaseTimeStamp."
+       ::= { lispMappingDatabaseEntry 6 }
+
+   lispMappingDatabaseDecapPackets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of LISP packets that were decapsulated by this
+           device addressed to a host within this EID-Prefix.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of LISP features
+           being removed, which can be detected by observing the value
+           of lispMappingDatabaseTimeStamp."
+       ::= { lispMappingDatabaseEntry 7 }
+
+   lispMappingDatabaseEncapOctets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of octets, before encapsulation, of LISP packets
+           that were encapsulated by this device, whose inner header
+           source address matched this EID-Prefix.
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of LISP features
+           being removed, which can be detected by observing the value
+           of lispMappingDatabaseTimeStamp."
+       ::= { lispMappingDatabaseEntry 8 }
+
+   lispMappingDatabaseEncapPackets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of LISP packets that were encapsulated by this
+           device whose inner header source address matched this EID
+           prefix.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of LISP features
+           being removed, which can be detected by observing the value
+           of lispMappingDatabaseTimeStamp."
+       ::= { lispMappingDatabaseEntry 9 }
+
+   lispMappingDatabaseLocatorTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispMappingDatabaseLocatorEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table represents the set of routing locators per EID
+           prefix contained in the EID-to-RLOC database configured on
+           this ETR."
+       REFERENCE
+           "RFC 6830, Section 6.2."
+       ::= { lispObjects 5 }
+
+   lispMappingDatabaseLocatorEntry OBJECT-TYPE
+       SYNTAX     LispMappingDatabaseLocatorEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in the
+           lispMappingDatabaseLocatorTable."
+       INDEX  { lispMappingDatabaseEidLength,
+                lispMappingDatabaseEid,
+                lispMappingDatabaseLocatorRlocLength,
+                lispMappingDatabaseLocatorRloc }
+       ::= { lispMappingDatabaseLocatorTable 1 }
+
+   LispMappingDatabaseLocatorEntry ::= SEQUENCE {
+       lispMappingDatabaseLocatorRlocLength        Integer32,
+       lispMappingDatabaseLocatorRloc              LispAddressType,
+       lispMappingDatabaseLocatorRlocPriority      Integer32,
+       lispMappingDatabaseLocatorRlocWeight        Integer32,
+       lispMappingDatabaseLocatorRlocMPriority     Integer32,
+       lispMappingDatabaseLocatorRlocMWeight       Integer32,
+       lispMappingDatabaseLocatorRlocState         INTEGER,
+       lispMappingDatabaseLocatorRlocLocal         INTEGER,
+       lispMappingDatabaseLocatorRlocTimeStamp     TimeStamp,
+       lispMappingDatabaseLocatorRlocDecapOctets   Counter64,
+       lispMappingDatabaseLocatorRlocDecapPackets  Counter64,
+       lispMappingDatabaseLocatorRlocEncapOctets   Counter64,
+       lispMappingDatabaseLocatorRlocEncapPackets  Counter64
+   }
+
+   lispMappingDatabaseLocatorRlocLength OBJECT-TYPE
+       SYNTAX     Integer32 (5..39)
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This object is used to get the octet-length of
+           lispMappingDatabaseLocatorRloc."
+       ::= { lispMappingDatabaseLocatorEntry 1 }
+
+   lispMappingDatabaseLocatorRloc OBJECT-TYPE
+       SYNTAX     LispAddressType
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This object is a locator for the given EID-Prefix in
+           the mapping database."
+       ::= { lispMappingDatabaseLocatorEntry 2 }
+
+   lispMappingDatabaseLocatorRlocPriority OBJECT-TYPE
+       SYNTAX     Integer32 (0..255)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The unicast priority of the RLOC."
+       ::= { lispMappingDatabaseLocatorEntry 3 }
+
+   lispMappingDatabaseLocatorRlocWeight OBJECT-TYPE
+       SYNTAX     Integer32 (0..100)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The unicast weight of the RLOC."
+       ::= { lispMappingDatabaseLocatorEntry 4 }
+
+   lispMappingDatabaseLocatorRlocMPriority OBJECT-TYPE
+       SYNTAX     Integer32 (0..255)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The multicast priority of the RLOC."
+       ::= { lispMappingDatabaseLocatorEntry 5 }
+
+   lispMappingDatabaseLocatorRlocMWeight OBJECT-TYPE
+       SYNTAX     Integer32 (0..100)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The multicast weight of the RLOC."
+       ::= { lispMappingDatabaseLocatorEntry 6 }
+
+   lispMappingDatabaseLocatorRlocState OBJECT-TYPE
+       SYNTAX     INTEGER {
+                     up (1),
+                     down (2),
+                     unreachable (3)
+                  }
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The state of this RLOC as per this device.
+           (1 = RLOC is up; 2 = RLOC is down; 3 = RLOC is unreachable)."
+       ::= { lispMappingDatabaseLocatorEntry 7 }
+
+   lispMappingDatabaseLocatorRlocLocal OBJECT-TYPE
+       SYNTAX     INTEGER {
+                     siteself (1),
+                     sitelocal (2)
+                  }
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates whether the RLOC is local to this device
+           (or remote, meaning local to another device in the same LISP
+           site).  (1 = RLOC is an address on this device; 2 = RLOC is
+           an address on another device)."
+       ::= { lispMappingDatabaseLocatorEntry 8 }
+
+   lispMappingDatabaseLocatorRlocTimeStamp OBJECT-TYPE
+       SYNTAX     TimeStamp
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The value of sysUpTime at which the RLOC of the EID Prefix
+           represented by this mapping database entry was configured
+           on this device.
+
+           If this information was present at the most recent
+           reinitialization of the local management subsystem, then
+           this object contains a zero value."
+       DEFVAL { 0 }
+       ::= { lispMappingDatabaseLocatorEntry 9 }
+
+   lispMappingDatabaseLocatorRlocDecapOctets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of octets of LISP packets that were
+           addressed to this RLOC of the EID-Prefix and
+           were decapsulated.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of database
+           mappings getting reconfigured or RLOC status changes, which
+           can be detected by observing the value of
+           lispMappingDatabaseLocatorRlocTimeStamp."
+       ::= { lispMappingDatabaseLocatorEntry 10 }
+
+   lispMappingDatabaseLocatorRlocDecapPackets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of LISP packets that were addressed to this RLOC
+           of the EID-Prefix and were decapsulated.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+
+           Discontinuities can also occur as a result of database
+           mappings getting reconfigured or RLOC status changes, which
+           can be detected by observing the value of
+           lispMappingDatabaseLocatorRlocTimeStamp."
+       ::= { lispMappingDatabaseLocatorEntry 11 }
+
+   lispMappingDatabaseLocatorRlocEncapOctets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of octets of LISP packets that were encapsulated
+           by this device using this RLOC address as the source, and
+           that were sourced by an address of this EID-Prefix.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of database
+           mappings getting reconfigured or RLOC status changes, which
+           can be detected by observing the value of
+           lispMappingDatabaseLocatorRlocTimeStamp."
+       ::= { lispMappingDatabaseLocatorEntry 12 }
+
+   lispMappingDatabaseLocatorRlocEncapPackets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of LISP packets that were encapsulated by this
+           device using this RLOC address as the source and that were
+           sourced by an address of this EID-Prefix.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of database
+           mappings getting reconfigured or RLOC status changes, which
+           can be detected by observing the value of
+           lispMappingDatabaseLocatorRlocTimeStamp."
+       ::= { lispMappingDatabaseLocatorEntry 13 }
+
+   lispMapCacheTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispMapCacheEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table represents the short-lived, on-demand table on
+           an ITR that stores, tracks, and is responsible for
+           timing-out and otherwise validating EID-to-RLOC mappings."
+       REFERENCE
+           "RFC 6830, Sections 6 and Section 12."
+       ::= { lispObjects 6 }
+
+   lispMapCacheEntry OBJECT-TYPE
+       SYNTAX     LispMapCacheEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in the
+           lispMapCacheTable."
+       INDEX      { lispMapCacheEidLength,
+                    lispMapCacheEid }
+       ::= { lispMapCacheTable 1 }
+
+   LispMapCacheEntry ::= SEQUENCE {
+       lispMapCacheEidLength           Integer32,
+       lispMapCacheEid                 LispAddressType,
+       lispMapCacheEidTimeStamp        TimeStamp,
+       lispMapCacheEidExpiryTime       TimeTicks,
+       lispMapCacheEidState            TruthValue,
+       lispMapCacheEidAuthoritative    TruthValue,
+       lispMapCacheEidDecapOctets      Counter64,
+       lispMapCacheEidDecapPackets     Counter64,
+       lispMapCacheEidEncapOctets      Counter64,
+       lispMapCacheEidEncapPackets     Counter64
+   }
+
+   lispMapCacheEidLength OBJECT-TYPE
+       SYNTAX     Integer32 (5..39)
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This object is used to get the octet-length of
+           lispMapCacheEid."
+       ::= { lispMapCacheEntry 1 }
+
+   lispMapCacheEid OBJECT-TYPE
+       SYNTAX     LispAddressType
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "The EID-Prefix in the mapping cache."
+       ::= { lispMapCacheEntry 2 }
+
+   lispMapCacheEidTimeStamp OBJECT-TYPE
+       SYNTAX     TimeStamp
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The value of sysUpTime at which the EID Prefix information
+           represented by this entry was learned by this device.
+           If this information was present at the most recent
+           reinitialization of the local management subsystem, then
+           this object contains a zero value."
+       DEFVAL { 0 }
+       ::= { lispMapCacheEntry 3 }
+
+   lispMapCacheEidExpiryTime OBJECT-TYPE
+       SYNTAX     TimeTicks
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The time remaining before the ITR times-out this
+           EID-Prefix."
+       ::= { lispMapCacheEntry 4 }
+
+   lispMapCacheEidState OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "This object is used to indicate the activity of this EID
+           prefix.  If this object is true, then it means this EID
+           prefix is seeing activity."
+       ::= { lispMapCacheEntry 5 }
+
+   lispMapCacheEidAuthoritative OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "This object is used to indicate whether the EID-Prefix was
+           installed by an authoritative map-reply.  If this object is
+           true, then it means this EID-Prefix was installed by an
+           authoritative map-reply."
+       ::= { lispMapCacheEntry 6 }
+
+   lispMapCacheEidDecapOctets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of octets of LISP packets that were decapsulated
+           by this device and were sourced from a remote host within
+           this EID-Prefix.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of cache being
+           removed and replaced, which can be detected by observing the
+           value of lispMapCacheEidTimeStamp."
+       ::= { lispMapCacheEntry 7 }
+
+   lispMapCacheEidDecapPackets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of LISP packets that were decapsulated by this
+           device and were sourced from a remote host within this
+           EID-Prefix.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of cache being
+           removed and replaced, which can be detected by observing the
+           value of lispMapCacheEidTimeStamp."
+       ::= { lispMapCacheEntry 8 }
+
+   lispMapCacheEidEncapOctets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of octets of LISP packets that were encapsulated
+           by this device using the given EID-Prefix in the map-cache.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of cache being
+           removed and replaced, which can be detected by observing the
+           value of lispMapCacheEidTimeStamp."
+       ::= { lispMapCacheEntry 9 }
+
+   lispMapCacheEidEncapPackets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of LISP packets that were encapsulated by this
+           device using the given EID-Prefix in the map-cache.
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of cache being
+           removed and replaced, which can be detected by observing the
+           value of lispMapCacheEidTimeStamp."
+       ::= { lispMapCacheEntry 10 }
+
+   lispMapCacheLocatorTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispMapCacheLocatorEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table represents the set of locators per EID-Prefix
+           contained in the map-cache table of an ITR."
+       REFERENCE
+           "RFC 6830, Section 6.3."
+       ::= { lispObjects 7 }
+
+   lispMapCacheLocatorEntry OBJECT-TYPE
+       SYNTAX     LispMapCacheLocatorEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in the
+           lispMapCacheLocatorTable."
+       INDEX      { lispMapCacheEidLength,
+                    lispMapCacheEid,
+                    lispMapCacheLocatorRlocLength,
+                    lispMapCacheLocatorRloc }
+       ::= { lispMapCacheLocatorTable 1 }
+
+   LispMapCacheLocatorEntry ::= SEQUENCE {
+       lispMapCacheLocatorRlocLength              Integer32,
+       lispMapCacheLocatorRloc                    LispAddressType,
+       lispMapCacheLocatorRlocPriority            Integer32,
+       lispMapCacheLocatorRlocWeight              Integer32,
+       lispMapCacheLocatorRlocMPriority           Integer32,
+       lispMapCacheLocatorRlocMWeight             Integer32,
+       lispMapCacheLocatorRlocState               INTEGER,
+       lispMapCacheLocatorRlocTimeStamp           TimeStamp,
+       lispMapCacheLocatorRlocLastPriorityChange  TimeTicks,
+       lispMapCacheLocatorRlocLastWeightChange    TimeTicks,
+       lispMapCacheLocatorRlocLastMPriorityChange TimeTicks,
+       lispMapCacheLocatorRlocLastMWeightChange   TimeTicks,
+       lispMapCacheLocatorRlocLastStateChange     TimeTicks,
+       lispMapCacheLocatorRlocRtt                 TimeTicks,
+       lispMapCacheLocatorRlocDecapOctets         Counter64,
+       lispMapCacheLocatorRlocDecapPackets        Counter64,
+       lispMapCacheLocatorRlocEncapOctets         Counter64,
+       lispMapCacheLocatorRlocEncapPackets        Counter64
+   }
+
+   lispMapCacheLocatorRlocLength OBJECT-TYPE
+       SYNTAX     Integer32 (5..39)
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This object is used to get the octet-length of
+           lispMapCacheLocatorRloc."
+       ::= { lispMapCacheLocatorEntry 1 }
+
+   lispMapCacheLocatorRloc OBJECT-TYPE
+       SYNTAX     LispAddressType
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "The locator for the EID-Prefix in the mapping cache."
+       ::= { lispMapCacheLocatorEntry 2 }
+
+   lispMapCacheLocatorRlocPriority OBJECT-TYPE
+       SYNTAX     Integer32 (0..255)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The unicast priority of the RLOC for this EID-Prefix
+           (0-255); lower is more preferred."
+       ::= { lispMapCacheLocatorEntry 3 }
+
+   lispMapCacheLocatorRlocWeight OBJECT-TYPE
+       SYNTAX     Integer32 (0..100)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The unicast weight of the RLOC for this EID-Prefix
+           (0 - 100) percentage."
+       ::= { lispMapCacheLocatorEntry 4 }
+
+   lispMapCacheLocatorRlocMPriority OBJECT-TYPE
+       SYNTAX     Integer32 (0..255)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The multicast priority of the RLOC for this EID-Prefix
+           (0-255); lower is more preferred."
+       ::= { lispMapCacheLocatorEntry 5 }
+
+   lispMapCacheLocatorRlocMWeight OBJECT-TYPE
+       SYNTAX     Integer32 (0..100)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The multicast weight of the RLOC for this EID-Prefix
+           (0 - 100) percentage."
+       ::= { lispMapCacheLocatorEntry 6 }
+
+   lispMapCacheLocatorRlocState OBJECT-TYPE
+       SYNTAX     INTEGER {
+                    up (1),
+                    down (2),
+                    unreachable (3)
+                  }
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The state of this RLOC as per this device
+           (1 = RLOC is up; 2 = RLOC is down; 3 = RLOC is unreachable)."
+       ::= { lispMapCacheLocatorEntry 7 }
+
+   lispMapCacheLocatorRlocTimeStamp OBJECT-TYPE
+       SYNTAX     TimeStamp
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The value of sysUpTime at which the RLOC of EID-Prefix
+           information represented by this entry was learned by
+           this device.
+
+           If this information was present at the most recent
+           reinitialization of the local management subsystem,
+           then this object contains a zero value."
+       DEFVAL { 0 }
+       ::= { lispMapCacheLocatorEntry 8 }
+
+   lispMapCacheLocatorRlocLastPriorityChange OBJECT-TYPE
+       SYNTAX     TimeTicks
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Time elapsed since the last change of the unicast priority
+           of the RLOC for this EID-Prefix.  Note that this is
+           independent of lispMapCacheLocatorRlocTimeStamp."
+       ::= { lispMapCacheLocatorEntry 9 }
+
+   lispMapCacheLocatorRlocLastWeightChange OBJECT-TYPE
+       SYNTAX     TimeTicks
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Time elapsed since the last change of the unicast weight
+           of the RLOC for this EID-Prefix.  Note that this is
+           independent of lispMapCacheLocatorRlocTimeStamp."
+       ::= { lispMapCacheLocatorEntry 10 }
+
+   lispMapCacheLocatorRlocLastMPriorityChange OBJECT-TYPE
+       SYNTAX     TimeTicks
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Time since the last change of the multicast priority of the
+           RLOC for this EID-Prefix."
+       ::= { lispMapCacheLocatorEntry 11 }
+
+   lispMapCacheLocatorRlocLastMWeightChange OBJECT-TYPE
+       SYNTAX     TimeTicks
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Time since the last change of the multicast weight of the
+           RLOC for this EID-Prefix."
+       ::= { lispMapCacheLocatorEntry 12 }
+
+   lispMapCacheLocatorRlocLastStateChange OBJECT-TYPE
+       SYNTAX     TimeTicks
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Time since the last change of the up/down state of the
+           RLOC for this EID-Prefix."
+       ::= { lispMapCacheLocatorEntry 13 }
+
+   lispMapCacheLocatorRlocRtt OBJECT-TYPE
+       SYNTAX     TimeTicks
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Round-trip time of RLOC probe and map-reply for this RLOC
+           address for this prefix."
+       ::= { lispMapCacheLocatorEntry 14 }
+
+   lispMapCacheLocatorRlocDecapOctets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of octets of LISP packets that were decapsulated
+           by this device and were sourced from a remote host within
+           this EID-Prefix and were encapsulated for this RLOC.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of RLOC of cache
+           being removed and replaced, which can be detected by
+           observing the value of lispMapCacheLocatorRlocTimeStamp."
+       ::= { lispMapCacheLocatorEntry 15 }
+
+   lispMapCacheLocatorRlocDecapPackets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of LISP packets that were decapsulated by this
+           device and were sourced from a remote host within this
+           EID-Prefix and were encapsulated for this RLOC.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of RLOC of cache
+           being removed and replaced, which can be detected by
+           observing the value of lispMapCacheLocatorRlocTimeStamp."
+       ::= { lispMapCacheLocatorEntry 16 }
+
+   lispMapCacheLocatorRlocEncapOctets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of octets of LISP packets that matched this
+           EID-Prefix and were encapsulated using this RLOC address.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of RLOC of cache
+           being removed and replaced, which can be detected by
+           observing the value of lispMapCacheLocatorRlocTimeStamp."
+       ::= { lispMapCacheLocatorEntry 17 }
+
+   lispMapCacheLocatorRlocEncapPackets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of LISP packets that matched this EID-Prefix
+           and were encapsulated using this RLOC address.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of RLOC of cache
+           being removed and replaced, which can be detected by
+           observing the value of lispMapCacheLocatorRlocTimeStamp."
+       ::= { lispMapCacheLocatorEntry 18 }
+
+   lispConfiguredLocatorTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispConfiguredLocatorEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table represents the set of routing locators
+           configured on this device.  Note that the addresses
+           configured by Proxy-ITR are treated as routing locators
+           and therefore can be part of this table."
+       REFERENCE
+           "RFC 6830, Section 6.3."
+       ::= { lispObjects 8 }
+
+   lispConfiguredLocatorEntry OBJECT-TYPE
+       SYNTAX     LispConfiguredLocatorEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in the
+           lispConfiguredLocatorTable."
+       INDEX  { lispConfiguredLocatorRlocLength,
+                lispConfiguredLocatorRloc }
+       ::= { lispConfiguredLocatorTable 1 }
+
+   LispConfiguredLocatorEntry ::= SEQUENCE {
+       lispConfiguredLocatorRlocLength        Integer32,
+       lispConfiguredLocatorRloc              LispAddressType,
+       lispConfiguredLocatorRlocState         INTEGER,
+       lispConfiguredLocatorRlocLocal         INTEGER,
+       lispConfiguredLocatorRlocTimeStamp     TimeStamp,
+       lispConfiguredLocatorRlocDecapOctets   Counter64,
+       lispConfiguredLocatorRlocDecapPackets  Counter64,
+       lispConfiguredLocatorRlocEncapOctets   Counter64,
+       lispConfiguredLocatorRlocEncapPackets  Counter64
+   }
+
+   lispConfiguredLocatorRlocLength OBJECT-TYPE
+       SYNTAX     Integer32 (5..39)
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This object is used to get the octet-length of
+           lispConfiguredLocatorRloc."
+       ::= { lispConfiguredLocatorEntry 1 }
+
+   lispConfiguredLocatorRloc OBJECT-TYPE
+       SYNTAX     LispAddressType
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This object is an RLOC address configured on this device.
+           It can be an RLOC that is local to this device or can be an
+           RLOC that belongs to another ETR within the same site.
+           Proxy-ITR address is treated as an RLOC."
+       ::= { lispConfiguredLocatorEntry 2 }
+
+   lispConfiguredLocatorRlocState OBJECT-TYPE
+       SYNTAX     INTEGER {
+                     up (1),
+                     down (2),
+                     unreachable (3)
+                  }
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The state of this RLOC as per this device.  (1 = RLOC is up;
+           2 = RLOC is down; 3 = RLOC is unreachable)."
+       ::= { lispConfiguredLocatorEntry 3 }
+
+   lispConfiguredLocatorRlocLocal OBJECT-TYPE
+       SYNTAX     INTEGER {
+                     siteself (1),
+                     sitelocal (2)
+                  }
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates whether the RLOC is local to this device (or
+           remote, meaning local to another device in the same LISP
+           site).  (1 = RLOC is an address on this device; 2 = RLOC is
+           an address on another device)."
+       ::= { lispConfiguredLocatorEntry 4 }
+
+   lispConfiguredLocatorRlocTimeStamp OBJECT-TYPE
+       SYNTAX     TimeStamp
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The value of sysUpTime at which the RLOC was configured on
+           this device.
+
+           If this information was present at the most recent
+           reinitialization of the local management subsystem, then
+           this object contains a zero value."
+       DEFVAL { 0 }
+       ::= { lispConfiguredLocatorEntry 5 }
+
+   lispConfiguredLocatorRlocDecapOctets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of octets of LISP packets that were addressed to
+           this RLOC and were decapsulated.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of configured
+           RLOC being removed and replaced, which can be detected by
+           observing the value of lispConfiguredLocatorRlocTimeStamp."
+       ::= { lispConfiguredLocatorEntry 6 }
+
+   lispConfiguredLocatorRlocDecapPackets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of LISP packets that were addressed to this RLOC
+           and were decapsulated.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of configured
+           RLOC being removed and replaced, which can be detected by
+           observing the value of lispConfiguredLocatorRlocTimeStamp."
+       ::= { lispConfiguredLocatorEntry 7 }
+
+   lispConfiguredLocatorRlocEncapOctets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of octets of LISP packets that were encapsulated
+           by this device using this RLOC address as the source.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of configured
+           RLOC being removed and replaced, which can be detected by
+           observing the value of lispConfiguredLocatorRlocTimeStamp."
+       ::= { lispConfiguredLocatorEntry 8 }
+
+   lispConfiguredLocatorRlocEncapPackets OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of LISP packets that were encapsulated by this
+           device using this RLOC address as the source.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of configured
+           RLOC being removed and replaced, which can be detected by
+           observing the value of lispConfiguredLocatorRlocTimeStamp."
+       ::= { lispConfiguredLocatorEntry 9 }
+
+   lispEidRegistrationTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispEidRegistrationEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table provides the properties of each LISP EID-Prefix
+           that is registered with this device when configured to be
+           a Map-Server."
+       REFERENCE
+           "RFC 6833, Section 4."
+       ::= { lispObjects 9 }
+
+   lispEidRegistrationEntry OBJECT-TYPE
+       SYNTAX     LispEidRegistrationEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in the lispEidRegistrationTable."
+       INDEX      { lispEidRegistrationEidLength,
+                    lispEidRegistrationEid }
+       ::= { lispEidRegistrationTable 1 }
+
+   LispEidRegistrationEntry ::= SEQUENCE {
+       lispEidRegistrationEidLength                 Integer32,
+       lispEidRegistrationEid                       LispAddressType,
+       lispEidRegistrationSiteName                  OCTET STRING,
+       lispEidRegistrationSiteDescription           OCTET STRING,
+       lispEidRegistrationIsRegistered              TruthValue,
+       lispEidRegistrationFirstTimeStamp            TimeStamp,
+       lispEidRegistrationLastTimeStamp             TimeStamp,
+       lispEidRegistrationLastRegisterSenderLength  Integer32,
+       lispEidRegistrationLastRegisterSender        LispAddressType,
+       lispEidRegistrationAuthenticationErrors      Counter64,
+       lispEidRegistrationRlocsMismatch             Counter64
+   }
+
+   lispEidRegistrationEidLength OBJECT-TYPE
+       SYNTAX     Integer32 (5..39)
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This object is used to get the octet-length of
+           lispEidRegistrationEid."
+       ::= { lispEidRegistrationEntry 1 }
+
+   lispEidRegistrationEid OBJECT-TYPE
+       SYNTAX     LispAddressType
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "The EID-Prefix that is being registered."
+        ::= { lispEidRegistrationEntry 2 }
+
+   lispEidRegistrationSiteName OBJECT-TYPE
+       SYNTAX     OCTET STRING (SIZE(0..63))
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Site name used by a Map-Server to distinguish different
+           LISP sites that are registering with it."
+       ::= { lispEidRegistrationEntry 3 }
+
+   lispEidRegistrationSiteDescription OBJECT-TYPE
+       SYNTAX     OCTET STRING (SIZE(0..255))
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Description for a site name used by a Map-Server.  The EID
+           prefix that is being registered belongs to this site."
+       ::= { lispEidRegistrationEntry 4 }
+
+   lispEidRegistrationIsRegistered OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates the registration status of the given EID-Prefix.
+           If this object is true, then it means the EID-Prefix is
+           registered.
+
+           The value false implies the EID-Prefix is not registered
+           with the Map Server.  There are multiple scenarios when this
+           could happen like authentication failures, routing problems,
+           misconfigs to name a few."
+       ::= { lispEidRegistrationEntry 5 }
+
+   lispEidRegistrationFirstTimeStamp OBJECT-TYPE
+       SYNTAX     TimeStamp
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The value of sysUpTime at which the first valid register
+           message for the EID Prefix information represented by this
+           entry was received by this device.
+
+           If this information was present at the most recent
+           reinitialization of the local management subsystem, then
+           this object contains a zero value."
+       DEFVAL { 0 }
+       ::= { lispEidRegistrationEntry 6 }
+
+   lispEidRegistrationLastTimeStamp OBJECT-TYPE
+       SYNTAX     TimeStamp
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The value of sysUpTime at which the last valid register
+           message for the EID Prefix information represented by this
+           entry was received by this device.
+           If this information was present at the most recent
+           reinitialization of the local management subsystem, then
+           this object contains a zero value."
+       DEFVAL { 0 }
+       ::= { lispEidRegistrationEntry 7 }
+
+   lispEidRegistrationLastRegisterSenderLength OBJECT-TYPE
+       SYNTAX     Integer32 (0..39)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "This object is used to get the octet-length of
+           lispEidRegistrationLastRegisterSender, the next
+           object."
+       ::= { lispEidRegistrationEntry 8 }
+
+   lispEidRegistrationLastRegisterSender OBJECT-TYPE
+       SYNTAX     LispAddressType
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Source address of the last valid register message for the
+           given EID-Prefix that was received by this device."
+       ::= { lispEidRegistrationEntry 9 }
+
+   lispEidRegistrationAuthenticationErrors OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Count of total authentication errors of map-registers
+           received for the given EID-Prefix.
+
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of site config
+           changes, which can be detected by observing the value of
+           lispEidRegistrationFirstTimeStamp."
+       ::= { lispEidRegistrationEntry 10 }
+
+   lispEidRegistrationRlocsMismatch OBJECT-TYPE
+       SYNTAX     Counter64
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Count of total map-registers received that had at least one
+           RLOC that was not in the allowed list of RLOCs for the given
+           EID-Prefix.
+           Discontinuities in this monotonically increasing value occur
+           at reinitialization of the management system.
+           Discontinuities can also occur as a result of site config
+           changes, which can be detected by observing the value of
+           lispEidRegistrationFirstTimeStamp."
+       ::= { lispEidRegistrationEntry 11 }
+
+   lispEidRegistrationEtrTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispEidRegistrationEtrEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table provides the properties of ETRs that register
+           the given EID-Prefix with this device when configured to
+           be a Map-Server."
+       REFERENCE
+           "RFC 6830, Section 6.1."
+       ::= { lispObjects 10 }
+
+   lispEidRegistrationEtrEntry OBJECT-TYPE
+       SYNTAX     LispEidRegistrationEtrEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in the
+           lispEidRegistrationEtrTable."
+       INDEX      { lispEidRegistrationEidLength,
+                    lispEidRegistrationEid,
+                    lispEidRegistrationEtrSenderLength,
+                    lispEidRegistrationEtrSender }
+       ::= { lispEidRegistrationEtrTable 1 }
+
+   LispEidRegistrationEtrEntry ::= SEQUENCE {
+       lispEidRegistrationEtrSenderLength           Integer32,
+       lispEidRegistrationEtrSender                 LispAddressType,
+       lispEidRegistrationEtrLastTimeStamp          TimeStamp,
+       lispEidRegistrationEtrTtl                    Unsigned32,
+       lispEidRegistrationEtrProxyReply             TruthValue,
+       lispEidRegistrationEtrWantsMapNotify         TruthValue
+   }
+
+   lispEidRegistrationEtrSenderLength OBJECT-TYPE
+       SYNTAX     Integer32 (5..39)
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This object is used to get the octet-length of
+           lispEidRegistrationEtrSender."
+       ::= { lispEidRegistrationEtrEntry 1 }
+
+   lispEidRegistrationEtrSender OBJECT-TYPE
+       SYNTAX     LispAddressType
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "Source address of the ETR that is sending valid register
+           messages for this EID-Prefix to this device."
+       ::= { lispEidRegistrationEtrEntry 2 }
+
+   lispEidRegistrationEtrLastTimeStamp OBJECT-TYPE
+       SYNTAX     TimeStamp
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The value of sysUpTime at which the last valid register
+           message from this ETR for the EID Prefix information
+           represented by this entry was received by this device.
+
+           If this information was present at the most recent
+           reinitialization of the local management subsystem,
+           then this object contains a zero value."
+       DEFVAL { 0 }
+       ::= { lispEidRegistrationEtrEntry 3 }
+
+   lispEidRegistrationEtrTtl OBJECT-TYPE
+       SYNTAX     Unsigned32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The Record TTL of the registering ETR device for this
+           EID-Prefix."
+       ::= { lispEidRegistrationEtrEntry 4 }
+
+   lispEidRegistrationEtrProxyReply OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates proxy-replying status of the registering ETR for
+           this EID-Prefix.  If this object is true, then it means the
+           Map-Server can proxy-reply."
+       ::= { lispEidRegistrationEtrEntry 5 }
+
+   lispEidRegistrationEtrWantsMapNotify OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates whether the EID-Prefix wants Map-Notifications.
+           If this object is true, then it means the EID-Prefix wants
+           Map-Notifications."
+       ::= { lispEidRegistrationEtrEntry 6 }
+
+   lispEidRegistrationLocatorTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispEidRegistrationLocatorEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table provides the properties of all locators per
+           LISP site that are served by this device when configured
+           to be a Map-Server."
+       REFERENCE
+           "RFC 6830, Section 6.1."
+       ::= { lispObjects 11 }
+
+   lispEidRegistrationLocatorEntry OBJECT-TYPE
+       SYNTAX     LispEidRegistrationLocatorEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in the
+           lispEidRegistrationLocatorTable."
+       INDEX      { lispEidRegistrationEidLength,
+                    lispEidRegistrationEid,
+                    lispEidRegistrationEtrSenderLength,
+                    lispEidRegistrationEtrSender,
+                    lispEidRegistrationLocatorRlocLength,
+                    lispEidRegistrationLocatorRloc }
+       ::= { lispEidRegistrationLocatorTable 1 }
+
+   LispEidRegistrationLocatorEntry ::= SEQUENCE {
+       lispEidRegistrationLocatorRlocLength         Integer32,
+       lispEidRegistrationLocatorRloc               LispAddressType,
+       lispEidRegistrationLocatorRlocState          INTEGER,
+       lispEidRegistrationLocatorIsLocal            TruthValue,
+       lispEidRegistrationLocatorPriority           Integer32,
+       lispEidRegistrationLocatorWeight             Integer32,
+       lispEidRegistrationLocatorMPriority          Integer32,
+       lispEidRegistrationLocatorMWeight            Integer32
+   }
+
+   lispEidRegistrationLocatorRlocLength OBJECT-TYPE
+       SYNTAX     Integer32 (5..39)
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This object is used to get the octet-length of
+           lispEidRegistrationLocatorRloc."
+       ::= { lispEidRegistrationLocatorEntry 1 }
+
+   lispEidRegistrationLocatorRloc OBJECT-TYPE
+       SYNTAX     LispAddressType
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "The locator of the given EID-Prefix being registered by the
+           given ETR with this device."
+       ::= { lispEidRegistrationLocatorEntry 2 }
+
+   lispEidRegistrationLocatorRlocState OBJECT-TYPE
+       SYNTAX     INTEGER {
+                     up (1),
+                     down (2)
+                  }
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The cached state of this RLOC received in map-register from
+           the ETR by the device, in the capacity of a Map-Server.
+           Value 1 refers to up, value 2 refers to down."
+       ::= { lispEidRegistrationLocatorEntry 3 }
+
+   lispEidRegistrationLocatorIsLocal OBJECT-TYPE
+       SYNTAX     TruthValue
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates if the given locator is local to the registering
+           ETR.  If this object is true,  it means the locator is
+           local."
+       ::= { lispEidRegistrationLocatorEntry 4 }
+
+   lispEidRegistrationLocatorPriority OBJECT-TYPE
+       SYNTAX     Integer32 (0..255)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The unicast priority of the RLOC for this EID-Prefix in the
+           register message sent by the given ETR."
+       ::= { lispEidRegistrationLocatorEntry 5 }
+
+   lispEidRegistrationLocatorWeight OBJECT-TYPE
+       SYNTAX     Integer32 (0..100)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The unicast weight of the RLOC for this EID-Prefix in the
+           register message sent by the given ETR."
+       ::= { lispEidRegistrationLocatorEntry 6 }
+
+   lispEidRegistrationLocatorMPriority OBJECT-TYPE
+       SYNTAX     Integer32 (0..255)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The multicast priority of the RLOC for this EID-Prefix in
+           the register message sent by the given ETR."
+       ::= { lispEidRegistrationLocatorEntry 7 }
+
+   lispEidRegistrationLocatorMWeight OBJECT-TYPE
+       SYNTAX     Integer32 (0..100)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The multicast weight of the RLOC for this EID-Prefix in the
+           register message sent by the given ETR."
+       ::= { lispEidRegistrationLocatorEntry 8 }
+
+   lispUseMapServerTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispUseMapServerEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table provides the properties of the Map-Server(s)
+           with which this device is configured to register."
+       REFERENCE
+           "RFC 6833, Section 4.3."
+       ::= { lispObjects 12 }
+
+   lispUseMapServerEntry OBJECT-TYPE
+       SYNTAX     LispUseMapServerEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in the lispUseMapServerTable."
+       INDEX      { lispUseMapServerAddressLength,
+                    lispUseMapServerAddress }
+       ::= { lispUseMapServerTable 1 }
+
+   LispUseMapServerEntry ::= SEQUENCE {
+       lispUseMapServerAddressLength Integer32,
+       lispUseMapServerAddress       LispAddressType,
+       lispUseMapServerState         INTEGER
+   }
+
+   lispUseMapServerAddressLength OBJECT-TYPE
+       SYNTAX     Integer32 (5..39)
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This object is used to get the octet-length of
+           lispUseMapServerAddress."
+       ::= { lispUseMapServerEntry 1 }
+
+   lispUseMapServerAddress OBJECT-TYPE
+       SYNTAX     LispAddressType
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "Address of a Map-Server configured on this device."
+       ::= { lispUseMapServerEntry 2 }
+
+   lispUseMapServerState OBJECT-TYPE
+       SYNTAX     INTEGER {
+                     up (1),
+                     down (2),
+                     unreachable (3)
+                  }
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "State of this Map-Server configured on this device
+           (1 = Map-Server is up; 2 = Map-Server is down)."
+       ::= { lispUseMapServerEntry 3 }
+
+   lispUseMapResolverTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispUseMapResolverEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table provides the properties of the Map-Resolver(s)
+           this device is configured to use."
+       REFERENCE
+           "RFC 6833, Section 4.4."
+       ::= { lispObjects 13 }
+
+   lispUseMapResolverEntry OBJECT-TYPE
+       SYNTAX     LispUseMapResolverEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in the
+           lispUseMapResolverTable."
+       INDEX      { lispUseMapResolverAddressLength,
+                    lispUseMapResolverAddress }
+       ::= { lispUseMapResolverTable 1 }
+
+   LispUseMapResolverEntry ::= SEQUENCE {
+       lispUseMapResolverAddressLength   Integer32,
+       lispUseMapResolverAddress         LispAddressType,
+       lispUseMapResolverState           INTEGER
+   }
+
+   lispUseMapResolverAddressLength OBJECT-TYPE
+       SYNTAX     Integer32 (5..39)
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This object is used to get the octet-length of
+           lispUseMapResolverAddress."
+       ::= { lispUseMapResolverEntry 1 }
+
+   lispUseMapResolverAddress OBJECT-TYPE
+       SYNTAX     LispAddressType
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "Address of Map-Resolver configured on this device."
+       ::= { lispUseMapResolverEntry 2 }
+
+   lispUseMapResolverState OBJECT-TYPE
+       SYNTAX     INTEGER {
+                     up (1),
+                     down (2)
+                  }
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "State of this Map-Resolver configured on this device
+           (1 = Map-Resolver is up; 2 = Map-Resolver is down)."
+       ::= { lispUseMapResolverEntry 3 }
+
+   lispUseProxyEtrTable OBJECT-TYPE
+       SYNTAX     SEQUENCE OF LispUseProxyEtrEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This table provides the properties of all Proxy ETRs that
+           this device is configured to use."
+       REFERENCE
+           "RFC 6830, Section 6."
+       ::= { lispObjects 14 }
+
+   lispUseProxyEtrEntry OBJECT-TYPE
+       SYNTAX     LispUseProxyEtrEntry
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "An entry (conceptual row) in the
+           lispUseProxyEtrTable."
+       INDEX      { lispUseProxyEtrAddressLength,
+                    lispUseProxyEtrAddress }
+       ::= { lispUseProxyEtrTable 1 }
+
+   LispUseProxyEtrEntry ::= SEQUENCE {
+       lispUseProxyEtrAddressLength        Integer32,
+       lispUseProxyEtrAddress              LispAddressType,
+       lispUseProxyEtrPriority             Integer32,
+       lispUseProxyEtrWeight               Integer32,
+       lispUseProxyEtrMPriority            Integer32,
+       lispUseProxyEtrMWeight              Integer32,
+       lispUseProxyEtrState                INTEGER
+   }
+
+   lispUseProxyEtrAddressLength OBJECT-TYPE
+       SYNTAX     Integer32 (5..39)
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "This object is used to get the octet-length of
+           lispUseProxyEtrAddress."
+       ::= { lispUseProxyEtrEntry 1 }
+
+   lispUseProxyEtrAddress OBJECT-TYPE
+       SYNTAX     LispAddressType
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "Address of Proxy ETR configured on this device."
+       ::= { lispUseProxyEtrEntry 2 }
+
+   lispUseProxyEtrPriority OBJECT-TYPE
+       SYNTAX     Integer32 (0..255)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The unicast priority of the PETR locator."
+       ::= { lispUseProxyEtrEntry 3 }
+
+   lispUseProxyEtrWeight OBJECT-TYPE
+       SYNTAX     Integer32 (0..100)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The unicast weight of the PETR locator."
+       ::= { lispUseProxyEtrEntry 4 }
+
+   lispUseProxyEtrMPriority OBJECT-TYPE
+       SYNTAX     Integer32 (0..255)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The multicast priority of the PETR locator."
+       ::= { lispUseProxyEtrEntry 5 }
+
+   lispUseProxyEtrMWeight OBJECT-TYPE
+       SYNTAX     Integer32 (0..100)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The multicast weight of the PETR locator."
+       ::= { lispUseProxyEtrEntry 6 }
+
+   lispUseProxyEtrState OBJECT-TYPE
+       SYNTAX     INTEGER {
+                     down (0),
+                     up (1)
+                  }
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "State of this Proxy ETR configured on this device
+           (0 = Proxy ETR is down; 1 = Proxy ETR is up)."
+       ::= { lispUseProxyEtrEntry 7 }
+
+   --
+   -- Conformance Information
+   --
+
+   lispCompliances OBJECT IDENTIFIER ::= { lispConformance 1 }
+   lispGroups      OBJECT IDENTIFIER ::= { lispConformance 2 }
+
+   --
+   -- Compliance Statements
+   --
+
+   lispMIBComplianceEtr MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+               "The compliance statement for LISP ETRs.  It conveys
+               whether the device supports the ETR feature, and,
+               if so, the relevant state associated with that feature."
+       MODULE  -- this module
+       MANDATORY-GROUPS { lispMIBEtrGroup }
+
+         GROUP   lispMIBItrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBPetrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBPitrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapServerGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapResolverGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBEtrExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBItrExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapServerExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBTuningParametersGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBEncapStatisticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBDecapStatisticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBDiagnosticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBVrfGroup
+         DESCRIPTION
+             "This group is optional."
+
+       ::= { lispCompliances 1 }
+
+   lispMIBComplianceItr MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+               "The compliance statement for LISP ITRs.  It conveys
+               whether the device supports the ITR feature, and,
+               if so, the relevant state associated with that feature."
+       MODULE  -- this module
+       MANDATORY-GROUPS { lispMIBItrGroup }
+
+         GROUP   lispMIBEtrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBPetrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBPitrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapServerGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapResolverGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBEtrExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBItrExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapServerExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBTuningParametersGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBEncapStatisticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBDecapStatisticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBDiagnosticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBVrfGroup
+         DESCRIPTION
+             "This group is optional."
+
+       ::= { lispCompliances 2 }
+
+   lispMIBCompliancePetr MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+               "The compliance statement for LISP Proxy-ETRs.  It
+               conveys whether the device supports the Proxy-ETR
+               feature, and, if so, the relevant state associated
+               with that feature."
+       MODULE  -- this module
+       MANDATORY-GROUPS { lispMIBPetrGroup }
+
+         GROUP   lispMIBEtrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBItrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBPitrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapServerGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapResolverGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBEtrExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBItrExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapServerExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBTuningParametersGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBEncapStatisticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBDecapStatisticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBDiagnosticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBVrfGroup
+         DESCRIPTION
+             "This group is optional."
+
+       ::= { lispCompliances 3 }
+
+   lispMIBCompliancePitr MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+               "The compliance statement for LISP Proxy-ITRs.  It
+               conveys whether the device supports the Proxy-ITR
+               feature, and, if so, the relevant state associated
+               with that feature."
+       MODULE  -- this module
+       MANDATORY-GROUPS { lispMIBPitrGroup }
+
+         GROUP   lispMIBEtrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBItrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBPetrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapServerGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapResolverGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBEtrExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBItrExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapServerExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBTuningParametersGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBEncapStatisticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBDecapStatisticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBDiagnosticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBVrfGroup
+         DESCRIPTION
+             "This group is optional."
+
+       ::= { lispCompliances 4 }
+
+   lispMIBComplianceMapServer MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+               "The compliance statement for LISP Map Servers.  It
+               conveys whether the device supports the Map Server
+               feature, and, if so, the relevant state associated
+               with that feature."
+       MODULE  -- this module
+       MANDATORY-GROUPS { lispMIBMapServerGroup }
+
+         GROUP   lispMIBEtrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBItrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBPetrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBPitrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapResolverGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBEtrExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBItrExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapServerExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBTuningParametersGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBEncapStatisticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBDecapStatisticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBDiagnosticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBVrfGroup
+         DESCRIPTION
+             "This group is optional."
+
+       ::= { lispCompliances 5 }
+
+   lispMIBComplianceMapResolver MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+               "The compliance statement for LISP Map Resolvers.  It
+               conveys whether the device supports the Map Resolver
+               feature, and, if so, the relevant state associated
+               with that feature."
+       MODULE  -- this module
+       MANDATORY-GROUPS { lispMIBMapResolverGroup }
+
+         GROUP   lispMIBEtrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBItrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBPetrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBPitrGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapServerGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBEtrExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBItrExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBMapServerExtendedGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBTuningParametersGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBEncapStatisticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBDecapStatisticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBDiagnosticsGroup
+         DESCRIPTION
+             "This group is optional."
+
+         GROUP   lispMIBVrfGroup
+         DESCRIPTION
+             "This group is optional."
+
+       ::= { lispCompliances 6 }
+
+   --
+   -- Units of Conformance
+   --
+
+   lispMIBEtrGroup OBJECT-GROUP
+       OBJECTS { lispFeaturesEtrEnabled,
+                 lispMappingDatabaseLsb,
+                 lispMappingDatabaseLocatorRlocPriority,
+                 lispMappingDatabaseLocatorRlocWeight,
+                 lispMappingDatabaseLocatorRlocMPriority,
+                 lispMappingDatabaseLocatorRlocMWeight,
+                 lispMappingDatabaseLocatorRlocState,
+                 lispMappingDatabaseLocatorRlocLocal,
+                 lispConfiguredLocatorRlocState,
+                 lispConfiguredLocatorRlocLocal,
+                 lispUseMapServerState
+               }
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects to support reporting of basic
+                LISP ETR parameters."
+       ::= { lispGroups 1 }
+
+   lispMIBItrGroup OBJECT-GROUP
+       OBJECTS { lispFeaturesItrEnabled,
+                 lispFeaturesMapCacheSize,
+                 lispMappingDatabaseLsb,
+                 lispMapCacheLocatorRlocPriority,
+                 lispMapCacheLocatorRlocWeight,
+                 lispMapCacheLocatorRlocMPriority,
+                 lispMapCacheLocatorRlocMWeight,
+                 lispMapCacheLocatorRlocState,
+                 lispMapCacheEidTimeStamp,
+                 lispMapCacheEidExpiryTime,
+                 lispUseMapResolverState,
+                 lispUseProxyEtrPriority,
+                 lispUseProxyEtrWeight,
+                 lispUseProxyEtrMPriority,
+                 lispUseProxyEtrMWeight,
+                 lispUseProxyEtrState
+               }
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects to support reporting of basic
+                LISP ITR parameters."
+       ::= { lispGroups 2 }
+
+   lispMIBPetrGroup OBJECT-GROUP
+       OBJECTS { lispFeaturesProxyEtrEnabled
+               }
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects to support reporting of basic
+                LISP Proxy-ETR parameters."
+       ::= { lispGroups 3 }
+
+   lispMIBPitrGroup OBJECT-GROUP
+       OBJECTS { lispFeaturesProxyItrEnabled,
+                 lispConfiguredLocatorRlocState,
+                 lispConfiguredLocatorRlocLocal
+               }
+
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects to support reporting of basic
+                LISP Proxy-ITR parameters."
+       ::= { lispGroups 4 }
+
+   lispMIBMapServerGroup OBJECT-GROUP
+       OBJECTS { lispFeaturesMapServerEnabled,
+                 lispEidRegistrationIsRegistered,
+                 lispEidRegistrationLocatorRlocState
+               }
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects to support reporting of basic
+                LISP Map Server parameters."
+       ::= { lispGroups 5 }
+
+   lispMIBMapResolverGroup OBJECT-GROUP
+       OBJECTS { lispFeaturesMapResolverEnabled
+               }
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects to support reporting of basic
+                LISP Map Resolver parameters."
+       ::= { lispGroups 6 }
+
+   lispMIBEtrExtendedGroup OBJECT-GROUP
+       OBJECTS { lispFeaturesRlocProbeEnabled,
+                 lispFeaturesEtrAcceptMapDataEnabled,
+                 lispFeaturesEtrAcceptMapDataVerifyEnabled,
+                 lispMappingDatabaseEidPartitioned
+               }
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects to support reporting of
+                LISP features and properties on ETRs."
+       ::= { lispGroups 7 }
+
+   lispMIBItrExtendedGroup OBJECT-GROUP
+       OBJECTS { lispFeaturesRlocProbeEnabled,
+                 lispMapCacheEidState,
+                 lispMapCacheEidAuthoritative,
+                 lispMapCacheLocatorRlocTimeStamp,
+                 lispMapCacheLocatorRlocLastPriorityChange,
+                 lispMapCacheLocatorRlocLastWeightChange,
+                 lispMapCacheLocatorRlocLastMPriorityChange,
+                 lispMapCacheLocatorRlocLastMWeightChange,
+                 lispMapCacheLocatorRlocLastStateChange,
+                 lispMapCacheLocatorRlocRtt
+               }
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects to support reporting of
+                LISP features and properties on ITRs."
+       ::= { lispGroups 8 }
+
+   lispMIBMapServerExtendedGroup OBJECT-GROUP
+       OBJECTS { lispEidRegistrationSiteName,
+                 lispEidRegistrationSiteDescription,
+                 lispEidRegistrationIsRegistered,
+                 lispEidRegistrationFirstTimeStamp,
+                 lispEidRegistrationLastTimeStamp,
+                 lispEidRegistrationLastRegisterSenderLength,
+                 lispEidRegistrationLastRegisterSender,
+                 lispEidRegistrationEtrLastTimeStamp,
+                 lispEidRegistrationEtrTtl,
+                 lispEidRegistrationEtrProxyReply,
+                 lispEidRegistrationEtrWantsMapNotify,
+                 lispEidRegistrationLocatorIsLocal,
+                 lispEidRegistrationLocatorPriority,
+                 lispEidRegistrationLocatorWeight,
+                 lispEidRegistrationLocatorMPriority,
+                 lispEidRegistrationLocatorMWeight
+               }
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects to support the reporting of
+                LISP features and properties on Map Servers
+                related to EID registrations."
+       ::= { lispGroups 9 }
+
+   lispMIBTuningParametersGroup OBJECT-GROUP
+       OBJECTS { lispFeaturesMapCacheLimit,
+                 lispFeaturesEtrMapCacheTtl
+               }
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects used to support the reporting of
+                parameters used to control LISP behavior and to tune
+                performance."
+       ::= { lispGroups 10 }
+
+   lispMIBEncapStatisticsGroup OBJECT-GROUP
+       OBJECTS { lispMappingDatabaseTimeStamp,
+                 lispMappingDatabaseEncapOctets,
+                 lispMappingDatabaseEncapPackets,
+                 lispMappingDatabaseLocatorRlocTimeStamp,
+                 lispMappingDatabaseLocatorRlocEncapOctets,
+                 lispMappingDatabaseLocatorRlocEncapPackets,
+                 lispMapCacheEidTimeStamp,
+                 lispMapCacheEidEncapOctets,
+                 lispMapCacheEidEncapPackets,
+                 lispMapCacheLocatorRlocTimeStamp,
+                 lispMapCacheLocatorRlocEncapOctets,
+                 lispMapCacheLocatorRlocEncapPackets,
+                 lispConfiguredLocatorRlocTimeStamp,
+                 lispConfiguredLocatorRlocEncapOctets,
+                 lispConfiguredLocatorRlocEncapPackets
+               }
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects used to support the reporting of
+                LISP encapsulation statistics for the device."
+       ::= { lispGroups 11 }
+
+   lispMIBDecapStatisticsGroup OBJECT-GROUP
+       OBJECTS { lispMappingDatabaseTimeStamp,
+                 lispMappingDatabaseDecapOctets,
+                 lispMappingDatabaseDecapPackets,
+                 lispMappingDatabaseLocatorRlocTimeStamp,
+                 lispMappingDatabaseLocatorRlocDecapOctets,
+                 lispMappingDatabaseLocatorRlocDecapPackets,
+                 lispMapCacheEidTimeStamp,
+                 lispMapCacheEidDecapOctets,
+                 lispMapCacheEidDecapPackets,
+                 lispMapCacheLocatorRlocTimeStamp,
+                 lispMapCacheLocatorRlocDecapOctets,
+                 lispMapCacheLocatorRlocDecapPackets,
+                 lispConfiguredLocatorRlocTimeStamp,
+                 lispConfiguredLocatorRlocDecapOctets,
+                 lispConfiguredLocatorRlocDecapPackets
+               }
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects used to support the reporting of
+                LISP decapsulation statistics for the device."
+       ::= { lispGroups 12 }
+
+   lispMIBDiagnosticsGroup OBJECT-GROUP
+       OBJECTS { lispFeaturesRouterTimeStamp,
+                 lispGlobalStatsMapRequestsIn,
+                 lispGlobalStatsMapRequestsOut,
+                 lispGlobalStatsMapRepliesIn,
+                 lispGlobalStatsMapRepliesOut,
+                 lispGlobalStatsMapRegistersIn,
+                 lispGlobalStatsMapRegistersOut,
+                 lispEidRegistrationAuthenticationErrors,
+                 lispEidRegistrationRlocsMismatch
+               }
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects used to support the reporting of
+                additional diagnostics related to the LISP control-plane
+                state of a LISP device."
+       ::= { lispGroups 13 }
+
+   lispMIBVrfGroup OBJECT-GROUP
+       OBJECTS { lispIidToVrfName
+               }
+       STATUS  current
+       DESCRIPTION
+               "A collection of objects used to support reporting of
+                VRF-related information on a LISP device."
+       ::= { lispGroups 14 }
+END
+

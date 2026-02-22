@@ -1,0 +1,779 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-DIAG-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- DIAG management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-DIAG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApDiagAdminState,
+    CfprApDiagBladeTestType,
+    CfprApDiagFailureAction,
+    CfprApDiagNetworkTestType,
+    CfprApDiagSrvCtrlType,
+    CfprApDiagStatus,
+    CfprApDiagStatusIssues,
+    CfprApDiagSuccessAction,
+    CfprApDiagTestOrder,
+    CfprApNetworkSwitchId,
+    CfprApPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApDiagObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        DIAG management information model package"
+    ::= { ciscoFirepowerApMIBObjects 16 }
+
+cfprApDiagBladeTestTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDiagBladeTestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower diag:BladeTest managed object table"
+    ::= { cfprApDiagObjects 1 }
+
+cfprApDiagBladeTestEntry OBJECT-TYPE
+    SYNTAX           CfprApDiagBladeTestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDiagBladeTestTable table."
+    INDEX { cfprApDiagBladeTestInstanceId }
+    ::= { cfprApDiagBladeTestTable 1 }
+
+CfprApDiagBladeTestEntry ::= SEQUENCE {
+    cfprApDiagBladeTestInstanceId                                    CfprApManagedObjectId,
+    cfprApDiagBladeTestDn                                            CfprApManagedObjectDn,
+    cfprApDiagBladeTestRn                                            SnmpAdminString,
+    cfprApDiagBladeTestLength                                        Gauge32,
+    cfprApDiagBladeTestOrder                                         CfprApDiagTestOrder,
+    cfprApDiagBladeTestType                                          CfprApDiagBladeTestType
+}
+
+cfprApDiagBladeTestInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDiagBladeTestEntry 1 }
+
+cfprApDiagBladeTestDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:BladeTest:dn managed object property"
+    ::= { cfprApDiagBladeTestEntry 2 }
+
+cfprApDiagBladeTestRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:BladeTest:rn managed object property"
+    ::= { cfprApDiagBladeTestEntry 3 }
+
+cfprApDiagBladeTestLength OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:BladeTest:length managed object property"
+    ::= { cfprApDiagBladeTestEntry 4 }
+
+cfprApDiagBladeTestOrder OBJECT-TYPE
+    SYNTAX       CfprApDiagTestOrder
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:BladeTest:order managed object property"
+    ::= { cfprApDiagBladeTestEntry 5 }
+
+cfprApDiagBladeTestType OBJECT-TYPE
+    SYNTAX       CfprApDiagBladeTestType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:BladeTest:type managed object property"
+    ::= { cfprApDiagBladeTestEntry 6 }
+
+cfprApDiagNetworkTestTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDiagNetworkTestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower diag:NetworkTest managed object table"
+    ::= { cfprApDiagObjects 2 }
+
+cfprApDiagNetworkTestEntry OBJECT-TYPE
+    SYNTAX           CfprApDiagNetworkTestEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDiagNetworkTestTable table."
+    INDEX { cfprApDiagNetworkTestInstanceId }
+    ::= { cfprApDiagNetworkTestTable 1 }
+
+CfprApDiagNetworkTestEntry ::= SEQUENCE {
+    cfprApDiagNetworkTestInstanceId                                  CfprApManagedObjectId,
+    cfprApDiagNetworkTestDn                                          CfprApManagedObjectDn,
+    cfprApDiagNetworkTestRn                                          SnmpAdminString,
+    cfprApDiagNetworkTestLength                                      Gauge32,
+    cfprApDiagNetworkTestOrder                                       CfprApDiagTestOrder,
+    cfprApDiagNetworkTestSwitchId                                    CfprApNetworkSwitchId,
+    cfprApDiagNetworkTestType                                        CfprApDiagNetworkTestType
+}
+
+cfprApDiagNetworkTestInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDiagNetworkTestEntry 1 }
+
+cfprApDiagNetworkTestDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:NetworkTest:dn managed object property"
+    ::= { cfprApDiagNetworkTestEntry 2 }
+
+cfprApDiagNetworkTestRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:NetworkTest:rn managed object property"
+    ::= { cfprApDiagNetworkTestEntry 3 }
+
+cfprApDiagNetworkTestLength OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:NetworkTest:length managed object property"
+    ::= { cfprApDiagNetworkTestEntry 4 }
+
+cfprApDiagNetworkTestOrder OBJECT-TYPE
+    SYNTAX       CfprApDiagTestOrder
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:NetworkTest:order managed object property"
+    ::= { cfprApDiagNetworkTestEntry 5 }
+
+cfprApDiagNetworkTestSwitchId OBJECT-TYPE
+    SYNTAX       CfprApNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:NetworkTest:switchId managed
+        object property"
+    ::= { cfprApDiagNetworkTestEntry 6 }
+
+cfprApDiagNetworkTestType OBJECT-TYPE
+    SYNTAX       CfprApDiagNetworkTestType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:NetworkTest:type managed object property"
+    ::= { cfprApDiagNetworkTestEntry 7 }
+
+cfprApDiagRsltTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDiagRsltEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower diag:Rslt managed object table"
+    ::= { cfprApDiagObjects 3 }
+
+cfprApDiagRsltEntry OBJECT-TYPE
+    SYNTAX           CfprApDiagRsltEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDiagRsltTable table."
+    INDEX { cfprApDiagRsltInstanceId }
+    ::= { cfprApDiagRsltTable 1 }
+
+CfprApDiagRsltEntry ::= SEQUENCE {
+    cfprApDiagRsltInstanceId                                         CfprApManagedObjectId,
+    cfprApDiagRsltDn                                                 CfprApManagedObjectDn,
+    cfprApDiagRsltRn                                                 SnmpAdminString,
+    cfprApDiagRsltDescr                                              SnmpAdminString,
+    cfprApDiagRsltEndTs                                              DateAndTime,
+    cfprApDiagRsltId                                                 Gauge32,
+    cfprApDiagRsltResult                                             Gauge32,
+    cfprApDiagRsltRsltStatus                                         CfprApDiagStatus,
+    cfprApDiagRsltStartTs                                            DateAndTime
+}
+
+cfprApDiagRsltInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDiagRsltEntry 1 }
+
+cfprApDiagRsltDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:Rslt:dn managed object property"
+    ::= { cfprApDiagRsltEntry 2 }
+
+cfprApDiagRsltRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:Rslt:rn managed object property"
+    ::= { cfprApDiagRsltEntry 3 }
+
+cfprApDiagRsltDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:Rslt:descr managed object property"
+    ::= { cfprApDiagRsltEntry 4 }
+
+cfprApDiagRsltEndTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:Rslt:endTs managed object property"
+    ::= { cfprApDiagRsltEntry 5 }
+
+cfprApDiagRsltId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:Rslt:id managed object property"
+    ::= { cfprApDiagRsltEntry 6 }
+
+cfprApDiagRsltResult OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:Rslt:result managed object property"
+    ::= { cfprApDiagRsltEntry 7 }
+
+cfprApDiagRsltRsltStatus OBJECT-TYPE
+    SYNTAX       CfprApDiagStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:Rslt:rsltStatus managed object property"
+    ::= { cfprApDiagRsltEntry 8 }
+
+cfprApDiagRsltStartTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:Rslt:startTs managed object property"
+    ::= { cfprApDiagRsltEntry 9 }
+
+cfprApDiagRunPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDiagRunPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower diag:RunPolicy managed object table"
+    ::= { cfprApDiagObjects 4 }
+
+cfprApDiagRunPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprApDiagRunPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDiagRunPolicyTable table."
+    INDEX { cfprApDiagRunPolicyInstanceId }
+    ::= { cfprApDiagRunPolicyTable 1 }
+
+CfprApDiagRunPolicyEntry ::= SEQUENCE {
+    cfprApDiagRunPolicyInstanceId                                    CfprApManagedObjectId,
+    cfprApDiagRunPolicyDn                                            CfprApManagedObjectDn,
+    cfprApDiagRunPolicyRn                                            SnmpAdminString,
+    cfprApDiagRunPolicyDescr                                         SnmpAdminString,
+    cfprApDiagRunPolicyFailureAction                                 CfprApDiagFailureAction,
+    cfprApDiagRunPolicyIntId                                         SnmpAdminString,
+    cfprApDiagRunPolicyName                                          SnmpAdminString,
+    cfprApDiagRunPolicyPolicyLevel                                   Gauge32,
+    cfprApDiagRunPolicyPolicyOwner                                   CfprApPolicyPolicyOwner,
+    cfprApDiagRunPolicySuccessAction                                 CfprApDiagSuccessAction
+}
+
+cfprApDiagRunPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDiagRunPolicyEntry 1 }
+
+cfprApDiagRunPolicyDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:RunPolicy:dn managed object property"
+    ::= { cfprApDiagRunPolicyEntry 2 }
+
+cfprApDiagRunPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:RunPolicy:rn managed object property"
+    ::= { cfprApDiagRunPolicyEntry 3 }
+
+cfprApDiagRunPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:RunPolicy:descr managed object property"
+    ::= { cfprApDiagRunPolicyEntry 4 }
+
+cfprApDiagRunPolicyFailureAction OBJECT-TYPE
+    SYNTAX       CfprApDiagFailureAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:RunPolicy:failureAction managed
+        object property"
+    ::= { cfprApDiagRunPolicyEntry 5 }
+
+cfprApDiagRunPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:RunPolicy:intId managed object property"
+    ::= { cfprApDiagRunPolicyEntry 6 }
+
+cfprApDiagRunPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:RunPolicy:name managed object property"
+    ::= { cfprApDiagRunPolicyEntry 7 }
+
+cfprApDiagRunPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:RunPolicy:policyLevel managed
+        object property"
+    ::= { cfprApDiagRunPolicyEntry 8 }
+
+cfprApDiagRunPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:RunPolicy:policyOwner managed
+        object property"
+    ::= { cfprApDiagRunPolicyEntry 9 }
+
+cfprApDiagRunPolicySuccessAction OBJECT-TYPE
+    SYNTAX       CfprApDiagSuccessAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:RunPolicy:successAction managed
+        object property"
+    ::= { cfprApDiagRunPolicyEntry 10 }
+
+cfprApDiagSrvCapProviderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDiagSrvCapProviderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider managed object table"
+    ::= { cfprApDiagObjects 5 }
+
+cfprApDiagSrvCapProviderEntry OBJECT-TYPE
+    SYNTAX           CfprApDiagSrvCapProviderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDiagSrvCapProviderTable table."
+    INDEX { cfprApDiagSrvCapProviderInstanceId }
+    ::= { cfprApDiagSrvCapProviderTable 1 }
+
+CfprApDiagSrvCapProviderEntry ::= SEQUENCE {
+    cfprApDiagSrvCapProviderInstanceId                               CfprApManagedObjectId,
+    cfprApDiagSrvCapProviderDn                                       CfprApManagedObjectDn,
+    cfprApDiagSrvCapProviderRn                                       SnmpAdminString,
+    cfprApDiagSrvCapProviderDeleted                                  TruthValue,
+    cfprApDiagSrvCapProviderDeprecated                               TruthValue,
+    cfprApDiagSrvCapProviderElementLoadFailures                      Gauge32,
+    cfprApDiagSrvCapProviderElementsLoaded                           Gauge32,
+    cfprApDiagSrvCapProviderGencount                                 Gauge32,
+    cfprApDiagSrvCapProviderLoadErrors                               Gauge32,
+    cfprApDiagSrvCapProviderLoadWarnings                             Gauge32,
+    cfprApDiagSrvCapProviderMgmtPlaneVer                             SnmpAdminString,
+    cfprApDiagSrvCapProviderModel                                    SnmpAdminString,
+    cfprApDiagSrvCapProviderPromCardType                             Gauge32,
+    cfprApDiagSrvCapProviderRevision                                 SnmpAdminString,
+    cfprApDiagSrvCapProviderVendor                                   SnmpAdminString
+}
+
+cfprApDiagSrvCapProviderInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDiagSrvCapProviderEntry 1 }
+
+cfprApDiagSrvCapProviderDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:dn managed object property"
+    ::= { cfprApDiagSrvCapProviderEntry 2 }
+
+cfprApDiagSrvCapProviderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:rn managed object property"
+    ::= { cfprApDiagSrvCapProviderEntry 3 }
+
+cfprApDiagSrvCapProviderDeleted OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:deleted managed
+        object property"
+    ::= { cfprApDiagSrvCapProviderEntry 4 }
+
+cfprApDiagSrvCapProviderDeprecated OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:deprecated
+        managed object property"
+    ::= { cfprApDiagSrvCapProviderEntry 5 }
+
+cfprApDiagSrvCapProviderElementLoadFailures OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:elementLoadFailures
+        managed object property"
+    ::= { cfprApDiagSrvCapProviderEntry 6 }
+
+cfprApDiagSrvCapProviderElementsLoaded OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:elementsLoaded
+        managed object property"
+    ::= { cfprApDiagSrvCapProviderEntry 7 }
+
+cfprApDiagSrvCapProviderGencount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:gencount managed
+        object property"
+    ::= { cfprApDiagSrvCapProviderEntry 8 }
+
+cfprApDiagSrvCapProviderLoadErrors OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:loadErrors
+        managed object property"
+    ::= { cfprApDiagSrvCapProviderEntry 9 }
+
+cfprApDiagSrvCapProviderLoadWarnings OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:loadWarnings
+        managed object property"
+    ::= { cfprApDiagSrvCapProviderEntry 10 }
+
+cfprApDiagSrvCapProviderMgmtPlaneVer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:mgmtPlaneVer
+        managed object property"
+    ::= { cfprApDiagSrvCapProviderEntry 11 }
+
+cfprApDiagSrvCapProviderModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:model managed
+        object property"
+    ::= { cfprApDiagSrvCapProviderEntry 12 }
+
+cfprApDiagSrvCapProviderPromCardType OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:promCardType
+        managed object property"
+    ::= { cfprApDiagSrvCapProviderEntry 13 }
+
+cfprApDiagSrvCapProviderRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:revision managed
+        object property"
+    ::= { cfprApDiagSrvCapProviderEntry 14 }
+
+cfprApDiagSrvCapProviderVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCapProvider:vendor managed
+        object property"
+    ::= { cfprApDiagSrvCapProviderEntry 15 }
+
+cfprApDiagSrvCtrlTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApDiagSrvCtrlEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl managed object table"
+    ::= { cfprApDiagObjects 6 }
+
+cfprApDiagSrvCtrlEntry OBJECT-TYPE
+    SYNTAX           CfprApDiagSrvCtrlEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApDiagSrvCtrlTable table."
+    INDEX { cfprApDiagSrvCtrlInstanceId }
+    ::= { cfprApDiagSrvCtrlTable 1 }
+
+CfprApDiagSrvCtrlEntry ::= SEQUENCE {
+    cfprApDiagSrvCtrlInstanceId                                      CfprApManagedObjectId,
+    cfprApDiagSrvCtrlDn                                              CfprApManagedObjectDn,
+    cfprApDiagSrvCtrlRn                                              SnmpAdminString,
+    cfprApDiagSrvCtrlAdminState                                      CfprApDiagAdminState,
+    cfprApDiagSrvCtrlEndTs                                           DateAndTime,
+    cfprApDiagSrvCtrlEndTsM                                          Unsigned64,
+    cfprApDiagSrvCtrlErrorDescr                                      SnmpAdminString,
+    cfprApDiagSrvCtrlImgLoc                                          SnmpAdminString,
+    cfprApDiagSrvCtrlImgName                                         SnmpAdminString,
+    cfprApDiagSrvCtrlOperQualifier                                   CfprApDiagStatusIssues,
+    cfprApDiagSrvCtrlOperState                                       CfprApDiagStatus,
+    cfprApDiagSrvCtrlRunPolicyName                                   SnmpAdminString,
+    cfprApDiagSrvCtrlStartTs                                         DateAndTime,
+    cfprApDiagSrvCtrlStartTsM                                        Unsigned64,
+    cfprApDiagSrvCtrlType                                            CfprApDiagSrvCtrlType
+}
+
+cfprApDiagSrvCtrlInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApDiagSrvCtrlEntry 1 }
+
+cfprApDiagSrvCtrlDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:dn managed object property"
+    ::= { cfprApDiagSrvCtrlEntry 2 }
+
+cfprApDiagSrvCtrlRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:rn managed object property"
+    ::= { cfprApDiagSrvCtrlEntry 3 }
+
+cfprApDiagSrvCtrlAdminState OBJECT-TYPE
+    SYNTAX       CfprApDiagAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:adminState managed object property"
+    ::= { cfprApDiagSrvCtrlEntry 4 }
+
+cfprApDiagSrvCtrlEndTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:endTs managed object property"
+    ::= { cfprApDiagSrvCtrlEntry 5 }
+
+cfprApDiagSrvCtrlEndTsM OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:endTsM managed object property"
+    ::= { cfprApDiagSrvCtrlEntry 6 }
+
+cfprApDiagSrvCtrlErrorDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:errorDescr managed object property"
+    ::= { cfprApDiagSrvCtrlEntry 7 }
+
+cfprApDiagSrvCtrlImgLoc OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:imgLoc managed object property"
+    ::= { cfprApDiagSrvCtrlEntry 8 }
+
+cfprApDiagSrvCtrlImgName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:imgName managed object property"
+    ::= { cfprApDiagSrvCtrlEntry 9 }
+
+cfprApDiagSrvCtrlOperQualifier OBJECT-TYPE
+    SYNTAX       CfprApDiagStatusIssues
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:operQualifier managed
+        object property"
+    ::= { cfprApDiagSrvCtrlEntry 10 }
+
+cfprApDiagSrvCtrlOperState OBJECT-TYPE
+    SYNTAX       CfprApDiagStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:operState managed object property"
+    ::= { cfprApDiagSrvCtrlEntry 11 }
+
+cfprApDiagSrvCtrlRunPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:runPolicyName managed
+        object property"
+    ::= { cfprApDiagSrvCtrlEntry 12 }
+
+cfprApDiagSrvCtrlStartTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:startTs managed object property"
+    ::= { cfprApDiagSrvCtrlEntry 13 }
+
+cfprApDiagSrvCtrlStartTsM OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:startTsM managed object property"
+    ::= { cfprApDiagSrvCtrlEntry 14 }
+
+cfprApDiagSrvCtrlType OBJECT-TYPE
+    SYNTAX       CfprApDiagSrvCtrlType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower diag:SrvCtrl:type managed object property"
+    ::= { cfprApDiagSrvCtrlEntry 15 }
+
+END

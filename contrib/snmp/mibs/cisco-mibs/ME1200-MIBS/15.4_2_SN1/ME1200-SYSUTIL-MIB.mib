@@ -1,0 +1,223 @@
+-- *****************************************************************
+-- SYSUTIL-MIB:  Vitesse private MIB
+--
+-- Copyright (c) 2002-2013 Vitesse Semiconductor Corporation "Vitesse".
+-- All Rights Reserved.
+--
+-- ****************************************************************
+
+ME1200-SYSUTIL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    Unsigned32 FROM SNMPv2-SMI
+    Integer32 FROM SNMPv2-SMI
+    ME1200DisplayString FROM ME1200-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200SysUtilMIB MODULE-IDENTITY
+    LAST-UPDATED "201403070000Z"
+    ORGANIZATION
+        "Vitesse Semiconductor Corporation"
+    CONTACT-INFO
+        "Lars Povlsen <lpovlsen@vitesse.com>"
+    DESCRIPTION
+        "This is a private version of SysUtil"
+    REVISION    "201403070000Z"
+    DESCRIPTION
+        "Add SysUtilPowerSupplyTable"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201401220000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 24 }
+
+
+ME1200PowerSupplyStateType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of power supply state."
+    SYNTAX      INTEGER { active(0), stgandby(1), notPresent(2) }
+
+ME1200PowerSupplySourceType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of power supply source."
+    SYNTAX      INTEGER { ac(0), dc(1) }
+
+ME1200RebootType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of reboot."
+    SYNTAX      INTEGER { coldReboot(0) }
+
+me1200SysUtilMIBObjects OBJECT IDENTIFIER
+    ::= { me1200SysUtilMIB 1 }
+
+me1200SysUtilStatus OBJECT IDENTIFIER
+    ::= { me1200SysUtilMIBObjects 3 }
+
+me1200SysUtilStatusCpuLoad OBJECT IDENTIFIER
+    ::= { me1200SysUtilStatus 1 }
+
+me1200SysUtilStatusCpuLoadAverage100msec OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Average CPU load (%) in 100 milli-seconds."
+    ::= { me1200SysUtilStatusCpuLoad 1 }
+
+me1200SysUtilStatusCpuLoadAverage1sec OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Average CPU load (%) in 1 second."
+    ::= { me1200SysUtilStatusCpuLoad 2 }
+
+me1200SysUtilStatusCpuLoadAverage10sec OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Average CPU load (%) in 10 seconds."
+    ::= { me1200SysUtilStatusCpuLoad 3 }
+
+me1200SysUtilStatusPowerSupplyTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SysUtilStatusPowerSupplyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Table of power supply status."
+    ::= { me1200SysUtilStatus 2 }
+
+me1200SysUtilStatusPowerSupplyEntry OBJECT-TYPE
+    SYNTAX      ME1200SysUtilStatusPowerSupplyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the power supply status."
+    INDEX       { me1200SysUtilStatusPowerSupplyPsuId }
+    ::= { me1200SysUtilStatusPowerSupplyTable 1 }
+
+ME1200SysUtilStatusPowerSupplyEntry ::= SEQUENCE {
+    me1200SysUtilStatusPowerSupplyPsuId   Integer32,
+    me1200SysUtilStatusPowerSupplyPowerSupplyDescr    ME1200DisplayString,
+    me1200SysUtilStatusPowerSupplyPowerSupplyState    ME1200PowerSupplyStateType,
+    me1200SysUtilStatusPowerSupplyPowerSupplySource   ME1200PowerSupplySourceType
+}
+
+me1200SysUtilStatusPowerSupplyPsuId OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of power supply."
+    ::= { me1200SysUtilStatusPowerSupplyEntry 2 }
+
+me1200SysUtilStatusPowerSupplyPowerSupplyDescr OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The description of power supply."
+    ::= { me1200SysUtilStatusPowerSupplyEntry 3 }
+
+me1200SysUtilStatusPowerSupplyPowerSupplyState OBJECT-TYPE
+    SYNTAX      ME1200PowerSupplyStateType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The state of power supply."
+    ::= { me1200SysUtilStatusPowerSupplyEntry 4 }
+
+me1200SysUtilStatusPowerSupplyPowerSupplySource OBJECT-TYPE
+    SYNTAX      ME1200PowerSupplySourceType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The source of power supply."
+    ::= { me1200SysUtilStatusPowerSupplyEntry 5 }
+
+me1200SysUtilControl OBJECT IDENTIFIER
+    ::= { me1200SysUtilMIBObjects 4 }
+
+me1200SysUtilControlReboot OBJECT IDENTIFIER
+    ::= { me1200SysUtilControl 1 }
+
+me1200SysUtilControlRebootDoReboot OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action to do reboot. true(1) is to reboot the system. false(2) is to do
+         nothing."
+    ::= { me1200SysUtilControlReboot 1 }
+
+me1200SysUtilControlRebootType OBJECT-TYPE
+    SYNTAX      ME1200RebootType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Type of reboot. coldReboot(0) is to do cold reboot. "
+    ::= { me1200SysUtilControlReboot 2 }
+
+me1200SysUtilMIBConformance OBJECT IDENTIFIER
+    ::= { me1200SysUtilMIB 2 }
+
+me1200SysUtilMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200SysUtilMIBConformance 1 }
+
+me1200SysUtilMIBGroups OBJECT IDENTIFIER
+    ::= { me1200SysUtilMIBConformance 2 }
+
+me1200SysUtilStatusCpuLoadInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysUtilStatusCpuLoadAverage100msec, 
+                  me1200SysUtilStatusCpuLoadAverage1sec, 
+                  me1200SysUtilStatusCpuLoadAverage10sec }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysUtilMIBGroups 1 }
+
+me1200SysUtilStatusPowerSupplyInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysUtilStatusPowerSupplyPowerSupplyDescr, 
+                  me1200SysUtilStatusPowerSupplyPowerSupplyState, 
+                  me1200SysUtilStatusPowerSupplyPowerSupplySource }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysUtilMIBGroups 2 }
+
+me1200SysUtilControlRebootInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysUtilControlRebootDoReboot, me1200SysUtilControlRebootType }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysUtilMIBGroups 3 }
+
+me1200SysUtilMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200SysUtilStatusCpuLoadInfoGroup, 
+                  me1200SysUtilStatusPowerSupplyInfoGroup, 
+                  me1200SysUtilControlRebootInfoGroup }
+
+    ::= { me1200SysUtilMIBCompliances 1 }
+
+END

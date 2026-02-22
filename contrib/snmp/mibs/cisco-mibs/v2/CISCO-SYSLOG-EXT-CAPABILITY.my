@@ -1,0 +1,325 @@
+-- *****************************************************************
+-- CISCO-SYSLOG-EXT-CAPABILITY.my:  Cisco Syslog Extension MIB
+-- AGENT-CAPABILITIES
+--   
+-- September 2005, Srini Kode
+--   
+-- Copyright (c) 2005, 2006, 2008 by cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-SYSLOG-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSyslogExtCapability MODULE-IDENTITY
+    LAST-UPDATED    "200806300000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-san@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-SYSLOG-EXT-MIB."
+    REVISION        "200806300000Z"
+    DESCRIPTION
+        "Added ciscoSyslogExtCapabilityc4710aceVA1R700
+        agent capabilities for ACE 4710 Application 
+        Control Engine Appliance.
+
+        Obsoleted ciscoSyslogExtCapabilityACSWV03R0000 for 
+        Application Control Engine(ACE) module, as VARIATION 
+        description for some of the objects was missing.
+
+        Added ciscoSyslogExtCapACSWV03R0000Rev1
+        for Application Control Engine(ACE) module."
+    REVISION        "200604180000Z"
+    DESCRIPTION
+        "Added ciscoSyslogExtCapabilityACSWV03R0000
+        for Application Control Engine(ACE) module."
+    REVISION        "200509010000Z"
+    DESCRIPTION
+        "Initial version of this MIB."
+    ::= { ciscoAgentCapability 454 }
+
+
+
+ciscoSyslogExtCapabilityMDS3R0 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco MDS 3.0(1)"
+    STATUS          current
+    DESCRIPTION
+        "Cisco SYSLOG EXTENSION MIB capabilities"
+
+    SUPPORTS        CISCO-SYSLOG-EXT-MIB
+    INCLUDES        { ciscoSyslogExtGroup }
+    ::= { ciscoSyslogExtCapability 1 }
+
+ciscoSyslogExtCapabilityACSWV03R0000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0
+                for Application Control Engine(ACE) module."
+    STATUS          obsolete
+    DESCRIPTION
+        "CISCO-SYSLOG-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-SYSLOG-EXT-MIB
+    INCLUDES        {
+                        ciscoSyslogExtGroup,
+                        ciscoSyslogProtocolGroup
+                    }
+    VARIATION       cseSyslogLogFileName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "object not supported."
+
+    VARIATION       cseSyslogLogFileMsgSeverity
+    ACCESS          not-implemented
+    DESCRIPTION
+        "object not supported."
+
+    VARIATION       cseSyslogFileLoggingDisable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "object not supported."
+
+    VARIATION       cseSyslogLinecardEnable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "object not supported."
+
+    VARIATION       cseSyslogLinecardMsgSeverity
+    ACCESS          not-implemented
+    DESCRIPTION
+        "object not supported."
+
+    VARIATION       cseSyslogMessageSeverity
+    ACCESS          not-implemented
+    DESCRIPTION
+        "object not supported."
+
+    ::= { ciscoSyslogExtCapability 2 }
+
+ciscoSyslogExtCapACSWV03R0000Rev1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0
+                    for Application Control Engine(ACE) module."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SYSLOG-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-SYSLOG-EXT-MIB
+    INCLUDES        {
+                        ciscoSyslogExtGroup,
+                        ciscoSyslogProtocolGroup
+                    }
+    VARIATION       cseSyslogConsoleEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogLogFileName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported."
+
+    VARIATION       cseSyslogFileLoggingDisable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported."
+
+    VARIATION       cseSyslogConsoleMsgSeverity
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogLogFileMsgSeverity
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported."
+
+    VARIATION       cseSyslogServerAddress
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogServerAddressType
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogServerMsgSeverity
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogServerStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogServerFacility
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogMessageSeverity
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported."
+
+    VARIATION       cseSyslogTerminalEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogTerminalMsgSeverity
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogLinecardEnable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported."
+
+    VARIATION       cseSyslogLinecardMsgSeverity
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported."
+
+    VARIATION       cseSyslogServerProtocol
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogServerPort
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogServerProtocolFallback
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    ::= { ciscoSyslogExtCapability 3 }
+
+ciscoSyslogExtCapabilityc4710aceVA1R700 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7)
+                    for ACE 4710 Application Control Engine 
+                    Appliance."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SYSLOG-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-SYSLOG-EXT-MIB
+    INCLUDES        {
+                        ciscoSyslogExtGroup,
+                        ciscoSyslogProtocolGroup
+                    }
+    VARIATION       cseSyslogConsoleEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogLogFileName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported."
+
+    VARIATION       cseSyslogFileLoggingDisable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported."
+
+    VARIATION       cseSyslogConsoleMsgSeverity
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogLogFileMsgSeverity
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported."
+
+    VARIATION       cseSyslogServerAddress
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogServerAddressType
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogServerMsgSeverity
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogServerStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogServerFacility
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogMessageSeverity
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported."
+
+    VARIATION       cseSyslogTerminalEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogTerminalMsgSeverity
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogLinecardEnable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported."
+
+    VARIATION       cseSyslogLinecardMsgSeverity
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Object not supported."
+
+    VARIATION       cseSyslogServerProtocol
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogServerPort
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    VARIATION       cseSyslogServerProtocolFallback
+    ACCESS          read-only
+    DESCRIPTION
+        "SNMP Set operation not supported."
+
+    ::= { ciscoSyslogExtCapability 4 }
+
+END

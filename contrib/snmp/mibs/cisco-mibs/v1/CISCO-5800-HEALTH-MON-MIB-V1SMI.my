@@ -1,0 +1,509 @@
+-- MIB created 6/25/99 12:56:41, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-5800-HEALTH-MON-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-5800-HEALTH-MON-MIB.my"
+
+IMPORTS
+    Counter32, Gauge32, Integer32, IpAddress
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215
+    DisplayString, TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoExperiment
+            FROM CISCO-SMI;
+
+cisco5800HealthMonMIB OBJECT IDENTIFIER ::= { ciscoExperiment 28 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9708260000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This MIB provides a means to monitor the status of a
+--    system's health.
+
+cisco5800HealthMonObjects OBJECT IDENTIFIER ::= { cisco5800HealthMonMIB 1 }
+ciscoHealthMonMIBNotificationEnables OBJECT IDENTIFIER ::= { cisco5800HealthMonMIB 2 }
+ciscoHealthMonMIBNotificationPrefix OBJECT IDENTIFIER ::= { cisco5800HealthMonMIB 3 }
+ciscoHealthMonMIBNotifications OBJECT IDENTIFIER ::= { ciscoHealthMonMIBNotificationPrefix 0 }
+cisco5800HealthMonMIBConformance OBJECT IDENTIFIER ::= { cisco5800HealthMonMIB 4 }
+cisco5800HealthMonMIBCompliances OBJECT IDENTIFIER ::= { cisco5800HealthMonMIBConformance 1 }
+cisco5800HealthMonMIBGroups OBJECT IDENTIFIER ::= { cisco5800HealthMonMIBConformance 2 }
+
+ciscoHealthMonNumShelves OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of shelves monitored by the health monitor."
+    ::= { cisco5800HealthMonObjects 3 }
+
+ciscoHealthMonNumT1E1LinesUp OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the total number of active T1/E1 lines across
+        all the monitored shelves."
+    ::= { cisco5800HealthMonObjects 4 }
+
+ciscoHealthMonNumT1E1LinesDown OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the total number of inactive T1/E1 lines
+        across all the monitored shelves."
+    ::= { cisco5800HealthMonObjects 5 }
+
+ciscoHealthMonNumActiveDS0 OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of DS0's in use across all the monitored 
+        shelves."
+    ::= { cisco5800HealthMonObjects 6 }
+
+ciscoHealthMonNumTotalDS0 OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of DS0's from all the monitored shelves."
+    ::= { cisco5800HealthMonObjects 7 }
+
+ciscoHealthMonNumTotalModems OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the total number of ciscoHealthMonTotalModems
+        from all the monitored shelves."
+    ::= { cisco5800HealthMonObjects 8 }
+
+ciscoHealthMonNumModemsInUse OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the total number of ciscoHealthMonModemsInUse
+        from all the monitored shelves ."
+    ::= { cisco5800HealthMonObjects 9 }
+
+ciscoHealthMonNumUnavailableModems OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the total number of ciscoHealthMonUnavailableModems
+        from all the monitored shelves."
+    ::= { cisco5800HealthMonObjects 10 }
+
+ciscoHealthMonStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoHealthMonStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table of status maintained by the health monitor."
+    ::= { cisco5800HealthMonObjects 1 }
+
+ciscoHealthMonStatusEntry OBJECT-TYPE
+    SYNTAX CiscoHealthMonStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the status table, containing the
+        information about the status of the health monitoring setup
+        commands. Depending on the configured monitoring type these commands
+        are setup on the shelf or on the system controller. Monitoring iomem
+        is done on the shelf where as monitoring modem and trunk is done on
+        system controller. ciscoHealthMonShelfId, ciscoHealthMonAddress 
+        doesn't exist for the modem and trunk monitoring types since 
+        they are done on the system controller. "
+    INDEX { ciscoHealthMonStatusIndex, ciscoHealthMonStatusType }
+    ::= { ciscoHealthMonStatusTable 1 }
+
+CiscoHealthMonStatusEntry ::= SEQUENCE {
+    ciscoHealthMonStatusIndex Integer32,
+    ciscoHealthMonStatusType Integer32(1..3),
+    ciscoHealthMonShelfId Integer32,
+    ciscoHealthMonAddress IpAddress,
+    ciscoHealthMonDescr DisplayString,
+    ciscoHealthMonValue Gauge32,
+    ciscoHealthMonThreshold Integer32(1..100),
+    ciscoHealthMonThresholdExceedCount Integer32
+    }
+
+ciscoHealthMonStatusIndex OBJECT-TYPE
+    SYNTAX Integer32(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Unique index for indexing the ciscoHealthMonStatusTable.
+        This index is for SNMP purposes only, and has no intrinsic meaning."
+    ::= { ciscoHealthMonStatusEntry 1 }
+
+ciscoHealthMonStatusType OBJECT-TYPE
+    SYNTAX Integer32(1..3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Monitoring type
+         modemUtil(1), trunkUtil(2), iomemUtil(3)"
+    ::= { ciscoHealthMonStatusEntry 2 }
+
+ciscoHealthMonShelfId OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the shelf-id of the monitored shelf."
+    ::= { ciscoHealthMonStatusEntry 3 }
+
+ciscoHealthMonAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the IP address of the monitored shelf."
+    ::= { ciscoHealthMonStatusEntry 4 }
+
+ciscoHealthMonDescr OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Textual description of the utilization type being
+        monitored on a shelf. This description is a short textual label, 
+        suitable as a human-sensible identification for the rest of the 
+        information in the entry."
+    ::= { ciscoHealthMonStatusEntry 5 }
+
+ciscoHealthMonValue OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current value for the monitoring type on a
+        monitored shelf."
+    ::= { ciscoHealthMonStatusEntry 6 }
+
+ciscoHealthMonThreshold OBJECT-TYPE
+    SYNTAX Integer32(1..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the monitoring threshold value configured
+        through the command line. 
+        
+        If the configured monitoring type is io-mem, rmon alarm on the
+        shelf will use this value as the threshold for generating the
+        event. Shelf will be asked to send this generated event trap to the
+        system controller. Once the system controller receives this trap, 
+        trap will converted to the health monitor mib format and sent to the
+        management station.
+        
+        If the configured monitoring types are trunk and/or modem,
+        ciscoHealthMonValue is compared with this value and if
+        ciscoHealthMonValue exceeds this value, a notification is sent to the
+        configured management station. Also, a notification will be sent to
+        the management station if the current monitoring value is less than
+        the configured threshold and the previous monitored value is greater
+        than the configured threshold value."
+    ::= { ciscoHealthMonStatusEntry 7 }
+
+ciscoHealthMonThresholdExceedCount OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times monitoring value exceeded the
+        configured threshold value."
+    ::= { ciscoHealthMonStatusEntry 8 }
+
+ciscoHealthMonCountTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoHealthMonCountEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table of mib entries maintained by the health monitor."
+    ::= { cisco5800HealthMonObjects 2 }
+
+ciscoHealthMonCountEntry OBJECT-TYPE
+    SYNTAX CiscoHealthMonCountEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the count table represents the polled data
+        of ceratin mib variables for a router shelf. System controller will do
+        the polling of the mib variables only if system controller can
+        talk to that particular router shelf."
+    INDEX { ciscoHealthMonCountIndex }
+    ::= { ciscoHealthMonCountTable 1 }
+
+CiscoHealthMonCountEntry ::= SEQUENCE {
+    ciscoHealthMonCountIndex Integer32,
+    ciscoHealthMonT1E1LinesUp Gauge32,
+    ciscoHealthMonT1E1LinesDown Gauge32,
+    ciscoHealthMonActiveDS0 Gauge32,
+    ciscoHealthMonTotalDS0 Gauge32,
+    ciscoHealthMonTotalModems Gauge32,
+    ciscoHealthMonModemsInUse Gauge32,
+    ciscoHealthMonUnavailableModems Gauge32,
+    ciscoHealthMonIOMemUsed Gauge32,
+    ciscoHealthMonIOMemFree Gauge32,
+    ciscoHealthMonCPUavgBusy5 Integer32(1..100),
+    ciscoHealthMonUtilEgressInOctet Counter32,
+    ciscoHealthMonUtilEgressOutOctet Counter32,
+    ciscoHealthMonShelfLastUpdate DisplayString
+    }
+
+ciscoHealthMonCountIndex OBJECT-TYPE
+    SYNTAX Integer32(0..9999)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Unique index for indexing the
+        ciscoHealthMonCountTable. This unique index represents the shelf-id of
+        the monitored shelf."
+    ::= { ciscoHealthMonCountEntry 1 }
+
+ciscoHealthMonT1E1LinesUp OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of active T1 and E1 lines on a shelf. A
+        line is considered as an active line if it is operationally up."
+    ::= { ciscoHealthMonCountEntry 2 }
+
+ciscoHealthMonT1E1LinesDown OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of inactive T1 and E1 lines on a
+        shelf. This is the special case where a line is counted as down if it
+        is operationally down and administratively up."
+    ::= { ciscoHealthMonCountEntry 3 }
+
+ciscoHealthMonActiveDS0 OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of DS0's that are currently in use."
+    ::= { ciscoHealthMonCountEntry 4 }
+
+ciscoHealthMonTotalDS0 OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of DS0's on a shelf. This is based
+        on the number of T1 and E1 lines present on the router shelf.
+        
+        Total DS0 = (# of T1 lines - 1 * 24) + 23 + (# of E1 lines*30)."
+    ::= { ciscoHealthMonCountEntry 5 }
+
+ciscoHealthMonTotalModems OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of modems installed on a shelf. This
+        is the polled value for cmSystemInstalledModem from the router shelf."
+    ::= { ciscoHealthMonCountEntry 6 }
+
+ciscoHealthMonModemsInUse OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of modems on a shelf that are in the
+        following states: connected, offHook, loopback, or
+        downloadFirmware. This the polled value for cmSystemModemsInUse from
+        the router shelf."
+    ::= { ciscoHealthMonCountEntry 7 }
+
+ciscoHealthMonUnavailableModems OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of modems on a shelf that cannot accept the
+        calls. They are in the following states: unknown, onHook, busiedOut,
+        disabled, bad, or downloadFirmwareFailed. This is the polled value for
+        cmSystemModemsUnavailable from the router shelf."
+    ::= { ciscoHealthMonCountEntry 8 }
+
+ciscoHealthMonIOMemUsed OBJECT-TYPE
+    SYNTAX Gauge32
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes of IO memory that are currently
+        in use by the applications on the shelf. This is the polled value for
+        ciscoMemoryPoolUsed of io-mem type on the router shelf."
+    ::= { ciscoHealthMonCountEntry 9 }
+
+ciscoHealthMonIOMemFree OBJECT-TYPE
+    SYNTAX Gauge32
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bytes of IO memory that are currently
+        available to use on the shelf.This is the polled value for
+        ciscoMemoryPoolFree of io-mem type on the router shelf."
+    ::= { ciscoHealthMonCountEntry 10 }
+
+ciscoHealthMonCPUavgBusy5 OBJECT-TYPE
+    SYNTAX Integer32(1..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "5 minute exponentially-decayed moving average of the
+        CPU busy percentage. This is the polled value for avgBusy5 from the
+        router shelf."
+    ::= { ciscoHealthMonCountEntry 11 }
+
+ciscoHealthMonUtilEgressInOctet OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the percentage utilization of total number of
+        octets received on all the active egress interface, including framing
+        characters.
+        
+        A port is considered as an egress port if it's ifSpeed > 1544000
+        % Utilization of ifInOctets = (diff_total_ifInoctets*100)/
+              (time in seconds * total_speed)
+        ."
+    ::= { ciscoHealthMonCountEntry 12 }
+
+ciscoHealthMonUtilEgressOutOctet OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the percentage utilization of the total
+        number of octets transmitted out on all the active egress interface,
+        including framing characters.
+        
+        A port is considered as an egress port if it's ifSpeed > 1544000
+        % Utilization of ifOutOctets = (diff_total_ifOutoctets*100)/
+              (time in seconds * total_speed)
+        ."
+    ::= { ciscoHealthMonCountEntry 13 }
+
+ciscoHealthMonShelfLastUpdate OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the last time at which the system-controller
+        has polled the mib entries from a shelf. However, if system-controller
+        can not talk to that shelf, this entry will have the same time as the
+        last update and a string Lost Contact. All the mib entries
+        corresponding to this shelf will remain as it is until
+        system-controller can talk to this shelf again."
+    ::= { ciscoHealthMonCountEntry 14 }
+
+ciscoHealthMonEnableNotification OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable indicates whether the system produces
+        the ciscoHealthNotification.  A false value will prevent notifications
+        from being generated by this system."
+    DEFVAL { false }
+    ::= { ciscoHealthMonMIBNotificationEnables 1 }
+
+ciscoHealthMonNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoHealthMonMIBNotificationPrefix
+    VARIABLES {
+        ciscoHealthMonStatusType, ciscoHealthMonShelfId, 
+        ciscoHealthMonAddress, ciscoHealthMonDescr, 
+        ciscoHealthMonValue, ciscoHealthMonThreshold }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ciscoHealthMonNotification is sent if the measured
+        utilization has crossed the threshold value. It will be generated
+        when the value rises above the threshold. ciscoHealthMonShelfId and
+        ciscoHealthMonAddress are optional entries. This entry is valid only
+        if the notification generated for the monitoring types set on the
+        router shelf. This entry will not have anything if notification is
+        generated for the monitoring types set on the system controller."
+    ::= 1
+
+cisco5800HealthMonMIBGroup OBJECT IDENTIFIER ::= { cisco5800HealthMonMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing health monitoring
+--    capability to a cisco chassis.
+--  objects
+--    ciscoHealthMonStatusType, ciscoHealthMonShelfId, 
+--    ciscoHealthMonAddress, ciscoHealthMonDescr, 
+--    ciscoHealthMonValue, ciscoHealthMonThreshold, 
+--    ciscoHealthMonThresholdExceedCount, ciscoHealthMonT1E1LinesUp, 
+--    ciscoHealthMonT1E1LinesDown, ciscoHealthMonActiveDS0, 
+--    ciscoHealthMonTotalDS0, ciscoHealthMonTotalModems, 
+--    ciscoHealthMonModemsInUse, ciscoHealthMonUnavailableModems, 
+--    ciscoHealthMonIOMemUsed, ciscoHealthMonIOMemFree, 
+--    ciscoHealthMonCPUavgBusy5, ciscoHealthMonUtilEgressInOctet, 
+--    ciscoHealthMonUtilEgressOutOctet, 
+--    ciscoHealthMonShelfLastUpdate, ciscoHealthMonNumShelves, 
+--    ciscoHealthMonNumT1E1LinesUp, ciscoHealthMonNumT1E1LinesDown, 
+--    ciscoHealthMonNumActiveDS0, ciscoHealthMonNumTotalDS0, 
+--    ciscoHealthMonNumTotalModems, ciscoHealthMonNumModemsInUse, 
+--    ciscoHealthMonNumUnavailableModems, 
+--    ciscoHealthMonEnableNotification
+
+cisco5800HealthMonMIBCompliance OBJECT IDENTIFIER ::= { cisco5800HealthMonMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Health Monitor MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cisco5800HealthMonMIBGroup
+
+
+END
+

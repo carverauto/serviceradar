@@ -1,0 +1,1181 @@
+-- *********************************************************************
+-- CISCO-SYSLOG-EXT-MIB.my: Syslog Extension MIB
+--   
+-- October 2002, Vinay Gaonkar
+--   
+-- Copyright (c) 2002-2015 by Cisco Systems Inc.
+--   
+-- All rights reserved.
+--   
+-- ********************************************************************
+
+CISCO-SYSLOG-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    RowStatus,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    SyslogSeverity
+        FROM CISCO-SYSLOG-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSyslogExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "201904020000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553 -NETS
+            E-mail: cs-san@cisco.com"
+    DESCRIPTION
+    	"Corrected the spelling of Telemetry in
+    	 SyslogExFacility TC."
+    REVISION        "201904020000Z"
+    DESCRIPTION
+    	"Added enumeration 'nxapi', 'analytics', 'telemetry',
+    	 'vmis' in SyslogExFacility TC."
+    REVISION        "201903180000Z"
+    DESCRIPTION
+        "MIB module for configuring and monitoring System Log
+        related management parameters as defined by RFC 3164."
+    REVISION        "201506080000Z"
+    DESCRIPTION
+        "Added enumeration 'portSecurity', 'udld', 'dot1x', 'nfm',
+        'hsrpEngine', 'glbp', 'dhcpSnooping', 'vmm', 'tm', 'cts',
+        'vpc', 'bfd', 'wccp', 'evc', 'slaSender', 'slaResponder',
+        and 'fpOam' in SyslogExFacility TC."
+    REVISION        "201503020000Z"
+    DESCRIPTION
+        "Added enumeration 'bgp', 'pim', 'orib', 'vntagMgr' and
+        'sim' in SyslogExFacility TC."
+    REVISION        "201411050000Z"
+    DESCRIPTION
+        "Added enumeration 'snmpmib' in SyslogExFacility TC."
+    REVISION        "201408130000Z"
+    DESCRIPTION
+        "Added enumeration 'patchd' in SyslogExFacility TC."
+    REVISION        "201406020000Z"
+    DESCRIPTION
+        "Added enumeration 'adbm', 'plcmgr' and 'ecp'
+        in SyslogExFacility TC."
+    REVISION        "201405300000Z"
+    DESCRIPTION
+        "Added enumeration 'pltfmCfg'
+        in SyslogExFacility TC."
+    REVISION        "201311230000Z"
+    DESCRIPTION
+        "Added enumeration 'svi', 'blogger', 'pixmvl' and 'pixmgl'
+        in SyslogExFacility TC."
+    REVISION        "201309110000Z"
+    DESCRIPTION
+        "Added enumeration 'vman' in SyslogExFacility TC."
+    REVISION        "201306140000Z"
+    DESCRIPTION
+        "Added enumeration 'plsm' and 'lim' in SyslogExFacility
+        TC."
+    REVISION        "201306110000Z"
+    DESCRIPTION
+        "Added enumeration 'giscm' and 'iscm' in SyslogExFacility
+        TC."
+    REVISION        "201301080000Z"
+    DESCRIPTION
+        "Added enumeration 'aclqos', 'mfdm', 'ufdm',
+        'devicetest', 'sal', 'copp', 'm2rib', 'u2rib', 
+        'spm', 'l2pt' and 'cmond' in SyslogExFacility TC."
+    REVISION        "201208240000Z"
+    DESCRIPTION
+        "Added enumeration 'acllog', 'diagclient', 'diagmgr',
+        'clkmgr', 'diagportlb' in SyslogExFacility TC."
+    REVISION        "201106090000Z"
+    DESCRIPTION
+        "Added enumeration 'eltm', 'l2fm', 'm6rib', 'mrib',
+        'arp' and 'ppm' in SyslogExFacility TC."
+    REVISION        "201106080000Z"
+    DESCRIPTION
+        "Added enumeration 'epp', 'pixm', 'ldap', 'lldp' and
+        'assocMgr' in SyslogExFacility TC."
+    REVISION        "201105200000Z"
+    DESCRIPTION
+        "MIB module for configuring and monitoring System Log
+        related management parameters as defined by RFC 3164."
+    REVISION        "201002050000Z"
+    DESCRIPTION
+        "Added enumeration 'fsDaemon', 'fscm' and 'plugin' in
+        SyslogExFacility TC."
+    REVISION        "200908160000Z"
+    DESCRIPTION
+        "Added enumeration 'avm', 'ilcHelper', 'smm',
+        'ioa' in SyslogExFacility TC."
+    REVISION        "200907010000Z"
+    DESCRIPTION
+        "Added enumerations 'cimServer', 'ipqosMgr' in
+        SyslogExFacility TC."
+    REVISION        "200906170000Z"
+    DESCRIPTION
+        "Added enumeration 'aam' in SyslogExFacility TC."
+    REVISION        "200906080000Z"
+    DESCRIPTION
+        "Added enumerations 'fcRedirect', 'smartCard',
+        'evms', 'mvsh', 'migd', 'zschk', 'afm', 'gatosUsd, 'pfm',
+        'qd', 'nqosm', 'ethpc', 'fcpc', 'enm', 'altos', 'nohms', 
+        'satMgr', 'satCtrl', 'redwoodUsd', 'fwmCtrl', 'qosCtrl',
+        'nppm', 'satSyslog' and 'fcoeMgr' in SyslogExFacility TC."
+    REVISION        "200804280000Z"
+    DESCRIPTION
+        "Added enumerations 'prefpath', 'stp', 'ethpm, 'ifMgr',
+        'acl', 'vlanMgr', 'evmc', 'monitor', 'lacp', 'vdcMgr',
+        'xmlma', 'cluster', 'ipv6Conf', 'ethPortChannel',
+        'otm', 'l3vm', 'rpm', 'u6rib', 'urib', 'resMgr', 'ip',
+        'ipv6', 'npv', 'sme', 'sifMgr', 'fwm' and 'dcbx'
+        to SyslogExFacility TC."
+    REVISION        "200611090000Z"
+    DESCRIPTION
+        "Added enumerations 'zbm', 'sdv', 'cloud', 'certEnroll', 'acl',
+        'portResources' and 'vedbMgr' in SyslogExFacility TC."
+    REVISION        "200501300000Z"
+    DESCRIPTION
+        "- Added SylogProtocol TEXTUAL CONVENTION.
+        - Added following objects in cseSyslogServerTable.
+          cseSyslogServerProtocol
+          cseSyslogServerPort
+          cseSyslogServerProtocolFallback"
+    REVISION        "200409200000Z"
+    DESCRIPTION
+        "Added new enumerations isns, fccLc, cfs, dstats, ipsec,
+        dpvm, ike, ddas, scheduler, san ExtTuner to 
+        SyslogExFacility."
+    REVISION        "200312150000Z"
+    DESCRIPTION
+        "Added new enumerations to SyslogExFacility."
+    REVISION        "200211130000Z"
+    DESCRIPTION
+        "Added cseSyslogServerFacility to cseSyslogServerTable.
+        Added two TCs SyslogFacility and SyslogExFacility."
+    REVISION        "200210040000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 301 }
+
+
+ciscoSyslogExtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSyslogExtMIB 1 }
+
+cseSyslogConfigurationGroup  OBJECT IDENTIFIER
+    ::= { ciscoSyslogExtMIBObjects 1 }
+
+
+-- Textual Conventions
+
+SyslogFacility ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The Syslog standard facilities.
+        kernel (0)       - Kernel
+        user (8)         - User Level     
+        mail (16)        - Mail System
+        daemon(24)       - System Daemon
+        auth  (32)       - Security/Authorization
+        syslog (40)      - Internal Syslogd 
+        lpr (48)         - Line Printer subsystem
+        news (56)        - Network New subsystem
+        uucp (64)        - UUCP subsystem
+        cron (72)        - Clock Daemon
+        authPriv (80)    - Security/Auth(private)
+        ftp (88)         - FTP Daemon
+        local0 (128)     - Reserved local use
+        local1 (136)     - Reserved local use
+        local2 (144)     - Reserved local use
+        local3 (152)     - Reserved local use
+        local4 (160)     - Reserved local use
+        local5 (168)     - Reserved local use
+        local6 (176)     - Reserved local use
+        local7 (184)     - Reserved local use."
+
+    REFERENCE       "RFC 3164 - The BSD Syslog Protocol, Section 4."
+    SYNTAX          INTEGER  {
+                        kernel(0),
+                        user(8),
+                        mail(16),
+                        daemon(24),
+                        auth(32),
+                        syslog(40),
+                        lpr(48),
+                        news(56),
+                        uucp(64),
+                        cron(72),
+                        authPriv(80),
+                        ftp(88),
+                        local0(128),
+                        local1(136),
+                        local2(144),
+                        local3(152),
+                        local4(160),
+                        local5(168),
+                        local6(176),
+                        local7(184)
+                    }
+
+SyslogExFacility ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The Syslog facilities including both standard and
+        proprietary facilities.
+
+         kernel (0)            - Kernel
+         user (8)              - User Level     
+         mail (16)             - Mail System
+         daemon(24)            - System Daemon
+         auth  (32)            - Security/Authorization
+         syslog (40)           - Internal Syslogd 
+         lpr (48)              - Line Printer subsystem
+         news (56)             - Network New subsystem
+         uucp (64)             - UUCP subsystem
+         cron (72)             - Clock Daemon
+         authPriv (80)         - Security/Auth(private)
+         ftp (88)              - FTP Daemon
+         local0 (128)          - Reserved local use
+         local1 (136)          - Reserved local use
+         local2 (144)          - Reserved local use
+         local3 (152)          - Reserved local use
+         local4 (160)          - Reserved local use
+         local5 (168)          - Reserved local use
+         local6 (176)          - Reserved local use
+         local7 (184)          - Reserved local use
+         vsanMgr (200)         - VSAN Manager
+         fspf (208)            - FSPF
+         domainMgr (216)       - Domain Manager
+         mtsDaemon (224)       - MTS Daemon
+         linecardMgr (232)     - Line Card Mgr
+         sysMgr (240)          - System Manager
+         sysMgrLib (248)       - System Mgr Library
+         zoneServer (256)      - Zone Server
+         virtualIfMgr (264)    - VirtualInterface Mgr
+         ipConfMgr (272)       - IP Config Manager
+         ipfc (280)            - IP Over FC
+         xBarMgr (288)         - Xbar Manager
+         fcDns (296)           - Fibre Channel DNS
+         fabricConfMgr (304)   - Fabric Config Server
+         aclMgr (312)          - AccessControlList Mgr
+         tlPortMgr (320)       - TL Port Manager
+         portMgr (328)         - Port Manager    
+         fportServer (336)     - FPort Server
+         portChMgr (344)       - Port Channel Mgr
+         mpls (352)            - MPLS
+         tftpLib (360)         - TFTP Library
+         wwnMgr (368)          - WWN Mgr  
+         fcc (376),            - FCC Process
+         qosMgr (384)          - QOS Mgr  
+         vhba (392)            - VHBA
+         procMgr (400)         - Proc Mgr
+         fcRedirect (408)      - FC Redirect  
+         span (416)            - SPAN
+         vrrpMgr (424)         - VRRP Mgr   
+         fcfwd (432)           - FCFWD
+         ntp (440)             - NTP
+         pltmfmMgr (448)       - Platform Mgr  
+         xbarClient (456)      - XBAR Client  
+         vrrpEngine (464)      - VRRP Engine
+         callhome (472)        - Callhome  
+         ipsMgr (480)          - IPS Mgr  
+         fc2 (488)             - FC2
+         debugLib (496)        - Debug Library
+         vpm (504)             - VPM
+         mcast (512)           - Multicast
+         rdl (520)             - RDL
+         rscn (536)            - RSCN
+         bootvar (552)         - BootVar
+         pss (576)             - Persistent Storage System
+         snmp (584)            - SNMP
+         security (592)        - Security
+         vhbad (608)           - VHBAD
+         dns (648)             - DNS
+         rib (656)             - RIB
+         vshd (672)            - VSH Daemon
+         fvpd (688)            - Fabric Virtual Port Daemon
+         prefpath (704)        - Preferred Path
+         avm (736)             - Avanti Mgr
+         mplsTunnel (816)      - MPLS Tunnel
+         cdpd (848)            - CDP Daemon
+         ohmsd (920)           - OHMs Daemon
+         migd (928)            - Capability Daemon
+         portSec (960)         - Port Security Manager
+         ethPortMgr (976)      - Ethernet Port Manager
+         zbm (992)             - Zone Block Manager
+         ipaclMgr (1016)       - IP ACL Manager
+         ficonMgr (1064)       - FICON Manager
+         fsDaemon (1072)       - Sup-filesystem Daemon
+         ficonContDev (1096)   - Ficon Control Device
+         rlir (1128)           - RLIR Module
+         fdmi (1136)           - Fabric Device  Management Interface
+         licmgr (1152)         - License Manager
+         fcspmgr (1160)        - FCSP Manager
+         epp (1168)            - Exchange Peer Parameters
+         confCheck (1192)      - Configuration Check
+         ivr (1232)            - Inter-VSAN Routing
+         aaad (1240)           - AAA Daemon
+         tacacsd (1248)        - TACACS Daemon
+         radiusd (1256)        - Radius Daemon
+         fc2d (1320)           - FC2 Daemon
+         cimServer (1328)      - Common Information Model Server
+         lcohmsd (1336)        - LC Ohms Daemon
+         isns (1344)           - iSNS
+         ficonStat (1352)      - FICON Statistics,
+         featureMgr (1360)     - Feature Manager
+         lttd (1376)           - LTT Daemon
+         fccLc (1392)          - linecard FCC
+         ilcHelper (1408)      - ILC Helper
+         cfs (1432)            - Cisco Fabric Services 
+         dstats (1448)         - Delta Statistics
+         ipsec (1456)          - IP Sec
+         dpvm  (1480)          - Dynamic Port Vsan Mgr
+         ike (1488)            - IKE
+         ddas (1504)           - DDAS
+         scheduler (1512)      - scheduler 
+         fscm (1536)           - Fabric Startup Configuration Manager
+         sanExtTuner (1520)    - SAN extension Tuner
+         cloud (1712)          - Cloud
+         smartCard (1720)      - Smart Card
+         certEnroll (1752)     - Certificate Enrollment
+         stp (1768)            - Spanning Tree Protocol
+         ethpm (1784)          - Ethernet Port Manager
+         pixm (1792)           - Port-index Manager
+         ifMgr (1816)          - Interface Manager
+         plugin (1872)         - Plugin Manager
+         acl (1936)            - AccessControlList
+         ldap (2048)           - LDAP
+         portResources(2072)   - Port Resource Manager
+         aclqos (2080)         - ACL Qos
+         portSecurity (2088)   - Ethernet Port Security
+         eltm (2112)           - Eureka Lamira Table Manager  
+         udld (2120)           - Uni-Directional Link Detection
+         svi (2144)            - SVI
+         mfdm (2160)           - Multicast FIB Distribution Manager
+         vlanMgr (2176)        - VLAN Manager
+         ufdm (2184)           - Unicast FIB Distribution Manager
+         aclMgr (2240)         - Access Control List Manager
+         dot1x (2248)          - IEEE 802.1X
+         nfm (2368)            - Netflow Manager
+         hsrpEngine (2376)     - Hot Standby Router Protocol(HSRP)
+                                 Engine
+         bgp (2384)            - Border Gateway Protocol
+         l2fm (2392)           - Layer-2 Forwarding Manager
+         evms (2400)           - Event Management Server
+         evmc (2416)           - Event Manager
+         monitor (2440)        - Ethernet and FC SPAN
+         lacp (2448)           - Link Aggregation Control Protocol
+         vdcMgr (2528)         - Virtual Device Context Manager
+         sdv (2592)            - SAN Device Virtualization
+         glbp (2600)           - Gateway Load Balancing Protocol
+         dhcpSnooping (2608)   - Dynamic Host Configuration
+                                 Protocol (DHCP) Snooping
+         xmlma (2616)          - XML Master Agent
+         diagclient(2648)      - Diag Client
+         diagmgr (2656)        - GOLD DiagMgr
+         vedbMgr (2704)        - VEBD Mgr
+         cluster(2728)         - Cluster Service
+         ipv6Conf (2760)       - IP v6 Configuration
+         ipqosMgr(2800)        - IP QOS Manager        
+         ethPortChannel (2840) - Ethernet Port Channel
+         otm (2848)            - Object Tracking Manager
+         l3vm (2888)           - L3 Virtualization Manager
+         m6rib (2896)          - Multicast IPv6 Routing Information Base
+         mrib (2904)           - Multicast IP Routing Information Base
+         pim (2920)            - Protocol Independent Multicast
+         rpm (2936)            - Routing Policy Manager
+         u6rib (2944)          - Unicast Routing Info Base for IPv6
+         urib (2952)           - Unicast Routing Info Base
+         smm (2960)            - Shared Memory Mgr
+         resMgr (2976)         - Resource Manager
+         ip (3048)             - IP
+         ipv6 (3056)           - IP v6
+         arp (3080)            - Address Resolution Protocol
+         diagportlb (3096)     - Diagnostic Port Loopback Test
+         vmm (3112)            - Virtual Module Manager
+         tm (3144)             - Tunnel Manager
+         npv (3152)            - N_Port Virtualizer
+         deviceTest (3160)     - Gold Device Test
+         cts (3168)            - Cisco TrustSec(CTS)
+         sal (3200)            - Security Hardware Abstraction Layer
+         copp (3216)           - Control Plane Policing
+         sme (3248)            - SME Service
+         mvsh (3296)           - Message VSH Server
+         pltfmCfg(3336)        - Platform Config Logging
+         acllog(3360)          - ACL Logging
+         orib (3448)           - OTV Routing Information Base
+         m2rib (3496)          - L2 Multicast RIB
+         vpc (3512)            - Virtual Port-Channel
+         u2rib (3544)          - L2 Unicast RIB
+         lldp (3576)           - LLDP
+         aam (3680)            - Abstract ACL Manager
+         spm (3872)            - Service Policy Manager
+         sifMgr (3888)         - Server Interface Manager
+         fwm (3904)            - Forwarding Manager
+         zschk(3920)           - Zone check
+         afm(3952)             - ACL Feature Manager
+         gatosUsd(3960)        - Gatos USD
+         pfm(3984)             - Nuova Platform Manager
+         nicmgr(4008)          - Nic Manager
+         qd(4024)              - Qos Driver
+         nqosm(4032)           - Nuova Qos Manager
+         ethpc(4040)           - Ethernet Port Client
+         fcpc(4048)            - FC Port Client
+         enm(4056)             - endnode manager
+         dcbx(4064)            - DCBX Protocol
+         altos(4072)           - altosusd
+         nohms(4088)           - Nuova ohms
+         satMgr(4096)          - Satellite manager
+         satCtrl(4104)         - Satellite control
+         redwoodUsd(4112)      - redwood usd
+         fwmCtrl(4120)         - forwarding ctrl
+         qosCtrl(4128)         - Qos Controller
+         nppm(4136)            - Nuova Port Profile Manager
+         satSyslog(4144)       - Satellite Syslog
+         fcoeMgr(4152)         - Fcoe manager
+         ioa(4168)             - IO Accel Service
+         ppm(4192)             - Port Profile Manager
+         bfd (4208)            - Bi-directional Forwarding Detection
+         wccp (4224)           - Web Cache Communication Protocol
+         vntagMgr(4320)        - VNTag Manager
+         assocMgr(4368)        - Association Manager
+         l2pt (4552)           - L2 Protocol Tunneling for Qinq
+         clkmgr(4592)          - Clock Manager
+         cmond (4880)          - CPU Monitor
+         evc (5168)            - Flexible VLAN Match And Rewrite
+         slaSender (5320)      - Service Level Agreements (SLA)
+                                 Sender
+         slaResponder (5328)   - Service Level Agreements (SLA)
+                                 Responder
+         iscm (5640)           - ISCM
+         pixmgl(5744)          - PIXMGL
+         pixmvl(5752)          - PIXMVL
+         blogger (5776)        - Blogger Daemon
+         snmpmib(5784)         - SNMP MIB Proc
+         plsm(5808)            - PLSM
+         giscm (5840)          - GISCM
+         sim(5848)             - Shadow Interface Manager          
+         vman (5864)           - VMAN
+         fpOam (5920)          - FabricPath Operations Administration
+                                 and Maintenance(OAM)
+         lim(5960)             - Logical Interface Manager
+         ecp(6016)             - ECP Daemon
+         adbm(6048)            - Asset DB Manager
+         plcmgr(6168)          - PLC Manager
+         patchd(6368)          - Patch Installer
+         nxapi(6592)           - NXAPI
+         analytics(6824)       - ANALYTICS
+         vmis(7128)            - VMIS
+         telemetry(7272)       - TELEMETRY"
+
+    REFERENCE       "RFC 3164 - The BSD Syslog Protocol, Section 4."
+    SYNTAX          INTEGER  {
+                        kernel(0),
+                        user(8),
+                        mail(16),
+                        daemon(24),
+                        auth(32),
+                        syslog(40),
+                        lpr(48),
+                        news(56),
+                        uucp(64),
+                        cron(72),
+                        authPriv(80),
+                        ftp(88),
+                        local0(128),
+                        local1(136),
+                        local2(144),
+                        local3(152),
+                        local4(160),
+                        local5(168),
+                        local6(176),
+                        local7(184),
+                        vsanMgr(200),
+                        fspf(208),
+                        domainMgr(216),
+                        mtsDaemon(224),
+                        linecardMgr(232),
+                        sysMgr(240),
+                        sysMgrLib(248),
+                        zoneServer(256),
+                        virtualIfMgr(264),
+                        ipConfMgr(272),
+                        ipfc(280),
+                        xBarMgr(288),
+                        fcDns(296),
+                        fabricConfMgr(304),
+                        aclMgr(312),
+                        tlPortMgr(320),
+                        portMgr(328),
+                        fportServer(336),
+                        portChMgr(344),
+                        mpls(352),
+                        tftpLib(360),
+                        wwnMgr(368),
+                        fcc(376),
+                        qosMgr(384),
+                        vhba(392),
+                        procMgr(400),
+                        fcRedirect(408),
+                        span(416),
+                        vrrpMgr(424),
+                        fcfwd(432),
+                        ntp(440),
+                        pltmfmMgr(448),
+                        xbarClient(456),
+                        vrrpEngine(464),
+                        callhome(472),
+                        ipsMgr(480),
+                        fc2(488),
+                        debugLib(496),
+                        vpm(504),
+                        mcast(512),
+                        rdl(520),
+                        rscn(536),
+                        bootvar(552),
+                        pss(576),
+                        snmp(584),
+                        security(592),
+                        vhbad(608),
+                        dns(648),
+                        rib(656),
+                        vshd(672),
+                        fvpd(688),
+                        prefpath(704),
+                        avm(736),
+                        mplsTunnel(816),
+                        cdpd(848),
+                        ohmsd(920),
+                        migd(928),
+                        portSec(960),
+                        ethPortMgr(976),
+                        zbm(992),
+                        ipaclMgr(1016),
+                        ficonMgr(1064),
+                        fsDaemon(1072),
+                        ficonContDev(1096),
+                        rlir(1128),
+                        fdmi(1136),
+                        licmgr(1152),
+                        fcspmgr(1160),
+                        epp(1168),
+                        confCheck(1192),
+                        ivr(1232),
+                        aaad(1240),
+                        tacacsd(1248),
+                        radiusd(1256),
+                        fc2d(1320),
+                        cimServer(1328),
+                        lcohmsd(1336),
+                        isns(1344),
+                        ficonStat(1352),
+                        featureMgr(1360),
+                        lttd(1376),
+                        fccLc(1392),
+                        ilcHelper(1408),
+                        cfs(1432),
+                        dstats(1448),
+                        ipsec(1456),
+                        dpvm(1480),
+                        ike(1488),
+                        ddas(1504),
+                        scheduler(1512),
+                        sanExtTuner(1520),
+                        fscm(1536),
+                        cloud(1712),
+                        smartCard(1720),
+                        certEnroll(1752),
+                        stp(1768),
+                        ethpm(1784),
+                        pixm(1792),
+                        ifMgr(1816),
+                        plugin(1872),
+                        acl(1936),
+                        ldap(2048),
+                        portResources(2072),
+                        aclqos(2080),
+                        portSecurity(2088),
+                        eltm(2112),
+                        udld(2120),
+                        svi(2144),
+                        mfdm(2160),
+                        vlanMgr(2176),
+                        ufdm(2184),
+                        aclmgr(2240),
+                        dot1x(2248),
+                        nfm(2368),
+                        hsrpEngine(2376),
+                        bgp(2384),
+                        l2fm(2392),
+                        evms(2400),
+                        evmc(2416),
+                        monitor(2440),
+                        lacp(2448),
+                        vdcMgr(2528),
+                        sdv(2592),
+                        glbp(2600),
+                        dhcpSnooping(2608),
+                        xmlma(2616),
+                        diagclient(2648),
+                        diagmgr(2656),
+                        vedbMgr(2704),
+                        cluster(2728),
+                        ipv6Conf(2760),
+                        ipqosMgr(2800),
+                        ethPortChannel(2840),
+                        otm(2848),
+                        l3vm(2888),
+                        m6rib(2896),
+                        mrib(2904),
+                        pim(2920),
+                        rpm(2936),
+                        u6rib(2944),
+                        urib(2952),
+                        smm(2960),
+                        resMgr(2976),
+                        ip(3048),
+                        ipv6(3056),
+                        arp(3080),
+                        diagportlb(3096),
+                        vmm(3112),
+                        tm(3144),
+                        npv(3152),
+                        deviceTest(3160),
+                        cts(3168),
+                        sal(3200),
+                        copp(3216),
+                        sme(3248),
+                        mvsh(3296),
+                        pltfmCfg(3336),
+                        acllog(3360),
+                        orib(3448),
+                        m2rib(3496),
+                        vpc(3512),
+                        u2rib(3544),
+                        lldp(3576),
+                        aam(3680),
+                        spm(3872),
+                        sifMgr(3888),
+                        fwm(3904),
+                        zschk(3920),
+                        afm(3952),
+                        gatosUsd(3960),
+                        pfm(3984),
+                        nicmgr(4008),
+                        qd(4024),
+                        nqosm(4032),
+                        ethpc(4040),
+                        fcpc(4048),
+                        enm(4056),
+                        dcbx(4064),
+                        altos(4072),
+                        nohms(4088),
+                        satMgr(4096),
+                        satCtrl(4104),
+                        redwoodUsd(4112),
+                        fwmCtrl(4120),
+                        qosCtrl(4128),
+                        nppm(4136),
+                        satSyslog(4144),
+                        fcoeMgr(4152),
+                        ioa(4168),
+                        ppm(4192),
+                        bfd(4208),
+                        wccp(4224),
+                        vntagMgr(4320),
+                        assocMgr(4368),
+                        l2pt(4552),
+                        clkmgr(4592),
+                        cmond(4880),
+                        evc(5168),
+                        slaSender(5320),
+                        slaResponder(5328),
+                        iscm(5640),
+                        pixmgl(5744),
+                        pixmvl(5752),
+                        blogger(5776),
+                        snmpmib(5784),
+                        plsm(5808),
+                        giscm(5840),
+                        sim(5848),
+                        vman(5864),
+                        fpOam(5920),
+                        lim(5960),
+                        ecp(6016),
+                        adbm(6048),
+                        plcmgr(6168),
+                        patchd(6368),
+                        nxapi(6592),
+                        analytics(6824),
+                        vmis(7128),
+                        telemetry(7272)
+                    
+                    }
+
+SyslogProtocol ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The protocol used for sending syslog
+        messages to syslog server.
+
+          tcp (6)    - TCP
+          udp (17)   - UDP."
+    SYNTAX          INTEGER  {
+                        tcp(6),
+                        udp(17)
+                    }
+
+-- Syslog Configuration Group
+-- This group provides the System log (Syslog) configuration options.
+
+cseSyslogConsoleEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicate whether the Syslog messages should be
+        sent to the console."
+    DEFVAL          { false } 
+    ::= { cseSyslogConfigurationGroup 1 }
+
+cseSyslogConsoleMsgSeverity OBJECT-TYPE
+    SYNTAX          SyslogSeverity
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Minimum severity of the message that are sent to
+        the Console."
+    DEFVAL          { debug } 
+    ::= { cseSyslogConfigurationGroup 2 }
+
+cseSyslogLogFileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Name of file to which the Syslog messages are
+        logged. Set operation with a zero length will 
+        fail."
+    DEFVAL          { "messages" } 
+    ::= { cseSyslogConfigurationGroup 3 }
+
+cseSyslogLogFileMsgSeverity OBJECT-TYPE
+    SYNTAX          SyslogSeverity
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Minimum severity of the message that are sent to
+        the log file (cseSyslogLogFileName)."
+    DEFVAL          { debug } 
+    ::= { cseSyslogConfigurationGroup 4 }
+
+cseSyslogFileLoggingDisable OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        true(1),
+                        noOp(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the Syslog messages should be
+        sent to the file indicated by cseSyslogLogFileName.
+        Once this object is set to 'true', the Syslog messages 
+        are no longer sent to the file. The value of 
+        'cseSyslogLogFileName' is set to zero length string.
+        To restart the file logging, the cseSyslogLogFileName 
+        should be set to a valid file name.
+
+        No action is taken if this object is set to 'noOp'.
+        The value of the object when read is always 'noOp'." 
+    ::= { cseSyslogConfigurationGroup 5 }
+
+cseSyslogServerTableMaxEntries OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of entries that the agent supports
+        in the cseSyslogServerTable." 
+    ::= { cseSyslogConfigurationGroup 6 }
+-- cseSyslogServerTable
+
+cseSyslogServerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CseSyslogServerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains all the Syslog servers which are
+        configured."
+    ::= { cseSyslogConfigurationGroup 7 }
+
+cseSyslogServerEntry OBJECT-TYPE
+    SYNTAX          CseSyslogServerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing information about a
+        Syslog server."
+    INDEX           { cseSyslogServerIndex } 
+    ::= { cseSyslogServerTable 1 }
+
+CseSyslogServerEntry ::= SEQUENCE {
+        cseSyslogServerIndex            Unsigned32,
+        cseSyslogServerAddressType      InetAddressType,
+        cseSyslogServerAddress          InetAddress,
+        cseSyslogServerMsgSeverity      SyslogSeverity,
+        cseSyslogServerStatus           RowStatus,
+        cseSyslogServerFacility         SyslogFacility,
+        cseSyslogServerProtocol         SyslogProtocol,
+        cseSyslogServerPort             InetPortNumber,
+        cseSyslogServerProtocolFallback SyslogProtocol
+}
+
+cseSyslogServerIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary integer value, greater than zero, and
+        less than and equal to cseSyslogServerTableMaxEntries, 
+        which identifies a Syslog server row in this table." 
+    ::= { cseSyslogServerEntry 1 }
+
+cseSyslogServerAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The type of the address of the Syslog server which is
+        given by the corresponding value of 
+        cseSyslogServerAddress." 
+    ::= { cseSyslogServerEntry 2 }
+
+cseSyslogServerAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The address of the Syslog server." 
+    ::= { cseSyslogServerEntry 3 }
+
+cseSyslogServerMsgSeverity OBJECT-TYPE
+    SYNTAX          SyslogSeverity
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Minimum severity of the message that are sent to
+        this Syslog server."
+    DEFVAL          { debug } 
+    ::= { cseSyslogServerEntry 4 }
+
+cseSyslogServerStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this row.
+
+        A row can not become 'active' until the values for
+        cseSyslogServerAddressType and cseSyslogServerAddress in
+        that row have both been set.
+
+        A row cannot be created until corresponding instances
+         of following objects are instantiated.
+        - cseSyslogServerAddressType
+        - cseSyslogServerAddress
+
+        The following objects may not be modified while the
+        value of this object is active (1):
+        - cseSyslogServerAddressType
+        - cseSyslogServerAddress." 
+    ::= { cseSyslogServerEntry 5 }
+
+cseSyslogServerFacility OBJECT-TYPE
+    SYNTAX          SyslogFacility
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The facility to be used when sending Syslog messages to
+        this server."
+    DEFVAL          { local7 } 
+    ::= { cseSyslogServerEntry 6 }
+
+cseSyslogServerProtocol OBJECT-TYPE
+    SYNTAX          SyslogProtocol
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The transport protocol used for sending syslog messages
+        to syslog server."
+    DEFVAL          { udp } 
+    ::= { cseSyslogServerEntry 7 }
+
+cseSyslogServerPort OBJECT-TYPE
+    SYNTAX          InetPortNumber (1..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The port number of the syslog server to
+        which syslog messages are sent.
+        The default value in case of 'cseSyslogServerProtocol'
+        value of 'udp' is 514.
+        The default value in case of 'cseSyslogServerProtocol'
+        value of 'tcp' is 1468." 
+    ::= { cseSyslogServerEntry 8 }
+
+cseSyslogServerProtocolFallback OBJECT-TYPE
+    SYNTAX          SyslogProtocol
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used for specifying the
+        protcol to fallback to if the sending of
+        syslog messages using the protocol configured
+        in 'cseSyslogServerProtocol' fails.
+        If the value of this object is same as 
+        the value specified in 'cseSyslogServerProtocol',
+        then protocol fallback in case of failure is not
+        supported."
+    DEFVAL          { udp } 
+    ::= { cseSyslogServerEntry 9 }
+ 
+
+-- cseSyslogMessageControlTable
+
+cseSyslogMessageControlTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CseSyslogMessageControlEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the information about what system
+        log messages should be sent to Syslog host, console, 
+        log file, and/or logged into the internal buffer."
+    ::= { cseSyslogConfigurationGroup 8 }
+
+cseSyslogMessageControlEntry OBJECT-TYPE
+    SYNTAX          CseSyslogMessageControlEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A system log message control table entry.
+        Each entry specifies a severity for a particular 
+        'facility' which generates Syslog messages.  Any 
+        generated message which is at least as severe as 
+        the specified severity will be logged."
+    INDEX           { cseSyslogMessageFacility } 
+    ::= { cseSyslogMessageControlTable 1 }
+
+CseSyslogMessageControlEntry ::= SEQUENCE {
+        cseSyslogMessageFacility SyslogExFacility,
+        cseSyslogMessageSeverity SyslogSeverity
+}
+
+cseSyslogMessageFacility OBJECT-TYPE
+    SYNTAX          SyslogExFacility
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "System log message facility." 
+    ::= { cseSyslogMessageControlEntry 1 }
+
+cseSyslogMessageSeverity OBJECT-TYPE
+    SYNTAX          SyslogSeverity
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Minimum severity of the message that are generated by
+        this Syslog message facility." 
+    ::= { cseSyslogMessageControlEntry 2 }
+ 
+
+
+cseSyslogTerminalEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicate whether the Syslog messages should be
+        sent to the terminals."
+    DEFVAL          { false } 
+    ::= { cseSyslogConfigurationGroup 9 }
+
+cseSyslogTerminalMsgSeverity OBJECT-TYPE
+    SYNTAX          SyslogSeverity
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Minimum severity of the message that are sent to
+        the terminals."
+    DEFVAL          { debug } 
+    ::= { cseSyslogConfigurationGroup 10 }
+
+cseSyslogLinecardEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicate whether the Syslog messages should be
+        generated at the line cards."
+    DEFVAL          { false } 
+    ::= { cseSyslogConfigurationGroup 11 }
+
+cseSyslogLinecardMsgSeverity OBJECT-TYPE
+    SYNTAX          SyslogSeverity
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Minimum severity of the message that are sent from
+        linecards."
+    DEFVAL          { debug } 
+    ::= { cseSyslogConfigurationGroup 12 }
+-- Conformance
+
+ciscoSyslogExtMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoSyslogExtMIB 2 }
+
+ciscoSyslogExtMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSyslogExtMIBConformance 1 }
+
+ciscoSyslogExtMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSyslogExtMIBConformance 2 }
+
+
+ciscoSyslogExtMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-SYSLOG-EXT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoSyslogExtGroup }
+
+    OBJECT          cseSyslogServerAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1),
+                        dns(16)
+                    }
+    DESCRIPTION
+        "Only dns and ipv4 addresses are need to be
+        supported."
+
+    OBJECT          cseSyslogServerStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only three values 'createAndGo', 'destroy' and
+        'active' need to be supported."
+
+    OBJECT          cseSyslogLinecardEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cseSyslogLinecardMsgSeverity
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoSyslogExtMIBCompliances 1 }
+
+ciscoSyslogExtMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-SYSLOG-EXT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoSyslogExtGroup }
+
+    GROUP           ciscoSyslogProtocolGroup
+    DESCRIPTION
+        "The implementation of this group is mandatory
+        in case of systems where different protcol type 
+        can be supported for sending syslog messages."
+
+    OBJECT          cseSyslogServerAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1),
+                        dns(16)
+                    }
+    DESCRIPTION
+        "Only dns and ipv4 addresses are need to be
+        supported."
+
+    OBJECT          cseSyslogServerStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only three values 'createAndGo', 'destroy' and
+        'active' need to be supported."
+
+    OBJECT          cseSyslogLinecardEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cseSyslogLinecardMsgSeverity
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoSyslogExtMIBCompliances 2 }
+
+-- Units of Conformance
+
+ciscoSyslogExtGroup OBJECT-GROUP
+    OBJECTS         {
+                        cseSyslogConsoleEnable,
+                        cseSyslogLogFileName,
+                        cseSyslogFileLoggingDisable,
+                        cseSyslogConsoleMsgSeverity,
+                        cseSyslogLogFileMsgSeverity,
+                        cseSyslogServerTableMaxEntries,
+                        cseSyslogServerAddress,
+                        cseSyslogServerAddressType,
+                        cseSyslogServerMsgSeverity,
+                        cseSyslogServerStatus,
+                        cseSyslogServerFacility,
+                        cseSyslogMessageSeverity,
+                        cseSyslogTerminalEnable,
+                        cseSyslogTerminalMsgSeverity,
+                        cseSyslogLinecardEnable,
+                        cseSyslogLinecardMsgSeverity
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for Syslog management."
+    ::= { ciscoSyslogExtMIBGroups 1 }
+
+ciscoSyslogProtocolGroup OBJECT-GROUP
+    OBJECTS         {
+                        cseSyslogServerProtocol,
+                        cseSyslogServerPort,
+                        cseSyslogServerProtocolFallback
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects referring to
+        protocol related objects in syslog configuration."
+    ::= { ciscoSyslogExtMIBGroups 2 }
+
+END
+

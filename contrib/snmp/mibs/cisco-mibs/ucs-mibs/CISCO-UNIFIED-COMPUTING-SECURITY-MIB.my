@@ -1,0 +1,295 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-SECURITY-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- SECURITY management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-SECURITY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsEquipmentOperability,
+    CucsEquipmentPowerState,
+    CucsEquipmentPresence,
+    CucsEquipmentSensorThresholdStatus,
+    CucsSecurityUnitId
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsSecurityObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        SECURITY management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 88 }
+
+cucsSecurityUnitTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSecurityUnitEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS security:Unit managed object table"
+    ::= { cucsSecurityObjects 1 }
+
+cucsSecurityUnitEntry OBJECT-TYPE
+    SYNTAX           CucsSecurityUnitEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSecurityUnitTable table."
+    INDEX { cucsSecurityUnitInstanceId }
+    ::= { cucsSecurityUnitTable 1 }
+
+CucsSecurityUnitEntry ::= SEQUENCE {
+    cucsSecurityUnitInstanceId                                       CucsManagedObjectId,
+    cucsSecurityUnitDn                                               CucsManagedObjectDn,
+    cucsSecurityUnitRn                                               SnmpAdminString,
+    cucsSecurityUnitId                                               CucsSecurityUnitId,
+    cucsSecurityUnitLocationDn                                       SnmpAdminString,
+    cucsSecurityUnitModel                                            SnmpAdminString,
+    cucsSecurityUnitOperQualifierReason                              SnmpAdminString,
+    cucsSecurityUnitOperState                                        CucsEquipmentOperability,
+    cucsSecurityUnitOperability                                      CucsEquipmentOperability,
+    cucsSecurityUnitPartNumber                                       SnmpAdminString,
+    cucsSecurityUnitPciAddr                                          SnmpAdminString,
+    cucsSecurityUnitPciSlot                                          SnmpAdminString,
+    cucsSecurityUnitPerf                                             CucsEquipmentSensorThresholdStatus,
+    cucsSecurityUnitPower                                            CucsEquipmentPowerState,
+    cucsSecurityUnitPresence                                         CucsEquipmentPresence,
+    cucsSecurityUnitRevision                                         SnmpAdminString,
+    cucsSecurityUnitSerial                                           SnmpAdminString,
+    cucsSecurityUnitThermal                                          CucsEquipmentSensorThresholdStatus,
+    cucsSecurityUnitVendor                                           SnmpAdminString,
+    cucsSecurityUnitVid                                              SnmpAdminString,
+    cucsSecurityUnitVoltage                                          CucsEquipmentSensorThresholdStatus,
+    cucsSecurityUnitAssetTag                                         SnmpAdminString
+}
+
+cucsSecurityUnitInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSecurityUnitEntry 1 }
+
+cucsSecurityUnitDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:dn managed object property"
+    ::= { cucsSecurityUnitEntry 2 }
+
+cucsSecurityUnitRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:rn managed object property"
+    ::= { cucsSecurityUnitEntry 3 }
+
+cucsSecurityUnitId OBJECT-TYPE
+    SYNTAX       CucsSecurityUnitId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:id managed object property"
+    ::= { cucsSecurityUnitEntry 4 }
+
+cucsSecurityUnitLocationDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:locationDn managed object property"
+    ::= { cucsSecurityUnitEntry 5 }
+
+cucsSecurityUnitModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:model managed object property"
+    ::= { cucsSecurityUnitEntry 6 }
+
+cucsSecurityUnitOperQualifierReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:operQualifierReason managed
+        object property"
+    ::= { cucsSecurityUnitEntry 7 }
+
+cucsSecurityUnitOperState OBJECT-TYPE
+    SYNTAX       CucsEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:operState managed object property"
+    ::= { cucsSecurityUnitEntry 8 }
+
+cucsSecurityUnitOperability OBJECT-TYPE
+    SYNTAX       CucsEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:operability managed object property"
+    ::= { cucsSecurityUnitEntry 9 }
+
+cucsSecurityUnitPartNumber OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:partNumber managed object property"
+    ::= { cucsSecurityUnitEntry 10 }
+
+cucsSecurityUnitPciAddr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:pciAddr managed object property"
+    ::= { cucsSecurityUnitEntry 11 }
+
+cucsSecurityUnitPciSlot OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:pciSlot managed object property"
+    ::= { cucsSecurityUnitEntry 12 }
+
+cucsSecurityUnitPerf OBJECT-TYPE
+    SYNTAX       CucsEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:perf managed object property"
+    ::= { cucsSecurityUnitEntry 13 }
+
+cucsSecurityUnitPower OBJECT-TYPE
+    SYNTAX       CucsEquipmentPowerState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:power managed object property"
+    ::= { cucsSecurityUnitEntry 14 }
+
+cucsSecurityUnitPresence OBJECT-TYPE
+    SYNTAX       CucsEquipmentPresence
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:presence managed object property"
+    ::= { cucsSecurityUnitEntry 15 }
+
+cucsSecurityUnitRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:revision managed object property"
+    ::= { cucsSecurityUnitEntry 16 }
+
+cucsSecurityUnitSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:serial managed object property"
+    ::= { cucsSecurityUnitEntry 17 }
+
+cucsSecurityUnitThermal OBJECT-TYPE
+    SYNTAX       CucsEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:thermal managed object property"
+    ::= { cucsSecurityUnitEntry 18 }
+
+cucsSecurityUnitVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:vendor managed object property"
+    ::= { cucsSecurityUnitEntry 19 }
+
+cucsSecurityUnitVid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:vid managed object property"
+    ::= { cucsSecurityUnitEntry 20 }
+
+cucsSecurityUnitVoltage OBJECT-TYPE
+    SYNTAX       CucsEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:voltage managed object property"
+    ::= { cucsSecurityUnitEntry 21 }
+
+cucsSecurityUnitAssetTag OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS security:Unit:assetTag managed object property"
+    ::= { cucsSecurityUnitEntry 22 }
+
+END

@@ -1,0 +1,1839 @@
+-- MIB file created 07-Oct-2010 11:33:50, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LWAPP-MESH-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LWAPP-MESH-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, TimeStamp, MacAddress, TimeInterval
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    cLApSysMacAddress, cLApName
+            FROM CISCO-LWAPP-AP-MIB
+    CLDot11Channel
+            FROM CISCO-LWAPP-TC-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoLwappMeshMIB OBJECT IDENTIFIER ::= { ciscoMgmt 616 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201010070000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems,
+--    Customer Service
+--    Postal: 170 West Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553-NETS
+--    
+--    Email: cs-wnbu-snmp@cisco.com
+--  Descr
+--    This MIB is intended to be implemented on all those
+--    devices operating as Central Controllers (CC) that
+--    terminate the Light Weight Access Point Protocol
+--    (LWAPP) tunnel from Light-weight  Access Points.
+--    
+--    This MIB represents information used in Wireless Mesh
+--    Network. MAP APs associates directly with RAP APs or 
+--    with another MAP AP. Each association of AP (MAP-MAP 
+--    or RAP-MAP) with another AP forms parent-child 
+--    relationship. 
+--    
+--    The deployment of the controller 
+--    (referred to as CC in the diagram), mesh nodes 
+--    (RAP and MAP) LWAPP APs, client(MS) and NMS appear 
+--    as follows.
+--    
+--     +.......+                 +.......+
+--     +       +                 +       +
+--     +  NMS  +                 +  NMS  +
+--     +       +                 +       +
+--     +.......+                 +.......+
+--        .                         .
+--     .    .                     .   .
+--    .         .                .        .
+--    .            .             .            .
+--    +......+     +......+     +......+           +......+
+--    +      +     +      +     +      +           +      +
+--    +  CC  +     +  CC  +     +  CC  +           +  CC  +
+--    +      +     +      +     +      +           +      +
+--    +......+     +......+     +......+           +......+
+--    ..            .             .                 .
+--    ..            .             .                 .
+--    .  .            .             .                 .
+--    .    .            .             .                 .
+--    .      .            .             .                 .
+--    .        .            .             .                 .
+--    +......+ +......+     +......+      +......+          +......+
+--    +      + +      +     +      +      +      +          +      +
+--    +  RAP + +  RAP +     +  RAP  +     +  RAP +          +  RAP +
+--    +      + +      +     +      +      +      +          +      +
+--    +......+ +......+     +......+      +......+          +......+
+--    .        .              .             .                 .
+--    .        .              .             .                 .
+--    .        .              .             .                 .
+--    .          .              .             .                 .
+--    .           .              .             .                 .
+--    +......+ +......+     +......+      +......+          +......+
+--    +      + +      +     +      +      +      +          +      +
+--    +  MAP + +  MS  +     +  MAP +      +  MAP +          +  MAP +
+--    +      + +      +     +      +      +      +          +      +
+--    +......+ +......+     +......+      +......+          +......+
+--    .                    .                          ..    . 
+--    . .                  .                     ..        .
+--    .   .                .                  ..            .
+--    .     .              .              .                .
+--    +......+ +......+     +......+      +......+.         +......+
+--    +      + +      +     +      +      +      +          +      +
+--    +  MAP + +  MAP +     +  MAP +      +  MAP +          +  MS  +
+--    +      + +      +     +      +      +      +          +      +
+--    +......+ +......+     +......+      +......+          +......+
+--    
+--    
+--    
+--    
+--    The LWAPP tunnel exists between the controller and
+--    the APs. The MNs communicate with the APs through
+--    the protocol defined by the 802.11 standard.
+--    
+--    LWAPP APs, upon bootup, discover and join one of the
+--    controllers and the controller pushes the 
+--    configuration, that includes the WLAN parameters to 
+--    the LWAPP APs. 
+--    The APs encapsulate all the 802.11 frames from
+--    wireless clients inside LWAPP frames and forward
+--    the LWAPP frames to the controller.
+--    
+--                       GLOSSARY
+--    
+--    Access Point ( AP )
+--    
+--    An entity that contains an 802.11 medium access
+--    control ( MAC ) and physical layer ( PHY ) interface
+--    and provides access to the distribution services via
+--    the wireless medium for associated clients.
+--    LWAPP APs encapsulate all the 802.11 frames in
+--    LWAPP frames and sends them to the controller to which
+--    it is logically connected.
+--    
+--    Central Controller ( CC )
+--    
+--    The central entity that terminates the LWAPP protocol
+--    tunnel from the LWAPP APs. Throughout this MIB,
+--    this entity is also referred to as 'controller'.
+--    
+--    Mobile Station ( MS )
+--    
+--    A roaming 802.11 wireless device in a wireless
+--    network associated with an access point. Mobile Station
+--    and client are used interchangeably. 
+--    
+--    Network Management System ( NMS )
+--    
+--    The station from which the administrator manages the
+--    wired and wireless networks.
+--    
+--    Mesh Node
+--    
+--    A mesh node is defined as a physical or logical entity
+--    in the mesh network participating in forming the mesh 
+--    backhaul. RAP and MAP are two types of mesh nodes 
+--    supported in mesh network.
+--    
+--    Root AP (RAP)
+--    
+--    The AP forming the bridge between a wired and a mesh
+--    network with an Ethernet interface to the wired 
+--    network and a 802.11 radio interface to the mesh 
+--    network
+--    
+--    Mesh AP (MAP).
+--    
+--    The AP extending wireless coverage similar to a 
+--    repeater in a mesh network and consists of a 802.11 
+--    uplink and a 802.11 downlink. On a single-radio 
+--    backhaul, both uplink and downlink exist on the same 
+--    radio and are logical links only. On a multi-radio 
+--    backhaul, they may exist on different radios.
+--    
+--    Mesh Network
+--    
+--    Network starting with the wireless backhaul downlink
+--    of the RAP and all the entities below except any 
+--    attached network to the Ethernet link of MAPs. A mesh 
+--    network below a single RAP is also referred to as a 
+--    'Mesh Sector'.A mesh network consists of mesh nodes. 
+--    A single mesh network is always augmented to a single 
+--    wired network.
+--    
+--    Mesh Link
+--    
+--    A logical 802.11 link between two mesh nodes. A single 
+--    link is point-to-point. All point-to-multipoint links 
+--    are considered as multiple mesh links. Often referred 
+--    to as mesh backhaul link.
+--    
+--    Mesh Backhaul
+--    
+--    A mesh backhaul consists of mesh nodes and mesh links 
+--    terminating at a RAP. This necessarily creates a one-
+--    to-one relationship between a 'mesh network', 'mesh
+--    sector' and a 'mesh backhaul' where these terms can be 
+--    used interchangeably.
+--    
+--    SNR
+--    
+--    Signal to Noise ratio on the 802.11 radio.
+--    
+--    Bridged network 
+--    
+--    The bridged network is defined as the network(s)
+--    attached to the Ethernet port of any MAP. There can be
+--    multiple such networks attached to a single mesh 
+--    network.
+--    
+--    Mesh Node Roaming
+--    
+--    A mesh node may change its parent mesh node naturally 
+--    when the RF/network condition changes. Child Mesh node 
+--    will re-associate and re-authenticate to new parent 
+--    mesh node. Mesh Security supports two types of mesh 
+--    node roaming.
+--       Intra-controller - LWAPP session is not lost.
+--       Inter-controller - LWAPP session is lost.
+--    
+--    AMSDU
+--    
+--    Aggregate MAC Service Data Unit. A structure containing 
+--    multiple MSDUs, transported within a single (unfragmented)
+--    or multiple (fragmented) Data MPDU.
+--    
+--    IDS
+--    
+--    Intrusion Detection Sysytem. A software to detect unwanted
+--    attempts at accessing,manipulating, and or disabling of WLC.
+--    
+--            ExtendedUA
+--    
+--    For 1524 APs, it has two 802.11a radios (slot1, slot2) and 
+--    one 802.11b/g radio (slot0). This will enable the client 
+--    access on 802.11a (slot1) for 152x series mesh access points
+--    with two 802.11a radios, where the wireless client association 
+--    can be done over the 802.11a radio (slot1). With this feature 
+--    we are providing an option to enable/disable backhaul client 
+--    on another 802.11a radio (slot2) as well. This implies that 
+--    a 152x series mesh access points with two 802.11a radios 
+--    can carry both backhaul traffic and 802.11a (slot1, slot2) 
+--    client traffic over the same radios.
+--    
+--    
+--    REFERENCE
+--    
+--    [1] Wireless LAN Medium Access Control ( MAC ) and
+--    Physical Layer ( PHY ) Specifications.
+--    
+--    [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+--    Weight Access Point Protocol
+--  RevDate
+--    201010070000Z
+--  RevDescr
+--    Deprecated clMeshNodeBackhaulDataRate and replaced
+--    it with clMeshNodeBHDataRate.
+--    
+--    Deprecated ciscoLwappMeshConfigGroupSup1 and
+--    ciscoLwappMeshMIBComplianceR01.
+--    
+--    Added ciscoLwappMeshConfigGroupSup2 and
+--    ciscoLwappMeshMIBComplianceR02.
+--    
+--    Modified the description of the notification object,
+--    ciscoLwappMeshAbateHighSNR.
+--  RevDate
+--    201003030000Z
+--  RevDescr
+--    Added following new objects to clMeshNodeTable:
+--    clMeshNodeChildCount, clMeshNodeBackhaulRadio 
+--    
+--    Added following new objects to ciscoLwappMeshGlobalConfig. 
+--    clMeshHighSNRThresholdAbate, 
+--    clMeshHighSNRThresholdOnset, 
+--    clMeshExcessiveHopCountThreshold, 
+--    clMeshExcessiveMapChildThreshold, 
+--    clMeshPublicSafetyBackhaulGlobal, 
+--    clMeshisAMSDUEnable, 
+--    clMeshIsIdsEnable, 
+--    clMeshIsDCAChannelsEnable, 
+--    clMeshIsExtendedUAEnable 
+--    
+--    Added following new notifications control objects. 
+--    clMeshHighSNRNotifEnabled, 
+--    clMeshConsoleLoginNotifEnabled, 
+--    clMeshDefaultBridgeGroupNameNotifEnabled, 
+--    clMeshExcessiveHopCountNotifEnabled, 
+--    clMeshExcessiveChildrenNotifEnabled 
+--    
+--    Added following new notifications. 
+--    ciscoLwappMeshDefaultBridgeGroupName, 
+--    ciscoLwappMeshExcessiveHopCount, 
+--    ciscoLwappMeshExcessiveChildren, 
+--    ciscoLwappMeshAbateHighSNR, 
+--    ciscoLwappMeshOnsetHighSNR 
+--    
+--    Added following new notification Groups. 
+--    ciscoLwappMeshNotifControlGroupSup1 is a supplement to 
+--    ciscoLwappMeshNotifControlGroup, 
+--    
+--    ciscoLwappMeshNotifsGroupSup1 is a supplement to 
+--    ciscoLwappMeshNotifsGroup. 
+--    
+--    Added ciscoLwappMeshConfigGroupSup1, which deprecates 
+--    ciscoLwappMeshConfigGroup.
+--    
+--    
+--    Added ciscoLwappMeshMIBComplianceR01, which deprecates 
+--    ciscoLwappMeshMIBCompliance 
+--    
+--    Deprecated the following object. 
+--    clMeshNodePublicSafetyBackhaul
+--  RevDate
+--    200703090000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoLwappMeshMIBNotifs OBJECT IDENTIFIER ::= { ciscoLwappMeshMIB 0 }
+ciscoLwappMeshMIBObjects OBJECT IDENTIFIER ::= { ciscoLwappMeshMIB 1 }
+ciscoLwappMeshMIBConform OBJECT IDENTIFIER ::= { ciscoLwappMeshMIB 2 }
+ciscoLwappMeshConfig OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBObjects 1 }
+ciscoLwappMeshGlobalConfig OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBObjects 2 }
+ciscoLwappMeshNeighborsStatus OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBObjects 3 }
+ciscoLwappMeshNotifControlConfig OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBObjects 4 }
+ciscoLwappMeshMIBNotifObjects OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBObjects 5 }
+ciscoLwappMeshMIBCompliances OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBConform 1 }
+ciscoLwappMeshMIBGroups OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBConform 2 }
+
+clMeshNodeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClMeshNodeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents information about the 802.11
+        LWAPP Access Points that have joined the controller
+        as part of a mesh network."
+    ::= { ciscoLwappMeshConfig 1 }
+
+clMeshNodeEntry OBJECT-TYPE
+    SYNTAX ClMeshNodeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a conceptual row in this table.
+        An entry is created when MAP joins the controller. 
+        The entry is removed when the mesh node lose their 
+        association with the controller due to loss of 
+        communication with controller or when a mesh node 
+        is reset."
+    INDEX { cLApSysMacAddress }
+    ::= { clMeshNodeTable 1 }
+
+ClMeshNodeEntry ::= SEQUENCE {
+    clMeshNodeRole INTEGER,
+    clMeshNodeGroupName SnmpAdminString,
+    clMeshNodeBackhaul INTEGER,
+    clMeshNodeBackhaulDataRate Gauge,
+    clMeshNodeEthernetBridge TruthValue,
+    clMeshNodeEthernetLinkStatus INTEGER,
+    clMeshNodePublicSafetyBackhaul TruthValue,
+    clMeshNodeParentMacAddress MacAddress,
+    clMeshNodeHeaterStatus INTEGER,
+    clMeshNodeInternalTemp INTEGER,
+    clMeshNodeType INTEGER,
+    clMeshNodeHops Gauge,
+    clMeshNodeChildCount Gauge,
+    clMeshNodeBackhaulRadio INTEGER,
+    clMeshNodeBHDataRate INTEGER
+    }
+
+clMeshNodeRole OBJECT-TYPE
+    SYNTAX INTEGER {
+        map(1),
+        rap(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the role of mesh AP which has
+        joined the controller. See glossary section above 
+        for detail about MAP and RAP."
+    ::= { clMeshNodeEntry 1 }
+
+clMeshNodeGroupName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..10))
+--    Rsyntax OCTET STRING(SIZE(0..10))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the group name of the mesh
+        sector. MAP AP will join the mesh sector which has the 
+        same group name configured on RAP AP."
+    ::= { clMeshNodeEntry 2 }
+
+clMeshNodeBackhaul OBJECT-TYPE
+    SYNTAX INTEGER {
+        dot11a(1),
+        dot11b(2),
+        dot11g(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents 802.11 interface type of the
+        backhaul link. See Mesh Link in glossary section for
+        more detail on backhaul link.
+            dot11a - 802.11a radio is used as backhaul link.
+            dot11b - 802.11b radio is used as backhaul link.
+            dot11g - 802.11g radio is used as backhaul link."
+    ::= { clMeshNodeEntry 3 }
+
+clMeshNodeBackhaulDataRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Kbps
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "This object represents the rate at which packets are sent
+        on the backhaul link.  This object has been deprecated 
+        for clMeshNodeBHDataRate."
+    ::= { clMeshNodeEntry 4 }
+
+clMeshNodeEthernetBridge OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A value of 'true' indicates ethernet bridging is enable
+        on this mesh node. A value of 'false indicates ethernet 
+        bridging is not enable on this mesh node. Ethernet bridging 
+        can be enabled on RAP or MAP."
+    ::= { clMeshNodeEntry 5 }
+
+clMeshNodeEthernetLinkStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents if the link is up or down on
+        the ethernet port of the RAP or MAP.
+            up   - ethernet link is up.
+            down - ethernet link is down."
+    ::= { clMeshNodeEntry 6 }
+
+clMeshNodePublicSafetyBackhaul OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "4.9Ghz considered to be public safety band and is
+        limited to some service providers. A value of true
+        indicates that 4.9 Ghz can be used on backhaul link 
+        by selecting channel on the 802.11a backhaul radio.
+        Since public safety is now set at the controller level
+        rather then at the AP level, use of this variable is deprecated,
+        and the global setting clMeshPublicSafetyBackhaulGlobal should be
+        used instead."
+    ::= { clMeshNodeEntry 7 }
+
+clMeshNodeParentMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the MAC address of a parent
+        mesh node. In case of RAP this object will 
+        return 0000000000000."
+    ::= { clMeshNodeEntry 8 }
+
+clMeshNodeHeaterStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        on(1),
+        off(2)
+        }
+--  Units
+--    Percent
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the heater status of the
+        mesh node.
+            on  - heater is in operation
+            off - heater is not operation."
+    ::= { clMeshNodeEntry 9 }
+
+clMeshNodeInternalTemp OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    degree Celsius
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the internal temperature
+        of mesh node in celsius."
+    ::= { clMeshNodeEntry 10 }
+
+clMeshNodeType OBJECT-TYPE
+    SYNTAX INTEGER {
+        indoor(1),
+        outdoor(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the type of mesh node.
+        indoor  - Mesh node which is manufactured to be used 
+                  inside the building. 
+        outdoor - Mesh node which can be used outside building 
+                  in open environment."
+    ::= { clMeshNodeEntry 11 }
+
+clMeshNodeHops OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    hops
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of hops a MAP mesh node
+        is from RAP. When the clMeshNodeRole is set to 'RAP' this 
+        object will return a value of zero."
+    ::= { clMeshNodeEntry 12 }
+
+clMeshNodeChildCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of children MAPs of a RAP or
+        a MAP."
+    DEFVAL { 0 }
+    ::= { clMeshNodeEntry 13 }
+
+clMeshNodeBackhaulRadio OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        dot11bg(2),
+        dot11a(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of radio used for backhaul access.
+        unknown (1)  unsupported APs 
+        dot11bg (2)  The value dot11b sets the 802.11b radio as backhaul radio 
+        dot11a  (3)  The value dot11a sets the 802.11a radio as backhaul radio"
+    DEFVAL { dot11a }
+    ::= { clMeshNodeEntry 14 }
+
+clMeshNodeBHDataRate OBJECT-TYPE
+    SYNTAX INTEGER {
+        mbps1(1),
+        mbps2(2),
+        mbps5point5(3),
+        mbps6(4),
+        mbps9(5),
+        mbps11(6),
+        mbps12(7),
+        mbps18(8),
+        mbps24(9),
+        mbps36(10),
+        mbps48(11),
+        mbps54(12),
+        auto(13),
+        htMcs0(14),
+        htMcs1(15),
+        htMcs2(16),
+        htMcs3(17),
+        htMcs4(18),
+        htMcs5(19),
+        htMcs6(20),
+        htMcs7(21),
+        htMcs8(22),
+        htMcs9(23),
+        htMcs10(24),
+        htMcs11(25),
+        htMcs12(26),
+        htMcs13(27),
+        htMcs14(28),
+        htMcs15(29)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the rate at which packets are sent
+        on the backhaul link. Depending on the backhaul radio type,
+        denoted by clMeshNodeBackhaul object, data rate will vary.
+        
+        If the value of clMeshNodeBackhaul object
+        is 'dot11a', data rates can be one of the following 
+        possible values.
+        mbps6(4)
+        mbps9(5)
+        mbps12(7)
+        mbps18(8)
+        mbps24(9)
+        mbps36(10)
+        mbps48(11)
+        mbps54(12)
+        auto(13)
+        
+        Additionally following data rates are supported if 802.11a
+        supports 11n.
+        htMcs0(14)
+        htMcs1(15)
+        htMcs2(16)
+        htMcs3(17)
+        htMcs4(18)
+        htMcs5(19)
+        htMcs6(20)
+        htMcs7(21)
+        htMcs8(22)
+        htMcs9(23)
+        htMcs10(24)
+        htMcs11(25)
+        htMcs12(26)
+        htMcs13(27)
+        htMcs14(28)
+        htMcs15(29)
+        
+        If the value of clMeshNodeBackhaul object
+        is 'dot11b', then data rate can be one of
+        the following possible values.
+        mbps1(1)
+        mbps2(2)
+        mbps5point5(3)
+        mbps11(6)
+        auto(13)
+        
+        IIf the value of clMeshNodeBackhaul object
+        is 'dot11g', then data rate can be one of
+        the following possible values.
+        mbps1(1)
+        mbps2(2)
+        mbps5point5(3)
+        mbps6(4)
+        mbps9(5)
+        mbps11(6)
+        mbps12(7)
+        mbps18(8)
+        mbps24(9)
+        mbps36(10)
+        mbps48(11)
+        mbps54(12)
+        auto(13)"
+    DEFVAL { mbps6 }
+    ::= { clMeshNodeEntry 15 }
+
+clMeshNodeRange OBJECT-TYPE
+    SYNTAX Gauge(150..132000)
+--  Units
+--    feet
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the optimal distance in feet
+        between RAP and MAP for backhaul link without 
+        degrading SNR value."
+    DEFVAL { 12000 }
+    ::= { ciscoLwappMeshGlobalConfig 1 }
+
+clMeshBackhaulClientAccess OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents if client access is to be
+        enable on backhaul link. If AP has two radios,802.11a 
+        and 802.11bg, then radio which is used as backhaul link 
+        does not have client access. A value of 'true' indicates
+        client access is present on backhaul link. If AP has only 
+        one radio then same radio is used for backhaul and client 
+        access."
+    DEFVAL { false }
+    ::= { ciscoLwappMeshGlobalConfig 2 }
+
+clMeshMacFilterList OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If this object is 'true' then any mesh node joining
+        controller will be authenticated against this list.
+        If this object is 'false' then mesh node can join 
+        controller even if mesh node MAC address is not 
+        in MAC filter list."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshGlobalConfig 3 }
+
+clMeshMeshNodeAuthFailureThreshold OBJECT-TYPE
+    SYNTAX Gauge(1..30)
+--  Units
+--    failures
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the authorization failure
+        threshold value. When the number of failures exceeds 
+        this value then 'ciscoLwappMeshAuthFailure' 
+        notification is  raised."
+    DEFVAL { 5 }
+    ::= { ciscoLwappMeshGlobalConfig 4 }
+
+clMeshMeshChildAssociationFailuresThreshold OBJECT-TYPE
+    SYNTAX Gauge(10..30)
+--  Units
+--    failures
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of failed association
+        to controller occurred through a parent mesh node. 
+        When this values exceeds then 
+        'ciscoLwappMeshChildExcludedParent' notification is  
+        raised."
+    DEFVAL { 10 }
+    ::= { ciscoLwappMeshGlobalConfig 5 }
+
+clMeshMeshChildExcludedParentInterval OBJECT-TYPE
+    SYNTAX TimeInterval(18000..96000)
+--    Rsyntax INTEGER(18000..96000)
+--  Units
+--    hundredths-seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the time interval during which
+        a child mesh node will exclude a parent mesh node.
+        During this interval child will not try to associate 
+        the controller through the parent mesh node."
+    DEFVAL { 48000 }
+    ::= { ciscoLwappMeshGlobalConfig 6 }
+
+clMeshSNRThresholdAbate OBJECT-TYPE
+    SYNTAX Gauge(3..50)
+--  Units
+--    db
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the abate threshold value of
+        SNR. This threshold value is use to determine if the 
+        SNR value seen by the child mesh node has reached 
+        acceptable level and is use to trigger the
+        'ciscoLwappMeshAbateSNR' notification."
+    DEFVAL { 16 }
+    ::= { ciscoLwappMeshGlobalConfig 7 }
+
+clMeshSNRThresholdOnset OBJECT-TYPE
+    SYNTAX Gauge(3..50)
+--  Units
+--    db
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the onset threshold value of
+        SNR. This threshold value is use to determine if the 
+        SNR value seen by the child mesh node has reached 
+        below unacceptable level and is use to trigger the
+        'ciscoLwappMeshOnsetSNR' notification."
+    DEFVAL { 12 }
+    ::= { ciscoLwappMeshGlobalConfig 8 }
+
+clMeshSNRCheckTimeInterval OBJECT-TYPE
+    SYNTAX TimeInterval(18000..96000)
+--    Rsyntax INTEGER(18000..96000)
+--  Units
+--    hundredths-seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the time interval after which
+        SNR value is checked by child mesh node."
+    DEFVAL { 18000 }
+    ::= { ciscoLwappMeshGlobalConfig 9 }
+
+clMeshExcessiveParentChangeThreshold OBJECT-TYPE
+    SYNTAX Gauge(1..20)
+--  Units
+--    occcurences
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the threshold for the number
+        of times a child mesh node changes its parent. If number 
+        of parent change exceeds this value with in the time 
+        interval defined by object 
+        'clMeshExcessiveParentChangeInterval' then 
+        the 'ciscoLwappMeshExcessiveParentChange' notification 
+        is raised."
+    DEFVAL { 5 }
+    ::= { ciscoLwappMeshGlobalConfig 10 }
+
+clMeshExcessiveParentChangeInterval OBJECT-TYPE
+    SYNTAX TimeInterval(180000..360000)
+--    Rsyntax INTEGER(180000..360000)
+--  Units
+--    hundredths-seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the time interval during which
+        number of times a child mesh node changes its parent 
+        change is counted. 
+        If number of parent change exceeds the value defined by 
+        the object 'clMeshExcessiveParentChangeThreshold' with in 
+        this time interval then the 
+        'ciscoLwappMeshExcessiveParentChange' notification 
+        is raised."
+    DEFVAL { 360000 }
+    ::= { ciscoLwappMeshGlobalConfig 11 }
+
+clMeshBackgroundScan OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A value of 'true' indicates the MAP mesh node
+        scans its neighbors on different channel other than 
+        only its current channel on backhaul link. This scanning 
+        helps MAP mesh node to quickly determine its new parent 
+        on different channels."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshGlobalConfig 12 }
+
+clMeshAuthenticationMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        eap(2),
+        psk(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents authentication mode of RAP and
+        MAP mesh nodes in controller.
+            none - no authentication is done.
+            psk  - pre shared key. Keys provided during manufacturing
+                   will be used for authentication of mesh node.
+            eap  - extensible authentication protocol is used to 
+                   authenticate mesh node. A value of 'eap' indicates, 
+                   authentication can happen by local-auth in controller 
+                   or by RADIUS server configured in controller."
+    DEFVAL { psk }
+    ::= { ciscoLwappMeshGlobalConfig 13 }
+
+clMeshExcessiveHopCountThreshold OBJECT-TYPE
+    SYNTAX Gauge(1..20)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents threshold number of hops from the
+        MAP node to the RAP. Crossing this value will raise the 
+        'ciscoLwappMeshExcessiveHopCount' notification."
+    DEFVAL { 4 }
+    ::= { ciscoLwappMeshGlobalConfig 14 }
+
+clMeshExcessiveRapChildThreshold OBJECT-TYPE
+    SYNTAX Gauge(1..20)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents threshold number of children MAPs
+        attached to a parent RAP. Crossing this value will raise the 
+        'ciscoLwappMeshExcessiveChildren' notification."
+    DEFVAL { 20 }
+    ::= { ciscoLwappMeshGlobalConfig 15 }
+
+clMeshExcessiveMapChildThreshold OBJECT-TYPE
+    SYNTAX Gauge(1..20)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents threshold number of children MAPs
+        attached to a parent MAP. Crossing this value will raise the 
+        'ciscoLwappMeshExcessiveChildren' notification."
+    DEFVAL { 10 }
+    ::= { ciscoLwappMeshGlobalConfig 16 }
+
+clMeshHighSNRThresholdAbate OBJECT-TYPE
+    SYNTAX Gauge(50..80)
+--  Units
+--    db
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the abate threshold value of
+        SNR. This threshold value is used to determine if the 
+        SNR value seen by the child mesh node has reached 
+        below this level and is use to trigger the
+        'ciscoLwappMeshAbateHighSNR' notification."
+    DEFVAL { 60 }
+    ::= { ciscoLwappMeshGlobalConfig 17 }
+
+clMeshHighSNRThresholdOnset OBJECT-TYPE
+    SYNTAX Gauge(50..80)
+--  Units
+--    db
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the onset threshold value of
+        SNR. This threshold value is use to determine if the 
+        SNR value seen by the child mesh node has reached 
+        above this level and is use to trigger the
+        'ciscoLwappMeshOnsetHighSNR' notification."
+    DEFVAL { 56 }
+    ::= { ciscoLwappMeshGlobalConfig 18 }
+
+clMeshPublicSafetyBackhaulGlobal OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "4.9Ghz considered to be public safety band and is
+        limited to some service providers. A value of true
+        indicates that 4.9 Ghz can be used on backhaul link 
+        by selecting channel on the 802.11a backhaul radio.
+        This setting applies at the controller level. The
+        prior per AP setting clMeshNodePublicSafetyBackhaul
+        is deprecated as a result."
+    DEFVAL { false }
+    ::= { ciscoLwappMeshGlobalConfig 19 }
+
+clMeshisAMSDUEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the AMSDU status.
+        true                :    Turns on AMSDU.
+        false        :    Turns off AMSDU."
+    DEFVAL { false }
+    ::= { ciscoLwappMeshGlobalConfig 20 }
+
+clMeshIsIdsEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the IDS status.
+        true   :    Turns on IDS feature.
+        false  :    Turns off IDS feature."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshGlobalConfig 21 }
+
+clMeshIsDCAChannelsEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the DCA Channel status.
+        true   :    Turns on DCA feature for AP1524SB.
+        false  :    Turns off DCA feature for AP1524SB.   
+        This is not implies for non-1524SB APs. Error will return
+        if it is set for non-1524SB APs."
+    DEFVAL { false }
+    ::= { ciscoLwappMeshGlobalConfig 22 }
+
+clMeshIsExtendedUAEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the ExtendedUA status.
+        true   :    Turns on ExtendedUA feature.
+        false  :    Turns off ExtendedUA feature."
+    DEFVAL { false }
+    ::= { ciscoLwappMeshGlobalConfig 23 }
+
+clMeshNeighborTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClMeshNeighborEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents information about neighbors
+        of any mesh node. Neighbor AP can be on same or
+        different mesh sector. Any mesh node is neighbor of a 
+        mesh node, if it can detect 802.11 signals on any 
+        channels. Child or parent mesh node also considers as 
+        neighbors."
+    ::= { ciscoLwappMeshNeighborsStatus 1 }
+
+clMeshNeighborEntry OBJECT-TYPE
+    SYNTAX ClMeshNeighborEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An (conceptual) entry in this table is created when
+        mesh node detects neighbor mesh nodes. 
+        Entries are removed when the mesh node does not detect
+        AP as neighbor."
+    INDEX { cLApSysMacAddress, clMeshNeighborMacAddress }
+    ::= { clMeshNeighborTable 1 }
+
+ClMeshNeighborEntry ::= SEQUENCE {
+    clMeshNeighborMacAddress MacAddress,
+    clMeshNeighborType OCTET STRING,
+    clMeshNeighborLinkSnr INTEGER,
+    clMeshNeighborChannel CLDot11Channel,
+    clMeshNeighborUpdate TimeStamp
+    }
+
+clMeshNeighborMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents MAC address of neighbor
+        mesh node."
+    ::= { clMeshNeighborEntry 1 }
+
+clMeshNeighborType OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   parent(0)
+        --   neighbor(1)
+        --   excluded(2)
+        --   child(3)
+        --   beacon(4)
+        --   default(5)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents type of neighbor mesh node.
+        parent   - Neighbor mesh node is a parent mesh node 
+                   of this mesh node.
+        neighbor - Its a neighbor mesh node. It can be on 
+                   same or different mesh-sector.
+        excluded - Neighbor mesh node is excluded by this 
+                   mesh node.
+        child    - Neighbor mesh node is child of this mesh node.
+        beacon   - Neighbor mesh node found by passive scanning.
+        Default  - Neighbor mesh node connected using a mismatched 
+                   bridge group name"
+    ::= { clMeshNeighborEntry 2 }
+
+clMeshNeighborLinkSnr OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    dB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the SNR value seen by this mesh
+        node from neighbor mesh node."
+    ::= { clMeshNeighborEntry 3 }
+
+clMeshNeighborChannel OBJECT-TYPE
+    SYNTAX CLDot11Channel
+--    Rsyntax Gauge(1..14|34|36|38|40|42|44|46|48|52|56|60|64|149|153|157|161)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the channel on which neighbor
+        mesh node is operating."
+    ::= { clMeshNeighborEntry 4 }
+
+clMeshNeighborUpdate OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents when the neighbor table was last
+        updated. This value is represented as a instance of 
+        sysUp time."
+    ::= { clMeshNeighborEntry 5 }
+
+clMeshAuthFailureNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the generation of
+        'ciscoLwappMeshAuthFailure' notification.       
+        A value of 'true' indicates notification will 
+        be generated.
+        A value of 'false' indicates notification will 
+        be not be generated."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshNotifControlConfig 1 }
+
+clMeshChildExcludedParentNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the generation of
+        'ciscoLwappMeshChildExcludedParent' notification.       
+        A value of 'true' indicates notification will 
+        be generated.
+        A value of 'false' indicates notification will 
+        be not be generated."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshNotifControlConfig 2 }
+
+clMeshParentChangeNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the generation of
+        'ciscoLwappMeshParentChange' notification.       
+        A value of 'true' indicates notification will 
+        be generated.
+        A value of 'false' indicates notification will 
+        be not be generated."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshNotifControlConfig 3 }
+
+clMeshChildMovedNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the generation of
+        'ciscoLwappMeshChildMoved' notification.       
+        A value of 'true' indicates notification will 
+        be generated.
+        A value of 'false' indicates notification will 
+        be not be generated."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshNotifControlConfig 4 }
+
+clMeshExcessiveParentChangeNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the generation of
+        'ciscoLwappMeshExcessiveParentChange' notification.       
+        A value of 'true' indicates notification will 
+        be generated.
+        A value of 'false' indicates notification will 
+        be not be generated."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshNotifControlConfig 5 }
+
+clMeshPoorSNRNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the generation of
+        'ciscoLwappMeshOnsetSNR' and 
+        'ciscoLwappMeshAbateSNR' notifications.       
+        A value of 'true' indicates notification will 
+        be generated.
+        A value of 'false' indicates notification will 
+        be not be generated."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshNotifControlConfig 6 }
+
+clMeshConsoleLoginNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the generation of
+        'ciscoLwappMeshConsoleLogin' notification.       
+        A value of 'true' indicates notification will 
+        be generated.
+        A value of 'false' indicates notification will 
+        not be generated."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshNotifControlConfig 7 }
+
+clMeshDefaultBridgeGroupNameNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the generation of
+        'ciscoLwappMeshDefaultBridgeGroupName' notification.
+        A value of 'true' indicates this notification will be generated.
+        A value of 'false' indicates this notification will not be generated."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshNotifControlConfig 8 }
+
+clMeshExcessiveHopCountNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the generation of
+        'ciscoLwappMeshExcessiveHopCount' notification.
+        A value of 'true' indicates this notification will be generated.
+        A value of 'false' indicates this notification will not be generated."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshNotifControlConfig 9 }
+
+clMeshExcessiveChildrenNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the generation of
+        'ciscoLwappMeshExcessiveChildren' notification.
+        A value of 'true' indicates this notification will be generated.
+        A value of 'false' indicates this notification will not be generated."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshNotifControlConfig 10 }
+
+clMeshHighSNRNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the generation of
+        'ciscoLwappMeshOnsetHighSNR' and 
+        'ciscoLwappMeshAbateHighSNR' notifications.       
+        A value of 'true' indicates notification will 
+        be generated.
+        A value of 'false' indicates notification will 
+        not be generated."
+    DEFVAL { true }
+    ::= { ciscoLwappMeshNotifControlConfig 11 }
+
+clMeshNodeMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the MAC address
+        of a LWAPP AP."
+    ::= { ciscoLwappMeshMIBNotifObjects 1 }
+
+clMeshAuthFailureReason OBJECT-TYPE
+    SYNTAX INTEGER {
+        notInMacFilterList(1),
+        securityFailure(2)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the failure reason when
+        a mesh node failed to authenticate through a 
+        controller to an Authentication Server.
+           notInMacFilterList - MAC address of a mesh node
+                       is not configured in MAC filter list.
+           securityFailure    - Authentication server sent
+                                rejection for the mesh node."
+    ::= { ciscoLwappMeshMIBNotifObjects 2 }
+
+clMeshPreviousParentMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the MAC address
+        of previous parent Mesh Node."
+    ::= { ciscoLwappMeshMIBNotifObjects 3 }
+
+clMeshConsoleLoginStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        success(1),
+        failure(2)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the status of console login
+        at MAP mesh node."
+    ::= { ciscoLwappMeshMIBNotifObjects 4 }
+
+ciscoLwappMeshAuthFailure TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappMeshMIB
+    VARIABLES {
+        clMeshNodeMacAddress, clMeshAuthFailureReason }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A mesh node can fail to authorize if the MAC address
+        of mesh node is not in the MAC filter list or security 
+        failure by authentication server. Reason is specified by 
+        'clMeshAuthFailureReason'. This notification is sent by 
+        the agent when number of failures exceeds threshold 
+        defined by object 'clMeshMeshNodeAuthFailureThreshold'. 
+        Object 'clMeshAuthFailureNotifEnabled' controls the 
+        generation of this notification."
+    ::= 1
+
+ciscoLwappMeshChildExcludedParent TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappMeshMIB
+    VARIABLES {
+        clMeshNodeParentMacAddress, clMeshPreviousParentMacAddress, 
+        cLApName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification will be sent by agent when child
+        mesh node exceeds threshold limit of number of 
+        discovery response timeouts defined by object 
+        'clMeshMeshChildAssociationFailuresThreshold'. The 
+        child mesh node will not try to associate excluded 
+        parent mesh node for the interval defined by object 
+        'clMeshMeshChildExcludedParentInterval'.
+        
+        The child mesh node will remember the excluded parent 
+        MAC address and when it joins the network it will 
+        inform the controller.  
+        'cLApName' specifies child mesh node name. Child MAC 
+        address is sent as part of index. Object 
+        'clMeshChildExcludedParentNotifEnabled' controls the 
+        generation of this notification."
+    ::= 2
+
+ciscoLwappMeshParentChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappMeshMIB
+    VARIABLES {
+        clMeshNodeParentMacAddress, clMeshPreviousParentMacAddress, 
+        cLApName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when a child
+        mesh node changes its parent. Child mesh node will 
+        remember its previous parent and when it joins the 
+        network it will inform controller about change 
+        of its parent. 'cLApName' specifies child mesh node 
+        name. Child mesh node MAC address is sent as part of 
+        index. Object 'clMeshParentChangeNotifEnabled' controls 
+        the generation of this notification."
+    ::= 3
+
+ciscoLwappMeshChildMoved TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappMeshMIB
+    VARIABLES {
+        clMeshNeighborType, cLApName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when a parent
+        mesh node loses connection with its child mesh node. 
+        'cLApName' specifies parent mesh node name. Parent and 
+        child MAC address are sent as part of index. Object 
+        'clMeshChildMovedNotifEnabled' controls 
+        the generation of this notification."
+    ::= 4
+
+ciscoLwappMeshExcessiveParentChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappMeshMIB
+    VARIABLES {
+        clMeshNeighborType, cLApName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when child
+        mesh node changes its parent frequently. Each 
+        mesh node keeps count of number of parent changes 
+        in fixed time. If it exceeds the threshold defined 
+        by 'clMeshExcessiveParentChangeThreshold' then child 
+        mesh node informs the controller. 'cLApName' specifies 
+        child mesh node name. Child and Parent MAC address are 
+        sent as part of index. Object 
+        'clMeshExcessiveParentChangeNotifEnabled' controls 
+        the generation of this notification."
+    ::= 5
+
+ciscoLwappMeshOnsetSNR TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappMeshMIB
+    VARIABLES {
+        clMeshNeighborLinkSnr, cLApName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when child
+        mesh node detects lower SNR on backhaul link then 
+        defined by object 'clMeshSNRThresholdOnset'. SNR 
+        value is checked after interval defined by object 
+        'clMeshSNRCheckTimeInterval'. 
+        'ciscoLwappMeshAbateSNR' notification will be sent 
+        to clear this notification. 'cLApName' specifies 
+        child mesh node name. Child and parent MAC address 
+        are sent as part of index. Object 
+        'clMeshPoorSNRNotifEnabled' controls the generation 
+        of this notification."
+    ::= 6
+
+ciscoLwappMeshAbateSNR TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappMeshMIB
+    VARIABLES {
+        clMeshNeighborLinkSnr, cLApName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent to clear
+        'ciscoLwappMeshOnsetSNR' notification when child mesh 
+        node detects SNR on backhaul link is higher then
+        the object defined by 'clMeshSNRThresholdAbate'. SNR 
+        value is checked after interval defined by object 
+        'clMeshSNRCheckTimeInterval'. 
+        'cLApName' specifies child mesh node name.
+        Child and parent MAC address are sent as part of index.
+        Object 'clMeshPoorSNRNotifEnabled' controls the 
+        generation of this notification."
+    ::= 7
+
+ciscoLwappMeshConsoleLogin TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappMeshMIB
+    VARIABLES {
+        clMeshNodeMacAddress, clMeshConsoleLoginStatus, cLApName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when login on
+        MAP console is successful or failure after three
+        attempts. 'cLApName' specifies mesh node name.
+        Object 'clMeshConsoleLoginNotifEnabled' controls the 
+        generation of this notification."
+    ::= 8
+
+ciscoLwappMeshDefaultBridgeGroupName TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappMeshMIB
+    VARIABLES {
+        cLApName, clMeshNodeParentMacAddress }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when MAP
+        mesh node joins parent using 'default' bridge 
+        group name. The child node mac address is sent as the
+        index of cLApName."
+    ::= 9
+
+ciscoLwappMeshExcessiveHopCount TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappMeshMIB
+    VARIABLES {
+        cLApName, clMeshNodeHops }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when the number of hops
+        from the MAP node to the RAP exceeds the threshold defined by 
+        'clMeshExcessiveHopCountThreshold'. The MAP MAC address is
+        sent as part of the index. These alarms are raised once in three
+        minutes, the periodicity of AP sending the statistics to
+        WLC."
+    ::= 10
+
+ciscoLwappMeshExcessiveChildren TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappMeshMIB
+    VARIABLES {
+        cLApName, clMeshNodeRole, clMeshNodeChildCount }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when the child count
+        exceeds clMeshExcessiveRapChildThreshold for a RAP and
+        clMeshExcessiveMapChildThreshold for a MAP. The node MAC address
+        is sent as a part of the index. These alarms are raised once in
+        three minutes, the periodicity of AP sending the
+        statistics to WLC."
+    ::= 11
+
+ciscoLwappMeshOnsetHighSNR TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappMeshMIB
+    VARIABLES {
+        clMeshNeighborLinkSnr, cLApName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent when child
+        mesh node detects higher SNR on backhaul link then 
+        defined by object 'clMeshHighSNRThresholdOnset'. SNR 
+        value is checked after interval defined by object 
+        'clMeshSNRCheckTimeInterval'. 
+        'ciscoLwappMeshAbateHighSNR' notification will be sent 
+        to clear this notification. 'cLApName' specifies 
+        child mesh node name. Child and parent MAC address 
+        are sent as part of index. Object 
+        'clMeshHighSNRNotifEnabled' controls the generation 
+        of this notification. These alarms are raised once in three
+        minutes, the periodicity of AP sending the statistics to
+        WLC."
+    ::= 12
+
+ciscoLwappMeshAbateHighSNR TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappMeshMIB
+    VARIABLES {
+        clMeshNeighborLinkSnr, cLApName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the agent to clear
+        'ciscoLwappMeshOnsetSNR' notification when child mesh 
+        node detects SNR on backhaul link, which is lower than
+        the object defined by 'clMeshHighSNRThresholdAbate'. SNR 
+        value is checked after interval defined by object 
+        'clMeshSNRCheckTimeInterval'. 
+        'clMeshNeighborLinkSnr' represents the SNR value seen by this mesh
+        node from neighbor mesh node.
+        'cLApName' specifies child mesh node name.
+        Child and parent MAC address are sent as part of index.
+        Object 'clMeshHighSNRNotifEnabled' controls the 
+        generation of this notification."
+    ::= 13
+
+ciscoLwappMeshConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    This collection of objects represent the
+--    global and mesh node specific configuration
+--    and monitor parameters.
+--  objects
+--    clMeshNodeRole, clMeshNodeGroupName, clMeshNodeBackhaul, 
+--    clMeshNodeBackhaulDataRate, clMeshNodeEthernetBridge, 
+--    clMeshNodeEthernetLinkStatus, clMeshNodePublicSafetyBackhaul, 
+--    clMeshNodeParentMacAddress, clMeshNodeHeaterStatus, 
+--    clMeshNodeInternalTemp, clMeshNodeType, clMeshNodeHops, 
+--    clMeshNodeRange, clMeshBackhaulClientAccess, 
+--    clMeshMacFilterList, clMeshMeshNodeAuthFailureThreshold, 
+--    clMeshMeshChildAssociationFailuresThreshold, 
+--    clMeshMeshChildExcludedParentInterval, 
+--    clMeshSNRThresholdAbate, clMeshSNRThresholdOnset, 
+--    clMeshSNRCheckTimeInterval, 
+--    clMeshExcessiveParentChangeThreshold, 
+--    clMeshExcessiveParentChangeInterval, clMeshBackgroundScan, 
+--    clMeshAuthenticationMode
+
+ciscoLwappMeshNeighborStatusGroup OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represent the
+--    neighbor status of any mesh node.
+--  objects
+--    clMeshNeighborType, clMeshNeighborLinkSnr, 
+--    clMeshNeighborChannel, clMeshNeighborUpdate
+
+ciscoLwappMeshNotifControlGroup OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represent the flags
+--    to control the generation of notification.
+--  objects
+--    clMeshAuthFailureNotifEnabled, 
+--    clMeshChildExcludedParentNotifEnabled, 
+--    clMeshParentChangeNotifEnabled, clMeshChildMovedNotifEnabled, 
+--    clMeshExcessiveParentChangeNotifEnabled, 
+--    clMeshPoorSNRNotifEnabled, clMeshConsoleLoginNotifEnabled
+
+ciscoLwappMeshNotifObjsGroup OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represent the information
+--    carried by the mesh network related notifications sent
+--    by the agent to a network management station.
+--  objects
+--    clMeshNodeMacAddress, clMeshAuthFailureReason, 
+--    clMeshPreviousParentMacAddress, clMeshConsoleLoginStatus
+
+ciscoLwappMeshConfigGroupSup1 OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    This collection of objects represent the
+--    global and mesh node specific configuration
+--    and monitor parameters.
+--  objects
+--    clMeshNodeRole, clMeshNodeGroupName, clMeshNodeBackhaul, 
+--    clMeshNodeBackhaulDataRate, clMeshNodeEthernetBridge, 
+--    clMeshNodeEthernetLinkStatus, clMeshNodeParentMacAddress, 
+--    clMeshNodeHeaterStatus, clMeshNodeInternalTemp, 
+--    clMeshNodeType, clMeshNodeHops, clMeshNodeChildCount, 
+--    clMeshNodeBackhaulRadio, clMeshNodeRange, 
+--    clMeshBackhaulClientAccess, clMeshMacFilterList, 
+--    clMeshMeshNodeAuthFailureThreshold, 
+--    clMeshMeshChildAssociationFailuresThreshold, 
+--    clMeshMeshChildExcludedParentInterval, 
+--    clMeshSNRThresholdAbate, clMeshSNRThresholdOnset, 
+--    clMeshHighSNRThresholdAbate, clMeshHighSNRThresholdOnset, 
+--    clMeshSNRCheckTimeInterval, 
+--    clMeshExcessiveParentChangeThreshold, 
+--    clMeshExcessiveParentChangeInterval, clMeshBackgroundScan, 
+--    clMeshAuthenticationMode, clMeshExcessiveHopCountThreshold, 
+--    clMeshExcessiveRapChildThreshold, 
+--    clMeshExcessiveMapChildThreshold, 
+--    clMeshPublicSafetyBackhaulGlobal, clMeshisAMSDUEnable, 
+--    clMeshIsIdsEnable, clMeshIsDCAChannelsEnable, 
+--    clMeshIsExtendedUAEnable
+
+ciscoLwappMeshNotifControlGroupSup1 OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represent the flags
+--    to control the generation of notification.This
+--    deprecates ciscoLwappMeshNotifControlGroup.
+--  objects
+--    clMeshHighSNRNotifEnabled, 
+--    clMeshDefaultBridgeGroupNameNotifEnabled, 
+--    clMeshExcessiveHopCountNotifEnabled, 
+--    clMeshExcessiveChildrenNotifEnabled
+
+ciscoLwappMeshConfigGroupSup2 OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represent the
+--    global and mesh node specific configuration
+--    and monitor parameters.
+--  objects
+--    clMeshNodeRole, clMeshNodeGroupName, clMeshNodeBackhaul, 
+--    clMeshNodeBHDataRate, clMeshNodeEthernetBridge, 
+--    clMeshNodeEthernetLinkStatus, clMeshNodeParentMacAddress, 
+--    clMeshNodeHeaterStatus, clMeshNodeInternalTemp, 
+--    clMeshNodeType, clMeshNodeHops, clMeshNodeChildCount, 
+--    clMeshNodeBackhaulRadio, clMeshNodeRange, 
+--    clMeshBackhaulClientAccess, clMeshMacFilterList, 
+--    clMeshMeshNodeAuthFailureThreshold, 
+--    clMeshMeshChildAssociationFailuresThreshold, 
+--    clMeshMeshChildExcludedParentInterval, 
+--    clMeshSNRThresholdAbate, clMeshSNRThresholdOnset, 
+--    clMeshHighSNRThresholdAbate, clMeshHighSNRThresholdOnset, 
+--    clMeshSNRCheckTimeInterval, 
+--    clMeshExcessiveParentChangeThreshold, 
+--    clMeshExcessiveParentChangeInterval, clMeshBackgroundScan, 
+--    clMeshAuthenticationMode, clMeshExcessiveHopCountThreshold, 
+--    clMeshExcessiveRapChildThreshold, 
+--    clMeshExcessiveMapChildThreshold, 
+--    clMeshPublicSafetyBackhaulGlobal, clMeshisAMSDUEnable, 
+--    clMeshIsIdsEnable, clMeshIsDCAChannelsEnable, 
+--    clMeshIsExtendedUAEnable
+
+ciscoLwappMeshNotifsGroup OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBGroups 5 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represent the mesh network
+--    related notifications sent by the agent to a network 
+--    management station.
+--  notifications
+--    ciscoLwappMeshAuthFailure, ciscoLwappMeshChildExcludedParent, 
+--    ciscoLwappMeshParentChange, ciscoLwappMeshChildMoved, 
+--    ciscoLwappMeshExcessiveParentChange, ciscoLwappMeshOnsetSNR, 
+--    ciscoLwappMeshAbateSNR, ciscoLwappMeshConsoleLogin
+
+ciscoLwappMeshNotifsGroupSup1 OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBGroups 8 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represent the mesh network
+--    related notifications sent by the agent to a network 
+--    management station.
+--  notifications
+--    ciscoLwappMeshDefaultBridgeGroupName, 
+--    ciscoLwappMeshExcessiveHopCount, 
+--    ciscoLwappMeshExcessiveChildren, ciscoLwappMeshAbateHighSNR, 
+--    ciscoLwappMeshOnsetHighSNR
+
+ciscoLwappMeshMIBCompliance OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappMeshMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappMeshConfigGroup
+--   MandGroup
+--    ciscoLwappMeshNeighborStatusGroup
+--   MandGroup
+--    ciscoLwappMeshNotifControlGroup
+--   MandGroup
+--    ciscoLwappMeshNotifObjsGroup
+--   MandGroup
+--    ciscoLwappMeshNotifsGroup
+
+ciscoLwappMeshMIBComplianceR01 OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappMeshMIB module.This deprecates
+--    ciscoLwappMeshMIBCompliance
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappMeshNeighborStatusGroup
+--   MandGroup
+--    ciscoLwappMeshNotifControlGroup
+--   MandGroup
+--    ciscoLwappMeshNotifObjsGroup
+--   MandGroup
+--    ciscoLwappMeshNotifsGroup
+--   MandGroup
+--    ciscoLwappMeshConfigGroupSup1
+--   MandGroup
+--    ciscoLwappMeshNotifControlGroupSup1
+--   MandGroup
+--    ciscoLwappMeshNotifsGroupSup1
+
+ciscoLwappMeshMIBComplianceR02 OBJECT IDENTIFIER ::= { ciscoLwappMeshMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappMeshMIB module.This deprecates
+--    ciscoLwappMeshMIBComplianceR01
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappMeshNeighborStatusGroup
+--   MandGroup
+--    ciscoLwappMeshNotifControlGroup
+--   MandGroup
+--    ciscoLwappMeshNotifObjsGroup
+--   MandGroup
+--    ciscoLwappMeshNotifsGroup
+--   MandGroup
+--    ciscoLwappMeshConfigGroupSup2
+--   MandGroup
+--    ciscoLwappMeshNotifControlGroupSup1
+--   MandGroup
+--    ciscoLwappMeshNotifsGroupSup1
+
+
+END
+

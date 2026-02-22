@@ -1,0 +1,45 @@
+-- *****************************************************************
+-- ME1200-SMI:  ME1200 private MIB
+--   
+-- ****************************************************************
+
+ME1200-SMI DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-IDENTITY,
+    enterprises
+        FROM SNMPv2-SMI;
+
+
+me1200 MODULE-IDENTITY
+    LAST-UPDATED    "201309240000Z"
+    ORGANIZATION    "Cisco Systems, Inc"
+    CONTACT-INFO
+	"Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "The Structure of Management Information."
+    REVISION        "201309240000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { enterprises 9 }
+
+
+me1200SwitchMgmt OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "switchMgmt is the root OBJECT IDENTIFIER from
+         which object id values are assigned."
+    ::= { me1200 1 }
+
+
+
+END
+
+

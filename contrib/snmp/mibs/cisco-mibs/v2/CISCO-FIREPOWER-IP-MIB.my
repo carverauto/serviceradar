@@ -1,0 +1,490 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-IP-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- IP management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-IP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprIpIPv4DnsPref,
+    CfprIpIpV4StaticAddrPref,
+    CfprIpServiceIfPref
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprIpObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        IP management information model package"
+    ::= { ciscoFirepowerMIBObjects 40 }
+
+cfprIpDnsSuffixTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprIpDnsSuffixEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower ip:DnsSuffix managed object table"
+    ::= { cfprIpObjects 1 }
+
+cfprIpDnsSuffixEntry OBJECT-TYPE
+    SYNTAX           CfprIpDnsSuffixEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprIpDnsSuffixTable table."
+    INDEX { cfprIpDnsSuffixInstanceId }
+    ::= { cfprIpDnsSuffixTable 1 }
+
+CfprIpDnsSuffixEntry ::= SEQUENCE {
+    cfprIpDnsSuffixInstanceId                                        CfprManagedObjectId,
+    cfprIpDnsSuffixDn                                                CfprManagedObjectDn,
+    cfprIpDnsSuffixRn                                                SnmpAdminString,
+    cfprIpDnsSuffixGuid                                              SnmpAdminString,
+    cfprIpDnsSuffixHost                                              SnmpAdminString,
+    cfprIpDnsSuffixName                                              SnmpAdminString
+}
+
+cfprIpDnsSuffixInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprIpDnsSuffixEntry 1 }
+
+cfprIpDnsSuffixDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:DnsSuffix:dn managed object property"
+    ::= { cfprIpDnsSuffixEntry 2 }
+
+cfprIpDnsSuffixRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:DnsSuffix:rn managed object property"
+    ::= { cfprIpDnsSuffixEntry 3 }
+
+cfprIpDnsSuffixGuid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:DnsSuffix:guid managed object property"
+    ::= { cfprIpDnsSuffixEntry 4 }
+
+cfprIpDnsSuffixHost OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:DnsSuffix:host managed object property"
+    ::= { cfprIpDnsSuffixEntry 5 }
+
+cfprIpDnsSuffixName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:DnsSuffix:name managed object property"
+    ::= { cfprIpDnsSuffixEntry 6 }
+
+cfprIpIPv4DnsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprIpIPv4DnsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4Dns managed object table"
+    ::= { cfprIpObjects 2 }
+
+cfprIpIPv4DnsEntry OBJECT-TYPE
+    SYNTAX           CfprIpIPv4DnsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprIpIPv4DnsTable table."
+    INDEX { cfprIpIPv4DnsInstanceId }
+    ::= { cfprIpIPv4DnsTable 1 }
+
+CfprIpIPv4DnsEntry ::= SEQUENCE {
+    cfprIpIPv4DnsInstanceId                                          CfprManagedObjectId,
+    cfprIpIPv4DnsDn                                                  CfprManagedObjectDn,
+    cfprIpIPv4DnsRn                                                  SnmpAdminString,
+    cfprIpIPv4DnsAddr                                                InetAddressIPv4,
+    cfprIpIPv4DnsDefGw                                               InetAddressIPv4,
+    cfprIpIPv4DnsPref                                                CfprIpIPv4DnsPref,
+    cfprIpIPv4DnsSubnet                                              InetAddressIPv4
+}
+
+cfprIpIPv4DnsInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprIpIPv4DnsEntry 1 }
+
+cfprIpIPv4DnsDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4Dns:dn managed object property"
+    ::= { cfprIpIPv4DnsEntry 2 }
+
+cfprIpIPv4DnsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4Dns:rn managed object property"
+    ::= { cfprIpIPv4DnsEntry 3 }
+
+cfprIpIPv4DnsAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4Dns:addr managed object property"
+    ::= { cfprIpIPv4DnsEntry 4 }
+
+cfprIpIPv4DnsDefGw OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4Dns:defGw managed object property"
+    ::= { cfprIpIPv4DnsEntry 5 }
+
+cfprIpIPv4DnsPref OBJECT-TYPE
+    SYNTAX       CfprIpIPv4DnsPref
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4Dns:pref managed object property"
+    ::= { cfprIpIPv4DnsEntry 6 }
+
+cfprIpIPv4DnsSubnet OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4Dns:subnet managed object property"
+    ::= { cfprIpIPv4DnsEntry 7 }
+
+cfprIpIPv4WinsServerTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprIpIPv4WinsServerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4WinsServer managed object table"
+    ::= { cfprIpObjects 3 }
+
+cfprIpIPv4WinsServerEntry OBJECT-TYPE
+    SYNTAX           CfprIpIPv4WinsServerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprIpIPv4WinsServerTable table."
+    INDEX { cfprIpIPv4WinsServerInstanceId }
+    ::= { cfprIpIPv4WinsServerTable 1 }
+
+CfprIpIPv4WinsServerEntry ::= SEQUENCE {
+    cfprIpIPv4WinsServerInstanceId                                   CfprManagedObjectId,
+    cfprIpIPv4WinsServerDn                                           CfprManagedObjectDn,
+    cfprIpIPv4WinsServerRn                                           SnmpAdminString,
+    cfprIpIPv4WinsServerIPv4Address                                  InetAddressIPv4,
+    cfprIpIPv4WinsServerGuid                                         SnmpAdminString,
+    cfprIpIPv4WinsServerHost                                         SnmpAdminString,
+    cfprIpIPv4WinsServerName                                         SnmpAdminString
+}
+
+cfprIpIPv4WinsServerInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprIpIPv4WinsServerEntry 1 }
+
+cfprIpIPv4WinsServerDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4WinsServer:dn managed object property"
+    ::= { cfprIpIPv4WinsServerEntry 2 }
+
+cfprIpIPv4WinsServerRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4WinsServer:rn managed object property"
+    ::= { cfprIpIPv4WinsServerEntry 3 }
+
+cfprIpIPv4WinsServerIPv4Address OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4WinsServer:IPv4Address
+        managed object property"
+    ::= { cfprIpIPv4WinsServerEntry 4 }
+
+cfprIpIPv4WinsServerGuid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4WinsServer:guid managed object property"
+    ::= { cfprIpIPv4WinsServerEntry 5 }
+
+cfprIpIPv4WinsServerHost OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4WinsServer:host managed object property"
+    ::= { cfprIpIPv4WinsServerEntry 6 }
+
+cfprIpIPv4WinsServerName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IPv4WinsServer:name managed object property"
+    ::= { cfprIpIPv4WinsServerEntry 7 }
+
+cfprIpIpV4StaticAddrTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprIpIpV4StaticAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower ip:IpV4StaticAddr managed object table"
+    ::= { cfprIpObjects 4 }
+
+cfprIpIpV4StaticAddrEntry OBJECT-TYPE
+    SYNTAX           CfprIpIpV4StaticAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprIpIpV4StaticAddrTable table."
+    INDEX { cfprIpIpV4StaticAddrInstanceId }
+    ::= { cfprIpIpV4StaticAddrTable 1 }
+
+CfprIpIpV4StaticAddrEntry ::= SEQUENCE {
+    cfprIpIpV4StaticAddrInstanceId                                   CfprManagedObjectId,
+    cfprIpIpV4StaticAddrDn                                           CfprManagedObjectDn,
+    cfprIpIpV4StaticAddrRn                                           SnmpAdminString,
+    cfprIpIpV4StaticAddrAddr                                         InetAddressIPv4,
+    cfprIpIpV4StaticAddrDefGw                                        InetAddressIPv4,
+    cfprIpIpV4StaticAddrPref                                         CfprIpIpV4StaticAddrPref,
+    cfprIpIpV4StaticAddrSubnet                                       InetAddressIPv4
+}
+
+cfprIpIpV4StaticAddrInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprIpIpV4StaticAddrEntry 1 }
+
+cfprIpIpV4StaticAddrDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IpV4StaticAddr:dn managed object property"
+    ::= { cfprIpIpV4StaticAddrEntry 2 }
+
+cfprIpIpV4StaticAddrRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IpV4StaticAddr:rn managed object property"
+    ::= { cfprIpIpV4StaticAddrEntry 3 }
+
+cfprIpIpV4StaticAddrAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IpV4StaticAddr:addr managed object property"
+    ::= { cfprIpIpV4StaticAddrEntry 4 }
+
+cfprIpIpV4StaticAddrDefGw OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IpV4StaticAddr:defGw managed object property"
+    ::= { cfprIpIpV4StaticAddrEntry 5 }
+
+cfprIpIpV4StaticAddrPref OBJECT-TYPE
+    SYNTAX       CfprIpIpV4StaticAddrPref
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IpV4StaticAddr:pref managed object property"
+    ::= { cfprIpIpV4StaticAddrEntry 6 }
+
+cfprIpIpV4StaticAddrSubnet OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:IpV4StaticAddr:subnet managed object property"
+    ::= { cfprIpIpV4StaticAddrEntry 7 }
+
+cfprIpServiceIfTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprIpServiceIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower ip:ServiceIf managed object table"
+    ::= { cfprIpObjects 6 }
+
+cfprIpServiceIfEntry OBJECT-TYPE
+    SYNTAX           CfprIpServiceIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprIpServiceIfTable table."
+    INDEX { cfprIpServiceIfInstanceId }
+    ::= { cfprIpServiceIfTable 1 }
+
+CfprIpServiceIfEntry ::= SEQUENCE {
+    cfprIpServiceIfInstanceId                                        CfprManagedObjectId,
+    cfprIpServiceIfDn                                                CfprManagedObjectDn,
+    cfprIpServiceIfRn                                                SnmpAdminString,
+    cfprIpServiceIfAddr                                              InetAddressIPv4,
+    cfprIpServiceIfDefGw                                             InetAddressIPv4,
+    cfprIpServiceIfPort                                              Gauge32,
+    cfprIpServiceIfPref                                              CfprIpServiceIfPref,
+    cfprIpServiceIfSubnet                                            InetAddressIPv4
+}
+
+cfprIpServiceIfInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprIpServiceIfEntry 1 }
+
+cfprIpServiceIfDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:ServiceIf:dn managed object property"
+    ::= { cfprIpServiceIfEntry 2 }
+
+cfprIpServiceIfRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:ServiceIf:rn managed object property"
+    ::= { cfprIpServiceIfEntry 3 }
+
+cfprIpServiceIfAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:ServiceIf:addr managed object property"
+    ::= { cfprIpServiceIfEntry 4 }
+
+cfprIpServiceIfDefGw OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:ServiceIf:defGw managed object property"
+    ::= { cfprIpServiceIfEntry 5 }
+
+cfprIpServiceIfPort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:ServiceIf:port managed object property"
+    ::= { cfprIpServiceIfEntry 6 }
+
+cfprIpServiceIfPref OBJECT-TYPE
+    SYNTAX       CfprIpServiceIfPref
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:ServiceIf:pref managed object property"
+    ::= { cfprIpServiceIfEntry 7 }
+
+cfprIpServiceIfSubnet OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower ip:ServiceIf:subnet managed object property"
+    ::= { cfprIpServiceIfEntry 8 }
+
+END

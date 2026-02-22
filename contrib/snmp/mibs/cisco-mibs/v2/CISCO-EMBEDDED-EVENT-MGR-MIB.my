@@ -1,0 +1,804 @@
+-- *****************************************************************
+-- CISCO-EMBEDDED-EVENT-MGR-MIB.my:  Embedded Event Manager MIB
+--   
+-- April 2002, Jason Pfeifer
+--   
+-- Copyright (c) 2002, 2006 by cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-EMBEDDED-EVENT-MGR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Counter32,
+    Unsigned32,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    DateAndTime,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoExperiment
+        FROM CISCO-SMI;
+
+
+cEventMgrMIB MODULE-IDENTITY
+    LAST-UPDATED    "200611070000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA 95134 USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail:  cs-embedded-event-manager@cisco.com"
+    DESCRIPTION
+        "The MIB module to describe and store events generated
+        by the Cisco Embedded Event Manager.  
+
+        The Cisco Embedded Event Manager detects hardware and software 
+        faults, and other events (such as OIRs) for the system.
+        It also enables users to configure fault recovery services
+        for system wide components.  The Embedded Event Manager also 
+        provides process reliability statistics.
+
+        The Embedded Event Manager is a policy driven process through 
+        which faults in the system are reported through a defined API.
+        The Embedded Event Manager policy engine receives notifications
+        when faults and other events occur.  Embedded Event Manager 
+        policies implement recovery based on the current state of the 
+        system and the actions specified in the policy for a given 
+        event.  Recovery actions are triggered when the policy is 
+        run.  Developers write and customize Embedded Event Manager 
+        policies to handle faults and events."
+    REVISION        "200611070000Z"
+    DESCRIPTION
+        "Added eventType5 to eventType8."
+    REVISION        "200304160000Z"
+    DESCRIPTION
+        "Initial version of this MIB."
+          ::= { ciscoExperiment 134 }
+
+
+cEventMgrMIBNotif  OBJECT IDENTIFIER
+    ::= { cEventMgrMIB 0 }
+
+cEventMgrMIBObjects  OBJECT IDENTIFIER
+    ::= { cEventMgrMIB 1 }
+
+cEventMgrConformance  OBJECT IDENTIFIER
+    ::= { cEventMgrMIB 3 }
+
+ceemEventMap  OBJECT IDENTIFIER
+    ::= { cEventMgrMIBObjects 1 }
+
+ceemHistory  OBJECT IDENTIFIER
+    ::= { cEventMgrMIBObjects 2 }
+
+ceemRegisteredPolicy  OBJECT IDENTIFIER
+    ::= { cEventMgrMIBObjects 3 }
+
+-- Textual Conventions
+
+NotifySource ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The notification source of the history entry.
+        server - Notification was sent by the Embedded Event 
+                 Manager server.
+        policy - Notification was sent from within an Embedded 
+                 Event Manager policy."
+    SYNTAX          INTEGER  {
+                        server(1),
+                        policy(2)
+                    }
+-- Event Map Table
+
+ceemEventMapTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CeemEventMapEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing information about ceemEventIndex
+        value mapping.  Each conceptual row specifies a 
+        unique mapping between a ceemEventIndex value, and a 
+        Embedded Event Manager event type.  Rows are added 
+        dynamically as the Embedded Event Manager server learns
+        of new event types.  This occurs when Embedded Event 
+        Manager Event Detectors register with the Embedded 
+        Event Manager server."
+    ::= { ceemEventMap 1 }
+
+ceemEventMapEntry OBJECT-TYPE
+    SYNTAX          CeemEventMapEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A mapping between an event type and an event description."
+    INDEX           { ceemEventIndex } 
+    ::= { ceemEventMapTable 1 }
+
+CeemEventMapEntry ::= SEQUENCE {
+        ceemEventIndex     Unsigned32,
+        ceemEventName      SnmpAdminString,
+        ceemEventDescrText SnmpAdminString
+}
+
+ceemEventIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies an event.  Events
+        are not persisted across reloads." 
+    ::= { ceemEventMapEntry 1 }
+
+ceemEventName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     "The name of the Embedded Event Manager event." 
+    ::= { ceemEventMapEntry 2 }
+
+ceemEventDescrText OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a human-readable
+        message describing information about the 
+        Embedded Event Manager event." 
+    ::= { ceemEventMapEntry 3 }
+ 
+
+
+-- History Objects
+ceemHistoryMaxEventEntries OBJECT-TYPE
+    SYNTAX          Integer32 (0..50 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of entries that can be held in
+        ceemHistoryEventTable."
+    DEFVAL          { 10 } 
+    ::= { ceemHistory 1 }
+
+ceemHistoryLastEventEntry OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Index of last entry created in ceemHistoryEventTable." 
+    ::= { ceemHistory 2 }
+
+ceemHistoryEventTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CeemHistoryEventEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of Embedded Event Manager events generated by this
+        router.  Conceptual row entries are dynamically added into 
+        this table when Embedded Event Manager events occur.
+
+        Entries are stored in FIFO order.  When the maximum number 
+        of entries has been reached in the table, the oldest entry 
+        in the table is removed immediately.  
+
+        When a table is reduced to a smaller size N, the oldest
+        entries are immediately removed from the table leaving 
+        a maximum of N entries."
+    ::= { ceemHistory 3 }
+
+ceemHistoryEventEntry OBJECT-TYPE
+    SYNTAX          CeemHistoryEventEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about an Embedded Event Manager event which has
+        been generated by this router.  It provides up to four event
+        types to support complex event specifications that are
+        triggered when multiple events are published within a certain
+        period of time."
+    INDEX           { ceemHistoryEventIndex } 
+    ::= { ceemHistoryEventTable 1 }
+
+CeemHistoryEventEntry ::= SEQUENCE {
+        ceemHistoryEventIndex       Unsigned32,
+        ceemHistoryEventType1       Unsigned32,
+        ceemHistoryEventType2       Unsigned32,
+        ceemHistoryEventType3       Unsigned32,
+        ceemHistoryEventType4       Unsigned32,
+        ceemHistoryPolicyPath       SnmpAdminString,
+        ceemHistoryPolicyName       SnmpAdminString,
+        ceemHistoryPolicyExitStatus Integer32,
+        ceemHistoryPolicyIntData1   Integer32,
+        ceemHistoryPolicyIntData2   Integer32,
+        ceemHistoryPolicyStrData    SnmpAdminString,
+        ceemHistoryNotifyType       NotifySource,
+        ceemHistoryEventType5       Unsigned32,
+        ceemHistoryEventType6       Unsigned32,
+        ceemHistoryEventType7       Unsigned32,
+        ceemHistoryEventType8       Unsigned32
+}
+
+ceemHistoryEventIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A monotonically increasing non-zero integer uniquely
+        identifying a generated event.  When it reaches the 
+        maximum value, the agent wraps the value back to 1 
+        and may flush all existing entries in the event table." 
+    ::= { ceemHistoryEventEntry 1 }
+
+ceemHistoryEventType1 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was
+        detected. The value corresponds to an entry in the 
+        ceemEventTable." 
+    ::= { ceemHistoryEventEntry 2 }
+
+ceemHistoryEventType2 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was
+        detected. The value corresponds to an entry in the 
+        ceemEventTable." 
+    ::= { ceemHistoryEventEntry 3 }
+
+ceemHistoryEventType3 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was
+        detected. The value corresponds to an entry in the 
+        ceemEventTable." 
+    ::= { ceemHistoryEventEntry 4 }
+
+ceemHistoryEventType4 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was
+        detected. The value corresponds to an entry in the
+        ceemEventTable." 
+    ::= { ceemHistoryEventEntry 5 }
+
+ceemHistoryPolicyPath OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The file path on the router where the Embedded Event Manager
+        policy that was triggered is stored.  If the size of the 
+        file path string is larger than 128, the end characters 
+        will be truncated." 
+    ::= { ceemHistoryEventEntry 6 }
+
+ceemHistoryPolicyName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The name of the Embedded Event Manager policy that was
+        triggered because of an Embedded Event Manager event. The
+        name must be a valid Embedded Event Manager policy name. 
+        It must be in the form of a valid Posix filename." 
+    ::= { ceemHistoryEventEntry 7 }
+
+ceemHistoryPolicyExitStatus OBJECT-TYPE
+    SYNTAX          Integer32 (-2147483648..2147483647 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The exit status of the Embedded Event Manager policy
+        execution.  This value corresponds to the Posix process 
+        exit status."
+    REFERENCE       "Posix 1003.1 Specification." 
+    ::= { ceemHistoryEventEntry 8 }
+
+ceemHistoryPolicyIntData1 OBJECT-TYPE
+    SYNTAX          Integer32 (-2147483648..2147483647 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Arbitrary integer data that the Embedded Event Manager policy
+        can use. Use of this object is optional. If unused by
+        a policy, this object will not be instantiated for 
+        that policy." 
+    ::= { ceemHistoryEventEntry 9 }
+
+ceemHistoryPolicyIntData2 OBJECT-TYPE
+    SYNTAX          Integer32 (-2147483648..2147483647 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Arbitrary integer data that the Embedded Event Manager policy
+        can use. Use of this object is optional. If unused by
+        a policy, this object will not be instantiated for 
+        that policy." 
+    ::= { ceemHistoryEventEntry 10 }
+
+ceemHistoryPolicyStrData OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Arbitrary string data the Embedded Event Manager policy can
+        use.  Use of this object is optional.  If unused by
+        a policy, this object will not be instantiated for 
+        that policy." 
+    ::= { ceemHistoryEventEntry 11 }
+
+ceemHistoryNotifyType OBJECT-TYPE
+    SYNTAX          NotifySource
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The notification type that was sent from the Embedded Event
+        Manager.  The valid values are server or policy." 
+    ::= { ceemHistoryEventEntry 12 }
+
+ceemHistoryEventType5 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was
+        detected. The value corresponds to an entry in the 
+        ceemEventTable." 
+    ::= { ceemHistoryEventEntry 13 }
+
+ceemHistoryEventType6 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was
+        detected. The value corresponds to an entry in the 
+        ceemEventTable." 
+    ::= { ceemHistoryEventEntry 14 }
+
+ceemHistoryEventType7 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was
+        detected. The value corresponds to an entry in the 
+        ceemEventTable." 
+    ::= { ceemHistoryEventEntry 15 }
+
+ceemHistoryEventType8 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was
+        detected. The value corresponds to an entry in the 
+        ceemEventTable." 
+    ::= { ceemHistoryEventEntry 16 }
+ 
+
+-- Registered Policy Table
+
+ceemRegisteredPolicyTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CeemRegisteredPolicyEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of Embedded Event Manager policies registered on a system.
+        The number of entries depends on the configuration of the system.  The 
+        maximum number is implementation dependent."
+    ::= { ceemRegisteredPolicy 1 }
+
+ceemRegisteredPolicyEntry OBJECT-TYPE
+    SYNTAX          CeemRegisteredPolicyEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the table of Embedded Event Manager policies that are
+        registered.  It provides up to four event types to support complex 
+        event specifications that are triggered when multiple events are 
+        published within a certain period of time.  A row in this table 
+        cannot be created or deleted by SNMP operations on columns of the 
+        table."
+    INDEX           { ceemRegisteredPolicyIndex } 
+    ::= { ceemRegisteredPolicyTable 1 }
+
+CeemRegisteredPolicyEntry ::= SEQUENCE {
+        ceemRegisteredPolicyIndex       Unsigned32,
+        ceemRegisteredPolicyName        SnmpAdminString,
+        ceemRegisteredPolicyEventType1  Unsigned32,
+        ceemRegisteredPolicyEventType2  Unsigned32,
+        ceemRegisteredPolicyEventType3  Unsigned32,
+        ceemRegisteredPolicyEventType4  Unsigned32,
+        ceemRegisteredPolicyStatus      INTEGER ,
+        ceemRegisteredPolicyType        INTEGER ,
+        ceemRegisteredPolicyNotifFlag   TruthValue,
+        ceemRegisteredPolicyRegTime     DateAndTime,
+        ceemRegisteredPolicyEnabledTime DateAndTime,
+        ceemRegisteredPolicyRunTime     DateAndTime,
+        ceemRegisteredPolicyRunCount    Counter32,
+        ceemRegisteredPolicyEventType5  Unsigned32,
+        ceemRegisteredPolicyEventType6  Unsigned32,
+        ceemRegisteredPolicyEventType7  Unsigned32,
+        ceemRegisteredPolicyEventType8  Unsigned32
+}
+
+ceemRegisteredPolicyIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A monotonically increasing non-zero integer uniquely
+        identifying a policy registration.  When it reaches the
+        maximum value, the agent wraps the value back to 1 upon 
+        receiving the next policy registration." 
+    ::= { ceemRegisteredPolicyEntry 1 }
+
+ceemRegisteredPolicyName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The name of the Embedded Event Manager policy that was
+        registered.  The name must be a valid Embedded Event 
+        Manager policy name. It must be in the form of a valid 
+        Posix filename." 
+    ::= { ceemRegisteredPolicyEntry 2 }
+
+ceemRegisteredPolicyEventType1 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was registered
+        by the policy. The value corresponds to an entry in the
+        ceemEventMapTable." 
+    ::= { ceemRegisteredPolicyEntry 3 }
+
+ceemRegisteredPolicyEventType2 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was registered
+        by the policy. The value corresponds to an entry in the
+        ceemEventMapTable." 
+    ::= { ceemRegisteredPolicyEntry 4 }
+
+ceemRegisteredPolicyEventType3 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was registered
+        by the policy. The value corresponds to an entry in the
+        ceemEventMapTable." 
+    ::= { ceemRegisteredPolicyEntry 5 }
+
+ceemRegisteredPolicyEventType4 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was registered
+        by the policy. The value corresponds to an entry in the
+        ceemEventMapTable." 
+    ::= { ceemRegisteredPolicyEntry 6 }
+
+ceemRegisteredPolicyStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enabled(1),
+                        disabled(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This status indicates whether the policy is enabled or disabled." 
+    ::= { ceemRegisteredPolicyEntry 7 }
+
+ceemRegisteredPolicyType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        user(1),
+                        system(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates whether this is a user or system policy." 
+    ::= { ceemRegisteredPolicyEntry 8 }
+
+ceemRegisteredPolicyNotifFlag OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This flag indicates if an SNMP notification will be sent when
+        policy is triggered." 
+    ::= { ceemRegisteredPolicyEntry 9 }
+
+ceemRegisteredPolicyRegTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time the policy was registered.  It is stored as a
+        32-bit count of seconds since 0000 UTC, 1 January, 1970." 
+    ::= { ceemRegisteredPolicyEntry 10 }
+
+ceemRegisteredPolicyEnabledTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time the policy was last enabled.  It is stored as a
+        32-bit count of seconds since 0000 UTC, 1 January, 1970." 
+    ::= { ceemRegisteredPolicyEntry 11 }
+
+ceemRegisteredPolicyRunTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The last time the policy was run.  It is stored as a
+        32-bit count of seconds since 0000 UTC, 1 January, 1970." 
+    ::= { ceemRegisteredPolicyEntry 12 }
+
+ceemRegisteredPolicyRunCount OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     "The number of times the policy has been run." 
+    ::= { ceemRegisteredPolicyEntry 13 }
+
+ceemRegisteredPolicyEventType5 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was registered
+        by the policy. The value corresponds to an entry in the
+        ceemEventMapTable." 
+    ::= { ceemRegisteredPolicyEntry 14 }
+
+ceemRegisteredPolicyEventType6 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was registered
+        by the policy. The value corresponds to an entry in the
+        ceemEventMapTable." 
+    ::= { ceemRegisteredPolicyEntry 15 }
+
+ceemRegisteredPolicyEventType7 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was registered
+        by the policy. The value corresponds to an entry in the
+        ceemEventMapTable." 
+    ::= { ceemRegisteredPolicyEntry 16 }
+
+ceemRegisteredPolicyEventType8 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Embedded Event Manager event which was registered
+        by the policy. The value corresponds to an entry in the
+        ceemEventMapTable." 
+    ::= { ceemRegisteredPolicyEntry 17 }
+ 
+
+-- cEventMgrMIB Notification Definitions
+
+
+cEventMgrServerEvent NOTIFICATION-TYPE
+    OBJECTS         {
+                        ceemHistoryEventType1,
+                        ceemHistoryEventType2,
+                        ceemHistoryEventType3,
+                        ceemHistoryEventType4,
+                        ceemHistoryPolicyPath,
+                        ceemHistoryPolicyName,
+                        ceemHistoryPolicyExitStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent by the Embedded Event Manager
+        server after it has run a policy associated with the 
+        event ceemHistoryEventType that was received."
+   ::= { cEventMgrMIBNotif 1 }
+
+
+cEventMgrPolicyEvent NOTIFICATION-TYPE
+    OBJECTS         {
+                        ceemHistoryEventType1,
+                        ceemHistoryEventType2,
+                        ceemHistoryEventType3,
+                        ceemHistoryEventType4,
+                        ceemHistoryPolicyPath,
+                        ceemHistoryPolicyName,
+                        ceemHistoryPolicyIntData1,
+                        ceemHistoryPolicyIntData2,
+                        ceemHistoryPolicyStrData
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is configured to be sent from within
+        an Embedded Event Manager policy after an Embedded Event 
+        Manager event ceemHistoryEventType has occurred.
+        If one or more of the objects ceemHistoryPolicyIntData1, 
+        ceemHistoryPolicyIntData2, and ceemHistoryPolicyStrData are
+        not instantiated, then the varbind for the object(s) not 
+        instantiated will contain the value 'noSuchInstance'."
+   ::= { cEventMgrMIBNotif 2 }
+-- conformance information
+cEventMgrCompliances  OBJECT IDENTIFIER
+    ::= { cEventMgrConformance 1 }
+
+cEventMgrGroups  OBJECT IDENTIFIER
+    ::= { cEventMgrConformance 2 }
+
+
+-- compliance statements
+cEventMgrCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The implementation requirements for the
+        Embedded Event Manager notification MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cEventMgrDescrGroup,
+                        cEventMgrNotificationsGroup,
+                        cEventMgrRegisteredPolicyGroup
+                    }
+
+    GROUP           cEventMgrHistoryGroup
+    DESCRIPTION
+        "This group is required when the network element
+        supports the storing of Embedded Event Manager notification 
+        history information."
+    ::= { cEventMgrCompliances 1 }
+
+cEventMgrComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The implementation requirements for the
+        Embedded Event Manager notification MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cEventMgrDescrGroup,
+                        cEventMgrNotificationsGroup,
+                        cEventMgrRegisteredPolicyGroup,
+                        cEventMgrRegisteredPolicyGroupSup1
+                    }
+
+    GROUP           cEventMgrHistoryGroup
+    DESCRIPTION
+        "This group is required when the network element
+        supports the storing of Embedded Event Manager notification 
+        history information."
+
+    GROUP           cEventMgrHistoryGroupSup1
+    DESCRIPTION
+        "This group is required when the network element
+        supports the storing of Embedded Event Manager notification 
+        history information."
+    ::= { cEventMgrCompliances 2 }
+
+-- Units of Conformance
+cEventMgrDescrGroup OBJECT-GROUP
+    OBJECTS         {
+                        ceemEventName,
+                        ceemEventDescrText
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of managed objects defining the description
+        of Embedded Event Manager events."
+    ::= { cEventMgrGroups 1 }
+
+cEventMgrHistoryGroup OBJECT-GROUP
+    OBJECTS         {
+                        ceemHistoryMaxEventEntries,
+                        ceemHistoryLastEventEntry,
+                        ceemHistoryEventType1,
+                        ceemHistoryEventType2,
+                        ceemHistoryEventType3,
+                        ceemHistoryEventType4,
+                        ceemHistoryPolicyPath,
+                        ceemHistoryPolicyName,
+                        ceemHistoryPolicyExitStatus,
+                        ceemHistoryPolicyIntData1,
+                        ceemHistoryPolicyIntData2,
+                        ceemHistoryPolicyStrData,
+                        ceemHistoryNotifyType
+                    }
+    STATUS          current
+    DESCRIPTION     "Embedded Event Manager event history."
+    ::= { cEventMgrGroups 2 }
+
+cEventMgrNotificationsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cEventMgrServerEvent,
+                        cEventMgrPolicyEvent
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of notifications used to indicate changes
+        to the ceemHistoryTable."
+    ::= { cEventMgrGroups 3 }
+
+cEventMgrRegisteredPolicyGroup OBJECT-GROUP
+    OBJECTS         {
+                        ceemRegisteredPolicyName,
+                        ceemRegisteredPolicyEventType1,
+                        ceemRegisteredPolicyEventType2,
+                        ceemRegisteredPolicyEventType3,
+                        ceemRegisteredPolicyEventType4,
+                        ceemRegisteredPolicyStatus,
+                        ceemRegisteredPolicyType,
+                        ceemRegisteredPolicyNotifFlag,
+                        ceemRegisteredPolicyRegTime,
+                        ceemRegisteredPolicyEnabledTime,
+                        ceemRegisteredPolicyRunTime,
+                        ceemRegisteredPolicyRunCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of managed objects defining the description
+        of Embedded Event Manager registered policies."
+    ::= { cEventMgrGroups 4 }
+
+cEventMgrHistoryGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        ceemHistoryEventType5,
+                        ceemHistoryEventType6,
+                        ceemHistoryEventType7,
+                        ceemHistoryEventType8
+                    }
+    STATUS          current
+    DESCRIPTION     "Addtional history event types 5-8."
+    ::= { cEventMgrGroups 5 }
+
+cEventMgrRegisteredPolicyGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        ceemRegisteredPolicyEventType5,
+                        ceemRegisteredPolicyEventType6,
+                        ceemRegisteredPolicyEventType7,
+                        ceemRegisteredPolicyEventType8
+                    }
+    STATUS          current
+    DESCRIPTION     "Addtional registered policy event types 5-8."
+    ::= { cEventMgrGroups 6 }
+
+END
+
+
+

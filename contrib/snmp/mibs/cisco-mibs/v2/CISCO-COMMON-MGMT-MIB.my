@@ -1,0 +1,609 @@
+-- ********************************************************************
+-- CISCO-COMMON-MGMT-MIB.my: Common Management Mib
+--   
+-- July 2004, Vinay Gaonkar
+-- June 2005, Sanjeev C Joshi
+--   
+-- Copyright (c) 2004-2005, 2008 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- ********************************************************************
+
+CISCO-COMMON-MGMT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    dod
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    RowStatus,
+    DisplayString,
+    DateAndTime,
+    AutonomousType,
+    TruthValue,
+    StorageType
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    usmNoAuthProtocol,
+    usmNoPrivProtocol
+        FROM SNMP-USER-BASED-SM-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCommonMgmtMIB MODULE-IDENTITY
+    LAST-UPDATED    "200806130000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553 -NETS
+            E-mail: cs-san@cisco.com"
+    DESCRIPTION
+        "MIB module for integrating different elements of
+        managing a device. For example, different device access
+        methods like SNMP, CLI, XML and so on have different set
+        of users which are used to communicate with the device.
+        The ccmCommonUserTable provides framework to create one
+        set of users which is common across all the device 
+        access methods.
+
+        So, this MIB serves as a framework to integrate 
+        management of different access methods."
+    REVISION        "200806130000Z"
+    DESCRIPTION
+        "Added the following.
+        - New mib object 'ccmCommonUserCacheTimeout'.
+        - New Compliance 'ciscoCommonMgmtMIBCompliances'
+        - New Object Group 'ccmCacheTimeoutConfigGroup'."
+    REVISION        "200506230000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 443 }
+
+
+ciscoCommonMgmtNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCommonMgmtMIB 0 }
+
+ciscoCommonMgmtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCommonMgmtMIB 1 }
+
+ciscoCommonMgmtMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoCommonMgmtMIB 2 }
+
+ccmUserConfig  OBJECT IDENTIFIER
+    ::= { ciscoCommonMgmtMIBObjects 1 }
+
+
+-- ccmCommonMaxUsers
+
+ccmCommonMaxUsers OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Maximum number of common users that can be configured
+        on this device. i.e., the maximum number of entries in 
+        the ccmCommonUserTable.
+
+        0 means maximum number of users is dynamically 
+        determined, e.g., depending on memory availability." 
+    ::= { ccmUserConfig 1 }
+
+ccmCommonUsers OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of common users that are currently configured on
+        this device. i.e., the number of entries in the
+        ccmCommonUserTable." 
+    ::= { ccmUserConfig 2 }
+
+ccmCommonUsersGlobalEnforcePriv OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the SNMP agent enforces
+        the use of encryption for SNMPv3 messages globally on 
+        all the users in the system.
+
+        The 'vacmAccessSecurityLevel' determines the acceptable
+        security levels per group and is set to noAuthnoPriv 
+        default unless otherwise configured. The actual access
+        to the mib objects in a SNMP message is controlled by
+        vacmAccessTable. This object provides the configuration
+        at a higher level to enforce privacy  without any 
+        introspection of the mib objects in the SNMP message.
+
+        When the privacy is enforced globally, for any SNMPv3
+        PDU request with securityLevel of either 'noAuthNoPriv'
+        and 'authNoPriv', the SNMP agent responds with an
+        'authorizationError'."
+    DEFVAL          { false } 
+    ::= { ccmUserConfig 3 }
+
+ccmCommonUserLastChange OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The local date and time when the user database -
+        ccmCommonUserTable configuration was last changed. 
+        This object will be set to zero on power cycle or 
+        on reboot of the system. Also, if the clock is 
+        changed on local system it is set to zero." 
+    ::= { ccmUserConfig 4 }
+-- ccmCommonUserTable
+
+ccmCommonUserTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmCommonUserEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists all the common users configured on
+        this device. A common user is a user who is common
+        across SNMP, CLI and other device access methods.
+
+        Certain access methods might need the user created 
+        to be standard compliant. For example - for SNMP, the
+        user created need to be compliant to RFC 3414 
+        (SNMP-USER-BASED-SM-MIB). When a common user is 
+        created in this table, a corresponding SNMP user is 
+        created in the 'usmUserTable' with corresponding
+        instance of usmUserStorageType set to readOnly . 
+        Similarly when a common user is deleted from this 
+        table, the corresponding  entry in the 'usmUserTable'
+        is deleted."
+    ::= { ccmUserConfig 5 }
+
+ccmCommonUserEntry OBJECT-TYPE
+    SYNTAX          CcmCommonUserEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the ccmCommonUserTable."
+    INDEX           { ccmCommonUserName } 
+    ::= { ccmCommonUserTable 1 }
+
+CcmCommonUserEntry ::= SEQUENCE {
+        ccmCommonUserName             SnmpAdminString,
+        ccmCommonUserPassword         DisplayString,
+        ccmCommonUserExpiryDate       DateAndTime,
+        ccmCommonUserSshKeyFilename   SnmpAdminString,
+        ccmCommonUserSshKeyConfigured TruthValue,
+        ccmCommonUserSNMPAuthProtocol AutonomousType,
+        ccmCommonUserSNMPPrivProtocol AutonomousType,
+        ccmCommonUserCredType         INTEGER,
+        ccmCommonUserStorageType      StorageType,
+        ccmCommonUserRowStatus        RowStatus
+}
+
+ccmCommonUserName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Name of the common user." 
+    ::= { ccmCommonUserEntry 1 }
+
+ccmCommonUserPassword OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Password of the common user.
+
+        For SNMP, this password is used for both authentication
+        and privacy. For CLI and XML, it is used for 
+        authentication only.
+
+        A zero-length string is always returned when this
+        object is read."
+    DEFVAL          { ''H } 
+    ::= { ccmCommonUserEntry 2 }
+
+ccmCommonUserExpiryDate OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The date on which this user will expire. Note
+        that non-date related octets in this object are 
+        ignored.
+
+        If the all the date related octets have value 
+        '00'H, then user never expires."
+    DEFVAL          { '0000000000000000000000'H } 
+    ::= { ccmCommonUserEntry 3 }
+
+ccmCommonUserSshKeyFilename OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The name of the file storing the SSH public key.
+        The SSH public key is used to authenticate the SSH 
+        session for this user. Note that this object 
+        applies to only CLI user.
+
+        The content within SSH Key file can be one of the
+        following:
+
+           - SSH Public Key in OpenSSH format
+
+           - SSH Public Key in IETF SECSH (Commercial
+             SSH public key format)
+
+           - SSH Client Certificate in PEM (privacy-enhanced
+             mail format) from which the public key will be 
+             extracted
+
+           - SSH Client Certificate DN (Distinguished Name) 
+             for certificate based authentication 
+
+        This object is used to configure the SSH public key for
+        a user. When this object is read, the agent may return
+        a zero length string. However, the value of the 
+        corresponding instance of ccmCommonUserSshKeyConfigured
+        should indicate if the key is configured or not."
+    DEFVAL          { ''H } 
+    ::= { ccmCommonUserEntry 4 }
+
+ccmCommonUserSshKeyConfigured OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the user corresponding
+        to this entry is configured with SSH public key.
+
+        The value of 'true' indicates that the user is 
+        configured with SSH public key. The value of 'false'
+        indicates the user is not configured with SSH public 
+        key." 
+    ::= { ccmCommonUserEntry 5 }
+
+ccmCommonUserSNMPAuthProtocol OBJECT-TYPE
+    SYNTAX          AutonomousType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "An indication of whether messages sent on behalf of
+        this user to/from the SNMP engine can be authenticated,
+        and if so, the type of authentication protocol which is
+        used.
+
+        An instance of this object is created concurrently
+        with the creation of any other object instance for
+        the same user (i.e., as part of the processing of
+        the set operation which creates the first object
+        instance in the same conceptual row).
+
+        If an initial set operation (i.e. at row creation time)
+        tries to set a value for an unknown or unsupported
+        protocol, then a 'wrongValue' error must be returned.
+
+        Once instantiated, the value of such an instance of
+        this object can only be changed via a set operation to
+        the value of the usmNoAuthProtocol.
+
+        If a set operation tries to change the value of an
+        existing instance of this object to any value other
+        than usmNoAuthProtocol, then an 'inconsistentValue'
+        error must be returned.
+
+        If a set operation tries to set the value to the
+        usmNoAuthProtocol while the 
+        ccmCommonUserSNMPPrivProtocol value in the same row is
+        not equal to usmNoPrivProtocol, then an 
+        'inconsistentValue' error must be returned. That means
+        that an SNMP command generator application must first
+        ensure that the usmUserPrivProtocol is set to the 
+        usmNoPrivProtocol value before it can set the 
+        usmUserAuthProtocol value to usmNoAuthProtocol.
+
+        The value of an instance of this object directly maps
+        to a corresponding instance of usmUserAuthProtocol in
+        the usmUserTable."
+    DEFVAL          { usmNoAuthProtocol } 
+    ::= { ccmCommonUserEntry 6 }
+
+ccmCommonUserSNMPPrivProtocol OBJECT-TYPE
+    SYNTAX          AutonomousType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "An indication of whether messages sent on behalf of
+        this user to/from the SNMP engine can be protected 
+        from disclosure, and if so, the type of privacy 
+        protocol which is used.
+
+        An instance of this object is created concurrently
+        with the creation of any other object instance for
+        the same user (i.e., as part of the processing of
+        the set operation which creates the first object
+        instance in the same conceptual row).
+
+        If an initial set operation (i.e. at row creation time)
+        tries to set a value for an unknown or unsupported
+        protocol, then a 'wrongValue' error must be returned.
+
+        Once instantiated, the value of such an instance of
+        this object can only be changed via a set operation to
+        the value of the usmNoPrivProtocol.
+
+        If a set operation tries to change the value of an
+        existing instance of this object to any value other
+        than usmNoPrivProtocol, then an 'inconsistentValue'
+        error must be returned.
+
+        Note that if any privacy protocol is used, then you
+        must also use an authentication protocol. In other
+        words, if usmUserPrivProtocol is set to anything else
+        than usmNoPrivProtocol, then the corresponding instance
+        of usmUserAuthProtocol cannot have a value of 
+        usmNoAuthProtocol. If it does, then an 
+        'inconsistentValue' error must be returned.
+
+        The value of an instance of this object directly maps
+        to a corresponding instance of usmUserPrivProtocol in
+        the usmUserTable."
+    DEFVAL          { usmNoPrivProtocol } 
+    ::= { ccmCommonUserEntry 7 }
+
+ccmCommonUserCredType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        localCredentialStore(2),
+                        remoteCredentialStore(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the credential store of the user.
+
+        When a row is created in this table by a user, the 
+        user entry is created in a credential store local to
+        the device.
+
+        In case of remote authentication mechanism like AAA
+        Server based authentication, credentials are stored
+        in other(remote) system/device." 
+    ::= { ccmCommonUserEntry 8 }
+
+ccmCommonUserStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row.
+        Conceptual rows having the value 'permanent' need
+        not allow write-access to any columnar objects in
+        the row."
+    DEFVAL          { nonVolatile } 
+    ::= { ccmCommonUserEntry 9 }
+
+ccmCommonUserRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Status of the user." 
+    ::= { ccmCommonUserEntry 10 }
+ 
+
+-- ccmCommonUserRoleListTable
+
+ccmCommonUserRoleTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmCommonUserRoleEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides a mechanism to map a common
+        user represented by ccmCommonUserName to one or 
+        more roles. These roles provide access control 
+        policies for a principal. Note that all the roles
+        used in the this table have to be present in the
+        commonRoleTable of CISCO-COMMON-ROLES-MIB.
+
+        For Common User - Role assignments created in this
+        table, for SNMP user access, the corresponding 
+        entries are created in the vacmSecurityToGroupTable
+        (of SNMP-VIEW-BASED-ACM-MIB) in line with View-based
+        Access Control Model (RFC3415) and 
+        cvacmSecurityToGroupTable (of CISCO-SNMP-VACM-EXT-MIB)
+        to represent all the  mappings. All such instances in
+        SNMP tables are created with corresponding StorageType
+        set to readOnly.
+
+        Note that it is not necessary to update this table if 
+        the user-role mapping data is changed using 
+        corresponding access methods. e.g., if the SNMPv3 
+        user-group mapping using vacmSecurityToGroupTable 
+        and cvacmSecurityToGroupTable is changed, it is not
+        necessary to reflect that change in this table."
+    ::= { ccmUserConfig 6 }
+
+ccmCommonUserRoleEntry OBJECT-TYPE
+    SYNTAX          CcmCommonUserRoleEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the
+        ccmCommonUserRoleTable."
+    INDEX           {
+                        ccmCommonUserName,
+                        ccmCommonUserRoleName
+                    } 
+    ::= { ccmCommonUserRoleTable 1 }
+
+CcmCommonUserRoleEntry ::= SEQUENCE {
+        ccmCommonUserRoleName        SnmpAdminString,
+        ccmCommonUserRoleStorageType StorageType,
+        ccmCommonUserRoleRowStatus   RowStatus
+}
+
+ccmCommonUserRoleName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Name of the role." 
+    ::= { ccmCommonUserRoleEntry 1 }
+
+ccmCommonUserRoleStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row.
+        Conceptual rows having the value 'permanent' need
+        not allow write-access to any columnar objects in
+        the row."
+    DEFVAL          { nonVolatile } 
+    ::= { ccmCommonUserRoleEntry 2 }
+
+ccmCommonUserRoleRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Status of the role list entry." 
+    ::= { ccmCommonUserRoleEntry 3 }
+ 
+
+
+-- timeout for caching user entries with remote authentication.
+
+ccmCommonUserCacheTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..86400)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies maximum timeout value for
+        caching the user credentials in the local system.
+        Such caching is used in remote authentication
+        mechanism like AAA Server based authentication.
+        This applies to the common user entries as
+        represented by 'ccmCommonUserTable' where
+        the value of 'ccmCommonUserCredType' is
+        'remoteCredentialStore'." 
+    ::= { ccmUserConfig 7 }
+-- Conformance
+
+ciscoCommonMgmtMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCommonMgmtMIBConform 1 }
+
+ciscoCommonMgmtMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCommonMgmtMIBConform 2 }
+
+
+ciscoCommonMgmtMIBCompliance MODULE-COMPLIANCE
+    STATUS          obsolete
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-COMMON-MGMT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ccmConfigurationGroup }
+
+    OBJECT          ccmCommonUserRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only 'createAndGo', 'destroy' and 'active' need to be
+        supported."
+
+    OBJECT          ccmCommonUserRoleRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only 'createAndGo', 'destroy' and 'active' need to be
+        supported."
+    ::= { ciscoCommonMgmtMIBCompliances 1 }
+
+ciscoCommonMgmtMIBCompliance1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-COMMON-MGMT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ccmConfigurationGroup,
+                        ccmCacheTimeoutConfigGroup
+                    }
+
+    OBJECT          ccmCommonUserRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only 'createAndGo', 'destroy' and 'active' need to be
+        supported."
+
+    OBJECT          ccmCommonUserRoleRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only 'createAndGo', 'destroy' and 'active' need to be
+        supported."
+    ::= { ciscoCommonMgmtMIBCompliances 2 }
+
+-- Units of Conformance
+
+ccmConfigurationGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccmCommonMaxUsers,
+                        ccmCommonUsers,
+                        ccmCommonUsersGlobalEnforcePriv,
+                        ccmCommonUserLastChange,
+                        ccmCommonUserPassword,
+                        ccmCommonUserExpiryDate,
+                        ccmCommonUserSshKeyFilename,
+                        ccmCommonUserSshKeyConfigured,
+                        ccmCommonUserSNMPAuthProtocol,
+                        ccmCommonUserSNMPPrivProtocol,
+                        ccmCommonUserCredType,
+                        ccmCommonUserStorageType,
+                        ccmCommonUserRowStatus,
+                        ccmCommonUserRoleStorageType,
+                        ccmCommonUserRoleRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for Common Management
+        configuration."
+    ::= { ciscoCommonMgmtMIBGroups 1 }
+
+ccmCacheTimeoutConfigGroup OBJECT-GROUP
+    OBJECTS         { ccmCommonUserCacheTimeout }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for configuring
+        timeout value for caching the user
+        credentials in the local system."
+    ::= { ciscoCommonMgmtMIBGroups 2 }
+
+END
+

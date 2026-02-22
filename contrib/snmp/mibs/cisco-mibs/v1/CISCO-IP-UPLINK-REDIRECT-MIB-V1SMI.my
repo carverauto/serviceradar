@@ -1,0 +1,110 @@
+-- MIB file created 30-Dec-2001 22:11:47, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IP-UPLINK-REDIRECT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IP-UPLINK-REDIRECT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoIpUplinkRedirectMIB OBJECT IDENTIFIER ::= { ciscoMgmt 191 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200101220000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-cat2948g-l3@cisco.com
+--  Descr
+--    This MIB module is for the configuration of  
+--    Cisco IP Uplink Redirect feature.
+--  RevDate
+--    200101220000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoIpUplinkRedirectMIBObjects OBJECT IDENTIFIER ::= { ciscoIpUplinkRedirectMIB 1 }
+ciscoIpUplinkRedirectMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoIpUplinkRedirectMIB 2 }
+ciscoIpUplinkRedirectMIBConformance OBJECT IDENTIFIER ::= { ciscoIpUplinkRedirectMIB 3 }
+ciscoIpUplinkRedirectMIBCompliances OBJECT IDENTIFIER ::= { ciscoIpUplinkRedirectMIBConformance 1 }
+ciscoIpUplinkRedirectMIBGroups OBJECT IDENTIFIER ::= { ciscoIpUplinkRedirectMIBConformance 2 }
+
+ciurStartupStatus OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The indication of whether IP Uplink Redirect
+        feature will be enabled or disabled on this
+        entity after reboot.
+        
+        IP uplink redirect enables traffic between
+        Fast Ethernet interfaces to be switched through
+        the Gigabit Ethernet interface. Then ACLs applied
+        on the Gigabit Ethernet interface filter traffic
+        switched between Fast Ethernet interfaces.
+        
+        Once the IP Uplink Redirect feature is enabled
+        and saved, the switch has to be rebooted for 
+        it to take effect."
+    ::= { ciscoIpUplinkRedirectMIBObjects 1 }
+
+ciurOperStatus OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether or not IP Uplink Redirect
+        is currently operational on this entity."
+    ::= { ciscoIpUplinkRedirectMIBObjects 2 }
+
+ciscoIpUplinkRedirectMIBGroup OBJECT IDENTIFIER ::= { ciscoIpUplinkRedirectMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The Object Group for IP Uplink Redirect
+--  objects
+--    ciurStartupStatus, ciurOperStatus
+
+ciscoIpUplinkRedirectMIBCompliance OBJECT IDENTIFIER ::= { ciscoIpUplinkRedirectMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the Cisco 
+--    L3 Switch/Router IP Uplink Redirect group.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoIpUplinkRedirectMIBGroup
+--   ObjVar
+--    ciurStartupStatus
+
+
+END
+

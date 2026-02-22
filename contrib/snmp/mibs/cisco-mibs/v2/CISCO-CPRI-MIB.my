@@ -1,0 +1,487 @@
+-- *****************************************************************
+-- CISCO-CPRI-MIB.my
+-- CPRI INTERFACE MIB
+--
+-- September 2020, Rajarshi Chakraborty (rajarcha)
+--
+-- Copyright (c) 2020 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-CPRI-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,    
+    Counter32,
+    Unsigned32,
+    Counter64    
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    RowStatus,
+    StorageType,
+    DisplayString,
+    MacAddress,
+    TimeStamp
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    ifIndex,
+    ifName
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoCpriMIB MODULE-IDENTITY
+    LAST-UPDATED    "202009100000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-<list>@cisco.com"
+    DESCRIPTION
+        "This MIB module defines the managed objects for physical layer
+        characteristics of cpri interfaces and performance
+        statistics objects for protocol specific counters in falidae
+        devices.
+        Glossary:
+        TX        : Transmit
+        RX        : Receive "
+    REVISION        "202009100000Z"
+    DESCRIPTION     "Initial version of the MIB module."
+    ::= { ciscoMgmt 9999 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+-- MIB Notification Definitions
+
+ciscoCpriMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCpriMIB 0 }
+
+-- MIB Object Definitions 
+
+ciscoCpriMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCpriMIB 1 }
+
+coiCpriController OBJECT IDENTIFIER
+    ::= { ciscoCpriMIBObjects 1 }
+
+coiCpriRoeStats OBJECT IDENTIFIER
+    ::= { ciscoCpriMIBObjects 2 }
+
+coiCpriControllerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiCpriControllerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for cpri layer
+        related attributes of interfaces with an ifType of
+        cpri" 
+    ::= { coiCpriController 1 }
+
+coiCpriControllerEntry OBJECT-TYPE
+    SYNTAX          CoiCpriControllerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on cpri layer
+        related attributes of interfaces with an ifType
+        cpri. Entries are created by the feature when a
+        new interface is added. Entries are deleted by the agent 
+        when an interface is removed."
+    INDEX   { ifIndex }
+    ::= { coiCpriControllerTable 1 }
+
+
+CoiCpriControllerEntry ::= SEQUENCE {
+        coiCpriControllerSupportedRateList         BITS,
+        coiCpriControllerConfiguredRateList        BITS,
+        coiCpriControllerNegotiatedRate            INTEGER,
+        coiCpriControllerPortRole                  INTEGER,
+        coiCpriControllerL1StartupTimer            Unsigned32,
+        coiCpriControllerAdminStatus               INTEGER,
+        coiCpriControllerOperStatus                INTEGER,
+        coiCpriControllerLoopbackInfo              INTEGER,
+        coiCpriControllerAlarmStatus               BITS
+        }
+
+coiCpriControllerSupportedRateList OBJECT-TYPE
+    SYNTAX          BITS  {
+                        rate614Mbps(0),
+                        rate1228Mbps(1),
+                        rate2457Mbps(2),
+                        rate3072Mbps(3),
+                        rate4915Mbps(4),
+                        rate6144Mbps(5),
+                        rate9830Mbps(6),
+                        rate8110Mbps(7),
+                        rate10137Mbps(8),
+                        rate12165Mbps(9),
+                        rate24330Mbps(10)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the current supported rate list of the 
+         cpri controller, valid values are :
+         rate614Mbps(0):     CPRI option 1  - 614 Mbps
+         rate1228Mbps(1):    CPRI option 2  - 1228 Mbps  
+         rate2457Mbps(2):    CPRI option 3  - 2457 Mbps 
+         rate3072Mbps(3):    CPRI option 4  - 3072 Mbps 
+         rate4915Mbps(4):    CPRI option 5  - 4915 Mbps 
+         rate6144Mbps(5):    CPRI option 6  - 6144 Mbps 
+         rate9830Mbps(6):    CPRI option 7  - 9830 Mbps  
+         rate8110Mbps(7):    CPRI option 7A - 8110 Mbps 
+         rate10137Mbps(8):   CPRI option 8  - 10137 Mbps 
+         rate12165Mbps(9):   CPRI option 9  - 12165 Mbps 
+         rate24330Mbps(10):  CPRI option 10 - 24330 Mbps "
+    ::= { coiCpriControllerEntry 1 }
+
+coiCpriControllerConfiguredRateList OBJECT-TYPE
+    SYNTAX          BITS  {
+                        rate614Mbps(0),
+                        rate1228Mbps(1),
+                        rate2457Mbps(2),
+                        rate3072Mbps(3),
+                        rate4915Mbps(4),
+                        rate6144Mbps(5),
+                        rate9830Mbps(6),
+                        rate8110Mbps(7),
+                        rate10137Mbps(8),
+                        rate12165Mbps(9),
+                        rate24330Mbps(10)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the current configured rate list of the 
+         cpri controller. Maximum 4 values can be configured at a time 
+         on a port. Valid values are :
+         rate614Mbps(0):     CPRI option 1  - 614 Mbps
+         rate1228Mbps(1):    CPRI option 2  - 1228 Mbps  
+         rate2457Mbps(2):    CPRI option 3  - 2457 Mbps 
+         rate3072Mbps(3):    CPRI option 4  - 3072 Mbps 
+         rate4915Mbps(4):    CPRI option 5  - 4915 Mbps 
+         rate6144Mbps(5):    CPRI option 6  - 6144 Mbps 
+         rate9830Mbps(6):    CPRI option 7  - 9830 Mbps  
+         rate8110Mbps(7):    CPRI option 7A - 8110 Mbps 
+         rate10137Mbps(8):   CPRI option 8  - 10137 Mbps 
+         rate12165Mbps(9):   CPRI option 9  - 12165 Mbps 
+         rate24330Mbps(10):  CPRI option 10 - 24330 Mbps " 
+    ::= { coiCpriControllerEntry 2 }
+
+coiCpriControllerNegotiatedRate OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        rateNone(0),
+                        rate614Mbps(1),
+                        rate1228Mbps(2),
+                        rate2457Mbps(3),
+                        rate3072Mbps(4),
+                        rate4915Mbps(5),
+                        rate6144Mbps(6),
+                        rate9830Mbps(7),
+                        rate8110Mbps(8),
+                        rate10137Mbps(9),
+                        rate12165Mbps(10),
+                        rate24330Mbps(11)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the current negotiated rate of the 
+         cpri controller, valid values are -
+         rateNone(0):        No valid negotiated rate
+         rate614Mbps(1):     The negotiated rate is 614 Mbps
+         rate1228Mbps(2):    The negotiated rate is 1228 Mbps
+         rate2457Mbps(3):    The negotiated rate is 2457 Mbps
+         rate3072Mbps(4):    The negotiated rate is 3072 Mbps
+         rate4915Mbps(5):    The negotiated rate is 4915 Mbps
+         rate6144Mbps(6):    The negotiated rate is 6144 Mbps
+         rate9830Mbps(7):    The negotiated rate is 9830 Mbps
+         rate8110Mbps(8):    The negotiated rate is 8110 Mbps
+         rate10137Mbps(9):   The negotiated rate is 10137 Mbps
+         rate12165Mbps(10):  The negotiated rate is 12165 Mbps
+         rate24330Mbps(11):  The negotiated rate is 24330 Mbps " 
+    ::= { coiCpriControllerEntry 3 }
+
+coiCpriControllerPortRole OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        slave(0),
+                        master(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the role of the cpri 
+        controller, valid values are -
+         slave(0):         The port mode is slave 
+         master(1):        The port mode is master "
+    ::= { coiCpriControllerEntry 4 }
+
+coiCpriControllerL1StartupTimer OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object is gives the L1 Startup Timer value
+        of the cpri controller (in terms of milliseconds). "
+    ::= { coiCpriControllerEntry 5 }
+
+coiCpriControllerAdminStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        down(0),
+                        up(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the administration status
+        of the cpri interfaces. when it is set to down(0),
+        it results in Tx being stopped and there should be 
+        corresponding change in coiCpriControllerOperStatus. 
+        Valid values are :
+        down(0):          The controller is in down state. 
+        up(1):            The controller is in up state" 
+    ::= { coiCpriControllerEntry 6 }
+
+coiCpriControllerOperStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        down(0),
+                        up(1)
+                        }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the current operational state of the 
+        cpri controller, valid values are -
+        down(0):          The controller is in down state.
+        up(1):            The controller is in up state.
+        If coiCpriControllerAdminStatus is down(0) then 
+        coiCpriControllerOperStatus should be down(0). If 
+        coiCpriControllerAdminStatus is changed to up(1) then
+        coiCpriControllerOperStatus should change to up(1), provided
+        the controller is operational and ready to transmit traffic.
+        It should remain in down(0) if there is a fault that prevents
+        it from going to the up(1) state. " 
+    ::= { coiCpriControllerEntry 7 }
+
+coiCpriControllerLoopbackInfo OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        loopbackNone(0),
+                        loopbackLine(1),
+                        loopbackInternal(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the loopback value of the cpri controller,
+        valid values are -
+        loopbackNone(0):       No controller loopback info
+        loopbackLine(1):       The controller loopback info is line level  
+        loopbackInternal(2):   The controller loopback info is internal level. "
+    ::= { coiCpriControllerEntry 8 }
+
+coiCpriControllerAlarmStatus OBJECT-TYPE
+    SYNTAX          BITS {
+                        noAlarm(0),
+                        los(1),
+                        lof(2),
+                        rai(3),
+                        sdi(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current defect status of the cpri 
+        controller. Valid values are - 
+         noAlarm(0):    No Alarm. This bit will be set when none of the 
+                        following defect bits are set.
+         los(1):        LOS (Loss Of Signal). This bit will be set when
+                        LOS alarm condition is detected on the CPRI Rx side.
+         lof(2):        LOF (Loss Of Frame). This bit will be set when
+                        LOF alarm condition is detected on the CPRI Rx side.
+         rai(3):        RAI (Remote Alarm Indication). This bit will be
+                        set when RAI alarm condition reported in a control
+                        word.
+         sdi(4):        SDI (SAP Defect Indication). This bit will be set
+                        when SDI alarm condition reported in a control
+                        word."
+    ::= { coiCpriControllerEntry 9 }
+
+coiCpriRoeStatsTable OBJECT IDENTIFIER
+    ::= { coiCpriRoeStats 1 }
+
+coiCpriRoeStatsEntry OBJECT-TYPE
+    SYNTAX          CoiCpriRoeStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing stas information on CPRI 
+        controller ROE port."
+    INDEX           { ifIndex }
+    ::= { coiCpriRoeStatsTable 1 }
+    
+CoiCpriRoeStatsEntry ::= SEQUENCE {
+        coiCpriRoeRxFrames                         Counter64,
+        coiCpriRoeDroppedFramesDetected            Counter64,
+        coiCpriRoeStrayFramesDetected              Counter64,
+        coiCpriRoeDuplicateFramesDetected          Counter64,
+        coiCpriRoeOutOfSeqFramesDetected           Counter64,
+        coiCpriRoeOutOfSeqFramesDropped            Counter64,
+        coiCpriRoeTxFrames                         Counter64,
+        coiCpriRoeIdleFramesSent                   Counter64,        
+        coiCpriRoePktDelayVarMinVal                Counter64,
+        coiCpriRoePktDelayVarMaxVal                Counter64,
+        coiCpriRoePktDelayVarAvgVal                Counter64,
+        coiCpriRoeLineCodeViolationDetected        Counter64,
+        coiCpriRoeLineCodeViolationPropagated      Counter64,
+        coiCpriRoeErroredLengthFrames              Counter64
+}
+
+coiCpriRoeRxFrames OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of RoE frames received."
+    ::= { coiCpriRoeStatsEntry 1 }
+
+coiCpriRoeDroppedFramesDetected OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of RoE frames dropped."
+    ::= { coiCpriRoeStatsEntry 2 }
+
+coiCpriRoeStrayFramesDetected OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of RoE stray frame detected."
+    ::= { coiCpriRoeStatsEntry 3 }
+
+coiCpriRoeDuplicateFramesDetected OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of RoE duplicate frame detected."
+    ::= { coiCpriRoeStatsEntry 4 }
+
+coiCpriRoeOutOfSeqFramesDetected OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of RoE out of sequence frame 
+        detected."
+    ::= { coiCpriRoeStatsEntry 5 }
+
+coiCpriRoeOutOfSeqFramesDropped OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of RoE out of sequence frames
+        dropped."
+    ::= { coiCpriRoeStatsEntry 6 }
+
+coiCpriRoeTxFrames OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of RoE frames transmitted."
+    ::= { coiCpriRoeStatsEntry 7 }
+
+coiCpriRoeIdleFramesSent OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of idle frames sent."
+    ::= { coiCpriRoeStatsEntry 8 }
+
+coiCpriRoePktDelayVarMinVal OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the RoE packet-delay-variation
+        min value."
+    ::= { coiCpriRoeStatsEntry 9 }
+
+coiCpriRoePktDelayVarMaxVal OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the RoE packet-delay-variation 
+        max value."
+    ::= { coiCpriRoeStatsEntry 10 }
+
+coiCpriRoePktDelayVarAvgVal OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the RoE packet-delay-variation
+        avg value."
+    ::= { coiCpriRoeStatsEntry 11 }
+
+coiCpriRoeLineCodeViolationDetected OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of line-code-violation-detected
+        on CPRI link."
+    ::= { coiCpriRoeStatsEntry 12 }
+
+coiCpriRoeLineCodeViolationPropagated OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of line-code-violation-propagated
+        on CPRI link."
+    ::= { coiCpriRoeStatsEntry 13 }
+
+coiCpriRoeErroredLengthFrames OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the number of RoE errored-length-frames value."
+    ::= { coiCpriRoeStatsEntry 14 }
+
+-- MIB Conformance Statements
+
+ciscoCpriMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoCpriMIB 2 }
+
+ciscoCpriMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCpriMIBConformance 1 }
+
+ciscoCpriMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCpriMIBConformance 2 }
+
+
+END
+
+

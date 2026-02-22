@@ -1,0 +1,4150 @@
+-- MIB file created 13-Jun-2006 11:43:05, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+AIRESPACE-SWITCHING-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "AIRESPACE-SWITCHING-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DisplayString, PhysAddress, RowStatus, MacAddress, TruthValue
+            FROM SNMPv2-TC-v1
+    airespace
+            FROM AIRESPACE-REF-MIB
+    dot1qVlanIndex, dot1qFdbId
+            FROM Q-BRIDGE-MIB
+    IANAifType
+            FROM IANAifType-MIB
+    Counter, Gauge, IpAddress, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+bsnSwitching OBJECT IDENTIFIER ::= { airespace 1 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200604100000Z
+--  OrgName
+--    Airespace, Inc.
+--  ContactInfo
+--            Cisco Systems,
+--             Customer Service
+--     Postal: 170 West Tasman Drive
+--             San Jose, CA  95134
+--             USA
+--        Tel: +1 800 553-NETS
+--    
+--      Email: cs-wnbu-snmp@cisco.com
+--  Descr
+--    This MIB is intended to be implemented on all those
+--    devices operating as Central Controllers (CC) that
+--    terminate the Light Weight Access Point Protocol
+--    tunnel from Light-weight LWAPP Access Points.
+--    
+--    This MIB provides configuration, statistics and 
+--    status information about the controller. 
+--    This includes controller statistics and provides 
+--    information such as Inventory, Trap logs, memory and 
+--    CPU. This MIB also provides configuration of CLI, 
+--    SNMP, LAG, DHCP, Spanning Tree, etc. 
+--    
+--    The relationship between controller and the LWAPP APs
+--    can be depicted as follows:
+--    
+--    +......+     +......+     +......+           +......+
+--    +      +     +      +     +      +           +      +
+--    +  CC  +     +  CC  +     +  CC  +           +  CC  +
+--    +      +     +      +     +      +           +      +
+--    +......+     +......+     +......+           +......+
+--    ..            .             .                 .
+--    ..            .             .                 .
+--    .  .            .             .                 .
+--    .    .            .             .                 .
+--    .      .            .             .                 .
+--    .        .            .             .                 .
+--    +......+ +......+     +......+      +......+          +......+
+--    +      + +      +     +      +      +      +          +      +
+--    +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+--    +      + +      +     +      +      +      +          +      +
+--    +......+ +......+     +......+      +......+          +......+
+--    .              .             .                 .
+--    .  .              .             .                 .
+--    .    .              .             .                 .
+--    .      .              .             .                 .
+--    .        .              .             .                 .
+--    +......+ +......+     +......+      +......+          +......+
+--    +      + +      +     +      +      +      +          +      +
+--    +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+--    +      + +      +     +      +      +      +          +      +
+--    +......+ +......+     +......+      +......+          +......+
+--    
+--    
+--    The LWAPP tunnel exists between the controller and
+--    the APs.  The MNs communicate with the APs through
+--    the protocol defined by the 802.11 standard.
+--    
+--    LWAPP APs, upon bootup, discover and join one of the
+--    controllers and the controller pushes the configuration,
+--    that includes the WLAN parameters, to the LWAPP APs.
+--    The APs then encapsulate all the 802.11 frames from
+--    wireless clients inside LWAPP frames and forward
+--    the LWAPP frames to the controller.
+--    
+--                       GLOSSARY
+--    
+--    Access Point ( AP )
+--    
+--    An entity that contains an 802.11 medium access
+--    control ( MAC ) and physical layer ( PHY ) interface
+--    and provides access to the distribution services via
+--    the wireless medium for associated clients.  
+--    
+--    LWAPP APs encapsulate all the 802.11 frames in
+--    LWAPP frames and sends it to the controller to which
+--    it is logically connected.
+--    
+--    Basic Service Set Identifier (BSSID)
+--    
+--    The identifier for the service set comprising of
+--    all the 802.11 stations under the control of
+--    one coordinating Access Point.  This identifier
+--    happens to be the MAC address of the dot11 radio
+--    interface of the Access Point.  The wireless
+--    clients that associate with the Access Point
+--    get the wired uplink through this particular 
+--    dot11 interface. 
+--    
+--    Central Controller ( CC )
+--    
+--    The central entity that terminates the LWAPP protocol
+--    tunnel from the LWAPP APs.  Throughout this MIB,
+--    this entity also referred to as 'controller'. 
+--    
+--    Light Weight Access Point Protocol ( LWAPP ) 
+--    
+--    This is a generic protocol that defines the 
+--    communication between the Access Points and the
+--    Central Controller. 
+--    
+--    Mobile Node ( MN )
+--    
+--    A roaming 802.11 wireless device in a wireless
+--    network associated with an access point. 
+--    
+--    Station Management (SMT)
+--    
+--    This term refers to the internal management of the
+--    802.11 protocol operations by the AP to work
+--    cooperatively with the other APs and 802.11
+--    devices in the network.
+--    
+--    REFERENCE
+--    
+--    [1] Part 11 Wireless LAN Medium Access Control ( MAC )
+--    and Physical Layer ( PHY ) Specifications.
+--    
+--    [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+--    Weight Access Point Protocol. 
+--  RevDate
+--    200604100000Z
+--  RevDescr
+--    Updated MIB with description and format
+
+agentInfoGroup  OBJECT IDENTIFIER ::= { bsnSwitching 1 }
+agentConfigGroup OBJECT IDENTIFIER ::= { bsnSwitching 2 }
+agentSystemGroup OBJECT IDENTIFIER ::= { bsnSwitching 3 }
+stats           OBJECT IDENTIFIER ::= { bsnSwitching 4 }
+switchingTraps  OBJECT IDENTIFIER ::= { bsnSwitching 50 }
+bsnSwitchingGroups OBJECT IDENTIFIER ::= { bsnSwitching 51 }
+bsnSwitchingCompliances OBJECT IDENTIFIER ::= { bsnSwitching 52 }
+agentInventoryGroup OBJECT IDENTIFIER ::= { agentInfoGroup 1 }
+agentTrapLogGroup OBJECT IDENTIFIER ::= { agentInfoGroup 2 }
+agentSwitchInfoGroup OBJECT IDENTIFIER ::= { agentInfoGroup 3 }
+agentResourceInfoGroup OBJECT IDENTIFIER ::= { agentInfoGroup 5 }
+agentWcpInfoGroup OBJECT IDENTIFIER ::= { agentInfoGroup 6 }
+agentProductGroup OBJECT IDENTIFIER ::= { agentInfoGroup 4 }
+productGroup1   OBJECT IDENTIFIER ::= { agentProductGroup 1 }
+productGroup2   OBJECT IDENTIFIER ::= { agentProductGroup 2 }
+productGroup3   OBJECT IDENTIFIER ::= { agentProductGroup 3 }
+productGroup4   OBJECT IDENTIFIER ::= { agentProductGroup 4 }
+agentCLIConfigGroup OBJECT IDENTIFIER ::= { agentConfigGroup 1 }
+agentTelnetConfigGroup OBJECT IDENTIFIER ::= { agentCLIConfigGroup 2 }
+agentSerialGroup OBJECT IDENTIFIER ::= { agentCLIConfigGroup 5 }
+agentLagConfigGroup OBJECT IDENTIFIER ::= { agentConfigGroup 2 }
+agentNetworkConfigGroup OBJECT IDENTIFIER ::= { agentConfigGroup 3 }
+agentNtpConfigGroup OBJECT IDENTIFIER ::= { agentConfigGroup 14 }
+agentDhcpConfigGroup OBJECT IDENTIFIER ::= { agentConfigGroup 15 }
+agentServicePortConfigGroup OBJECT IDENTIFIER ::= { agentConfigGroup 4 }
+agentSnmpConfigGroup OBJECT IDENTIFIER ::= { agentConfigGroup 5 }
+agentSnmpTrapFlagsConfigGroup OBJECT IDENTIFIER ::= { agentSnmpConfigGroup 7 }
+agentSnmpV3ConfigGroup OBJECT IDENTIFIER ::= { agentConfigGroup 6 }
+agentSpanningTreeConfigGroup OBJECT IDENTIFIER ::= { agentConfigGroup 7 }
+agentSwitchConfigGroup OBJECT IDENTIFIER ::= { agentConfigGroup 8 }
+agentTransferConfigGroup OBJECT IDENTIFIER ::= { agentConfigGroup 9 }
+agentTransferUploadGroup OBJECT IDENTIFIER ::= { agentTransferConfigGroup 1 }
+agentTransferDownloadGroup OBJECT IDENTIFIER ::= { agentTransferConfigGroup 2 }
+
+agentInventorySysDescription OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Inventory system description."
+    ::= { agentInventoryGroup 1 }
+
+agentInventoryMachineType OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of the Machine used in the Switch."
+    ::= { agentInventoryGroup 2 }
+
+agentInventoryMachineModel OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Machine Model. "
+    ::= { agentInventoryGroup 3 }
+
+agentInventorySerialNumber OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Serial number of the switch."
+    ::= { agentInventoryGroup 4 }
+
+agentInventoryMaintenanceLevel OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Inventory Maintenance Level"
+    ::= { agentInventoryGroup 6 }
+
+agentInventoryBurnedInMacAddress OBJECT-TYPE
+    SYNTAX PhysAddress
+--    Rsyntax OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Burned-In MAC Address"
+    ::= { agentInventoryGroup 9 }
+
+agentInventoryOperatingSystem OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Operating System running on this unit"
+    ::= { agentInventoryGroup 10 }
+
+agentInventoryManufacturerName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the switch manufacturer."
+    ::= { agentInventoryGroup 12 }
+
+agentInventoryProductName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the product."
+    ::= { agentInventoryGroup 13 }
+
+agentInventoryProductVersion OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Version of the product."
+    ::= { agentInventoryGroup 14 }
+
+agentInventoryIsGigECardPresent OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "True if the Switch contains a Gigabit ethernet
+        card
+        ."
+    ::= { agentInventoryGroup 15 }
+
+agentInventoryIsCryptoCardPresent OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "True if the switch is carrying a Crypto card."
+    ::= { agentInventoryGroup 16 }
+
+agentInventoryIsForeignAPSupported OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "States whether the switch supports third party
+         Access Points."
+    ::= { agentInventoryGroup 17 }
+
+agentInventoryMaxNumberOfAPsSupported OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of APs supported with this
+         Controller."
+    ::= { agentInventoryGroup 18 }
+
+agentInventoryIsCryptoCard2Present OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "True if the switch is carrying second Crypto
+         card for 4400 controller."
+    ::= { agentInventoryGroup 19 }
+
+agentInventoryFipsModeEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "True if FIPS (Federal Information Processing
+         Standards) mode has been enabled on the
+         controller.False if FIPS mode has not been
+         enabled. FIPS mode can only be enabled through
+         console."
+    DEFVAL { false }
+    ::= { agentInventoryGroup 20 }
+
+agentTrapLogTotal OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of traps sent since last
+         reset."
+    ::= { agentTrapLogGroup 1 }
+
+agentTrapLogTotalSinceLastViewed OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of traps sent since last viewed."
+    ::= { agentTrapLogGroup 3 }
+
+agentRadioUpDownTrapCount OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of AP Up/Down traps sent since
+         last reset."
+    ::= { agentTrapLogGroup 5 }
+
+agentApAssociateDisassociateTrapCount OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of AP Associate/Disassociate
+         traps sent since last reset."
+    ::= { agentTrapLogGroup 6 }
+
+agentApLoadProfileFailTrapCount OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of AP Load Profile Failure
+         traps sent since last reset."
+    ::= { agentTrapLogGroup 7 }
+
+agentApNoiseProfileFailTrapCount OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of AP Noise Profile Failure
+         traps sent since last reset."
+    ::= { agentTrapLogGroup 8 }
+
+agentApInterferenceProfileFailTrapCount OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of AP Interference Profile
+         Failure traps sent since last reset."
+    ::= { agentTrapLogGroup 9 }
+
+agentApCoverageProfileFailTrapCount OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of AP Coverge Profile Failure
+         traps sent since last reset."
+    ::= { agentTrapLogGroup 10 }
+
+agentTrapLogTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentTrapLogEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Agent Trap Log"
+    ::= { agentTrapLogGroup 4 }
+
+agentTrapLogEntry OBJECT-TYPE
+    SYNTAX AgentTrapLogEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Agent trap log entry"
+    INDEX { agentTrapLogIndex }
+    ::= { agentTrapLogTable 1 }
+
+AgentTrapLogEntry ::= SEQUENCE {
+    agentTrapLogIndex INTEGER,
+    agentTrapLogSystemTime DisplayString,
+    agentTrapLogTrap OCTET STRING
+    }
+
+agentTrapLogIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Unique index of trap entry"
+    ::= { agentTrapLogEntry 1 }
+
+agentTrapLogSystemTime OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "System uptime when trap was sent. This entry
+         shows how long the system has been up when the
+         trap occurred."
+    ::= { agentTrapLogEntry 2 }
+
+agentTrapLogTrap OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..512))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Description of the trap sent."
+    ::= { agentTrapLogEntry 22 }
+
+agentSwitchInfoLwappTransportMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        layer2(1),
+        layer3(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The LWAPP transport mode specifies if the switch
+         is operating in Layer2 or Layer3 mode.  This
+         attribute gives the current mode the switch is
+         operating on."
+    ::= { agentSwitchInfoGroup 1 }
+
+agentSwitchInfoPowerSupply1Present OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        false(0),
+        true(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is to indicate if the switch has Power
+         Supply 1 present on it.  This is applicable to
+         the 4200 series and will always return true for
+         the earlier device versions."
+    ::= { agentSwitchInfoGroup 2 }
+
+agentSwitchInfoPowerSupply1Operational OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        false(0),
+        true(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is to indicate if the switch's Power Supply
+         1 is operational.  This is applicable to the
+         4200 series and will always return true for the
+         earlier device versions."
+    ::= { agentSwitchInfoGroup 3 }
+
+agentSwitchInfoPowerSupply2Present OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        false(0),
+        true(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is to indicate if the switch has Power
+         Supply 2 present on it.  This is applicable to
+         the 4200 series and will always return false for
+         the earlier device versions."
+    ::= { agentSwitchInfoGroup 4 }
+
+agentSwitchInfoPowerSupply2Operational OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        false(0),
+        true(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is to indicate if the switch's Power Supply
+         2 is operational.This is applicable to the 4200
+         series and will always return false for the
+         earlier device versions."
+    ::= { agentSwitchInfoGroup 5 }
+
+agentCurrentCPUUtilization OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current CPU Load of the switch in percentage."
+    ::= { agentResourceInfoGroup 1 }
+
+agentTotalMemory OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total RAM of the switch in Kbytes."
+    ::= { agentResourceInfoGroup 2 }
+
+agentFreeMemory OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Free RAM of the switch in Kbytes."
+    ::= { agentResourceInfoGroup 3 }
+
+agentWcpDeviceName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the name of the device this controller
+         is residing on."
+    ::= { agentWcpInfoGroup 1 }
+
+agentWcpSlotNumber OBJECT-TYPE
+    SYNTAX Gauge(1..16)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The slot number on the Wcp Device that this
+         controller is residing on."
+    ::= { agentWcpInfoGroup 2 }
+
+agentWcpPortNumber OBJECT-TYPE
+    SYNTAX Gauge(1..2)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The port number on the Wcp Device that this
+         controller is residing on."
+    ::= { agentWcpInfoGroup 3 }
+
+agentWcpPeerPortNumber OBJECT-TYPE
+    SYNTAX Gauge(1..2)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The port number of this controller's peer on the
+         same slot on Wcp Device that this controller is
+         residing on."
+    ::= { agentWcpInfoGroup 4 }
+
+agentWcpPeerIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP Address of this controller's peer on the
+         same slot on Wcp Device that this controller is
+         residing on."
+    ::= { agentWcpInfoGroup 5 }
+
+agentWcpControllerTableChecksum OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the checksum that tracks the changes in
+         the agentWcpControllerInfoTable. If there is any
+         change in the information on this table, the
+         checksum changes."
+    ::= { agentWcpInfoGroup 6 }
+
+agentWcpControllerInfoTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentWcpControllerInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of the wireless controllers on a WCP
+         device."
+    ::= { agentWcpInfoGroup 7 }
+
+agentWcpControllerInfoEntry OBJECT-TYPE
+    SYNTAX AgentWcpControllerInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry for a wireless controller on a WCP
+        device."
+    INDEX { agentWcpControllerInfoSlotNumber, agentWcpControllerInfoPortNumber }
+    ::= { agentWcpControllerInfoTable 1 }
+
+AgentWcpControllerInfoEntry ::= SEQUENCE {
+    agentWcpControllerInfoSlotNumber Gauge,
+    agentWcpControllerInfoPortNumber Gauge,
+    agentWcpControllerInfoIpAddress IpAddress
+    }
+
+agentWcpControllerInfoSlotNumber OBJECT-TYPE
+    SYNTAX Gauge(1..16)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The slot number on the Wcp device that a
+         controller is residing on."
+    ::= { agentWcpControllerInfoEntry 1 }
+
+agentWcpControllerInfoPortNumber OBJECT-TYPE
+    SYNTAX Gauge(1..2)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The port number on the Wcp Device that a
+         controller is residing on."
+    ::= { agentWcpControllerInfoEntry 2 }
+
+agentWcpControllerInfoIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The management IP Address of a controller."
+    ::= { agentWcpControllerInfoEntry 10 }
+
+agentLoginSessionTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentLoginSessionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of the switch's login session"
+    ::= { agentCLIConfigGroup 1 }
+
+agentLoginSessionEntry OBJECT-TYPE
+    SYNTAX AgentLoginSessionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Login Session Entry"
+    INDEX { agentLoginSessionIndex }
+    ::= { agentLoginSessionTable 1 }
+
+AgentLoginSessionEntry ::= SEQUENCE {
+    agentLoginSessionIndex INTEGER,
+    agentLoginSessionUserName DisplayString,
+    agentLoginSessionIPAddress IpAddress,
+    agentLoginSessionConnectionType INTEGER,
+    agentLoginSessionIdleTime TimeTicks,
+    agentLoginSessionSessionTime TimeTicks,
+    agentLoginSessionStatus RowStatus
+    }
+
+agentLoginSessionIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Agent Login Session Index of the switch"
+    ::= { agentLoginSessionEntry 1 }
+
+agentLoginSessionUserName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Agent Login Session UserName of the switch"
+    ::= { agentLoginSessionEntry 2 }
+
+agentLoginSessionIPAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Agent Login Session IP Address of the switch"
+    ::= { agentLoginSessionEntry 3 }
+
+agentLoginSessionConnectionType OBJECT-TYPE
+    SYNTAX INTEGER {
+        serial(1),
+        telnet(2),
+        web(3),
+        ssl(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Agent Login Session Connection Type of the
+        switch"
+    ::= { agentLoginSessionEntry 4 }
+
+agentLoginSessionIdleTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Agent Login Session Idle Time of the switch"
+    ::= { agentLoginSessionEntry 5 }
+
+agentLoginSessionSessionTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Agent Login Session Time of the switch"
+    ::= { agentLoginSessionEntry 6 }
+
+agentLoginSessionStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Status of the user.
+        active(1)  - This connection is active.
+        destroy(6) - Set to this value to disconnect
+                     this user."
+    ::= { agentLoginSessionEntry 26 }
+
+agentTelnetLoginTimeout OBJECT-TYPE
+    SYNTAX INTEGER(0..160)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Telnet login timeout (minutes)
+        Config telnet timeout  will set the telnet
+        session timeout value.  A session is active as
+        long as the session has not remained idle for
+        the value set. Specify a value from 0 to 160.
+        A value of 0 indicates that a Telnet session
+        remains active indefinitely.
+        Note: Changing the timeout value for active
+        sessions does not become effective until the
+        session is reaccessed. Any keystroke will
+        also activate the new timeout duration."
+    ::= { agentTelnetConfigGroup 1 }
+
+agentTelnetMaxSessions OBJECT-TYPE
+    SYNTAX INTEGER(0..5)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of Telnet Sessions
+        Config telnet maxsessions is an integer value
+        from 0 to 5 that specifies the maximum number of
+        telnet sessions that can be established. If the
+        value is 0, no Telnet session can be established."
+    ::= { agentTelnetConfigGroup 2 }
+
+agentTelnetAllowNewMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Allow new telnet sessions (enable or disable)
+        Config telnet disable means that no new Telnet
+        sessions are to be established. Any already
+        established session remains active until
+        the session is ended or an abnormal network error
+        ends it. "
+    ::= { agentTelnetConfigGroup 3 }
+
+agentSSHAllowNewMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Allow new SSH sessions (enable or disable)
+        Config SSH disable means that no new SSH sessions
+        are to be established. Any already established
+        session remains active until the session is ended
+        or an abnormal network error ends it."
+    ::= { agentTelnetConfigGroup 4 }
+
+agentSerialTimeout OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Agent Serial Timeout "
+    ::= { agentSerialGroup 1 }
+
+agentSerialBaudrate OBJECT-TYPE
+    SYNTAX INTEGER {
+        baud1200(1),
+        baud2400(2),
+        baud4800(3),
+        baud9600(4),
+        baud19200(5),
+        baud38400(6),
+        baud57600(7),
+        baud115200(8)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " Agent Serial Baudrate"
+    ::= { agentSerialGroup 2 }
+
+agentSerialCharacterSize OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " Agent Serial Character Size"
+    ::= { agentSerialGroup 3 }
+
+agentSerialHWFlowControlMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " Agent Serial Hardware Flow Control."
+    ::= { agentSerialGroup 4 }
+
+agentSerialStopBits OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " Agent Serial Stop Bits"
+    ::= { agentSerialGroup 5 }
+
+agentSerialParityType OBJECT-TYPE
+    SYNTAX INTEGER {
+        even(1),
+        odd(2),
+        none(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " Agent Serial Parity Type"
+    ::= { agentSerialGroup 6 }
+
+agentLagConfigCreate OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..15))
+--    Rsyntax OCTET STRING(SIZE(1..15))
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "Agent Lag Create.
+        When this object is set with a non-empty string,
+        a new lag will be created.if possible with the
+        entered string as it's name."
+    ::= { agentLagConfigGroup 1 }
+
+agentLagSummaryConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentLagSummaryConfigEntry
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "A summary table of the switch's lag config
+        entries"
+    ::= { agentLagConfigGroup 2 }
+
+agentLagSummaryConfigEntry OBJECT-TYPE
+    SYNTAX AgentLagSummaryConfigEntry
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "Switch's lag config entry"
+    INDEX { agentLagSummaryName }
+    ::= { agentLagSummaryConfigTable 1 }
+
+AgentLagSummaryConfigEntry ::= SEQUENCE {
+    agentLagSummaryName DisplayString,
+    agentLagSummaryLagIndex INTEGER,
+    agentLagSummaryFlushTimer INTEGER,
+    agentLagSummaryLinkTrap INTEGER,
+    agentLagSummaryAdminMode INTEGER,
+    agentLagSummaryStpMode INTEGER,
+    agentLagSummaryAddPort INTEGER,
+    agentLagSummaryDeletePort INTEGER,
+    agentLagSummaryPortsBitMask Gauge,
+    agentLagSummaryStatus RowStatus
+    }
+
+agentLagSummaryName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..15))
+--    Rsyntax OCTET STRING(SIZE(1..15))
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "Agent Lag Name"
+    ::= { agentLagSummaryConfigEntry 1 }
+
+agentLagSummaryLagIndex OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "Agent Lag If Index"
+    ::= { agentLagSummaryConfigEntry 2 }
+
+agentLagSummaryFlushTimer OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "Agent Lag Flush Timer"
+    ::= { agentLagSummaryConfigEntry 3 }
+
+agentLagSummaryLinkTrap OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "Agent Lag Link Trap"
+    ::= { agentLagSummaryConfigEntry 4 }
+
+agentLagSummaryAdminMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "Agent Lag Admin Mode"
+    ::= { agentLagSummaryConfigEntry 5 }
+
+agentLagSummaryStpMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        dot1d(1),
+        fast(2),
+        off(3)
+        }
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "Agent Lag STP Mode"
+    ::= { agentLagSummaryConfigEntry 6 }
+
+agentLagSummaryAddPort OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "Agent Lag Add Port.
+         Note: agentPortType for the port to be added
+         must be full duplex and the same speed as
+         previously added port(s), if any."
+    ::= { agentLagSummaryConfigEntry 7 }
+
+agentLagSummaryDeletePort OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "Agent Lag Delete Port"
+    ::= { agentLagSummaryConfigEntry 8 }
+
+agentLagSummaryPortsBitMask OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "Agent Lag Member Ports in bit mask
+        representation"
+    ::= { agentLagSummaryConfigEntry 9 }
+
+agentLagSummaryStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "Agent Lag Status.
+         active(1)  - This Lag is enabled.
+         destroy(6) - Set to this value to remove the
+         Lag."
+    ::= { agentLagSummaryConfigEntry 30 }
+
+agentLagDetailedConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentLagDetailedConfigEntry
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "A detailed table of the switch's lag config
+         entries"
+    ::= { agentLagConfigGroup 3 }
+
+agentLagDetailedConfigEntry OBJECT-TYPE
+    SYNTAX AgentLagDetailedConfigEntry
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "Switch's lag config entry"
+    INDEX { agentLagDetailedLagIndex, agentLagDetailedIfIndex }
+    ::= { agentLagDetailedConfigTable 1 }
+
+AgentLagDetailedConfigEntry ::= SEQUENCE {
+    agentLagDetailedLagIndex INTEGER,
+    agentLagDetailedIfIndex INTEGER,
+    agentLagDetailedPortSpeed OBJECT IDENTIFIER
+    }
+
+agentLagDetailedLagIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "Lag index"
+    ::= { agentLagDetailedConfigEntry 1 }
+
+agentLagDetailedIfIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "Lag port index"
+    ::= { agentLagDetailedConfigEntry 2 }
+
+agentLagDetailedPortSpeed OBJECT-TYPE
+    SYNTAX OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "Lag port speed. See agentPortType for
+         description and list of valid values."
+    ::= { agentLagDetailedConfigEntry 22 }
+
+agentLagConfigMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        off(1),
+        on(2)
+        }
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "The Lag Mode on the 4400 series controller. When
+         it is on, all the gigabit ports are bound to one
+         aggregated link."
+    ::= { agentLagConfigGroup 4 }
+
+agentNetworkIPAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's network ip address"
+    ::= { agentNetworkConfigGroup 1 }
+
+agentNetworkSubnetMask OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's network subnet mask"
+    ::= { agentNetworkConfigGroup 2 }
+
+agentNetworkDefaultGateway OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's network default gateway"
+    ::= { agentNetworkConfigGroup 3 }
+
+agentNetworkBurnedInMacAddress OBJECT-TYPE
+    SYNTAX PhysAddress
+--    Rsyntax OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Burned-In MAC address"
+    ::= { agentNetworkConfigGroup 4 }
+
+agentNetworkConfigProtocol OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        bootp(2),
+        dhcp(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's network config protocol"
+    ::= { agentNetworkConfigGroup 7 }
+
+agentNetworkWebMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's web access mode."
+    ::= { agentNetworkConfigGroup 8 }
+
+agentNetworkSecureWebMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        --?? enum value of zero may cause problems
+        disable(0)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If https is enable or not provided web mode is
+         enabled"
+    ::= { agentNetworkConfigGroup 9 }
+
+agentNetworkMulticastMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        disable(0),
+        unicast(1),
+        multicast(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Switch's ethernet multicast support.
+         disable- multicast is disabled
+         multicast - Multicast is enabled.
+         unicast- Controller will convert multicast to
+                  unicast packet."
+    ::= { agentNetworkConfigGroup 10 }
+
+agentNetworkDsPortNumber OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's distribution port number."
+    ::= { agentNetworkConfigGroup 11 }
+
+agentNetworkUserIdleTimeout OBJECT-TYPE
+    SYNTAX Gauge(10..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Sets the idle user timeout."
+    ::= { agentNetworkConfigGroup 12 }
+
+agentNetworkArpTimeout OBJECT-TYPE
+    SYNTAX Gauge(10..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Sets the ARP entry timeout."
+    ::= { agentNetworkConfigGroup 13 }
+
+agentNetworkManagementVlan OBJECT-TYPE
+    SYNTAX Gauge(0..4095)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "VLAN ID of the network management interface."
+    ::= { agentNetworkConfigGroup 14 }
+
+agentNetworkGvrpStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        --?? enum value of zero may cause problems
+        disabled(0)
+        }
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "The state of GVRP operation on the Switch.  The value
+        enabled(1) indicates that GVRP is enabled on this port,
+        as long as dot1qGvrpStatus is also enabled for this
+        device.  When disabled(2) but dot1qGvrpStatus is still
+        enabled for the device, GVRP is disabled on this port:
+        any GVRP packets received will be silently discarded and
+        no GVRP registrations will be propagated from other
+        ports.  This object affects all GVRP Applicant and
+        Registrar state machines on this port.  A transition
+        from disabled(2) to enabled(1) will cause a reset of all
+        GVRP state machines on this port.(Attribute No longer
+        supported)"
+    DEFVAL { enabled }
+    ::= { agentNetworkConfigGroup 15 }
+
+agentNetworkAllowMgmtViaWireless OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        --?? enum value of zero may cause problems
+        disable(0)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This states whether Management via wireless is
+         allowed or not."
+    ::= { agentNetworkConfigGroup 16 }
+
+agentNetworkBroadcastSsidMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        --?? enum value of zero may cause problems
+        disable(0)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This mode when enabled allows WLAN SSIDs to be
+         broadcasted."
+    ::= { agentNetworkConfigGroup 17 }
+
+agentNetworkSecureWebPassword OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "SSL Certificate Password. This can be optionally
+         set while downloading SSL certificates of type
+         Web Admin and Web Authentication"
+    ::= { agentNetworkConfigGroup 18 }
+
+agentNetworkWebAdminCertType OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..80))
+--    Rsyntax OCTET STRING(SIZE(1..80))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of currently existing Web Admin Certificate
+         installed on the Switch. It could be 'Empty' if the
+         certificate is not present, 'Locally Generated' if
+         the certificate is locally generated or it could
+         have a name if it is downloaded externally."
+    ::= { agentNetworkConfigGroup 19 }
+
+agentNetworkWebAdminCertRegenerateCmdInvoke OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        default(0),
+        activate(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This command when set to 'activate' will regenerate
+         a Web Administration Certificate Locally that will
+         replace the existing certificate."
+    ::= { agentNetworkConfigGroup 20 }
+
+agentNetworkWebAuthCertType OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..80))
+--    Rsyntax OCTET STRING(SIZE(1..80))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Type of currently exisitng Web Authentication
+        Certificate installed on the Switch. It could be
+        'Empty' if the certificate is not present, 'Locally
+        Generated' if the certificate is locally generated or
+        it could have a name if it is downloaded externally."
+    ::= { agentNetworkConfigGroup 21 }
+
+agentNetworkWebAuthCertRegenerateCmdInvoke OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        default(0),
+        activate(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This command when set to 'activate' will regenerate a
+         Web Authentication Certificate Locally that will
+         replace the existing certificate."
+    ::= { agentNetworkConfigGroup 22 }
+
+agentNetworkPeerToPeerBlockingMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        --?? enum value of zero may cause problems
+        disable(0)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Mobile Peer to Peer Blocking mode on the switch."
+    ::= { agentNetworkConfigGroup 24 }
+
+agentNetworkMulticastGroupAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Multicast group address for access points."
+    ::= { agentNetworkConfigGroup 25 }
+
+agentNetworkRouteConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentNetworkRouteConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of the switch's Network Route entries"
+    ::= { agentNetworkConfigGroup 23 }
+
+agentNetworkRouteConfigEntry OBJECT-TYPE
+    SYNTAX AgentNetworkRouteConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Switch's Network Route entry"
+    INDEX { agentNetworkRouteIPAddress }
+    ::= { agentNetworkRouteConfigTable 1 }
+
+AgentNetworkRouteConfigEntry ::= SEQUENCE {
+    agentNetworkRouteIPAddress IpAddress,
+    agentNetworkRouteIPNetmask IpAddress,
+    agentNetworkRouteGateway IpAddress,
+    agentNetworkRouteStatus RowStatus
+    }
+
+agentNetworkRouteIPAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Network Route IP Address."
+    ::= { agentNetworkRouteConfigEntry 1 }
+
+agentNetworkRouteIPNetmask OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "   Network Route IP Netmask."
+    ::= { agentNetworkRouteConfigEntry 2 }
+
+agentNetworkRouteGateway OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "  Network Route IP Gateway."
+    ::= { agentNetworkRouteConfigEntry 3 }
+
+agentNetworkRouteStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Network Route Row Status."
+    ::= { agentNetworkRouteConfigEntry 23 }
+
+agentInterfaceConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentInterfaceConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of the switch's Interface Config entries
+         Typically, it will contain entries for Service
+         Port Interface, DS Port Interface and Virtual
+         Gateway Interface apart from other entries."
+    ::= { agentConfigGroup 13 }
+
+agentInterfaceConfigEntry OBJECT-TYPE
+    SYNTAX AgentInterfaceConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Switch's Interface Config entry"
+    INDEX { agentInterfaceName }
+    ::= { agentInterfaceConfigTable 1 }
+
+AgentInterfaceConfigEntry ::= SEQUENCE {
+    agentInterfaceName OCTET STRING,
+    agentInterfaceVlanId INTEGER,
+    agentInterfaceType INTEGER,
+    agentInterfaceMacAddress MacAddress,
+    agentInterfaceIPAddress IpAddress,
+    agentInterfaceIPNetmask IpAddress,
+    agentInterfaceIPGateway IpAddress,
+    agentInterfacePortNo INTEGER,
+    agentInterfaceActivePortNo INTEGER,
+    agentInterfaceBackupPortNo INTEGER,
+    agentInterfacePrimaryDhcpAddress IpAddress,
+    agentInterfaceSecondaryDhcpAddress IpAddress,
+    agentInterfaceDhcpProtocol INTEGER,
+    agentInterfaceDnsHostName DisplayString,
+    agentInterfaceAclName DisplayString,
+    agentInterfaceAPManagementFeature INTEGER,
+    agentInterfaceRowStatus RowStatus,
+    agentInterfaceVlanQuarantine TruthValue
+    }
+
+agentInterfaceName OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Interace Name. This values is 'management' for DS
+         port, 'service-port' for service port and 'virtual'
+         for virtual gateway. For other interfaces, the name
+         can be anything. These interfaces are already created
+         by default."
+    ::= { agentInterfaceConfigEntry 1 }
+
+agentInterfaceVlanId OBJECT-TYPE
+    SYNTAX INTEGER(0..4094)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Vlan ID configured for the Interface."
+    DEFVAL { 0 }
+    ::= { agentInterfaceConfigEntry 2 }
+
+agentInterfaceType OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        static(0),
+        dynamic(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The interface's type. The static type is set for
+         the interfaces that are created by default on the
+         switch and these cannot be deleted. Any other
+         interface that is created is of type dynamic
+         which can be deleted."
+    ::= { agentInterfaceConfigEntry 3 }
+
+agentInterfaceMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Interface MAC Address. This is only applicable in
+        case of management and service-port interfaces."
+    ::= { agentInterfaceConfigEntry 4 }
+
+agentInterfaceIPAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address of the interface."
+    ::= { agentInterfaceConfigEntry 5 }
+
+agentInterfaceIPNetmask OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Netmask of the interface. This is 0 for the
+         virtual interface."
+    ::= { agentInterfaceConfigEntry 6 }
+
+agentInterfaceIPGateway OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Gateway of the interface. This is 0 for virtual
+        and service-port interface."
+    ::= { agentInterfaceConfigEntry 7 }
+
+agentInterfacePortNo OBJECT-TYPE
+    SYNTAX INTEGER(0..25)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A value 0 means the port is not set. The valid value
+         can be any one of the physical ports on the switch.
+         This is the primary port configured on the
+         interface."
+    DEFVAL { 0 }
+    ::= { agentInterfaceConfigEntry 8 }
+
+agentInterfacePrimaryDhcpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Primary DHCP Server IP Address for the interface
+         This applies to the management interface and other
+         dynamic interfaces."
+    ::= { agentInterfaceConfigEntry 9 }
+
+agentInterfaceSecondaryDhcpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Secondary DHCP Server IP Address for the interface.
+         This applies to the management interface and other
+         dynamic interfaces."
+    ::= { agentInterfaceConfigEntry 10 }
+
+agentInterfaceDhcpProtocol OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        disabled(0),
+        enabled(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The interface's DHCP protocol. This applies only
+         to the service port interface."
+    ::= { agentInterfaceConfigEntry 11 }
+
+agentInterfaceDnsHostName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..80))
+--    Rsyntax OCTET STRING(SIZE(0..80))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The DNS host name for the Virtual Interface.
+        This attribute is not valid for other
+        interfaces."
+    ::= { agentInterfaceConfigEntry 12 }
+
+agentInterfaceAclName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the Access Control List applied to the
+         interface. This attribute is applicable only to
+         the management interface and other dynamic
+         interfaces. If it is required to remove the ACL
+         name for an interface, it should be set to an
+         empty string."
+    ::= { agentInterfaceConfigEntry 13 }
+
+agentInterfaceAPManagementFeature OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        disable(0),
+        enable(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When enabled, the dynamic interface can be used for AP
+         management. SNMP support for AP management through
+         dynamic interfaces has been introduced since '3.0.21.0'
+         release.  Only applicable to dynamic interfaces in 4200
+         series. In static interfaces, 'disable' value 0
+         is returned. In 4000/3500 series of switches, 'disable'
+         value 0 is returned."
+    ::= { agentInterfaceConfigEntry 14 }
+
+agentInterfaceActivePortNo OBJECT-TYPE
+    SYNTAX INTEGER(0..25)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the currently active port for this
+        interface."
+    DEFVAL { 0 }
+    ::= { agentInterfaceConfigEntry 15 }
+
+agentInterfaceBackupPortNo OBJECT-TYPE
+    SYNTAX INTEGER(0..4)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This values is valid only for the 4200 series of
+         switches. The backup port is the port this interface
+         is moved to once the primary port fails.  A value 0
+         means the port is not set.  The valid value can be
+         any one of the physical ports on the 4200 switch."
+    DEFVAL { 0 }
+    ::= { agentInterfaceConfigEntry 16 }
+
+agentInterfaceVlanQuarantine OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to configure the health of the
+        interface identified by agentInterfaceName.
+        
+        A value of 'true' is used to indicate that this
+        particular interface is unhealthy.  In this case,
+        the data packets of the clients, that are assigned
+        the VLAN Id corresponding to this interface, must
+        be tunneled to the Controller by the REAP AP.
+        
+        A value of 'false' indicates that the VLAN configured
+        against the interface is healthy and that the REAP
+        AP can switch the clients of this VLAN locally rather
+        than tunneling them to the Controller. "
+    DEFVAL { false }
+    ::= { agentInterfaceConfigEntry 17 }
+
+agentInterfaceRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The interface entry Row status."
+    ::= { agentInterfaceConfigEntry 31 }
+
+agentNtpPollingInterval OBJECT-TYPE
+    SYNTAX INTEGER(3600..604800)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Network Time Protocol polling interval. Min value
+         is one hour and maximum is a week."
+    ::= { agentNtpConfigGroup 1 }
+
+agentNtpServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentNtpServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A summary table for switch's lag config entries"
+    ::= { agentNtpConfigGroup 2 }
+
+agentNtpServerEntry OBJECT-TYPE
+    SYNTAX AgentNtpServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Switch's NTP Server entry. Upto 4 entries may be
+         added."
+    INDEX { agentNtpServerIndex }
+    ::= { agentNtpServerTable 1 }
+
+AgentNtpServerEntry ::= SEQUENCE {
+    agentNtpServerIndex INTEGER,
+    agentNtpServerAddress IpAddress,
+    agentNtpServerRowStatus RowStatus
+    }
+
+agentNtpServerIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..3)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "NTP Server priority index."
+    ::= { agentNtpServerEntry 1 }
+
+agentNtpServerAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address of the NTP Server"
+    ::= { agentNtpServerEntry 2 }
+
+agentNtpServerRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "NTP server entry row status."
+    ::= { agentNtpServerEntry 20 }
+
+agentDhcpScopeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentDhcpScopeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table listing the Scopes defined on the
+         switch's DHCP Server."
+    ::= { agentDhcpConfigGroup 1 }
+
+agentDhcpScopeEntry OBJECT-TYPE
+    SYNTAX AgentDhcpScopeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Switch's DHCP Server Scope entry."
+    INDEX { agentDhcpScopeIndex }
+    ::= { agentDhcpScopeTable 1 }
+
+AgentDhcpScopeEntry ::= SEQUENCE {
+    agentDhcpScopeIndex Gauge,
+    agentDhcpScopeName DisplayString,
+    agentDhcpScopeLeaseTime INTEGER,
+    agentDhcpScopeNetwork IpAddress,
+    agentDhcpScopeNetmask IpAddress,
+    agentDhcpScopePoolStartAddress IpAddress,
+    agentDhcpScopePoolEndAddress IpAddress,
+    agentDhcpScopeDefaultRouterAddress1 IpAddress,
+    agentDhcpScopeDefaultRouterAddress2 IpAddress,
+    agentDhcpScopeDefaultRouterAddress3 IpAddress,
+    agentDhcpScopeDnsDomainName DisplayString,
+    agentDhcpScopeDnsServerAddress1 IpAddress,
+    agentDhcpScopeDnsServerAddress2 IpAddress,
+    agentDhcpScopeDnsServerAddress3 IpAddress,
+    agentDhcpScopeNetbiosNameServerAddress1 IpAddress,
+    agentDhcpScopeNetbiosNameServerAddress2 IpAddress,
+    agentDhcpScopeNetbiosNameServerAddress3 IpAddress,
+    agentDhcpScopeState INTEGER,
+    agentDhcpScopeRowStatus RowStatus
+    }
+
+agentDhcpScopeIndex OBJECT-TYPE
+    SYNTAX Gauge(0..15)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "DHCP Scope Identifier Index."
+    ::= { agentDhcpScopeEntry 1 }
+
+agentDhcpScopeName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..79))
+--    Rsyntax OCTET STRING(SIZE(1..79))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "DHCP Scope Name."
+    ::= { agentDhcpScopeEntry 2 }
+
+agentDhcpScopeLeaseTime OBJECT-TYPE
+    SYNTAX INTEGER(120..8640000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "DHCP Scope Lease time in seconds."
+    ::= { agentDhcpScopeEntry 3 }
+
+agentDhcpScopeNetwork OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address of the DHCP Scope Network. This is
+        the address which is used to determine the DHCP
+        scope a remote Switch is attaching to."
+    ::= { agentDhcpScopeEntry 4 }
+
+agentDhcpScopeNetmask OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The DHCP Scope Netmask. This the subnet mask for
+         the address pool."
+    ::= { agentDhcpScopeEntry 5 }
+
+agentDhcpScopePoolStartAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The DHCP Scope address pool start IP address."
+    ::= { agentDhcpScopeEntry 6 }
+
+agentDhcpScopePoolEndAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The DHCP Scope address pool end IP address."
+    ::= { agentDhcpScopeEntry 7 }
+
+agentDhcpScopeDefaultRouterAddress1 OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address of the DHCP Scope's default Router
+        1."
+    ::= { agentDhcpScopeEntry 8 }
+
+agentDhcpScopeDefaultRouterAddress2 OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address of the DHCP Scope's default Router
+        2."
+    ::= { agentDhcpScopeEntry 9 }
+
+agentDhcpScopeDefaultRouterAddress3 OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address of the DHCP Scope's default Router
+        3."
+    ::= { agentDhcpScopeEntry 10 }
+
+agentDhcpScopeDnsDomainName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..79))
+--    Rsyntax OCTET STRING(SIZE(0..79))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "DNS Domain name for the DHCP Scope."
+    ::= { agentDhcpScopeEntry 11 }
+
+agentDhcpScopeDnsServerAddress1 OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address of the DHCP Scope's DNS Server 1."
+    ::= { agentDhcpScopeEntry 12 }
+
+agentDhcpScopeDnsServerAddress2 OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address of the DHCP Scope's DNS Server 2."
+    ::= { agentDhcpScopeEntry 13 }
+
+agentDhcpScopeDnsServerAddress3 OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address of the DHCP Scope's DNS Server 3."
+    ::= { agentDhcpScopeEntry 14 }
+
+agentDhcpScopeNetbiosNameServerAddress1 OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address of DHCP Scope's Netbios Name Server
+        1."
+    ::= { agentDhcpScopeEntry 15 }
+
+agentDhcpScopeNetbiosNameServerAddress2 OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address of DHCP Scope's Netbios Name Server
+        2."
+    ::= { agentDhcpScopeEntry 16 }
+
+agentDhcpScopeNetbiosNameServerAddress3 OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "IP Address of DHCP Scope's Netbios Name Server
+        3."
+    ::= { agentDhcpScopeEntry 17 }
+
+agentDhcpScopeState OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        disable(0),
+        enable(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "DHCP Scope's State."
+    ::= { agentDhcpScopeEntry 18 }
+
+agentDhcpScopeRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Dhcp Scope entry row status."
+    ::= { agentDhcpScopeEntry 30 }
+
+agentServicePortIPAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "The switch's Service Port IP address.
+         (Service-port interface use is recommended
+         instead
+          of this group)"
+    ::= { agentServicePortConfigGroup 1 }
+
+agentServicePortSubnetMask OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "The switch's Service Port subnet mask.
+         (Service-port interface in
+          agentInterfaceConfigTable is recommended
+          instead
+          of this group)"
+    ::= { agentServicePortConfigGroup 2 }
+
+agentServicePortDefaultGateway OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "Not Supported for release 1.0.  The switch's
+         Service Port default gateway.  (Service-port
+         interface in agentInterfaceConfigTable is
+         recommended instead of this group)"
+    ::= { agentServicePortConfigGroup 3 }
+
+agentServicePortBurnedInMacAddress OBJECT-TYPE
+    SYNTAX PhysAddress
+--    Rsyntax OCTET STRING
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "The switch's Service Port Burned-In MAC address
+         (Service-port interface in
+          agentInterfaceConfigTable is recommended
+          instead
+          of this group)"
+    ::= { agentServicePortConfigGroup 4 }
+
+agentServicePortConfigProtocol OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        dhcp(3)
+        }
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "The switch's Service Port config protocol
+         (Service-port interface in
+          agentInterfaceConfigTable is recommended
+          instead
+          of this group)"
+    ::= { agentServicePortConfigGroup 5 }
+
+agentSnmpTrapPortNumber OBJECT-TYPE
+    SYNTAX Gauge(1..65534)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Snmp Trap Port Number"
+    ::= { agentSnmpConfigGroup 1 }
+
+agentSnmpVersion1Status OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        disable(0),
+        enable(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Snmp Version 1 Status"
+    ::= { agentSnmpConfigGroup 2 }
+
+agentSnmpVersion2cStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        disable(0),
+        enable(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Snmp Version 2c Status"
+    ::= { agentSnmpConfigGroup 3 }
+
+agentSnmpCommunityConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentSnmpCommunityConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of the switch's SNMP community Config
+         entries"
+    ::= { agentSnmpConfigGroup 5 }
+
+agentSnmpCommunityConfigEntry OBJECT-TYPE
+    SYNTAX AgentSnmpCommunityConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Switch's SNMP community Config entry"
+    INDEX { agentSnmpCommunityName }
+    ::= { agentSnmpCommunityConfigTable 1 }
+
+AgentSnmpCommunityConfigEntry ::= SEQUENCE {
+    agentSnmpCommunityName DisplayString,
+    agentSnmpCommunityIPAddress IpAddress,
+    agentSnmpCommunityIPMask IpAddress,
+    agentSnmpCommunityAccessMode INTEGER,
+    agentSnmpCommunityEnabled INTEGER,
+    agentSnmpCommunityStatus RowStatus
+    }
+
+agentSnmpCommunityName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..16))
+--    Rsyntax OCTET STRING(SIZE(1..16))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Snmp Community Name
+        This name identifies each SNMP community;
+        the name can be up to 16 characters, and it is
+        case-sensitive. Community names in the SNMP
+        community must be unique.  If you make multiple
+        entries using the same community name, the first
+        entry is kept and processed and all duplicate
+        entries are ignored. "
+    ::= { agentSnmpCommunityConfigEntry 1 }
+
+agentSnmpCommunityIPAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Snmp Community IP Address
+        Client IP Address - This attribute is an IP
+        address (or portion thereof) from which this
+        device will accept SNMP packets with the
+        associated community. The requesting entity's IP
+        address is logical-ANDed with the Client IP Mask
+        and the result must match the Client IP Address.
+        Note: If the Client IP Mask is set to 0.0.0.0, a
+        Client IP Address of 0.0.0.0 matches all IP
+        addresses."
+    ::= { agentSnmpCommunityConfigEntry 2 }
+
+agentSnmpCommunityIPMask OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Snmp Community
+         IP Mask Client IP Mask - This attribute is a mask
+         to be logical-ANDed with the requesting entity's
+         IP address before comparison with the Client IP
+         Address. If the result matches with Client IP
+         Address then the address is an authenticated IP
+         address. For example, if the Client IP Address
+         is 9.47.128.0 and the corresponding Client IP
+         Mask is 255.255.255.0, a range of incoming IP
+         addresses would match, that is, the incoming IP
+         addresses could be a value in the following
+         range: 9.47.128.0 to 9.47.128.255.  To have a
+         specific IP address be the only authenticated IP
+         address, set the Client IP Address to the
+         required IP address and set the Client IP Mask to
+         255.255.255.255."
+    ::= { agentSnmpCommunityConfigEntry 3 }
+
+agentSnmpCommunityAccessMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        readOnly(1),
+        readWrite(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Snmp Community Access Mode
+        Access Mode - This value can be readOnly or
+        readWrite.  A community with a read-only access
+        allows for switch information to be displayed.
+        A community with a readWrite access allows for
+        configuration changes to be made and for
+        information to be displayed. "
+    DEFVAL { readOnly }
+    ::= { agentSnmpCommunityConfigEntry 4 }
+
+agentSnmpCommunityEnabled OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        no(0),
+        yes(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If community is Enabled  "
+    DEFVAL { no }
+    ::= { agentSnmpCommunityConfigEntry 5 }
+
+agentSnmpCommunityStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Snmp Community Status.
+        active(1)        - This community is active,
+                           allowing SNMP manager
+                           associated
+                           with this community to manage
+                           the switch according to its
+                           access right.
+        
+        notInService(2)  - This community is not active;
+        no
+                           SNMP requests using this
+                           community will be accepted. In
+                           this case the SNMP manager
+                           associated with this community
+                           cannot manage the switch until
+                           the Status is changed back to
+                           active(1).
+        
+        config(3)        - The community Status must be
+                           set to this value in order to
+                           configure it.  When creating a
+                           new community entry, initial
+                           Status will be set to this
+                           value.
+        
+        destroy(4)       - Set to this value to remove
+        the
+                           community from the agent."
+    ::= { agentSnmpCommunityConfigEntry 25 }
+
+agentSnmpTrapReceiverConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentSnmpTrapReceiverConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Trap messages are sent across a network to an SNMP
+         Network Manager. These messages alert the manager to
+         events occurring within the switch or on the network.
+         Up to six simultaneous trap receivers are supported."
+    ::= { agentSnmpConfigGroup 6 }
+
+agentSnmpTrapReceiverConfigEntry OBJECT-TYPE
+    SYNTAX AgentSnmpTrapReceiverConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Switch's Snmp Trap Receiver Config entry"
+    INDEX { agentSnmpTrapReceiverName }
+    ::= { agentSnmpTrapReceiverConfigTable 1 }
+
+AgentSnmpTrapReceiverConfigEntry ::= SEQUENCE {
+    agentSnmpTrapReceiverName OCTET STRING,
+    agentSnmpTrapReceiverIPAddress IpAddress,
+    agentSnmpTrapReceiverEnabled INTEGER,
+    agentSnmpTrapReceiverStatus RowStatus
+    }
+
+agentSnmpTrapReceiverName OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..16))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Snmp Trap Receiver Name.
+        This is the name of the remote network manager.
+        the name can be up to 16 characters,
+        and is case-sensitive."
+    ::= { agentSnmpTrapReceiverConfigEntry 1 }
+
+agentSnmpTrapReceiverIPAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "SNMP network Manager IP Address. The  IP Address
+        traps will be sent to. Each IP address parameter
+        is four  integer numbers.  The numbers range from
+        0 to 255.  After creation of entry IP Address
+        cannot be changed."
+    ::= { agentSnmpTrapReceiverConfigEntry 2 }
+
+agentSnmpTrapReceiverEnabled OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        no(0),
+        yes(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The flag to enable the trap receiver. If
+         disabled, no traps are sent to this receiver's
+         IP Address. "
+    DEFVAL { no }
+    ::= { agentSnmpTrapReceiverConfigEntry 3 }
+
+agentSnmpTrapReceiverStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create and delete instances
+        of this table.
+        The row, when created with the row status value
+        of 'createAndGo' or 'createAndWait' is moved to the
+        'active' state automatically by the agent and remains
+        in that state till the time the row is removed through
+        the 'destroy' option."
+    ::= { agentSnmpTrapReceiverConfigEntry 23 }
+
+agentSnmpAuthenticationTrapFlag OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Authentication Flag - Enable/Disable
+         authentication Flag."
+    ::= { agentSnmpTrapFlagsConfigGroup 1 }
+
+agentSnmpLinkUpDownTrapFlag OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Link Up/Down Flag - Enable/Disable Link Up/Link
+         Down traps for the entire switch. When set to
+         Enable, the Link Up/Down traps will be sent only
+         if the Link Trap flag setting associated with
+         the port (Port Configuration Menu) is set to
+         Enable."
+    ::= { agentSnmpTrapFlagsConfigGroup 2 }
+
+agentSnmpMultipleUsersTrapFlag OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Multiple Users Flag - Enable/Disable Multiple
+        User traps. When the value is set to Enable, a
+        Multiple User Trap is sent whenever someone logs
+        in to the terminal interface (EIA 232 or Telnet)
+        and there is already an existing terminal
+        interface session"
+    ::= { agentSnmpTrapFlagsConfigGroup 3 }
+
+agentSnmpSpanningTreeTrapFlag OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Spanning Tree Flag - This flag enables the
+         sending of new root traps and topology change
+         notification traps."
+    ::= { agentSnmpTrapFlagsConfigGroup 4 }
+
+agentSnmpBroadcastStormTrapFlag OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "Broadcast Storm Flag - This flag enables or
+        disables the broadcast storm trap. You must also
+        enable Broadcast Storm Recovery Mode
+        (see the Switch Configuration Menu). When this
+        value is set to Enable and Broadcast Storm
+        Recovery mode is set to Enable, the Broadcast
+        Storm Start/End traps are sent when the switch
+        enters and leaves Broadcast Storm Recovery."
+    ::= { agentSnmpTrapFlagsConfigGroup 5 }
+
+agentSnmpVersion3Status OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        disable(0),
+        enable(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Snmp Version 3 Status"
+    ::= { agentSnmpV3ConfigGroup 1 }
+
+agentSnmpV3UserConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentSnmpV3UserConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "User Config Table. Only creation and deletion of
+         users is supported.  All individual updates are
+         not supported."
+    ::= { agentSnmpV3ConfigGroup 2 }
+
+agentSnmpV3UserConfigEntry OBJECT-TYPE
+    SYNTAX AgentSnmpV3UserConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "User Config Entry"
+    INDEX { agentSnmpV3UserName }
+    ::= { agentSnmpV3UserConfigTable 1 }
+
+AgentSnmpV3UserConfigEntry ::= SEQUENCE {
+    agentSnmpV3UserName OCTET STRING,
+    agentSnmpV3UserAccessMode INTEGER,
+    agentSnmpV3UserAuthenticationType INTEGER,
+    agentSnmpV3UserEncryptionType INTEGER,
+    agentSnmpV3UserAuthenticationPassword OCTET STRING,
+    agentSnmpV3UserEncryptionPassword OCTET STRING,
+    agentSnmpV3UserStatus RowStatus
+    }
+
+agentSnmpV3UserName OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Agent User Name."
+    ::= { agentSnmpV3UserConfigEntry 1 }
+
+agentSnmpV3UserAccessMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        readonly(1),
+        readwrite(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Agent User Access Mode"
+    ::= { agentSnmpV3UserConfigEntry 2 }
+
+agentSnmpV3UserAuthenticationType OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        hmacmd5(2),
+        hmacsha(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "SNMPv3 User Authentication
+        none(1)      - no authentication used
+        hmacmd5(1)   - Use HMAC-MD5 authentication
+        hmacsha(1)   - Use HMAC-SHA authentication"
+    ::= { agentSnmpV3UserConfigEntry 3 }
+
+agentSnmpV3UserEncryptionType OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        des(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "SNMPv3 User Encryption Must be set to none(1) if
+        agentSnmpV3UserAuthenticationType is set to
+        none(1).  Setting this object will set the
+        encryption password to an empty string.
+        none(1) - no encryption used
+        des(1)  - DES encryption used"
+    ::= { agentSnmpV3UserConfigEntry 4 }
+
+agentSnmpV3UserAuthenticationPassword OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "SNMPv3 User Encryption Password"
+    ::= { agentSnmpV3UserConfigEntry 5 }
+
+agentSnmpV3UserEncryptionPassword OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "SNMPv3 User Encryption Password"
+    ::= { agentSnmpV3UserConfigEntry 6 }
+
+agentSnmpV3UserStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Agent User Status.
+        active(1)  - This user account is active.
+        destroy(6) - Set to this value to remove this
+        user account."
+    ::= { agentSnmpV3UserConfigEntry 26 }
+
+agentSpanningTreeMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Spanning Tree Switch Status"
+    ::= { agentSpanningTreeConfigGroup 1 }
+
+agentSwitchAddressAgingTimeoutTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentSwitchAddressAgingTimeoutEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's address aging timeout table"
+    ::= { agentSwitchConfigGroup 4 }
+
+agentSwitchAddressAgingTimeoutEntry OBJECT-TYPE
+    SYNTAX AgentSwitchAddressAgingTimeoutEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Aging information about a specific Filtering
+         Database."
+    INDEX { dot1qFdbId }
+    ::= { agentSwitchAddressAgingTimeoutTable 1 }
+
+AgentSwitchAddressAgingTimeoutEntry ::= SEQUENCE {
+    agentSwitchAddressAgingTimeout INTEGER
+    }
+
+agentSwitchAddressAgingTimeout OBJECT-TYPE
+    SYNTAX INTEGER(10..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The FDB entry's address aging timeout(in
+        seconds)"
+    DEFVAL { 300 }
+    ::= { agentSwitchAddressAgingTimeoutEntry 10 }
+
+agentSwitchBroadcastControlMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch config broadcast allows you to enable
+         or disable broadcast storm recovery mode. When
+         you specify Enable for Broadcast Storm Recovery
+         and the broadcast traffic on any Ethernet port
+         exceeds 20 percent of the link speed, the switch
+         blocks (discards) the broadcast traffic until
+         the broadcast traffic returns to 10 percent or
+         less.Upper limit for 10M link is 20% and lower
+         limit is 10%.  For 100M link Upper limit is 5%
+         and lower limit is 2%"
+    ::= { agentSwitchConfigGroup 2 }
+
+agentSwitchDot3FlowControlMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Config switchconfig flowcontrol allows you to
+         enable or disable 802.3x flow control for the
+         switch. This value applies to only full-duplex
+         mode ports. "
+    ::= { agentSwitchConfigGroup 3 }
+
+agentSwitchLwappTransportMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        layer2(1),
+        layer3(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The LWAPP transport mode decides if the switch
+         is operating in the Layer2 or Layer3 mode.
+         The switch needs to be rebooted for the mode
+         change to take effect."
+    ::= { agentSwitchConfigGroup 5 }
+
+agentTransferUploadMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        tftp(1),
+        xmodem(2),
+        ymodem(3),
+        zmodem(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Transfer upload mode configures the mode to use
+         when uploading from the switch. The mode is
+         either X/Y/ZMODEM or TFTP. X/Y/ZMODEM is valid
+         only when the file transfer is initiated by the
+         serial EIA 232 port."
+    ::= { agentTransferUploadGroup 1 }
+
+agentTransferUploadServerIP OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Transfer upload tftpserverip configures the IP
+         address of the server where the file will be
+         uploaded. It is valid only when the Transfer
+         Mode is TFTP. The address is 4 integer bytes
+         ranging from 0 to 255."
+    ::= { agentTransferUploadGroup 2 }
+
+agentTransferUploadPath OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..63))
+--    Rsyntax OCTET STRING(SIZE(0..63))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Transfer upload tftppath configures the
+        directory
+         path where the file is to be uploaded to. The
+         switch remembers the last file path used."
+    ::= { agentTransferUploadGroup 3 }
+
+agentTransferUploadFilename OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..63))
+--    Rsyntax OCTET STRING(SIZE(0..63))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Transfer upload tftpfilename configures the
+         file name for the file being uploaded from the
+         switch. It can be up to 32 alphanumeric
+         characters. The switch remembers the last file
+         name used. File path can be appended to the file
+         name if the string is less than 17 characters.
+         Otherwise, the File Path field will need to be
+         used and the File Name will be appended to the
+         File Path as is. An example would be File Path
+         set to c:\tftp\code\ and File Name set to
+         e1r1v1.opr.
+         Note: File Name, File Path, and TFTP Server IP
+         Address are applicable only if the Transfer Mode
+         is TFTP."
+    ::= { agentTransferUploadGroup 4 }
+
+agentTransferUploadDataType OBJECT-TYPE
+    SYNTAX INTEGER {
+        config(2),
+        errorlog(3),
+        systemtrace(4),
+        traplog(5),
+        crashfile(6),
+        signatures(7),
+        unknown(99)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Transfer upload datatype configures the type of
+         file to upload from the switch.
+         The types for upload are:
+           -   Configuration File
+           -   Error log
+           -   System trace
+           -   Trap log
+           -   Crash File"
+    ::= { agentTransferUploadGroup 5 }
+
+agentTransferUploadStart OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Transfer upload start will start an upload
+         transfer. The agentTransferUploadMode object
+         must not be set to xmodem(2), ymodem(3), or
+         zmodem(4) to initiate a transfer via SNMP."
+    ::= { agentTransferUploadGroup 6 }
+
+agentTransferUploadStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        notInitiated(1),
+        transferStarting(2),
+        errorStarting(3),
+        wrongFileType(4),
+        updatingConfig(5),
+        invalidConfigFile(6),
+        writingToFlash(7),
+        failureWritingToFlash(8),
+        checkingCRC(9),
+        failedCRC(10),
+        unknownDirection(11),
+        transferSuccessful(12),
+        transferFailed(13),
+        unknown(99)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the current status of an upload
+         transfer."
+    ::= { agentTransferUploadGroup 7 }
+
+agentTransferConfigurationFileEncryption OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        disable(0),
+        enable(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The configuration file can be encrypted before
+         tftp upload from the switch and then decrypted
+         before downloading to the switch when this
+         option is enabled."
+    ::= { agentTransferConfigGroup 3 }
+
+agentTransferConfigurationFileEncryptionKey OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..16))
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the key to be used when encrypting the
+         configuration file while upload from the switch
+         or while decrypting the file after download to
+         the switch."
+    ::= { agentTransferConfigGroup 4 }
+
+agentTransferDownloadMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        tftp(1),
+        xmodem(2),
+        ymodem(3),
+        zmodem(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Transfer download mode configures the mode to
+        use when downloading to the switch. The mode is
+        either X/Y/ZMODEM or TFTP. X/Y/ZMODEM is valid
+        only when the file transfer is initiated by the
+        serial EIA 232 port."
+    ::= { agentTransferDownloadGroup 1 }
+
+agentTransferDownloadServerIP OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Transfer download tftpserverip configures the IP
+         address of the server where the file is located.
+         It is valid only when the Transfer Mode is TFTP.
+         The address is 4 integer bytes ranging from 0 to
+         255."
+    ::= { agentTransferDownloadGroup 2 }
+
+agentTransferDownloadPath OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..63))
+--    Rsyntax OCTET STRING(SIZE(0..63))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Transfer download tftppath configures the
+         directory path where the file is located. The
+         switch remembers the last file path used."
+    ::= { agentTransferDownloadGroup 3 }
+
+agentTransferDownloadFilename OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..63))
+--    Rsyntax OCTET STRING(SIZE(0..63))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Transfer download tftpfilename configures the
+         file name for the file being downloaded to the
+         switch. It can be up to 32 alphanumeric
+         characters. The switch remembers the last file
+         name used.  File path can be appended to the
+         file name if the string is less than 33
+         characters. Otherwise, the File Path field will
+         need to be used and the File Name will be
+         appended to the File Path as is. An example
+         would be File Path set to c:\tftp\code\
+         and File Name set to e1r1v1.opr. Note: File
+         Name, File Path, and TFTP Server IP Address are
+         applicable only if the Transfer Mode is TFTP."
+    ::= { agentTransferDownloadGroup 4 }
+
+agentTransferDownloadDataType OBJECT-TYPE
+    SYNTAX INTEGER {
+        code(2),
+        config(3),
+        webauthcert(4),
+        webadmincert(5),
+        signatures(6),
+        customWebAuth(7),
+        unknown(99)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Transfer download datatype configures the type
+         of file to downloaded to the switch.
+         The types for download are:
+           -   Code
+           -   Configuration
+           -   Certificates
+           -   Signatures
+           -   customWebauth- custom webauth tar ball"
+    ::= { agentTransferDownloadGroup 5 }
+
+agentTransferDownloadStart OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Transfer download start will start an download
+         transfer. The agentTransferDownloadMode object
+         must not be set to xmodem(2), ymodem(3), or
+         zmodem(4) to initiate a transfer via SNMP."
+    ::= { agentTransferDownloadGroup 6 }
+
+agentTransferDownloadStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        notInitiated(1),
+        transferStarting(2),
+        errorStarting(3),
+        wrongFileType(4),
+        updatingConfig(5),
+        invalidConfigFile(6),
+        writingToFlash(7),
+        failureWritingToFlash(8),
+        checkingCRC(9),
+        failedCRC(10),
+        unknownDirection(11),
+        transferSuccessful(12),
+        transferFailed(13),
+        bootBreakOff(14),
+        invalidTarFile(15),
+        unknown(99)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the current status of an download
+         transfer."
+    ::= { agentTransferDownloadGroup 7 }
+
+agentTransferDownloadTftpMaxRetries OBJECT-TYPE
+    SYNTAX Gauge(1..254)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum number of retries to be allowed for a
+         TFTP message packet."
+    DEFVAL { 10 }
+    ::= { agentTransferDownloadGroup 8 }
+
+agentTransferDownloadTftpTimeout OBJECT-TYPE
+    SYNTAX Gauge(1..254)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Timeout in seconds for a TFTP message packet."
+    DEFVAL { 6 }
+    ::= { agentTransferDownloadGroup 9 }
+
+agentDot3adAggPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentDot3adAggPortEntry
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "This table provides 802.3ad link aggregation
+         information for each physical port that is not
+         available through the standard MIB."
+    ::= { agentConfigGroup 11 }
+
+agentDot3adAggPortEntry OBJECT-TYPE
+    SYNTAX AgentDot3adAggPortEntry
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "Information about a table entry.  The
+         agentDot3adAggPort identifies the external
+         interface number of the port."
+    INDEX { agentDot3adAggPort }
+    ::= { agentDot3adAggPortTable 1 }
+
+AgentDot3adAggPortEntry ::= SEQUENCE {
+    agentDot3adAggPort INTEGER,
+    agentDot3adAggPortLACPMode INTEGER
+    }
+
+agentDot3adAggPort OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "ifIndex of this physical port"
+    ::= { agentDot3adAggPortEntry 1 }
+
+agentDot3adAggPortLACPMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "Enable/disable 802.3ad LACP on this port"
+    ::= { agentDot3adAggPortEntry 21 }
+
+agentPortConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AgentPortConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of the switch's physical port config
+         entries"
+    ::= { agentConfigGroup 12 }
+
+agentPortConfigEntry OBJECT-TYPE
+    SYNTAX AgentPortConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Switch's physical port config entry"
+    INDEX { agentPortDot1dBasePort }
+    ::= { agentPortConfigTable 1 }
+
+AgentPortConfigEntry ::= SEQUENCE {
+    agentPortDot1dBasePort INTEGER,
+    agentPortIfIndex INTEGER,
+    agentPortIanaType IANAifType,
+    agentPortSTPMode INTEGER,
+    agentPortSTPState INTEGER,
+    agentPortAdminMode INTEGER,
+    agentPortPhysicalMode INTEGER,
+    agentPortPhysicalStatus INTEGER,
+    agentPortLinkTrapMode INTEGER,
+    agentPortClearStats INTEGER,
+    agentPortDefaultType OBJECT IDENTIFIER,
+    agentPortType OBJECT IDENTIFIER,
+    agentPortAutoNegAdminStatus INTEGER,
+    agentPortDot3FlowControlMode INTEGER,
+    agentPortPowerMode INTEGER,
+    agentPortGvrpStatus INTEGER,
+    agentPortGarpJoinTime Gauge,
+    agentPortGarpLeaveTime Gauge,
+    agentPortGarpLeaveAllTime Gauge,
+    agentPortMirrorMode INTEGER,
+    agentPortMulticastApplianceMode INTEGER,
+    agentPortOperationalStatus INTEGER
+    }
+
+agentPortDot1dBasePort OBJECT-TYPE
+    SYNTAX INTEGER(1..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The port number of this port."
+    ::= { agentPortConfigEntry 1 }
+
+agentPortIfIndex OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Port IfIndex"
+    ::= { agentPortConfigEntry 2 }
+
+agentPortIanaType OBJECT-TYPE
+    SYNTAX IANAifType
+--    Rsyntax INTEGER {
+--        other(1),
+--        regular1822(2),
+--        hdh1822(3),
+--        ddnX25(4),
+--        rfc877x25(5),
+--        ethernetCsmacd(6),
+--        iso88023Csmacd(7),
+--        iso88024TokenBus(8),
+--        iso88025TokenRing(9),
+--        iso88026Man(10),
+--        starLan(11),
+--        proteon10Mbit(12),
+--        proteon80Mbit(13),
+--        hyperchannel(14),
+--        fddi(15),
+--        lapb(16),
+--        sdlc(17),
+--        ds1(18),
+--        e1(19),
+--        basicISDN(20),
+--        primaryISDN(21),
+--        propPointToPointSerial(22),
+--        ppp(23),
+--        softwareLoopback(24),
+--        eon(25),
+--        ethernet3Mbit(26),
+--        nsip(27),
+--        slip(28),
+--        ultra(29),
+--        ds3(30),
+--        sip(31),
+--        frameRelay(32),
+--        rs232(33),
+--        para(34),
+--        arcnet(35),
+--        arcnetPlus(36),
+--        atm(37),
+--        miox25(38),
+--        sonet(39),
+--        x25ple(40),
+--        iso88022llc(41),
+--        localTalk(42),
+--        smdsDxi(43),
+--        frameRelayService(44),
+--        v35(45),
+--        hssi(46),
+--        hippi(47),
+--        modem(48),
+--        aal5(49),
+--        sonetPath(50),
+--        sonetVT(51),
+--        smdsIcip(52),
+--        propVirtual(53),
+--        propMultiplexor(54),
+--        ieee80212(55),
+--        fibreChannel(56),
+--        hippiInterface(57),
+--        frameRelayInterconnect(58),
+--        aflane8023(59),
+--        aflane8025(60),
+--        cctEmul(61),
+--        fastEther(62),
+--        isdn(63),
+--        v11(64),
+--        v36(65),
+--        g703at64k(66),
+--        g703at2mb(67),
+--        qllc(68),
+--        fastEtherFX(69),
+--        channel(70),
+--        ieee80211(71),
+--        ibm370parChan(72),
+--        escon(73),
+--        dlsw(74),
+--        isdns(75),
+--        isdnu(76),
+--        lapd(77),
+--        ipSwitch(78),
+--        rsrb(79),
+--        atmLogical(80),
+--        ds0(81),
+--        ds0Bundle(82),
+--        bsc(83),
+--        async(84),
+--        cnr(85),
+--        iso88025Dtr(86),
+--        eplrs(87),
+--        arap(88),
+--        propCnls(89),
+--        hostPad(90),
+--        termPad(91),
+--        frameRelayMPI(92),
+--        x213(93),
+--        adsl(94),
+--        radsl(95),
+--        sdsl(96),
+--        vdsl(97),
+--        iso88025CRFPInt(98),
+--        myrinet(99),
+--        voiceEM(100),
+--        voiceFXO(101),
+--        voiceFXS(102),
+--        voiceEncap(103),
+--        voiceOverIp(104),
+--        atmDxi(105),
+--        atmFuni(106),
+--        atmIma(107),
+--        pppMultilinkBundle(108),
+--        ipOverCdlc(109),
+--        ipOverClaw(110),
+--        stackToStack(111),
+--        virtualIpAddress(112),
+--        mpc(113),
+--        ipOverAtm(114),
+--        iso88025Fiber(115),
+--        tdlc(116),
+--        gigabitEthernet(117),
+--        hdlc(118),
+--        lapf(119),
+--        v37(120),
+--        x25mlp(121),
+--        x25huntGroup(122),
+--        trasnpHdlc(123),
+--        interleave(124),
+--        fast(125),
+--        ip(126),
+--        docsCableMaclayer(127),
+--        docsCableDownstream(128),
+--        docsCableUpstream(129),
+--        a12MppSwitch(130),
+--        tunnel(131),
+--        coffee(132),
+--        ces(133),
+--        atmSubInterface(134),
+--        l2vlan(135),
+--        l3ipvlan(136),
+--        l3ipxvlan(137),
+--        digitalPowerline(138),
+--        mediaMailOverIp(139),
+--        dtm(140),
+--        dcn(141),
+--        ipForward(142),
+--        msdsl(143),
+--        ieee1394(144),
+--        if-gsn(145),
+--        dvbRccMacLayer(146),
+--        dvbRccDownstream(147),
+--        dvbRccUpstream(148),
+--        atmVirtual(149),
+--        mplsTunnel(150),
+--        srp(151),
+--        voiceOverAtm(152),
+--        voiceOverFrameRelay(153),
+--        idsl(154),
+--        compositeLink(155),
+--        ss7SigLink(156),
+--        propWirelessP2P(157),
+--        frForward(158),
+--        rfc1483(159),
+--        usb(160),
+--        ieee8023adLag(161),
+--        bgppolicyaccounting(162),
+--        frf16MfrBundle(163),
+--        h323Gatekeeper(164),
+--        h323Proxy(165),
+--        mpls(166),
+--        mfSigLink(167),
+--        hdsl2(168),
+--        shdsl(169),
+--        ds1FDL(170),
+--        pos(171),
+--        dvbAsiIn(172),
+--        dvbAsiOut(173),
+--        plc(174),
+--        nfas(175),
+--        tr008(176),
+--        gr303RDT(177),
+--        gr303IDT(178),
+--        isup(179),
+--        propDocsWirelessMaclayer(180),
+--        propDocsWirelessDownstream(181),
+--        propDocsWirelessUpstream(182),
+--        hiperlan2(183),
+--        propBWAp2Mp(184),
+--        sonetOverheadChannel(185),
+--        digitalWrapperOverheadChannel(186),
+--        aal2(187),
+--        radioMAC(188),
+--        atmRadio(189),
+--        imt(190),
+--        mvl(191),
+--        reachDSL(192),
+--        frDlciEndPt(193),
+--        atmVciEndPt(194),
+--        opticalChannel(195),
+--        opticalTransport(196),
+--        propAtm(197),
+--        voiceOverCable(198),
+--        infiniband(199),
+--        teLink(200),
+--        q2931(201),
+--        virtualTg(202),
+--        sipTg(203),
+--        sipSig(204),
+--        docsCableUpstreamChannel(205),
+--        econet(206),
+--        pon155(207),
+--        pon622(208),
+--        bridge(209),
+--        linegroup(210),
+--        voiceEMFGD(211),
+--        voiceFGDEANA(212),
+--        voiceDID(213),
+--        mpegTransport(214),
+--        sixToFour(215),
+--        gtp(216),
+--        pdnEtherLoop1(217),
+--        pdnEtherLoop2(218),
+--        opticalChannelGroup(219),
+--        homepna(220),
+--        gfp(221),
+--        ciscoISLvlan(222),
+--        actelisMetaLOOP(223),
+--        fcipLink(224),
+--        rpr(225),
+--        qam(226),
+--        lmp(227),
+--        cblVectaStar(228),
+--        docsCableMCmtsDownstream(229),
+--        adsl2(230),
+--        macSecControlledIF(231),
+--        macSecUncontrolledIF(232),
+--        aviciOpticalEther(233),
+--        atmbond(234)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Port Type"
+    ::= { agentPortConfigEntry 3 }
+
+agentPortSTPMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        dot1d(1),
+        fast(2),
+        off(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Port Spanning Tree Protocol Mode
+         STP mode values are:
+         dot1d (the default)
+         fast, indicates you want to use the fast
+         spanning tree mode
+         off, indicates the STP mode is turned off for a
+         particular port"
+    ::= { agentPortConfigEntry 4 }
+
+agentPortSTPState OBJECT-TYPE
+    SYNTAX INTEGER {
+        blocking(1),
+        listening(2),
+        learning(3),
+        forwarding(4),
+        disabled(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Port Spanning Tree Protocol State"
+    ::= { agentPortConfigEntry 5 }
+
+agentPortAdminMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Port Admin Mode"
+    ::= { agentPortConfigEntry 6 }
+
+agentPortPhysicalMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        autoNegotiate(1),
+        half10(2),
+        full10(3),
+        half100(4),
+        full100(5),
+        full1000sx(8)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Port Speed Mode.  This is the
+         configured physical mode.This object is
+         read-only for gigabit ports"
+    ::= { agentPortConfigEntry 7 }
+
+agentPortPhysicalStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        autonegotiate(1),
+        half10(2),
+        full10(3),
+        half100(4),
+        full100(5),
+        full1000sx(8),
+        unknown(9)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Port Physical Speed Status.This
+         is the current actual speed."
+    ::= { agentPortConfigEntry 8 }
+
+agentPortLinkTrapMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If enabled, link up and link down traps will be
+         sent for this port."
+    ::= { agentPortConfigEntry 9 }
+
+agentPortClearStats OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Clear stats for this port only"
+    ::= { agentPortConfigEntry 10 }
+
+agentPortDefaultType OBJECT-TYPE
+    SYNTAX OBJECT IDENTIFIER
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the default administrative
+         port type, to be used in conjunction with the
+         operational port type denoted by agentPortType.
+        
+         The set of possible values for this object is
+         the same as the set defined for the agentPortType
+         object.
+        
+         This object represents the administratively-
+         configured
+         type of the MAU.  If auto-negotiation is not enabled
+         or is not implemented for this MAU, the value of
+         this object determines the operational type of the
+         MAU.  In this case, a set to this object will force
+         the MAU into the specified operating mode.
+        
+         If auto-negotiation is implemented and enabled for
+         this MAU, the operational type of the MAU is
+         determined by auto-negotiation, and the value of
+         this object denotes the type to which the MAU will
+         automatically revert if/when auto-negotiation is
+         later disabled.
+        
+         The valid values for this object are:
+              dot3MauType10BaseTHD
+              dot3MauType10BaseTFD
+              dot3MauType100BaseTXHD
+              dot3MauType100BaseTXFD
+              dot3MauType100BaseFXFD
+              dot3MauType1000BaseSXFD"
+    REFERENCE
+        "RFC 2668"
+    ::= { agentPortConfigEntry 11 }
+
+agentPortType OBJECT-TYPE
+    SYNTAX OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the port type.
+         An initial set of MAU types are defined in RFC 2668.
+         The assignment of OBJECT IDENTIFIERs to new types of
+         MAUs is managed by the IANA.
+        
+         If the MAU type is unknown, the object identifier
+         unknownMauType OBJECT IDENTIFIER ::= { 0 0 }
+         is returned.  Note that unknownMauType is a
+         syntactically valid object identifier, and any
+         conformant implementation of ASN.1 and the BER must
+         be able to generate and recognize this value.
+         This object represents the operational type of the
+         MAU, as determined by either (1) the result of the
+         auto-negotiation function or (2) if auto-negotiation
+         is not enabled or is not implemented for this MAU,
+         by the value of the object qbEnetDefaultType, or (3)
+         for the GigE card a value determined by the GBIC
+         connected to the card.  In case (2), a set to the
+         object qbEnetPortDefaultType will force the MAU into
+         the new operating mode.
+        
+         The valid values for this object are:
+        
+              dot3MauType10BaseTHD
+              dot3MauType10BaseTFD
+              dot3MauType100BaseTXHD
+              dot3MauType100BaseTXFD
+              dot3MauType100BaseFXFD
+              dot3MauType1000BaseSXFD"
+    REFERENCE
+        "RFC 2668"
+    ::= { agentPortConfigEntry 12 }
+
+agentPortAutoNegAdminStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the administration status of
+         auto negotiation for this port."
+    ::= { agentPortConfigEntry 13 }
+
+agentPortDot3FlowControlMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Config flowcontrol allows you to enable or
+        disable 802.3x flow control for this port. This
+        value applies to only full-duplex mode ports."
+    ::= { agentPortConfigEntry 14 }
+
+agentPortPowerMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        --?? enum value of zero may cause problems
+        disable(0)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " Enable/Disable the port's Power over ethernet. This doesn't
+          apply to appliances that have no POE controller."
+    ::= { agentPortConfigEntry 15 }
+
+agentPortGvrpStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "The state of GVRP operation on this port.  The value
+        enabled(1) indicates that GVRP is enabled on this port,
+        as long as dot1qGvrpStatus is also enabled for this
+        device.  When disabled(2) but dot1qGvrpStatus is still
+        enabled for the device, GVRP is disabled on this port:
+        any GVRP packets received will be silently discarded and
+        no GVRP registrations will be propagated from other
+        ports.  This object affects all GVRP Applicant and
+        Registrar state machines on this port.  A transition
+        from disabled(2) to enabled(1) will cause a reset of all
+        GVRP state machines on this port.(Attribute no longer
+        supported)"
+    DEFVAL { enabled }
+    ::= { agentPortConfigEntry 16 }
+
+agentPortGarpJoinTime OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "The GARP Join time, in centiseconds.(Attribute no longer
+         supported)"
+    DEFVAL { 20 }
+    ::= { agentPortConfigEntry 17 }
+
+agentPortGarpLeaveTime OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "The GARP Leave time, in centiseconds.(Attribute no
+         longer supported)"
+    DEFVAL { 60 }
+    ::= { agentPortConfigEntry 18 }
+
+agentPortGarpLeaveAllTime OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "The GARP LeaveAll time, in centiseconds.(Attribute no
+         longer supported)"
+    DEFVAL { 1000 }
+    ::= { agentPortConfigEntry 19 }
+
+agentPortMirrorMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        disable(0),
+        enable(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The switch's Port Mirror Mode. If enabled, then
+         this is the port that the packets are mirrored
+         to."
+    ::= { agentPortConfigEntry 20 }
+
+agentPortMulticastApplianceMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        disable(0),
+        enable(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Port Multicast Appliance Mode. If enabled,
+         then this port allows multicast streams through
+         it. At a time, a maximum of four ports including
+         the gigabit ethernet port can have this mode
+         enabled on them.  This is to limit the number of
+         multicast streams allowed through the switch
+         at a given time."
+    ::= { agentPortConfigEntry 21 }
+
+agentPortOperationalStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current operational state of the port."
+    ::= { agentPortConfigEntry 40 }
+
+agentSaveConfig OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "save config to NVRAM"
+    ::= { agentSystemGroup 1 }
+
+agentClearConfig OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "clear config to factory defaults"
+    ::= { agentSystemGroup 2 }
+
+agentClearLags OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "clear lag configuration"
+    ::= { agentSystemGroup 3 }
+
+agentClearLoginSessions OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "close all telnet sessions"
+    ::= { agentSystemGroup 4 }
+
+agentClearPortStats OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "clear all port statistics"
+    ::= { agentSystemGroup 6 }
+
+agentClearSwitchStats OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "clear all switch statistics"
+    ::= { agentSystemGroup 7 }
+
+agentClearTrapLog OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "clear trap log"
+    ::= { agentSystemGroup 8 }
+
+agentResetSystem OBJECT-TYPE
+    SYNTAX INTEGER {
+        enable(1),
+        disable(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "reset the switch"
+    ::= { agentSystemGroup 10 }
+
+portStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF PortStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of additional thernet statistics entries."
+    ::= { stats 1 }
+
+portStatsEntry OBJECT-TYPE
+    SYNTAX PortStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of statistics kept for a particular Ethernet
+        interface."
+    INDEX { portStatsIndex }
+    ::= { portStatsTable 1 }
+
+PortStatsEntry ::= SEQUENCE {
+    portStatsIndex INTEGER,
+    portStatsPktsTx64Octets Counter,
+    portStatsPktsTx65to127Octets Counter,
+    portStatsPktsTx128to255Octets Counter,
+    portStatsPktsTx256to511Octets Counter,
+    portStatsPktsTx512to1023Octets Counter,
+    portStatsPktsTx1024to1518Octets Counter,
+    portStatsPktsRx1519to1530Octets Counter,
+    portStatsPktsTx1519to1530Octets Counter,
+    portStatsPktsTxOversizeOctets Counter
+    }
+
+portStatsIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object uniquely identifies
+         this portStatsEntry."
+    ::= { portStatsEntry 1 }
+
+portStatsPktsTx64Octets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets (including bad
+        packets) transmitted that were 64 octets in length
+        (excluding framing bits but including FCS octets)."
+    ::= { portStatsEntry 2 }
+
+portStatsPktsTx65to127Octets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets (including bad
+        packets) transmitted that were between
+        65 and 127 octets in length inclusive
+        (excluding framing bits but including FCS octets)."
+    ::= { portStatsEntry 3 }
+
+portStatsPktsTx128to255Octets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets (including bad
+        packets) transmitted that were between
+        128 and 255 octets in length inclusive
+        (excluding framing bits but including FCS octets)."
+    ::= { portStatsEntry 4 }
+
+portStatsPktsTx256to511Octets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets (including bad
+        packets) transmitted that were between
+        256 and 511 octets in length inclusive
+        (excluding framing bits but including FCS octets)."
+    ::= { portStatsEntry 5 }
+
+portStatsPktsTx512to1023Octets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets (including bad
+        packets) transmitted that were between
+        512 and 1023 octets in length inclusive
+        (excluding framing bits but including FCS octets)."
+    ::= { portStatsEntry 6 }
+
+portStatsPktsTx1024to1518Octets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets (including bad
+        packets) transmitted that were between
+        1024 and 1518 octets in length inclusive
+        (excluding framing bits but including FCS octets)."
+    ::= { portStatsEntry 7 }
+
+portStatsPktsRx1519to1530Octets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets (including bad
+        packets) received that were between
+        1519 and 1530 octets in length inclusive
+        (excluding framing bits but including FCS octets)."
+    ::= { portStatsEntry 8 }
+
+portStatsPktsTx1519to1530Octets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets (including bad
+        packets) transmitted that were between
+        1519 and 1530 octets in length inclusive
+        (excluding framing bits but including FCS octets)."
+    ::= { portStatsEntry 9 }
+
+portStatsPktsTxOversizeOctets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets (including bad
+        packets) transmitted that were more than
+        1530 octets in length.
+        (excluding framing bits but including FCS octets)."
+    ::= { portStatsEntry 30 }
+
+multipleUsersTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE switchingTraps
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Multiple Users Log Trap."
+    ::= 1
+
+broadcastStormStartTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE switchingTraps
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Broadcast Storm Start Log Trap."
+    ::= 2
+
+broadcastStormEndTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE switchingTraps
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Broadcast Storm End Log Trap."
+    ::= 3
+
+linkFailureTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE switchingTraps
+--  Status
+--    mandatory
+    DESCRIPTION
+        "trapMgrLinkFailureLogTrap."
+    ::= 4
+
+vlanRequestFailureTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE switchingTraps
+    VARIABLES {
+        dot1qVlanIndex }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Vlan Request Failure Log Trap"
+    ::= 5
+
+vlanDeleteLastTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE switchingTraps
+    VARIABLES {
+        dot1qVlanIndex }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Last Vlan Delete Log Trap"
+    ::= 6
+
+vlanDefaultCfgFailureTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE switchingTraps
+    VARIABLES {
+        dot1qVlanIndex }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Default Vlan Config Failure Log Trap"
+    ::= 7
+
+vlanRestoreFailureTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE switchingTraps
+    VARIABLES {
+        dot1qVlanIndex }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Vlan Restore Failure Log Trap"
+    ::= 8
+
+fanFailureTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE switchingTraps
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Fan Failure Log Trap."
+    ::= 9
+
+stpInstanceNewRootTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE switchingTraps
+    VARIABLES {
+        dot1qVlanIndex }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "STP Instance New Root Trap"
+    ::= 10
+
+stpInstanceTopologyChangeTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE switchingTraps
+    VARIABLES {
+        dot1qVlanIndex }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "STP Instance Topology Change Trap"
+    ::= 11
+
+powerSupplyStatusChangeTrap TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE switchingTraps
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Power Supply Status Change Trap"
+    ::= 12
+
+bsnSwitchingAgentInfoGroup OBJECT IDENTIFIER ::= { bsnSwitchingGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects provide switching information.
+--  objects
+--    agentInventorySysDescription, agentInventoryMachineType, 
+--    agentInventoryMachineModel, agentInventorySerialNumber, 
+--    agentInventoryMaintenanceLevel, 
+--    agentInventoryBurnedInMacAddress, 
+--    agentInventoryOperatingSystem, agentInventoryManufacturerName, 
+--    agentInventoryProductName, agentInventoryProductVersion, 
+--    agentInventoryIsGigECardPresent, 
+--    agentInventoryIsCryptoCardPresent, 
+--    agentInventoryIsForeignAPSupported, 
+--    agentInventoryMaxNumberOfAPsSupported, 
+--    agentInventoryIsCryptoCard2Present, 
+--    agentInventoryFipsModeEnabled, agentTrapLogTotal, 
+--    agentTrapLogTotalSinceLastViewed, agentTrapLogIndex, 
+--    agentTrapLogSystemTime, agentTrapLogTrap, 
+--    agentRadioUpDownTrapCount, 
+--    agentApAssociateDisassociateTrapCount, 
+--    agentApLoadProfileFailTrapCount, 
+--    agentApNoiseProfileFailTrapCount, 
+--    agentApInterferenceProfileFailTrapCount, 
+--    agentApCoverageProfileFailTrapCount, 
+--    agentSwitchInfoLwappTransportMode, 
+--    agentSwitchInfoPowerSupply1Present, 
+--    agentSwitchInfoPowerSupply1Operational, 
+--    agentSwitchInfoPowerSupply2Present, 
+--    agentSwitchInfoPowerSupply2Operational, 
+--    agentCurrentCPUUtilization, agentTotalMemory, agentFreeMemory, 
+--    agentWcpDeviceName, agentWcpSlotNumber, agentWcpPortNumber, 
+--    agentWcpPeerPortNumber, agentWcpPeerIpAddress, 
+--    agentWcpControllerTableChecksum, 
+--    agentWcpControllerInfoSlotNumber, 
+--    agentWcpControllerInfoPortNumber, 
+--    agentWcpControllerInfoIpAddress
+
+bsnSwitchingAgentConfigGroup OBJECT IDENTIFIER ::= { bsnSwitchingGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects provide switching configuration 
+--     information.
+--  objects
+--    agentLoginSessionIndex, agentLoginSessionUserName, 
+--    agentLoginSessionIPAddress, agentLoginSessionConnectionType, 
+--    agentLoginSessionIdleTime, agentLoginSessionSessionTime, 
+--    agentLoginSessionStatus, agentTelnetLoginTimeout, 
+--    agentTelnetMaxSessions, agentTelnetAllowNewMode, 
+--    agentSSHAllowNewMode, agentSerialTimeout, agentSerialBaudrate, 
+--    agentSerialCharacterSize, agentSerialHWFlowControlMode, 
+--    agentSerialStopBits, agentSerialParityType, 
+--    agentNetworkIPAddress, agentNetworkSubnetMask, 
+--    agentNetworkDefaultGateway, agentNetworkBurnedInMacAddress, 
+--    agentNetworkConfigProtocol, agentNetworkWebMode, 
+--    agentNetworkSecureWebMode, agentNetworkMulticastMode, 
+--    agentNetworkDsPortNumber, agentNetworkUserIdleTimeout, 
+--    agentNetworkArpTimeout, agentNetworkManagementVlan, 
+--    agentNetworkAllowMgmtViaWireless, 
+--    agentNetworkBroadcastSsidMode, agentNetworkSecureWebPassword, 
+--    agentNetworkWebAdminCertType, 
+--    agentNetworkWebAuthCertRegenerateCmdInvoke, 
+--    agentNetworkWebAdminCertRegenerateCmdInvoke, 
+--    agentNetworkWebAuthCertType, agentNetworkRouteIPAddress, 
+--    agentNetworkRouteIPNetmask, agentNetworkRouteGateway, 
+--    agentNetworkRouteStatus, agentNetworkPeerToPeerBlockingMode, 
+--    agentNetworkMulticastGroupAddress, agentInterfaceName, 
+--    agentInterfaceVlanId, agentInterfaceType, 
+--    agentInterfaceMacAddress, agentInterfaceIPAddress, 
+--    agentInterfaceIPNetmask, agentInterfaceIPGateway, 
+--    agentInterfacePortNo, agentInterfacePrimaryDhcpAddress, 
+--    agentInterfaceSecondaryDhcpAddress, 
+--    agentInterfaceDhcpProtocol, agentInterfaceDnsHostName, 
+--    agentInterfaceAclName, agentInterfaceAPManagementFeature, 
+--    agentInterfaceActivePortNo, agentInterfaceBackupPortNo, 
+--    agentInterfaceVlanQuarantine, agentInterfaceRowStatus, 
+--    agentNtpPollingInterval, agentNtpServerIndex, 
+--    agentNtpServerAddress, agentNtpServerRowStatus, 
+--    agentDhcpScopeIndex, agentDhcpScopeName, 
+--    agentDhcpScopeLeaseTime, agentDhcpScopeNetwork, 
+--    agentDhcpScopeNetmask, agentDhcpScopePoolStartAddress, 
+--    agentDhcpScopePoolEndAddress, 
+--    agentDhcpScopeDefaultRouterAddress1, 
+--    agentDhcpScopeDefaultRouterAddress2, 
+--    agentDhcpScopeDefaultRouterAddress3, 
+--    agentDhcpScopeDnsDomainName, agentDhcpScopeDnsServerAddress1, 
+--    agentDhcpScopeDnsServerAddress2, 
+--    agentDhcpScopeDnsServerAddress3, 
+--    agentDhcpScopeNetbiosNameServerAddress1, 
+--    agentDhcpScopeNetbiosNameServerAddress2, 
+--    agentDhcpScopeNetbiosNameServerAddress3, agentDhcpScopeState, 
+--    agentDhcpScopeRowStatus, agentSnmpTrapPortNumber, 
+--    agentSnmpVersion1Status, agentSnmpVersion2cStatus, 
+--    agentSnmpCommunityName, agentSnmpCommunityIPAddress, 
+--    agentSnmpCommunityIPMask, agentSnmpCommunityAccessMode, 
+--    agentSnmpCommunityEnabled, agentSnmpCommunityStatus, 
+--    agentSnmpTrapReceiverName, agentSnmpTrapReceiverIPAddress, 
+--    agentSnmpTrapReceiverEnabled, agentSnmpTrapReceiverStatus, 
+--    agentSnmpAuthenticationTrapFlag, agentSnmpLinkUpDownTrapFlag, 
+--    agentSnmpMultipleUsersTrapFlag, agentSnmpSpanningTreeTrapFlag, 
+--    agentSnmpVersion3Status, agentSnmpV3UserName, 
+--    agentSnmpV3UserAccessMode, agentSnmpV3UserAuthenticationType, 
+--    agentSnmpV3UserEncryptionType, 
+--    agentSnmpV3UserAuthenticationPassword, 
+--    agentSnmpV3UserEncryptionPassword, agentSnmpV3UserStatus, 
+--    agentSpanningTreeMode, agentSwitchAddressAgingTimeout, 
+--    agentSwitchBroadcastControlMode, 
+--    agentSwitchDot3FlowControlMode, agentSwitchLwappTransportMode, 
+--    agentTransferUploadMode, agentTransferUploadServerIP, 
+--    agentTransferUploadPath, agentTransferUploadFilename, 
+--    agentTransferUploadDataType, agentTransferUploadStart, 
+--    agentTransferUploadStatus, 
+--    agentTransferConfigurationFileEncryption, 
+--    agentTransferConfigurationFileEncryptionKey, 
+--    agentTransferDownloadMode, agentTransferDownloadServerIP, 
+--    agentTransferDownloadPath, agentTransferDownloadFilename, 
+--    agentTransferDownloadDataType, agentTransferDownloadStart, 
+--    agentTransferDownloadStatus, 
+--    agentTransferDownloadTftpMaxRetries, 
+--    agentTransferDownloadTftpTimeout, agentPortDot1dBasePort, 
+--    agentPortIfIndex, agentPortIanaType, agentPortSTPMode, 
+--    agentPortSTPState, agentPortAdminMode, agentPortPhysicalMode, 
+--    agentPortPhysicalStatus, agentPortLinkTrapMode, 
+--    agentPortClearStats, agentPortDefaultType, agentPortType, 
+--    agentPortAutoNegAdminStatus, agentPortDot3FlowControlMode, 
+--    agentPortPowerMode, agentPortMirrorMode, 
+--    agentPortMulticastApplianceMode, agentPortOperationalStatus
+
+bsnSwitchingAgentSystemGroup OBJECT IDENTIFIER ::= { bsnSwitchingGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects provide switching system 
+--     information and config.
+--  objects
+--    agentSaveConfig, agentClearConfig, agentClearLags, 
+--    agentClearLoginSessions, agentClearPortStats, 
+--    agentClearSwitchStats, agentClearTrapLog, agentResetSystem
+
+bsnSwitchingAgentStatsGroup OBJECT IDENTIFIER ::= { bsnSwitchingGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects provide switching statistics.
+--  objects
+--    portStatsIndex, portStatsPktsTx64Octets, 
+--    portStatsPktsTx65to127Octets, portStatsPktsTx128to255Octets, 
+--    portStatsPktsTx256to511Octets, portStatsPktsTx512to1023Octets, 
+--    portStatsPktsTx1024to1518Octets, 
+--    portStatsPktsRx1519to1530Octets, 
+--    portStatsPktsTx1519to1530Octets, 
+--    portStatsPktsTxOversizeOctets
+
+bsnSwitchingObsGroup OBJECT IDENTIFIER ::= { bsnSwitchingGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    obsolete
+--  Descr
+--    This collection of objects are  obsoleted in bsnSwitching
+--     module.
+--  objects
+--    agentLagConfigCreate, agentLagSummaryName, 
+--    agentLagSummaryLagIndex, agentLagSummaryLinkTrap, 
+--    agentLagSummaryAdminMode, agentLagSummaryStpMode, 
+--    agentLagSummaryAddPort, agentLagSummaryDeletePort, 
+--    agentLagSummaryPortsBitMask, agentLagSummaryStatus, 
+--    agentLagDetailedLagIndex, agentLagDetailedIfIndex, 
+--    agentLagDetailedPortSpeed, agentLagConfigMode, 
+--    agentServicePortIPAddress, agentServicePortSubnetMask, 
+--    agentServicePortBurnedInMacAddress, 
+--    agentServicePortConfigProtocol, 
+--    agentSnmpBroadcastStormTrapFlag, agentDot3adAggPort, 
+--    agentDot3adAggPortLACPMode, agentNetworkGvrpStatus, 
+--    agentPortGvrpStatus, agentPortGarpJoinTime, 
+--    agentPortGarpLeaveTime, agentPortGarpLeaveAllTime, 
+--    agentLagSummaryFlushTimer, agentServicePortDefaultGateway
+
+bsnSwitchingTrap OBJECT IDENTIFIER ::= { bsnSwitchingGroups 6 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This  collection of objects provides switching related 
+--     notification.
+--  notifications
+--    multipleUsersTrap, broadcastStormStartTrap, 
+--    broadcastStormEndTrap, linkFailureTrap, 
+--    vlanRequestFailureTrap, vlanDeleteLastTrap, 
+--    vlanDefaultCfgFailureTrap, vlanRestoreFailureTrap, 
+--    fanFailureTrap, stpInstanceNewRootTrap, 
+--    stpInstanceTopologyChangeTrap, powerSupplyStatusChangeTrap
+
+bsnSwitchingCompliance OBJECT IDENTIFIER ::= { bsnSwitchingCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMP entities that
+--     implement the bsnSwitching module
+--  Module
+--    >>current<<
+--   MandGroup
+--    bsnSwitchingAgentInfoGroup
+--   MandGroup
+--    bsnSwitchingAgentConfigGroup
+--   MandGroup
+--    bsnSwitchingAgentSystemGroup
+--   MandGroup
+--    bsnSwitchingAgentStatsGroup
+
+
+END
+

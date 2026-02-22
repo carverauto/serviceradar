@@ -1,0 +1,146 @@
+-- *****************************************************************
+-- CISCO-GSLB-SYSTEM-CAPABILITY.my:
+-- CISCO-GSLB-SYSTEM-MIB AGENT-CAPABILITIES
+--   
+-- Feb 2007, Pawan N
+--   
+-- Copyright (c) 2007, 2008, 2011 by Cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-GSLB-SYSTEM-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoGslbSystemCapability MODULE-IDENTITY
+    LAST-UPDATED    "201109140000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal:  170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel:  +1 800 553-NETS
+
+            E-mail:  cs-slb@cisco.com"
+    DESCRIPTION
+        "The capabilities description
+        of CISCO-GSLB-SYSTEM-MIB."
+    REVISION        "201109140000Z"
+    DESCRIPTION
+        "Added ciscoGslbSystemCapabilityV04R01 agent
+        capabilities for Global Site Selector(GSS)
+        release 4.1.0."
+    REVISION        "200809150000Z"
+    DESCRIPTION
+        "Added ciscoGslbSystemCapabilityV03R00 agent
+        capabilities for Global Site Selector(GSS)
+        release 3.0."
+    REVISION        "200702230000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 534 }
+
+
+
+ciscoGslbSystemCapabilityV02R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "GSS 2.0"
+    STATUS          current
+    DESCRIPTION
+        "GSS 2.0 Cisco GSLB SYSTEM MIB capabilities"
+
+    SUPPORTS        CISCO-GSLB-SYSTEM-MIB
+    INCLUDES        {
+                        ciscoGslbSystemNotifObjectsGroup,
+                        ciscoGslbSystemNotifGroup
+                    }
+    ::= { ciscoGslbSystemCapability 1 }
+
+ciscoGslbSystemCapabilityV03R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Global Site Selector(GSS) 3.0"
+    STATUS          current
+    DESCRIPTION
+        "GSS 3.0 Cisco GSLB SYSTEM MIB capabilities"
+
+    SUPPORTS        CISCO-GSLB-SYSTEM-MIB
+    INCLUDES        { ciscoGslbSystemGeneralGroup }
+    VARIATION       cgsNodeCommIfName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cgsNodeCommIfIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cgsNodeStatus
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cgsNodeLocation
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cgsNodeRegion
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoGslbSystemCapability 2 }
+ 
+ ciscoGslbSystemCapabilityV04R01 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Global Site Selector(GSS) 4.1.0"
+    STATUS          current
+    DESCRIPTION
+        "GSS 4.1.0 Cisco GSLB SYSTEM MIB capabilities"
+
+    SUPPORTS        CISCO-GSLB-SYSTEM-MIB
+    INCLUDES        { ciscoGslbSystemResourceRegionGroup }
+    
+    VARIATION       cgsUnAnswerCountPerRegionId
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+    
+    VARIATION       cgsUnAnswerCountRatePerRegionId1Min
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cgsUnAnswerCountRatePerRegionId5Min
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cgsUnAnswerCountRatePerRegionId30Min
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cgsUnAnswerCountRatePerRegionId4Hr
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoGslbSystemCapability 3 }
+
+END
+
+
+
+
+
+

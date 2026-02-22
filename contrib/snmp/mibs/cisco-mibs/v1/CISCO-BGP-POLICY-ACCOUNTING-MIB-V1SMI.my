@@ -1,0 +1,194 @@
+-- MIB file created 29-Jul-2002 15:03:55, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-BGP-POLICY-ACCOUNTING-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-BGP-POLICY-ACCOUNTING-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    ifIndex
+            FROM IF-MIB
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoBgpPolAcctMIB OBJECT IDENTIFIER ::= { ciscoMgmt 148 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200207260000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    BGP policy based accounting information
+--  RevDate
+--    200207260000Z
+--  RevDescr
+--    Added egress, packet and octet, counters for the BGP
+--    policy accounting feature.
+--  RevDate
+--    9912170000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoBgpPolAcctMIBObjects OBJECT IDENTIFIER ::= { ciscoBgpPolAcctMIB 1 }
+ciscoBgpPolAcctMIBConformance OBJECT IDENTIFIER ::= { ciscoBgpPolAcctMIB 3 }
+ciscoBgpPolAcctMIBCompliances OBJECT IDENTIFIER ::= { ciscoBgpPolAcctMIBConformance 1 }
+ciscoBgpPolAcctMIBGroups OBJECT IDENTIFIER ::= { ciscoBgpPolAcctMIBConformance 2 }
+
+cbpAcctTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CbpAcctEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The cbpAcctTable provides statistics about ingress and egress 
+         traffic on an interface. This data could be used for purposes 
+         like billing."
+    ::= { ciscoBgpPolAcctMIBObjects 1 }
+
+cbpAcctEntry OBJECT-TYPE
+    SYNTAX CbpAcctEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each cbpAcctEntry provides statistics for traffic of interest
+        on an ingress and/or egress interfaces. The traffic of interest 
+        may be used for purposes like billing, and is referred to from 
+        here on in the MIB by the term 'traffic-type', which corresponds
+        to cbpAcctTrafficIndex. Traffic-types are configured by the user
+        on a per interface basis.
+        
+        The statistics include ingress packet counts, ingress octet
+        counts, egress packet counts and egress octet counts. Entries 
+        are created when traffic-type is configured on an interface.
+        Entries are deleted automatically when the user 
+        removes the corresponding traffic-type configuration from an
+        interface."
+    INDEX { ifIndex, cbpAcctTrafficIndex }
+    ::= { cbpAcctTable 1 }
+
+CbpAcctEntry ::= SEQUENCE {
+    cbpAcctTrafficIndex INTEGER,
+    cbpAcctInPacketCount Counter,
+    cbpAcctInOctetCount Counter,
+    cbpAcctOutPacketCount Counter,
+    cbpAcctOutOctetCount Counter
+    }
+
+cbpAcctTrafficIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An integer value greater than 0, that uniquely identifies
+        a traffic-type. The traffic-type has no intrinsic meaning.
+        It just means the traffic coming into an interface can be
+        differentiated into different types. It is up to the user to
+        give meaning to and configure the various traffic-types on an 
+        interface."
+    ::= { cbpAcctEntry 1 }
+
+cbpAcctInPacketCount OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets received for a particular
+        traffic-type on an interface."
+    ::= { cbpAcctEntry 2 }
+
+cbpAcctInOctetCount OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of octets received for a particular
+        traffic-type on an interface."
+    ::= { cbpAcctEntry 3 }
+
+cbpAcctOutPacketCount OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets transmitted for a particular
+        traffic-type on an interface."
+    ::= { cbpAcctEntry 4 }
+
+cbpAcctOutOctetCount OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of octets transmitted for a particular
+        traffic-type on an interface."
+    ::= { cbpAcctEntry 5 }
+
+cbpAcctTableGroup OBJECT IDENTIFIER ::= { ciscoBgpPolAcctMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing customer traffic 
+--    related parameters.
+--  objects
+--    cbpAcctTrafficIndex, cbpAcctInPacketCount, 
+--    cbpAcctInOctetCount
+
+cbpAcctTableGroupRev1 OBJECT IDENTIFIER ::= { ciscoBgpPolAcctMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing customer traffic 
+--    related parameters.
+--  objects
+--    cbpAcctTrafficIndex, cbpAcctInPacketCount, 
+--    cbpAcctInOctetCount, cbpAcctOutPacketCount, 
+--    cbpAcctOutOctetCount
+
+ciscoBgpPolAcctMIBCompliance OBJECT IDENTIFIER ::= { ciscoBgpPolAcctMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    this Cisco BGP-Policy Traffic Accounting MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cbpAcctTableGroup
+
+ciscoBgpPolAcctMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoBgpPolAcctMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    this Cisco BGP-Policy Traffic Accounting MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cbpAcctTableGroupRev1
+
+
+END
+

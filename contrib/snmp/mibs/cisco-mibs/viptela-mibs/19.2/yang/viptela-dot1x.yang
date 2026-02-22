@@ -1,0 +1,432 @@
+module viptela-dot1x {
+  namespace "http://viptela.com/dot1x";
+  prefix viptela-dot1x;
+
+    prefix tailf;
+  }
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import viptela-common {
+    prefix viptela;
+  }
+  import viptela-system {
+    prefix viptela-system;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:yang.model@viptela.com";
+  description
+    "This module defines the data model for 802.1x Network Access Control";
+
+  revision 2019-08-15 {
+    description
+      "Release version: 19.2";
+  }
+  revision 2018-11-01 {
+    description
+      "Release version: 18.4";
+  }
+  revision 2018-08-20 {
+    description
+      "Release version: 18.3.1";
+  }
+  revision 2018-06-25 {
+    description
+      "Release version: 18.3";
+  }
+  revision 2018-04-25 {
+    description
+      "Release version: 18.2";
+  }
+  revision 2018-03-15 {
+    description
+      "Release version: 18.1.1";
+  }
+  revision 2018-01-16 {
+    description
+      "Release version: 17.2.3";
+  }
+  revision 2017-11-01 {
+    description
+      "Release version: 17.2.1";
+  }
+  revision 2017-08-01 {
+    description
+      "Release version: 17.2";
+  }
+  revision 2017-05-25 {
+    description
+      "Release version: 17.1.1";
+  }
+  revision 2017-04-06 {
+    description
+      "Release version: 17.1";
+  }
+  revision 2017-02-15 {
+    description
+      "Release version: 16.3.2";
+  }
+  revision 2017-02-06 {
+    description
+      "Release version: 16.3.1";
+  }
+  revision 2016-11-16 {
+    description
+      "Release version: 16.3";
+  }
+
+  typedef dot1x-auth-state {
+    description
+      "802.1x authentication state";
+    type enumeration {
+      enum "None";
+      enum "Authenticated";
+      enum "Authenticating";
+      enum "Exception";
+      enum "Guest";
+      enum "AuthFail";
+      enum "AuthReject";
+    }
+  }
+
+  typedef dot1x-auth-method {
+    description
+      "802.1x authentication method";
+    type enumeration {
+      enum "Radius";
+      enum "Radius MAB";
+      enum "Local MAB";
+      enum "Local Auth";
+    }
+  }
+
+  typedef eap-method {
+    description
+      "802.1x EAP method";
+    type enumeration {
+      enum "unknown" {
+        value 0;
+      }
+      enum "MD5" {
+        value 1;
+      }
+      enum "PEAP/MS-CHAPv2" {
+        value 2;
+      }
+      enum "EAP-TLS" {
+        value 3;
+      }
+    }
+  }
+
+  container dot1x {
+    description "Display 802.1x related information";
+    when "/viptela-system:system/viptela-system:personality = 'vedge'";
+    list interfaces {
+      description "Display 802.1x interface information";
+      config false;
+      key "if-name";
+      leaf if-name {
+        description "Interface name";
+        type viptela:named-type;
+      }
+      leaf oper-state {
+        description "Operational state";
+        type enumeration {
+          enum "Down";
+          enum "Up";
+        }
+      }
+      leaf host-mode {
+        description "Host mode";
+        type enumeration {
+          enum "Single Host";
+          enum "Multi Auth";
+          enum "Multi Host";
+        }
+      }
+      leaf ctrl-dir {
+        description "802.1x port access control direction";
+        type enumeration {
+          enum "In";
+          enum "Both";
+        }
+      }
+      leaf mab-server {
+        description "MAC authentication bypass configured to use RADIUS server";
+        type boolean;
+      }
+      leaf mab-local {
+        description "MAC authentication bypass configured locally on the interface";
+        type boolean;
+      }
+      leaf wake-on-lan {
+        description "Allow wake-on-lan packets to egress the port";
+        type boolean;
+      }
+      leaf reauth-timeout {
+        description "Timeout for reauthentication, in minutes";
+        type uint16;
+      }
+      leaf inactivity-timeout {
+        description "Timeout for inactivity, in minutes";
+        type uint16;
+      }
+      leaf guest-vlan {
+        description "VLAN to drop non-802.1x enabled clients into if client is not in MAB list";
+        type int32;
+      }
+      leaf auth-fail-vlan {
+        description "VLAN to drop 802.1x enabled clients into if authentication server is unreachable";
+        type int32;
+      }
+      leaf auth-reject-vlan {
+        description "VLAN to drop 802.1x enabled clients into if authentication is rejected";
+        type int32;
+      }
+      leaf default-vlan {
+        description "VLAN to drop clients into when VLAN not specified by RADIUS";
+        type int32;
+      }
+      leaf primary-radius-server {
+        description "Primary RADIUS server IP address";
+        type inet:ip-address;
+      }
+      leaf secondary-radius-server {
+        description "Secondary RADIUS server IP address";
+        type inet:ip-address;
+      }
+      leaf accounting-interval {
+        description "Interim accounting interval, in minutes";
+        type uint16;
+      }
+      leaf nas-identifier {
+        description "NAS Identifier sent to RADIUS server";
+        type string {
+          length "1..255";
+        }
+      }
+      leaf nas-ipaddr {
+        description "NAS IP address to RADIUS server";
+        type inet:ip-address;
+      }
+      leaf num-clients {
+        description "Number of connected clients";
+        type uint32;
+      }
+    }
+    list clients {
+      description "Display 802.1x client information";
+      config false;
+      key "if-name mac-address";
+      leaf if-name {
+        description "802.1x interface name";
+        type viptela:named-type;
+      }
+      leaf mac-address {
+        description "MAC address of the client";
+        type viptela:mac-address;
+      }
+      leaf auth-state {
+        description "802.1x authentication state of the client";
+        type dot1x-auth-state;
+      }
+      leaf auth-method {
+        description "802.1x authentication method of the client";
+        type dot1x-auth-method;
+      }
+      leaf vlan {
+        description "Operational VLAN of the client";
+        type int32;
+      }
+      leaf vpn {
+        description "Operational VPN of the client";
+        type int32;
+      }
+      leaf eap-method {
+        description "Authenticated EAP method";
+        type string;
+      }
+      leaf username {
+        description "Username for client session";
+        type string;
+      }
+      leaf session-time {
+        description "Session time, in seconds";
+        type uint32;
+      }
+      leaf connected-time {
+        description "Connected time, in seconds";
+        type uint32;
+      }
+      leaf inactive-time {
+        description "Time client has been inactive, in seconds";
+        type uint32;
+      }
+      leaf session-id {
+        description "Client Session ID";
+        type string;
+      }
+      leaf eapol-frames-rx {
+        description "EAPoL frames received";
+        type uint32;
+      }
+      leaf eapol-frames-tx {
+        description "EAPoL frames sent";
+        type uint32;
+      }
+      leaf eapol-start-frames-rx {
+        description "EAPoL start frames received";
+        type uint32;
+      }
+      leaf eapol-logoff-frames-rx {
+        description "EAPoL logoff frames received";
+        type uint32;
+      }
+      leaf eapol-request-id-frames-tx {
+        description "EAPoL identity request frames sent";
+        type uint32;
+      }
+      leaf eapol-response-id-frames-rx {
+        description "EAPoL identity response frames received";
+        type uint32;
+      }
+      leaf eapol-request-frames-tx {
+        description "EAPoL request frames sent";
+        type uint32;
+      }
+      leaf eapol-response-frames-rx {
+        description "EAPoL response frames received";
+        type uint32;
+      }
+    }
+    list radius {
+      description "Display 802.1x radius server information";
+      config false;
+      key "if-name ip-address";
+      leaf if-name {
+        description "802.1x interface name";
+        type viptela:named-type;
+      }
+      leaf ip-address {
+        description "RADIUS server IP address";
+        type inet:ip-address;
+      }
+      leaf vpn {
+        description "RADIUS server VPN";
+        type uint32;
+      }
+      leaf is-primary {
+        description "RADIUS server is configured to be the primary one";
+        type boolean;
+      }
+      leaf auth-port {
+        description "RADIUS server authentication port number";
+        type uint32;
+      }
+      leaf auth-is-current {
+        description "RADIUS server is the currently active one";
+        type boolean;
+      }
+      leaf auth-round-trip-time {
+        description "Authentication server round trip time for last message, in seconds";
+        type uint32;
+      }
+      leaf auth-access-requests {
+        description "Number of access requests sent";
+        type uint32;
+      }
+      leaf auth-access-retransmissions {
+        description "Number of access request retransmissions";
+        type uint32;
+      }
+      leaf auth-access-accepts {
+        description "Number of access accepts received";
+        type uint32;
+      }
+      leaf auth-access-rejects {
+        description "Number of access rejects received";
+        type uint32;
+      }
+      leaf auth-access-challenges {
+        description "Number of access challenges received";
+        type uint32;
+      }
+      leaf auth-malformed-access-responses {
+        description "Number of malformed access responses received";
+        type uint32;
+      }
+      leaf auth-bad-authenticators {
+        description "Number of authentication requests with bad authentication";
+        type uint32;
+      }
+      leaf auth-pending-requests {
+        description "Number of un-acknowledged access requests";
+        type uint32;
+      }
+      leaf auth-timeouts {
+        description "Number of authentication request timeouts";
+        type uint32;
+      }
+      leaf auth-unknown-types {
+        description "Number of authentication messages of unknown type";
+        type uint32;
+      }
+      leaf auth-packets-dropped {
+        description "Number of dropped authentication packets";
+        type uint32;
+      }
+      leaf acct-port {
+        description "RADIUS server accounting port number";
+        type uint32;
+      }
+      leaf acct-is-current {
+        description "RADIUS server is the currently active one";
+        type boolean;
+      }
+      leaf acct-round-trip-time {
+        description "Accounting server round trip time for last message, in seconds";
+        type uint32;
+      }
+      leaf acct-requests {
+        description "Number of accounting requests sent";
+        type uint32;
+      }
+      leaf acct-retransmissions {
+        description "Number of accounting request restransmissions";
+        type uint32;
+      }
+      leaf acct-responses {
+        description "Number of accounting responses received";
+        type uint32;
+      }
+      leaf acct-malformed-responses {
+        description "Number of malformed accounting responses received";
+        type uint32;
+      }
+      leaf acct-bad-authenticators {
+        description "Number of accounting requests with bad authentication";
+        type uint32;
+      }
+      leaf acct-pending-requests {
+        description "Number of un-acknowledged accounting requests";
+        type uint32;
+      }
+      leaf acct-timeouts {
+        description "Number of accounting request timeouts";
+        type uint32;
+      }
+      leaf acct-unknown-types {
+        description "Number of accounting responses of unknown type";
+        type uint32;
+      }
+      leaf acct-packets-dropped {
+        description "Number of dropped accounting packets";
+        type uint32;
+      }
+    }
+  }
+}

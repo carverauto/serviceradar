@@ -1,0 +1,561 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-GRAPHICS-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- GRAPHICS management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-GRAPHICS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsEquipmentOperability,
+    CucsEquipmentPowerState,
+    CucsEquipmentPresence,
+    CucsEquipmentSensorThresholdStatus,
+    CucsFsmLifecycle,
+    CucsGraphicsGpuMode
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsGraphicsObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        GRAPHICS management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 73 }
+
+cucsGraphicsCardTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsGraphicsCardEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS graphics:Card managed object table"
+    ::= { cucsGraphicsObjects 1 }
+
+cucsGraphicsCardEntry OBJECT-TYPE
+    SYNTAX           CucsGraphicsCardEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsGraphicsCardTable table."
+    INDEX { cucsGraphicsCardInstanceId }
+    ::= { cucsGraphicsCardTable 1 }
+
+CucsGraphicsCardEntry ::= SEQUENCE {
+    cucsGraphicsCardInstanceId                                       CucsManagedObjectId,
+    cucsGraphicsCardDn                                               CucsManagedObjectDn,
+    cucsGraphicsCardRn                                               SnmpAdminString,
+    cucsGraphicsCardDeviceId                                         Gauge32,
+    cucsGraphicsCardId                                               Gauge32,
+    cucsGraphicsCardIsSupported                                      TruthValue,
+    cucsGraphicsCardLc                                               CucsFsmLifecycle,
+    cucsGraphicsCardModel                                            SnmpAdminString,
+    cucsGraphicsCardOperQualifierReason                              SnmpAdminString,
+    cucsGraphicsCardOperState                                        CucsEquipmentOperability,
+    cucsGraphicsCardOperability                                      CucsEquipmentOperability,
+    cucsGraphicsCardPciAddr                                          SnmpAdminString,
+    cucsGraphicsCardPciSlot                                          SnmpAdminString,
+    cucsGraphicsCardPerf                                             CucsEquipmentSensorThresholdStatus,
+    cucsGraphicsCardPower                                            CucsEquipmentPowerState,
+    cucsGraphicsCardPresence                                         CucsEquipmentPresence,
+    cucsGraphicsCardRevision                                         SnmpAdminString,
+    cucsGraphicsCardSerial                                           SnmpAdminString,
+    cucsGraphicsCardSubDeviceId                                      Gauge32,
+    cucsGraphicsCardSubVendorId                                      Gauge32,
+    cucsGraphicsCardThermal                                          CucsEquipmentSensorThresholdStatus,
+    cucsGraphicsCardVendor                                           SnmpAdminString,
+    cucsGraphicsCardVendorId                                         Gauge32,
+    cucsGraphicsCardVoltage                                          CucsEquipmentSensorThresholdStatus,
+    cucsGraphicsCardLocationDn                                       SnmpAdminString,
+    cucsGraphicsCardStepping                                         SnmpAdminString,
+    cucsGraphicsCardExpanderSlot                                     SnmpAdminString,
+    cucsGraphicsCardFirmwareVersion                                  SnmpAdminString,
+    cucsGraphicsCardPciAddrList                                      SnmpAdminString,
+    cucsGraphicsCardMode                                             CucsGraphicsGpuMode
+}
+
+cucsGraphicsCardInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsGraphicsCardEntry 1 }
+
+cucsGraphicsCardDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:dn managed object property"
+    ::= { cucsGraphicsCardEntry 2 }
+
+cucsGraphicsCardRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:rn managed object property"
+    ::= { cucsGraphicsCardEntry 3 }
+
+cucsGraphicsCardDeviceId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:deviceId managed object property"
+    ::= { cucsGraphicsCardEntry 4 }
+
+cucsGraphicsCardId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:id managed object property"
+    ::= { cucsGraphicsCardEntry 5 }
+
+cucsGraphicsCardIsSupported OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:isSupported managed object property"
+    ::= { cucsGraphicsCardEntry 6 }
+
+cucsGraphicsCardLc OBJECT-TYPE
+    SYNTAX       CucsFsmLifecycle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:lc managed object property"
+    ::= { cucsGraphicsCardEntry 7 }
+
+cucsGraphicsCardModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:model managed object property"
+    ::= { cucsGraphicsCardEntry 8 }
+
+cucsGraphicsCardOperQualifierReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:operQualifierReason managed
+        object property"
+    ::= { cucsGraphicsCardEntry 9 }
+
+cucsGraphicsCardOperState OBJECT-TYPE
+    SYNTAX       CucsEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:operState managed object property"
+    ::= { cucsGraphicsCardEntry 10 }
+
+cucsGraphicsCardOperability OBJECT-TYPE
+    SYNTAX       CucsEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:operability managed object property"
+    ::= { cucsGraphicsCardEntry 11 }
+
+cucsGraphicsCardPciAddr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:pciAddr managed object property"
+    ::= { cucsGraphicsCardEntry 12 }
+
+cucsGraphicsCardPciSlot OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:pciSlot managed object property"
+    ::= { cucsGraphicsCardEntry 13 }
+
+cucsGraphicsCardPerf OBJECT-TYPE
+    SYNTAX       CucsEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:perf managed object property"
+    ::= { cucsGraphicsCardEntry 14 }
+
+cucsGraphicsCardPower OBJECT-TYPE
+    SYNTAX       CucsEquipmentPowerState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:power managed object property"
+    ::= { cucsGraphicsCardEntry 15 }
+
+cucsGraphicsCardPresence OBJECT-TYPE
+    SYNTAX       CucsEquipmentPresence
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:presence managed object property"
+    ::= { cucsGraphicsCardEntry 16 }
+
+cucsGraphicsCardRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:revision managed object property"
+    ::= { cucsGraphicsCardEntry 17 }
+
+cucsGraphicsCardSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:serial managed object property"
+    ::= { cucsGraphicsCardEntry 18 }
+
+cucsGraphicsCardSubDeviceId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:subDeviceId managed object property"
+    ::= { cucsGraphicsCardEntry 19 }
+
+cucsGraphicsCardSubVendorId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:subVendorId managed object property"
+    ::= { cucsGraphicsCardEntry 20 }
+
+cucsGraphicsCardThermal OBJECT-TYPE
+    SYNTAX       CucsEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:thermal managed object property"
+    ::= { cucsGraphicsCardEntry 21 }
+
+cucsGraphicsCardVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:vendor managed object property"
+    ::= { cucsGraphicsCardEntry 22 }
+
+cucsGraphicsCardVendorId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:vendorId managed object property"
+    ::= { cucsGraphicsCardEntry 23 }
+
+cucsGraphicsCardVoltage OBJECT-TYPE
+    SYNTAX       CucsEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:voltage managed object property"
+    ::= { cucsGraphicsCardEntry 24 }
+
+cucsGraphicsCardLocationDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:locationDn managed object property"
+    ::= { cucsGraphicsCardEntry 25 }
+
+cucsGraphicsCardStepping OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:stepping managed object property"
+    ::= { cucsGraphicsCardEntry 26 }
+
+cucsGraphicsCardExpanderSlot OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:expanderSlot managed object property"
+    ::= { cucsGraphicsCardEntry 27 }
+
+cucsGraphicsCardFirmwareVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:firmwareVersion managed object property"
+    ::= { cucsGraphicsCardEntry 28 }
+
+cucsGraphicsCardPciAddrList OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:pciAddrList managed object property"
+    ::= { cucsGraphicsCardEntry 29 }
+
+cucsGraphicsCardMode OBJECT-TYPE
+    SYNTAX       CucsGraphicsGpuMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Card:mode managed object property"
+    ::= { cucsGraphicsCardEntry 30 }
+
+cucsGraphicsControllerTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsGraphicsControllerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller managed object table"
+    ::= { cucsGraphicsObjects 2 }
+
+cucsGraphicsControllerEntry OBJECT-TYPE
+    SYNTAX           CucsGraphicsControllerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsGraphicsControllerTable table."
+    INDEX { cucsGraphicsControllerInstanceId }
+    ::= { cucsGraphicsControllerTable 1 }
+
+CucsGraphicsControllerEntry ::= SEQUENCE {
+    cucsGraphicsControllerInstanceId                                 CucsManagedObjectId,
+    cucsGraphicsControllerDn                                         CucsManagedObjectDn,
+    cucsGraphicsControllerRn                                         SnmpAdminString,
+    cucsGraphicsControllerId                                         Gauge32,
+    cucsGraphicsControllerModel                                      SnmpAdminString,
+    cucsGraphicsControllerOperQualifierReason                        SnmpAdminString,
+    cucsGraphicsControllerOperState                                  CucsEquipmentOperability,
+    cucsGraphicsControllerOperability                                CucsEquipmentOperability,
+    cucsGraphicsControllerPciAddr                                    SnmpAdminString,
+    cucsGraphicsControllerPciSlot                                    SnmpAdminString,
+    cucsGraphicsControllerPerf                                       CucsEquipmentSensorThresholdStatus,
+    cucsGraphicsControllerPower                                      CucsEquipmentPowerState,
+    cucsGraphicsControllerPresence                                   CucsEquipmentPresence,
+    cucsGraphicsControllerRevision                                   SnmpAdminString,
+    cucsGraphicsControllerSerial                                     SnmpAdminString,
+    cucsGraphicsControllerThermal                                    CucsEquipmentSensorThresholdStatus,
+    cucsGraphicsControllerVendor                                     SnmpAdminString,
+    cucsGraphicsControllerVoltage                                    CucsEquipmentSensorThresholdStatus,
+    cucsGraphicsControllerLocationDn                                 SnmpAdminString
+}
+
+cucsGraphicsControllerInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsGraphicsControllerEntry 1 }
+
+cucsGraphicsControllerDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:dn managed object property"
+    ::= { cucsGraphicsControllerEntry 2 }
+
+cucsGraphicsControllerRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:rn managed object property"
+    ::= { cucsGraphicsControllerEntry 3 }
+
+cucsGraphicsControllerId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:id managed object property"
+    ::= { cucsGraphicsControllerEntry 4 }
+
+cucsGraphicsControllerModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:model managed object property"
+    ::= { cucsGraphicsControllerEntry 5 }
+
+cucsGraphicsControllerOperQualifierReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:operQualifierReason
+        managed object property"
+    ::= { cucsGraphicsControllerEntry 6 }
+
+cucsGraphicsControllerOperState OBJECT-TYPE
+    SYNTAX       CucsEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:operState managed object property"
+    ::= { cucsGraphicsControllerEntry 7 }
+
+cucsGraphicsControllerOperability OBJECT-TYPE
+    SYNTAX       CucsEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:operability managed
+        object property"
+    ::= { cucsGraphicsControllerEntry 8 }
+
+cucsGraphicsControllerPciAddr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:pciAddr managed object property"
+    ::= { cucsGraphicsControllerEntry 9 }
+
+cucsGraphicsControllerPciSlot OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:pciSlot managed object property"
+    ::= { cucsGraphicsControllerEntry 10 }
+
+cucsGraphicsControllerPerf OBJECT-TYPE
+    SYNTAX       CucsEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:perf managed object property"
+    ::= { cucsGraphicsControllerEntry 11 }
+
+cucsGraphicsControllerPower OBJECT-TYPE
+    SYNTAX       CucsEquipmentPowerState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:power managed object property"
+    ::= { cucsGraphicsControllerEntry 12 }
+
+cucsGraphicsControllerPresence OBJECT-TYPE
+    SYNTAX       CucsEquipmentPresence
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:presence managed object property"
+    ::= { cucsGraphicsControllerEntry 13 }
+
+cucsGraphicsControllerRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:revision managed object property"
+    ::= { cucsGraphicsControllerEntry 14 }
+
+cucsGraphicsControllerSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:serial managed object property"
+    ::= { cucsGraphicsControllerEntry 15 }
+
+cucsGraphicsControllerThermal OBJECT-TYPE
+    SYNTAX       CucsEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:thermal managed object property"
+    ::= { cucsGraphicsControllerEntry 16 }
+
+cucsGraphicsControllerVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:vendor managed object property"
+    ::= { cucsGraphicsControllerEntry 17 }
+
+cucsGraphicsControllerVoltage OBJECT-TYPE
+    SYNTAX       CucsEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:voltage managed object property"
+    ::= { cucsGraphicsControllerEntry 18 }
+
+cucsGraphicsControllerLocationDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS graphics:Controller:locationDn managed object property"
+    ::= { cucsGraphicsControllerEntry 19 }
+
+END

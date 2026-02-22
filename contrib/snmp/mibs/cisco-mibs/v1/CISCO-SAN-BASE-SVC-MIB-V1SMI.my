@@ -1,0 +1,817 @@
+-- MIB file created 07-Jul-2009 23:02:03, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SAN-BASE-SVC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SAN-BASE-SVC-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, TimeStamp, RowStatus, StorageType
+            FROM SNMPv2-TC-v1
+    InterfaceIndex, ifDescr
+            FROM IF-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    FcNameId
+            FROM CISCO-ST-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoSanBaseSvcMIB OBJECT IDENTIFIER ::= { ciscoMgmt 702 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200906110000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553 -NETS
+--    E-mail: cs-san@cisco.com
+--  Descr
+--    Common MIB module to manage services in Storage Area
+--    Network (SAN).  Service is deployed on service
+--    nodes on multiple switches forming a cluster.  
+--    Nodes in the same cluster pick up the workload of 
+--    a failed node to provide fault tolerance.  An example 
+--    of service that can be deployed is 
+--    IO Acceleration (IOA) service.
+--    
+--    Glossary:
+--    The following terms are used in this MIB: 
+--    pWWN:
+--    Port World Wide Name is a identifier assigned to a 
+--    port in a Fibre Channel fabric. They perform a function
+--    equivalent to the MAC address in Ethernet protocol,
+--    as it is supposed to be unique identifier in the 
+--    network.
+--    
+--    Nx_port:
+--    Nx_port is a storage port in Fibre Channel fabric 
+--    that belongs to host or target.
+--  RevDate
+--    200906110000Z
+--  RevDescr
+--    Initial version
+
+ciscoSanBaseSvcMIBNotifs OBJECT IDENTIFIER ::= { ciscoSanBaseSvcMIB 0 }
+ciscoSanBaseSvcMIBObjects OBJECT IDENTIFIER ::= { ciscoSanBaseSvcMIB 1 }
+ciscoSanBaseSvcMIBConform OBJECT IDENTIFIER ::= { ciscoSanBaseSvcMIB 2 }
+cSanBaseSvcConfig OBJECT IDENTIFIER ::= { ciscoSanBaseSvcMIBObjects 1 }
+cSanBaseSvcInterface OBJECT IDENTIFIER ::= { ciscoSanBaseSvcMIBObjects 2 }
+ciscoSanBaseSvcMIBCompliances OBJECT IDENTIFIER ::= { ciscoSanBaseSvcMIBConform 1 }
+ciscoSanBaseSvcMIBGroups OBJECT IDENTIFIER ::= { ciscoSanBaseSvcMIBConform 2 }
+
+CiscoSanBaseSvcInterfaceStatus ::= INTEGER {
+        unknown(1),
+        initializing(2),
+        offline(3),
+        online(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Operational state of the service interface.
+--    'unknown(1)' == interface is in an unknown state
+--    'initializing(2)' == interface is being initialized
+--    'offline(3)' == interface is not active
+--    'online(4)' == interface is online and can be used
+
+CiscoSanBaseSvcClusterStatus ::= INTEGER {
+        unknown(1),
+        inactive(2),
+        degraded(3),
+        recovery(4),
+        active(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Operational state of the service cluster
+--    'unknown(1)' == cluster is in an unknown state
+--    'inactive(2)' == cluster is not active
+--    'degraded(3)' == cluster has lost some of its members
+--    'recovery(4)' == cluster is recovering from membership lost
+--    'active(5)'   == cluster is active
+
+CiscoSanBaseSvcClusterIndex ::= OCTET STRING(SIZE(8))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This denotes the globally unique index for a service
+--    cluster. The value of the CiscoSanBaseSvcClusterIndex is
+--    an eight-octet unsigned integer value encoded in
+--    a network-byte order.
+
+cSanBaseSvcClusterTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSanBaseSvcClusterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists all the service clusters that are configured
+        on this device. It is important that any service is provided 
+        in a fault-tolerant manner. Base Service provides this by 
+        allowing service nodes to be grouped into cluster. Nodes in 
+        the same cluster immediately pick up the work of any failed 
+        node so user does not see service disruption."
+    ::= { cSanBaseSvcConfig 1 }
+
+cSanBaseSvcClusterEntry OBJECT-TYPE
+    SYNTAX CSanBaseSvcClusterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row in the cSanBaseSvcClusterTable. Each
+        row represents a service cluster in the system and 
+        provides the runtime and configuration information
+        of a cluster."
+    INDEX { cSanBaseSvcClusterId }
+    ::= { cSanBaseSvcClusterTable 1 }
+
+CSanBaseSvcClusterEntry ::= SEQUENCE {
+    cSanBaseSvcClusterId CiscoSanBaseSvcClusterIndex,
+    cSanBaseSvcClusterName SnmpAdminString,
+    cSanBaseSvcClusterState CiscoSanBaseSvcClusterStatus,
+    cSanBaseSvcClusterMasterInetAddrType InetAddressType,
+    cSanBaseSvcClusterMasterInetAddr InetAddress,
+    cSanBaseSvcClusterStorageType StorageType,
+    cSanBaseSvcClusterRowStatus RowStatus,
+    cSanBaseSvcClusterApplication SnmpAdminString
+    }
+
+cSanBaseSvcClusterId OBJECT-TYPE
+    SYNTAX CiscoSanBaseSvcClusterIndex
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Globally unique index that identifies a service cluster.
+        This index must be generated in such a way that the 
+        same value is never reused even after cluster has been 
+        deleted."
+    ::= { cSanBaseSvcClusterEntry 1 }
+
+cSanBaseSvcClusterName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the service cluster."
+    DEFVAL { "" }
+    ::= { cSanBaseSvcClusterEntry 2 }
+
+cSanBaseSvcClusterState OBJECT-TYPE
+    SYNTAX CiscoSanBaseSvcClusterStatus
+--    Rsyntax INTEGER {
+--        unknown(1),
+--        inactive(2),
+--        degraded(3),
+--        recovery(4),
+--        active(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The operational state of the service cluster."
+    ::= { cSanBaseSvcClusterEntry 3 }
+
+cSanBaseSvcClusterMasterInetAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address of the service cluster
+        master.  The Internet address of service cluster master is
+        specified by the value of the corresponding instance
+        of cSanBaseSvcClusterMasterInetAddr."
+    ::= { cSanBaseSvcClusterEntry 4 }
+
+cSanBaseSvcClusterMasterInetAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address of the service cluster master
+        device. The type of this Internet address is
+        determined by the value of the corresponding
+        instance of cSanBaseSvcClusterMasterInetAddrType."
+    ::= { cSanBaseSvcClusterEntry 5 }
+
+cSanBaseSvcClusterStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual
+        row."
+    ::= { cSanBaseSvcClusterEntry 6 }
+
+cSanBaseSvcClusterRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+        There is no restriction on the value of other columns
+        before a newly created row can be made active."
+    ::= { cSanBaseSvcClusterEntry 7 }
+
+cSanBaseSvcClusterApplication OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the name of the application
+        that is enabled on this cluster."
+    ::= { cSanBaseSvcClusterEntry 8 }
+
+cSanBaseSvcClusterMembersTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSanBaseSvcClusterMembersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the information of devices, local or
+        remote, which are members of a service cluster configured 
+        on a device."
+    ::= { cSanBaseSvcConfig 2 }
+
+cSanBaseSvcClusterMembersEntry OBJECT-TYPE
+    SYNTAX CSanBaseSvcClusterMembersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row in the cSanBaseSvcClusterMembersTable.
+        Each row represents a member device within a 
+        specified service Cluster."
+    INDEX { cSanBaseSvcClusterId, cSanBaseSvcClusterMemberInetAddrType, cSanBaseSvcClusterMemberInetAddr }
+    ::= { cSanBaseSvcClusterMembersTable 1 }
+
+CSanBaseSvcClusterMembersEntry ::= SEQUENCE {
+    cSanBaseSvcClusterMemberInetAddrType InetAddressType,
+    cSanBaseSvcClusterMemberInetAddr InetAddress,
+    cSanBaseSvcClusterMemberFabric SnmpAdminString,
+    cSanBaseSvcClusterMemberIsLocal TruthValue,
+    cSanBaseSvcClusterMemberIsMaster TruthValue,
+    cSanBaseSvcClusterMemberStorageType StorageType,
+    cSanBaseSvcClusterMemberRowStatus RowStatus
+    }
+
+cSanBaseSvcClusterMemberInetAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address of a cluster member within
+        a specified service cluster. The Internet address of this
+        device is specified by the value of the corresponding
+        instance of cSanBaseSvcMemberInetAddr."
+    ::= { cSanBaseSvcClusterMembersEntry 1 }
+
+cSanBaseSvcClusterMemberInetAddr OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address of the cluster member device
+        within a specified service cluster.
+        The type of this Internet address is determined
+        by the value of the corresponding instance of 
+        cSanBaseSvcClusterMemberInetAddrType."
+    ::= { cSanBaseSvcClusterMembersEntry 2 }
+
+cSanBaseSvcClusterMemberFabric OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the name of the physical fibre
+        channel fabric in the SAN. A typical SAN deployment 
+        consists of a dual fabric topology which corresponds 
+        to two physical fabrics. 
+        In such a deployment, a cluster is configured 
+        in both fabrics to allow multi-pathing and redundancy.
+        
+        The user specifies the physical fabric to which a device 
+        belongs to when the cluster is configured."
+    ::= { cSanBaseSvcClusterMembersEntry 3 }
+
+cSanBaseSvcClusterMemberIsLocal OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies if the device is a local or remote member of
+        this cluster.
+        'true' means this device is a local device.
+        'false' means this device is a remote device."
+    ::= { cSanBaseSvcClusterMembersEntry 4 }
+
+cSanBaseSvcClusterMemberIsMaster OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates if this device is currently the master of
+        the service cluster.
+        
+        The value 'true' means this device is the master.
+        The value 'false' means this device is not the master.
+        
+        Devices in a cluster select one of the cluster member 
+        to be a master.  The master is responsible for 
+        handling cluster membership."
+    ::= { cSanBaseSvcClusterMembersEntry 5 }
+
+cSanBaseSvcClusterMemberStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual
+        row."
+    ::= { cSanBaseSvcClusterMembersEntry 6 }
+
+cSanBaseSvcClusterMemberRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+        There is no restriction on the value of other columns
+        before a newly created row can be made active.
+        
+        When a cluster is deleted, all entries in this table
+        should be purged automatically."
+    ::= { cSanBaseSvcClusterMembersEntry 7 }
+
+cSanBaseSvcInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSanBaseSvcInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists all service interfaces on the local device and
+        its corresponding information."
+    ::= { cSanBaseSvcConfig 3 }
+
+cSanBaseSvcInterfaceEntry OBJECT-TYPE
+    SYNTAX CSanBaseSvcInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row in the cSanBaseSvcInterfaceTable.
+        Each row represents a particular service interface on 
+        a local device."
+    INDEX { cSanBaseSvcInterfaceIndex }
+    ::= { cSanBaseSvcInterfaceTable 1 }
+
+CSanBaseSvcInterfaceEntry ::= SEQUENCE {
+    cSanBaseSvcInterfaceIndex InterfaceIndex,
+    cSanBaseSvcInterfaceState CiscoSanBaseSvcInterfaceStatus,
+    cSanBaseSvcInterfaceClusterId CiscoSanBaseSvcClusterIndex,
+    cSanBaseSvcInterfaceStorageType StorageType,
+    cSanBaseSvcInterfaceRowStatus RowStatus
+    }
+
+cSanBaseSvcInterfaceIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique Interface index for a service interface on this
+        device. This is the same as ifIndex of the ifTable of 
+        RFC1213."
+    ::= { cSanBaseSvcInterfaceEntry 1 }
+
+cSanBaseSvcInterfaceState OBJECT-TYPE
+    SYNTAX CiscoSanBaseSvcInterfaceStatus
+--    Rsyntax INTEGER {
+--        unknown(1),
+--        initializing(2),
+--        offline(3),
+--        online(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Operational state of this service interface."
+    ::= { cSanBaseSvcInterfaceEntry 2 }
+
+cSanBaseSvcInterfaceClusterId OBJECT-TYPE
+    SYNTAX CiscoSanBaseSvcClusterIndex
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies the cluster to which this service interface
+        belongs."
+    ::= { cSanBaseSvcInterfaceEntry 3 }
+
+cSanBaseSvcInterfaceStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual
+        row."
+    ::= { cSanBaseSvcInterfaceEntry 4 }
+
+cSanBaseSvcInterfaceRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+        There is no restriction on the value of other columns
+        before a newly created row can be made active.
+        For example, cSanBaseSvcInterfaceClusterId column can be set
+        independently later."
+    ::= { cSanBaseSvcInterfaceEntry 5 }
+
+cSanBaseSvcDevicePortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSanBaseSvcDevicePortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the devices that are configured to
+        receive storage service."
+    ::= { cSanBaseSvcConfig 4 }
+
+cSanBaseSvcDevicePortEntry OBJECT-TYPE
+    SYNTAX CSanBaseSvcDevicePortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row in the cSanBaseSvcDevicePortTable.
+        Each row represents a particular device configured to
+        receive storage service in a particular cluster."
+    INDEX { cSanBaseSvcDevicePortName }
+    ::= { cSanBaseSvcDevicePortTable 1 }
+
+CSanBaseSvcDevicePortEntry ::= SEQUENCE {
+    cSanBaseSvcDevicePortName FcNameId,
+    cSanBaseSvcDevicePortClusterId CiscoSanBaseSvcClusterIndex,
+    cSanBaseSvcDevicePortStorageType StorageType,
+    cSanBaseSvcDevicePortRowStatus RowStatus
+    }
+
+cSanBaseSvcDevicePortName OBJECT-TYPE
+    SYNTAX FcNameId
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents Fibre-channel Port name
+        (pWWN) of the Device Nx_Port."
+    ::= { cSanBaseSvcDevicePortEntry 1 }
+
+cSanBaseSvcDevicePortClusterId OBJECT-TYPE
+    SYNTAX CiscoSanBaseSvcClusterIndex
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the cluster identifier
+        of the cluster to which this port belongs."
+    ::= { cSanBaseSvcDevicePortEntry 2 }
+
+cSanBaseSvcDevicePortStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual
+        row."
+    ::= { cSanBaseSvcDevicePortEntry 3 }
+
+cSanBaseSvcDevicePortRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+        There is no restriction on the value of other columns
+        before a newly created row can be made active."
+    ::= { cSanBaseSvcDevicePortEntry 4 }
+
+cSanBaseSvcConfigTableLastChanged OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when a change to
+        any Base Service MIB table other than the 
+        cSanBaseSvcDevicePortTable last occurred."
+    ::= { cSanBaseSvcConfig 5 }
+
+cSanBaseSvcDevicePortTableLastChanged OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when a change to
+        cSanBaseSvcDevicePortTable last occurred."
+    ::= { cSanBaseSvcConfig 6 }
+
+cSanBaseSvcNotifyEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if the service notifications
+        should be generated or not.
+        
+        If the value of this object is 'true', then
+        the notifications are generated.
+        
+        If the value of this object is 'false', then
+        the notifications are not generated."
+    DEFVAL { true }
+    ::= { cSanBaseSvcConfig 7 }
+
+cSanBaseSvcClusterMemberIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSanBaseSvcClusterMemberIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the information of service interfaces on all
+        devices, local or remote, which are members of a service cluster
+        configured on a device."
+    ::= { cSanBaseSvcInterface 1 }
+
+cSanBaseSvcClusterMemberIfEntry OBJECT-TYPE
+    SYNTAX CSanBaseSvcClusterMemberIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row in the cSanBaseSvcClusterMemberIfTable.
+        Each row represents a participating interface on 
+        local/remote device member within the specified 
+        service cluster."
+    INDEX { cSanBaseSvcClusterId, cSanBaseSvcClusterMemberInetAddrType, cSanBaseSvcClusterMemberInetAddr, cSanBaseSvcClusterInterfaceIndex }
+    ::= { cSanBaseSvcClusterMemberIfTable 1 }
+
+CSanBaseSvcClusterMemberIfEntry ::= SEQUENCE {
+    cSanBaseSvcClusterInterfaceIndex InterfaceIndex,
+    cSanBaseSvcClusterInterfaceState CiscoSanBaseSvcInterfaceStatus
+    }
+
+cSanBaseSvcClusterInterfaceIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique Interface index for a service interface on a device
+        in this cluster.  This is the same as ifIndex of the 
+        ifTable of RFC1213."
+    ::= { cSanBaseSvcClusterMemberIfEntry 1 }
+
+cSanBaseSvcClusterInterfaceState OBJECT-TYPE
+    SYNTAX CiscoSanBaseSvcInterfaceStatus
+--    Rsyntax INTEGER {
+--        unknown(1),
+--        initializing(2),
+--        offline(3),
+--        online(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The operational state of this service interface."
+    ::= { cSanBaseSvcClusterMemberIfEntry 2 }
+
+ciscoSanBaseSvcInterfaceCreate TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoSanBaseSvcMIB
+    VARIABLES {
+        ifDescr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when a service interface
+        associated with a local device is created.  The generation 
+        of this notification is controlled by 
+        cSanBaseSvcNotifyEnable"
+    ::= 1
+
+ciscoSanBaseSvcInterfaceDelete TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoSanBaseSvcMIB
+    VARIABLES {
+        ifDescr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when a service interface
+        associated with a local device is deleted. The generation 
+        of this notification is controlled by 
+        cSanBaseSvcNotifyEnable"
+    ::= 2
+
+ciscoSanBaseSvcClusterNewMaster TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoSanBaseSvcMIB
+    VARIABLES {
+        cSanBaseSvcClusterName, 
+        cSanBaseSvcClusterMasterInetAddrType, 
+        cSanBaseSvcClusterMasterInetAddr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the sending device
+        who is participating in a service cluster has transitioned 
+        to be the master of the cluster. The generation 
+        of this notification is controlled by 
+        cSanBaseSvcNotifyEnable"
+    ::= 3
+
+ciscoSanBaseSvcConfigGroup OBJECT IDENTIFIER ::= { ciscoSanBaseSvcMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for storage service configuration.
+--  objects
+--    cSanBaseSvcClusterState, cSanBaseSvcClusterMasterInetAddrType, 
+--    cSanBaseSvcClusterMasterInetAddr, 
+--    cSanBaseSvcClusterMemberIsLocal, cSanBaseSvcInterfaceState, 
+--    cSanBaseSvcInterfaceClusterId, cSanBaseSvcDevicePortClusterId, 
+--    cSanBaseSvcConfigTableLastChanged, 
+--    cSanBaseSvcClusterMemberFabric, cSanBaseSvcClusterName, 
+--    cSanBaseSvcInterfaceRowStatus, cSanBaseSvcClusterRowStatus, 
+--    cSanBaseSvcClusterMemberIsMaster, 
+--    cSanBaseSvcClusterMemberRowStatus, 
+--    cSanBaseSvcClusterStorageType, 
+--    cSanBaseSvcClusterMemberStorageType, 
+--    cSanBaseSvcInterfaceStorageType, 
+--    cSanBaseSvcDevicePortStorageType, 
+--    cSanBaseSvcDevicePortRowStatus, cSanBaseSvcClusterApplication, 
+--    cSanBaseSvcDevicePortTableLastChanged
+
+ciscoSanBaseSvcNotifControlGroup OBJECT IDENTIFIER ::= { ciscoSanBaseSvcMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for controlling storage service
+--    notification.
+--  objects
+--    cSanBaseSvcNotifyEnable
+
+ciscoSanBaseSvcInterfaceGroup OBJECT IDENTIFIER ::= { ciscoSanBaseSvcMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of storage service interface.
+--  objects
+--    cSanBaseSvcClusterInterfaceState
+
+ciscoSanBaseSvcNotifsGroup OBJECT IDENTIFIER ::= { ciscoSanBaseSvcMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for notification of storage
+--    service events.
+--  notifications
+--    ciscoSanBaseSvcInterfaceCreate, 
+--    ciscoSanBaseSvcInterfaceDelete, 
+--    ciscoSanBaseSvcClusterNewMaster
+
+ciscoSanBaseSvcMIBCompliance OBJECT IDENTIFIER ::= { ciscoSanBaseSvcMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities that implement
+--    this base service.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSanBaseSvcConfigGroup
+--   MandGroup
+--    ciscoSanBaseSvcNotifControlGroup
+--   MandGroup
+--    ciscoSanBaseSvcNotifsGroup
+--   MandGroup
+--    ciscoSanBaseSvcInterfaceGroup
+
+
+END
+

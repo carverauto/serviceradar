@@ -1,0 +1,1543 @@
+-- *****************************************************************
+-- CISCO-CIPTG-MIB - This MIB manages Transmission Groups in
+-- Cisco Mainframe Channel Connection (CMCC) environments.
+--
+-- February 1997, Mike Otto
+--
+-- Copyright (c) 1997-1998, 1999 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-CIPTG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+	MODULE-IDENTITY, OBJECT-TYPE, 
+	Counter32, Counter64, Integer32, IpAddress
+		FROM SNMPv2-SMI
+
+	MODULE-COMPLIANCE, OBJECT-GROUP
+		FROM SNMPv2-CONF
+
+	DisplayString, TruthValue, RowStatus, 
+        TEXTUAL-CONVENTION, MacAddress
+		FROM SNMPv2-TC
+
+	ifIndex
+		FROM RFC1213-MIB
+
+        SAPType
+		FROM CISCO-TC
+	ciscoMgmt
+		FROM CISCO-SMI;
+
+ciscoCipTgMIB MODULE-IDENTITY
+	LAST-UPDATED "9901250000Z"
+	ORGANIZATION "cisco IBU Engineering Working Group"
+	CONTACT-INFO 
+                "Cisco Systems
+		Customer Service
+
+		Postal: 170 W Tasman Drive
+			San Jose, CA  95134
+			USA
+
+		Tel:    +1 800 553-NETS
+
+		E-mail: cs-snmp@cisco.com"
+
+	DESCRIPTION
+	        "This is the Management Information Base (MIB) 
+                module for objects used to manage Transmission Groups 
+                (TGs) in Cisco Mainframe Channel Connection (CMCC)
+                environments.
+
+                ---------------------------------------------------
+                | Acronym Definitions:                            |
+                | CIP      =   Channel Interface Processor        |
+                | CMCC     =   Cisco Mainframe Channel Connection |
+                | Cmgr     =   Connection Manager                 |
+                | HPDT     =   High Performance Data Transfer     |
+                | HPR      =   High Performance Routing           |
+                | HSAS     =   High Speed Access Services         |
+                | LLC      =   Logical Link Control               |
+                | MPC      =   Multi-Path Channel                 |
+                | MPC+     =   HPDT MPC                           |
+                | SNA      =   Systems Network Architecture       |
+                | TG       =   Transmission Group                 |
+                | VC       =   Virtual Circuit                    |
+                ---------------------------------------------------
+
+
+                This MIB consists of the following tables:
+                1) TG LLC Connection Administration
+                2) TG LLC Connection Operational
+                3) TG LLC Connection Statistics
+                4) TG IP Connection Administration
+                5) TG IP Connection Operational
+                6) TG IP Connection Statistics
+		7) TG Connection Manager Operational
+
+                Refer to the following MIBs for an understanding of Cisco 
+                CIP internal LAN and adapter terminology:
+                  CISCO-CIPLAN-MIB
+  
+                "
+	REVISION        "9901250000Z"
+	DESCRIPTION
+		"Now that the CMCC supports MPC+ in addition to
+		MPC, additional objects and tables are necessary.
+
+		Added the following to cipLlcTgOperTable:
+                    cipTgLlcOperLocalVcToken
+                    cipTgLlcOperRemoteVcToken
+                    cipTgLlcOperLocalConnToken
+                    cipTgLlcOperRemoteConnToken
+                    cipTgLlcOperVcStatus
+                    cipTgLlcOperConnStatus
+
+		Added the following to cipLlcTgStatsTable:
+                    cipTgLlcStatsConnNumberRecv
+                    cipTgLlcStatsConnNumberSent
+
+		Added cipTgIpAdminTable.
+		Added cipTgIpOperTable.
+		Added cipTgIpStatsTable.
+		Added cipTgCmgrOperTable."
+
+	REVISION        "9801060000Z"
+	DESCRIPTION
+		"With the addition of Cisco's new Channel Port
+                 Adapter cards, all the references to CIP in the
+                 MIB description and object descriptions are changed
+                 to CMCC (Cisco Mainframe Channel Connection). The
+                 object names in the form of cip... or cipCard...
+                 will remain the same, but will be valid objects
+                 for the Channel Port Adapter cards."
+
+	REVISION	"9702090000Z"
+	DESCRIPTION
+		"Initial version of this MIB module."
+	REVISION	"9703140000Z"
+	DESCRIPTION
+		"Change all SAP objects to use the
+                SAPType textual convention for the 
+                SYNTAX."
+        ::= { ciscoMgmt 73 }
+
+cipTgObjects OBJECT IDENTIFIER ::= { ciscoCipTgMIB 1 }
+cipTgLlc  OBJECT IDENTIFIER ::= { cipTgObjects 1 }
+cipTgIp   OBJECT IDENTIFIER ::= { cipTgObjects 2 }
+cipTgCmgr OBJECT IDENTIFIER ::= { cipTgObjects 3 }
+
+-- *******************************************************************
+-- Textual convention definitions
+-- *******************************************************************
+ 
+ChannelTgName ::= TEXTUAL-CONVENTION
+        STATUS current
+        DESCRIPTION
+                "Display string for a CMCC Transmission Group (TG)
+                name. The name is 1 to 8 characters in length padded 
+                out to 8 characters with spaces."
+        SYNTAX DisplayString ( SIZE ( 8 ) )
+
+ChannelTgToken ::= TEXTUAL-CONVENTION
+        STATUS current
+        DESCRIPTION
+                "Display string for a CMCC Transmission Group (TG)
+                 token/handle. The token may have a length up to 24
+                 characters."
+        SYNTAX DisplayString ( SIZE ( 0..24) )
+
+-- ****************************************************************
+-- *                  cipTgLlcAdminTable                          *
+-- ****************************************************************
+
+cipTgLlcAdminTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF CipTgLlcAdminEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "This table contains CMCC configuration information 
+                for each instance of a Cisco CMCC Transmission 
+                Group (TG) using LLC as the DLC to establish a 
+                connection to a remote network node.
+       
+                Each instance of this table is created for every LLC
+                TG with a unique tg-name configured on a CMCC card."
+        ::= { cipTgLlc 1 }
+
+cipTgLlcAdminEntry OBJECT-TYPE
+        SYNTAX CipTgLlcAdminEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "A list of CMCC LLC TG configuration values."
+        INDEX { ifIndex, 
+                cipTgLlcAdminName }
+        ::= { cipTgLlcAdminTable 1 }
+
+CipTgLlcAdminEntry ::= SEQUENCE
+{
+        cipTgLlcAdminName             ChannelTgName,
+        cipTgLlcAdminLanType          INTEGER,
+        cipTgLlcAdminAdaptNo          INTEGER ( 0..31 ),
+        cipTgLlcAdminLSAP             SAPType,
+        cipTgLlcAdminRMAC             MacAddress,
+        cipTgLlcAdminRSAP             SAPType,
+        cipTgLlcAdminRowStatus        RowStatus
+}
+
+cipTgLlcAdminName OBJECT-TYPE
+        SYNTAX ChannelTgName
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "This is the name for this instance of a LLC 
+                connection transmission group (TG)."
+        ::= { cipTgLlcAdminEntry 1 }
+
+cipTgLlcAdminLanType OBJECT-TYPE
+        SYNTAX INTEGER {
+                iso88023csmacd    (1),
+                iso88025tokenRing (2),
+                fddi              (3)
+        }
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+                "The LAN media type that this LLC TG  
+                uses to establish LLC communications with
+                the specified remote network node."
+        ::= { cipTgLlcAdminEntry 2 }
+
+cipTgLlcAdminAdaptNo OBJECT-TYPE
+        SYNTAX INTEGER ( 0..31 )
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+                "The CMCC internal adapter that is used
+                by this LLC TG as the local MAC address for
+                the LLC connection with the remote network
+                node."
+        ::= { cipTgLlcAdminEntry 3 }
+
+cipTgLlcAdminLSAP OBJECT-TYPE
+        SYNTAX SAPType
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+                "The local SAP address that this LLC TG opens
+                on the specified CMCC internal MAC adapter and 
+                used by this TG to establish the LLC 
+                connection with the remote network node."
+        ::= { cipTgLlcAdminEntry 4 }
+
+cipTgLlcAdminRMAC OBJECT-TYPE
+        SYNTAX MacAddress
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+                "The remote MAC address that this LLC TG uses 
+                to establish the LLC connection with the
+                remote network node. This is the MAC address of
+                the remote network node device. If this object
+                is not specified, it will default to the MAC
+                Address specified by the cipTgLlcAdminLanType
+                and cipTgLlcAdminAdaptNo objects."
+        ::= { cipTgLlcAdminEntry 5 }
+
+cipTgLlcAdminRSAP OBJECT-TYPE
+        SYNTAX SAPType
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+                "The remote SAP address that this LLC TG uses
+                to establish the LLC connection with the
+                remote network node. This is the SAP address of
+                the remote network node device."
+        DEFVAL { 4 }
+        ::= { cipTgLlcAdminEntry 6 }
+
+cipTgLlcAdminRowStatus OBJECT-TYPE
+        SYNTAX RowStatus
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+                "This object is used by a Management Station to create
+                or delete the row entry in the cipTgLlcAdminTable 
+                following the the RowStatus textual convention.
+
+                Upon successful creation of the row, an Agent
+                automatically creates a corresponding entry in
+                the cipTgLlcOperTable and cipTgLlcStatsTable.
+                cipTgLlcAdminRMAC and cipTgLlcAdminRSAP do not
+                need to be specified in order to create a row. 
+                These objects will be automatically set to their
+                default values.
+
+                The Management Station can initiate row deletion, by
+                setting this value to 'destroy (6)'.  The Agent will
+                then delete the rows corresponding to this CMCC LLC TG 
+                instance from the cipTgLlcAdminTable,
+                cipTgLlcOperTable and cipTgLlcStatsTable."
+        ::= { cipTgLlcAdminEntry 7 }
+
+
+-- ****************************************************************
+-- *                  cipTgLlcOperTable                           *
+-- ****************************************************************
+
+cipTgLlcOperTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF CipTgLlcOperEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "This table contains operational information 
+                for each instance of a CMCC Transmission Group 
+                (TG) using LLC as the DLC to establish a connection 
+                to a remote network node.
+       
+                Each instance of this table is created for every LLC
+                TG with a unique tg-name configured on a CMCC card."
+        ::= { cipTgLlc 2 }
+
+cipTgLlcOperEntry OBJECT-TYPE
+        SYNTAX CipTgLlcOperEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "A list of CMCC LLC TG operational values."
+        AUGMENTS    { cipTgLlcAdminEntry }
+        ::= { cipTgLlcOperTable 1 }
+
+CipTgLlcOperEntry ::= SEQUENCE
+{
+        cipTgLlcOperState              INTEGER,
+        cipTgLlcOperTGN                Integer32,
+        cipTgLlcOperLocalCP            DisplayString ( SIZE ( 0..17 ) ),
+        cipTgLlcOperRemoteCP           DisplayString ( SIZE ( 0..17 ) ),
+        cipTgLlcOperMaxIn              Integer32,
+        cipTgLlcOperMaxOut             Integer32,
+        cipTgLlcOperHpr                TruthValue,
+        cipTgLlcOperHprLSAP            SAPType,
+        cipTgLlcOperHprRSAP            SAPType,
+        cipTgLlcOperRIF                OCTET STRING ( SIZE ( 0..18 ) ),
+        cipTgLlcOperLocalVcToken       ChannelTgToken,
+        cipTgLlcOperRemoteVcToken      ChannelTgToken,
+        cipTgLlcOperLocalConnToken     ChannelTgToken,
+        cipTgLlcOperRemoteConnToken    ChannelTgToken,
+        cipTgLlcOperVcStatus           INTEGER,
+        cipTgLlcOperConnStatus         INTEGER
+}
+
+cipTgLlcOperState OBJECT-TYPE
+        SYNTAX INTEGER {
+                shutdown          (1),
+                reset             (2),
+                locatePeer        (3),
+                peerLocated       (4),
+                negotiation       (5),
+                contactPending    (6),
+                active            (7)    
+        }
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Activation state of the CMCC LLC TG.
+                shutdown       - CMCC interface with this LLC TG is 
+                                 shutdown.
+                reset          - This LLC TG interface is up, but
+                                 LLC connection establishment has not 
+                                 started.
+                locatePeer     - This LLC TG has sent a test command 
+                                 to the configured remote  network node.
+                peerLocated    - This LLC TG has sent an LLC TEST
+                                 command and received a TEST rsp from
+                                 the configured remote network node.
+                negotiation    - XID3 negotiation between the host and 
+                                 the remote network node has begun using
+                                 this LLC connection TG.
+                contactPending - The LLC session negotiation is complete.
+                                 This LLC TG has sent or received a
+                                 SABME.
+                active         - LLC connection TG is active."
+  ::= { cipTgLlcOperEntry 1 }
+
+cipTgLlcOperTGN OBJECT-TYPE
+        SYNTAX Integer32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The TG number for this LLC connection TG.
+              This value is extracted from the XID3 negotiation
+              exchange between the host and the remote network
+              node."
+        ::= { cipTgLlcOperEntry 2 }
+
+cipTgLlcOperLocalCP OBJECT-TYPE
+        SYNTAX DisplayString ( SIZE ( 0..17 ) )
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The local control point name for the host.
+              The name is extracted from the XID3s
+              received from the host and sent to the 
+              remote network node. While the LLC TG is
+              in any state other than contactPending or
+              active, the local Control Point will be
+              unknown and the size of this string will be 
+              zero."
+        ::= { cipTgLlcOperEntry 3 }
+
+cipTgLlcOperRemoteCP OBJECT-TYPE
+        SYNTAX DisplayString ( SIZE ( 0..17 ) )
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The remote control point name for the 
+              remote node connected to this TG.
+              The name is extracted from the XID3s
+              received from the remote network node
+              and sent to the host. While the LLC TG is
+              in any state other than contactPending or
+              active, the remote Control Point will be
+              unknown and the size of this string will be 
+              zero."
+        ::= { cipTgLlcOperEntry 4 }
+
+cipTgLlcOperMaxIn OBJECT-TYPE
+        SYNTAX Integer32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The maximum PIU the remote node is allowed to send
+              to the host. The value is extracted from XID3s received
+              from the host."
+        ::= { cipTgLlcOperEntry 5 }
+
+cipTgLlcOperMaxOut OBJECT-TYPE
+        SYNTAX Integer32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The maximum PIU VTAM is allowed to send to the 
+              remote node. The value is extracted from the XID3s
+              received from the remote node."
+        ::= { cipTgLlcOperEntry 6 }
+
+cipTgLlcOperHpr OBJECT-TYPE
+        SYNTAX TruthValue
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "Indicates whether HPR is active on this LLC TG."
+        ::= { cipTgLlcOperEntry 7 }
+
+cipTgLlcOperHprLSAP OBJECT-TYPE
+        SYNTAX SAPType
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The local SAP value used on this CMPC LLC connection
+              TG for HPR traffic. This value is extracted from 
+              XID3s during the connection negotiation between VTAM
+              and the remote node."
+        ::= { cipTgLlcOperEntry 8 }
+
+cipTgLlcOperHprRSAP OBJECT-TYPE
+        SYNTAX SAPType
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The remote SAP value used on this LLC connection
+              TG for HPR traffic. This value is extracted from 
+              XID3s during the connection negotiation between
+              the host and the remote node."
+        ::= { cipTgLlcOperEntry 9 }
+
+cipTgLlcOperRIF OBJECT-TYPE
+        SYNTAX OCTET STRING ( SIZE ( 0..18 ) )
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The Routing Information Field for this LLC
+              connection TG. If the connection is not 
+              established using Source-Route Bridging, then 
+              this value will have a zero length."
+        ::= { cipTgLlcOperEntry 10 }
+
+cipTgLlcOperLocalVcToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The CMCC's token/handle for this CMPC+ TG APPN VC.
+              This token is included in the APPN protocol 
+              virtual circuit activation message sent to the
+              host."
+        ::= { cipTgLlcOperEntry 11 }
+
+cipTgLlcOperRemoteVcToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The host's token/handle for this CMPC+ TG APPN VC.
+              This token is extracted from the APPN protocol
+              virtual circuit activation message received from 
+              the host."
+        ::= { cipTgLlcOperEntry 12 }
+
+cipTgLlcOperLocalConnToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The CMCC's token/handle for this CMPC+ TG APPN
+              connection.  This token is included in the APPN
+              connection activation message sent to the
+              host."
+        ::= { cipTgLlcOperEntry 13 }
+
+cipTgLlcOperRemoteConnToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The host's token/handle for this CMPC+ TG APPN
+              connection.  This token is extracted from the
+              APPN connection activation message received from 
+              the host."
+        ::= { cipTgLlcOperEntry 14 }
+
+cipTgLlcOperVcStatus OBJECT-TYPE
+        SYNTAX INTEGER {
+                reset             (1),
+                active            (2)    
+        }
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Activation state of this CMPC+ TG APPN virtual circuit.                 
+                 reset         - Awaiting an MPC+ APPN virtual circuit activate 
+                                 indication from the host.
+                 active        - An MPC+ APPN virtual circuit active indication
+			         has been receive from the host and CMCC has sent 
+			         an MPC+ APPN  virtual circuit active indication
+			         to the host.  The MPC+ APPN virtual circuit is
+                                 now active."
+	::= { cipTgLlcOperEntry 15 }
+
+cipTgLlcOperConnStatus OBJECT-TYPE
+        SYNTAX INTEGER {
+                reset             (1),
+	        connRequestSent   (2),
+	        pendingActive     (3),
+                active            (4)    
+        }
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Activation state of this CMPC+ TG APPN connection.
+                 reset           - Awaiting MPC+ APPN Connection Request from the
+                                   host.
+                 connRequestSent - The CMCC has sent an MPC+ APPN Connection Request
+                                   to the host and is awaiting an MPC+ APPN Connection
+                                   Confirm from the host.
+                 pendingActive   - The CMCC is waiting for the host to enable traffic
+                                   flow on the APPN connection. 
+                 active          - The MPC+ APPN connection is active and both the 
+                                   CMCC and the host have enabled traffic flow on the
+                                   connection." 			  
+	::= { cipTgLlcOperEntry 16 }
+
+
+-- ****************************************************************
+-- *                  cipTgLlcStatsTable                          *
+-- ****************************************************************
+
+cipTgLlcStatsTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF CipTgLlcStatsEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "This table contains statistical information 
+                 for each instance of a CMCC LLC connection 
+                 Transmission Group (TG).
+       
+                 Each instance of this table is created for every LLC
+                 TG with a unique tg-name configured on a CMCC card."
+        ::= { cipTgLlc 3 }
+
+cipTgLlcStatsEntry OBJECT-TYPE
+        SYNTAX CipTgLlcStatsEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "A list of CMCC LLC TG statistical objects."
+        AUGMENTS    { cipTgLlcAdminEntry }
+        ::= { cipTgLlcStatsTable 1 }
+
+CipTgLlcStatsEntry ::= SEQUENCE
+{
+        cipTgLlcStatsIFramesIn                  Counter32,
+        cipTgLlcStatsIFrameBytesIn              Counter32,
+        cipTgLlcStatsHCIFrameBytesIn            Counter64,
+        cipTgLlcStatsIFramesOut                 Counter32,
+        cipTgLlcStatsIFrameBytesOut             Counter32,
+        cipTgLlcStatsHCIFrameBytesOut           Counter64,
+        cipTgLlcStatsUIFramesIn                 Counter32,
+        cipTgLlcStatsUIFrameBytesIn             Counter32,
+        cipTgLlcStatsHCUIFrameBytesIn           Counter64,
+        cipTgLlcStatsUIFramesOut                Counter32,
+        cipTgLlcStatsUIFrameBytesOut            Counter32,
+        cipTgLlcStatsHCUIFrameBytesOut          Counter64,
+        cipTgLlcStatsTestCmdsOut                Counter32,
+        cipTgLlcStatsTestRspsIn                 Counter32,
+        cipTgLlcStatsXidCmdsIn                  Counter32,
+        cipTgLlcStatsXidCmdsOut                 Counter32,
+        cipTgLlcStatsXidRspsIn                  Counter32,
+        cipTgLlcStatsXidRspsOut                 Counter32,
+        cipTgLlcStatsConnNumberRecv             Counter32,
+        cipTgLlcStatsConnNumberSent             Counter32
+}
+
+cipTgLlcStatsIFramesIn OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of LLC I-Frames received
+                 by this LLC connection TG from the remote
+                 network node."
+        ::= { cipTgLlcStatsEntry 1 }
+
+cipTgLlcStatsIFrameBytesIn OBJECT-TYPE
+        SYNTAX Counter32
+        UNITS "octets"
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of LLC I-Frame bytes received
+                 by this LLC connection TG from the remote
+                 network node."
+        ::= { cipTgLlcStatsEntry 2 }
+
+cipTgLlcStatsHCIFrameBytesIn OBJECT-TYPE
+        SYNTAX Counter64
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of LLC I-Frame bytes received
+                 by this LLC connection TG from the remote
+                 network node.
+       
+                 NOTE:  This is a 64 bit (High Capacity)
+                        version of the 
+                        cipTgLlcStatsIFrameBytesIn
+                        counter for use with SNMP Version 2 
+                        Managers"
+        ::= { cipTgLlcStatsEntry 3 }
+
+cipTgLlcStatsIFramesOut OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of LLC I-Frames sent by
+                 this LLC connection TG to the remote 
+                 network node."
+        ::= { cipTgLlcStatsEntry 4 }
+
+cipTgLlcStatsIFrameBytesOut OBJECT-TYPE
+        SYNTAX Counter32
+        UNITS  "octets"
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of LLC I-Frame bytes sent
+                 by this LLC connection TG to the remote
+                 network node."
+        ::= { cipTgLlcStatsEntry 5 }
+
+cipTgLlcStatsHCIFrameBytesOut OBJECT-TYPE
+        SYNTAX Counter64
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of LLC I-Frame bytes sent
+                 by this LLC connection TG to the remote
+                 network node.
+       
+                 NOTE:  This is a 64 bit (High Capacity)
+                        version of the 
+                        cipTgLlcStatsIFrameBytesOut
+                        counter for use with SNMP Version 2 
+                        Managers"
+        ::= { cipTgLlcStatsEntry 6 }
+
+cipTgLlcStatsUIFramesIn OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Number of LLC UI Frames (HPR frames) 
+                 received by this CMPC LLC connection TG from 
+                 the remote network node."
+        ::= { cipTgLlcStatsEntry 7 }
+
+cipTgLlcStatsUIFrameBytesIn OBJECT-TYPE
+        SYNTAX Counter32
+        UNITS "octets"
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of LLC UI-Frame bytes received
+                 by this LLC connection TG from the remote
+                 network node."
+        ::= { cipTgLlcStatsEntry 8 }
+
+cipTgLlcStatsHCUIFrameBytesIn OBJECT-TYPE
+        SYNTAX Counter64
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of LLC UI-Frame bytes received
+                 by this LLC connection TG from the remote
+                 network node.
+       
+                 NOTE:  This is a 64 bit (High Capacity)
+                        version of the 
+                        cipTgLlcStatsUIFrameBytesIn
+                        counter for use with SNMP Version 2 
+                        Managers"
+        ::= { cipTgLlcStatsEntry 9 }
+
+cipTgLlcStatsUIFramesOut OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Number of LLC UI Frames (HPR frames) 
+                sent by this CMPC LLC connection TG to the 
+                remote network node."
+        ::= { cipTgLlcStatsEntry 10 }
+
+cipTgLlcStatsUIFrameBytesOut OBJECT-TYPE
+        SYNTAX Counter32
+        UNITS "octets"
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of LLC UI-Frame bytes sent
+                 by this LLC connection TG to the remote
+                 network node."
+        ::= { cipTgLlcStatsEntry 11 }
+
+cipTgLlcStatsHCUIFrameBytesOut OBJECT-TYPE
+        SYNTAX Counter64
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of LLC UI-Frame bytes sent
+                 by this LLC connection TG to the remote
+                 network node.
+       
+                 NOTE:  This is a 64 bit (High Capacity)
+                        version of the 
+                        cipTgLlcStatsIFrameBytesOut
+                        counter for use with SNMP Version 2 
+                        Managers"
+        ::= { cipTgLlcStatsEntry 12 }
+
+cipTgLlcStatsTestCmdsOut OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Number of TEST commands sent by this 
+                 LLC TG to the configured remote MAC 
+                 address."
+        ::= { cipTgLlcStatsEntry 13 }
+
+cipTgLlcStatsTestRspsIn OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Number of TEST responses received by
+                 this LLC TG."
+        ::= { cipTgLlcStatsEntry 14 }
+
+cipTgLlcStatsXidCmdsIn OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Number of XID commands received by 
+                 this LLC TG."
+        ::= { cipTgLlcStatsEntry 15 }
+
+cipTgLlcStatsXidCmdsOut OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Number of XID commands sent by this 
+                 LLC TG."
+        ::= { cipTgLlcStatsEntry 16 }
+
+cipTgLlcStatsXidRspsIn OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Number of XID responses received by
+                 this LLC TG."
+        ::= { cipTgLlcStatsEntry 17 }
+
+cipTgLlcStatsXidRspsOut OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Number of XID responses sent by this 
+                 LLC TG."
+        ::= { cipTgLlcStatsEntry 18 }
+
+cipTgLlcStatsConnNumberRecv OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Number of connection-oriented MPC+ frames
+                 received from the host over this TG."
+        ::= { cipTgLlcStatsEntry 19 }
+
+cipTgLlcStatsConnNumberSent OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Number of connection-oriented MPC+ frames
+                 sent to the host over this TG."
+        ::= { cipTgLlcStatsEntry 20 }
+
+
+-- ****************************************************************
+-- *                  cipTgIpAdminTable                           *
+-- ****************************************************************
+
+cipTgIpAdminTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF CipTgIpAdminEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "This table contains CMCC configuration information 
+                 for each instance of a CMPC+ IP Transmission 
+                 Group (TG).
+       
+                An instance of this table is created for every
+                CMPC+ IP configured on a CMCC card."
+        ::= { cipTgIp 1 }
+
+cipTgIpAdminEntry OBJECT-TYPE
+        SYNTAX CipTgIpAdminEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "A list of CMCC IP TG configuration values."
+        INDEX { ifIndex, 
+                cipTgIpAdminName }
+        ::= { cipTgIpAdminTable 1 }
+
+CipTgIpAdminEntry ::= SEQUENCE
+{
+        cipTgIpAdminName             ChannelTgName,
+        cipTgIpAdminType             INTEGER,
+        cipTgIpAdminRemoteIpAddr     IpAddress,
+        cipTgIpAdminLocalIpAddr      IpAddress,
+        cipTgIpAdminBroadcast        TruthValue,
+        cipTgIpAdminRowStatus        RowStatus
+}
+
+cipTgIpAdminName OBJECT-TYPE
+        SYNTAX ChannelTgName
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "This is the name for this instance of an CMPC+		
+                 IP transmission group (TG)."
+        ::= { cipTgIpAdminEntry 1 }
+
+cipTgIpAdminType OBJECT-TYPE
+        SYNTAX INTEGER {
+                tcpIp    (1),
+                hsas     (2)
+        }
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+                "The type of host IP stack that is using this
+                 TG."
+        ::= { cipTgIpAdminEntry 2 }
+
+cipTgIpAdminRemoteIpAddr OBJECT-TYPE
+        SYNTAX IpAddress
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION 
+                "The IP address of the Host IP stack using
+                 this TG.  The CMCC will forward packets with
+                 this IP address as the destination IP address
+                 up to the host IP stack."
+        ::= { cipTgIpAdminEntry 3 }
+
+cipTgIpAdminLocalIpAddr OBJECT-TYPE
+        SYNTAX IpAddress
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION 
+                "The IP address of the CMCC for this TG."
+        ::= { cipTgIpAdminEntry 4 }
+
+cipTgIpAdminBroadcast OBJECT-TYPE
+        SYNTAX TruthValue
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+                "Indicates whether or not broadcast packets are
+                 to be sent to the host."
+        ::= { cipTgIpAdminEntry 5 }
+
+cipTgIpAdminRowStatus OBJECT-TYPE
+        SYNTAX RowStatus
+        MAX-ACCESS read-create
+        STATUS current
+        DESCRIPTION
+                "This object is used by a Management Station to create
+                 or delete the row entry in the cipTgIpAdminTable 
+                 following the the RowStatus textual convention."
+        ::= { cipTgIpAdminEntry 6 }
+
+-- ****************************************************************
+-- *                  cipTgIpOperTable                            *
+-- ****************************************************************
+
+cipTgIpOperTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF CipTgIpOperEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "This table contains operational information 
+                 for a CMPC+ IP TG instance. 
+       
+                 An instance of this table is created for every
+                 CMPC+ IP TG."
+        ::= { cipTgIp 2 }
+
+cipTgIpOperEntry OBJECT-TYPE
+        SYNTAX CipTgIpOperEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "A list of CMCC IP TG operational values."
+        AUGMENTS    { cipTgIpAdminEntry }
+        ::= { cipTgIpOperTable 1 }
+
+CipTgIpOperEntry ::= SEQUENCE
+{
+        cipTgIpOperLocalVcToken       ChannelTgToken,
+        cipTgIpOperRemoteVcToken      ChannelTgToken,
+        cipTgIpOperLocalConnToken     ChannelTgToken,
+        cipTgIpOperRemoteConnToken    ChannelTgToken,
+        cipTgIpOperVcStatus           INTEGER,
+        cipTgIpOperConnStatus         INTEGER
+}
+
+
+cipTgIpOperLocalVcToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The CMCC's token/handle for this CMPC+ TG IP VC.
+              This token is included in the IP protocol 
+              virtual circuit activation message sent to the
+              host."
+        ::= { cipTgIpOperEntry 1 }
+
+cipTgIpOperRemoteVcToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The host's token/handle for this CMPC+ TG IP VC.
+              This token is extracted from the IP protocol
+              virtual circuit activation message received from 
+              the host."
+        ::= { cipTgIpOperEntry 2 }
+
+cipTgIpOperLocalConnToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The CMCC's token/handle for this CMPC+ TG IP
+              connection.  This token is included in the IP
+              connection activation message sent to the
+              host."
+        ::= { cipTgIpOperEntry 3 }
+
+cipTgIpOperRemoteConnToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The host's token/handle for this CMPC+ TG IP
+              connection.  This token is extracted from the
+              IP connection activation message received from 
+              the host."
+        ::= { cipTgIpOperEntry 4 }
+
+cipTgIpOperVcStatus OBJECT-TYPE
+        SYNTAX INTEGER {
+                reset             (1),
+                active            (2)    
+        }
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Activation state of this CMPC+ TG IP virtual circuit.                 
+                 reset          - Awaiting an MPC+ IP virtual circuit activate 
+                                  indication from the host.
+                 active         - An MPC+ IP virtual circuit active indication
+				  has been receive from the host and CMCC has sent 
+				  an MPC+ IP  virtual circuit active indication
+				  to the host.  The MPC+ IP virtual circuit is
+                                  now active."
+	::= { cipTgIpOperEntry 5 }
+
+cipTgIpOperConnStatus OBJECT-TYPE
+        SYNTAX INTEGER {
+                reset             (1),
+                connRequestSent   (2),
+                pendingActive     (3),
+                active            (4)    
+        }
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Activation state of this CMPC+ TG IP connection.
+                 reset           - Awaiting MPC+ IP Connection Request from the
+                                   host.
+                 connRequestSent - The CMCC has sent an MPC+ IP Connection Request
+                                   to the host and is awaiting an MPC+ IP Connection
+                                   Confirm from the host.
+                 pendingActive   - The CMCC is waiting for the host to enable traffic
+                                   flow on the IP connection. 
+                 active          - The MPC+ IP connection is active and both the 
+                                   CMCC and the host have enabled traffic flow on the
+                                   connection."			  
+	::= { cipTgIpOperEntry 6 }
+
+-- ****************************************************************
+-- *                  ccipTgIpStatsTable                          *
+-- ****************************************************************
+
+cipTgIpStatsTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF CipTgIpStatsEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "This table contains statistical information 
+                 for each instance of a CMCC CMPC+ IP
+                 Transmission Group (TG).
+       
+                 Each instance of this table is created for every
+                 CMPC+ IP TG with a unique tg-name configured on a
+	         CMCC card."
+        ::= { cipTgIp 3 }
+
+cipTgIpStatsEntry OBJECT-TYPE
+        SYNTAX CipTgIpStatsEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "A list of CMCC CMPC+ IP TG statistical objects."
+        AUGMENTS    { cipTgIpAdminEntry }
+        ::= { cipTgIpStatsTable 1 }
+
+CipTgIpStatsEntry ::= SEQUENCE
+{
+        cipTgIpStatsPacketsIn                  Counter32,
+        cipTgIpStatsBytesIn                    Counter32,
+        cipTgIpStatsHCBytesIn                  Counter64,
+        cipTgIpStatsPacketsOut                 Counter32,
+        cipTgIpStatsBytesOut                   Counter32,
+        cipTgIpStatsHCBytesOut                 Counter64
+}
+
+cipTgIpStatsPacketsIn OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of IP packets received from the
+                 IP network for this CMPC+ IP TG."
+        ::= { cipTgIpStatsEntry 1 }
+
+cipTgIpStatsBytesIn OBJECT-TYPE
+        SYNTAX Counter32
+        UNITS "octets"
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of bytes received in IP packets
+                 from the IP network for this CMPC+ IP TG."
+        ::= { cipTgIpStatsEntry 2 }
+
+cipTgIpStatsHCBytesIn OBJECT-TYPE
+        SYNTAX Counter64
+        UNITS "octets"
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of bytes received in IP packets
+                 from the IP network for this CMPC+ IP TG.
+
+                 Note: This is a 64-bit (High Capacity)
+                 version of cipTgIpStatsBytesIn counter
+                 used for use with SNMP Version 2
+                 Managers. "
+        ::= { cipTgIpStatsEntry 3 }
+
+cipTgIpStatsPacketsOut OBJECT-TYPE
+        SYNTAX Counter32
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of IP packets sent by the host
+                 to the IP network over this CMPC+ IP TG." 
+        ::= { cipTgIpStatsEntry 4 }
+
+cipTgIpStatsBytesOut OBJECT-TYPE
+        SYNTAX Counter32
+        UNITS  "octets"
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of bytes sent in IP packets from
+	         host to the IP network over this CMPC+ IP TG."
+        ::= { cipTgIpStatsEntry 5 }
+
+cipTgIpStatsHCBytesOut OBJECT-TYPE
+        SYNTAX Counter64
+        UNITS "octets"
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "The number of bytes sent in IP packets from
+		host to the IP network over this CMPC+ IP TG.
+
+                 Note: This is a 64-bit (High Capacity)
+                 version of cipTgIpStatsBytesOut counter
+                 used for use with SNMP Version 2
+                 Managers. "
+        ::= { cipTgIpStatsEntry 6 }
+
+-- ****************************************************************
+-- *                  cipTgCmgrOperTable                          *
+-- ****************************************************************
+
+cipTgCmgrOperTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF CipTgCmgrOperEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "This table contains operational information 
+                for a CMPC+ TG Connection Manager instance. 
+       
+                An instance of this table is created for every
+                CMPC+ TG."
+        ::= { cipTgCmgr 1 }
+
+cipTgCmgrOperEntry OBJECT-TYPE
+        SYNTAX CipTgCmgrOperEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "A list of CMCC TG Connection Manager operational values."
+        INDEX { ifIndex, 
+                cipTgCmgrOperName }
+        ::= { cipTgCmgrOperTable 1 }
+
+CipTgCmgrOperEntry ::= SEQUENCE
+{
+        cipTgCmgrOperName               ChannelTgName,
+        cipTgCmgrOperType               INTEGER,
+        cipTgCmgrOperLocalGrToken       ChannelTgToken,
+        cipTgCmgrOperRemoteGrToken      ChannelTgToken,
+        cipTgCmgrOperLocalVcToken       ChannelTgToken,
+        cipTgCmgrOperRemoteVcToken      ChannelTgToken,
+        cipTgCmgrOperLocalConnToken     ChannelTgToken,
+        cipTgCmgrOperRemoteConnToken    ChannelTgToken,
+        cipTgCmgrOperVcStatus           INTEGER,
+        cipTgCmgrOperConnStatus         INTEGER
+}
+
+cipTgCmgrOperName OBJECT-TYPE
+        SYNTAX ChannelTgName
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "This is the name for this instance of a CMPC+ TG."
+        ::= { cipTgCmgrOperEntry 1 }
+
+cipTgCmgrOperType OBJECT-TYPE
+        SYNTAX INTEGER {
+                pointToPoint      (1),
+                pointToMultiPoint (2)    
+        }
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Type of Connection Manager for TG.
+                 pointToPoint       - One MPC+ connection per TG is supported
+                                      between the host and the CMCC.
+                 pointToMultiPoint  - Multiple MPC+ connections per TG are
+                                      supported between the host and the CMCC."
+  ::= { cipTgCmgrOperEntry 2 }
+
+cipTgCmgrOperLocalGrToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The CMCC's Group Token for this CMPC+ TG.  This
+              token is included in the XID2 sent by the CMCC.
+
+              Requests for Connection Manager virtual circuit
+              and Connection activation and deactivation flow
+              on this token."
+        ::= { cipTgCmgrOperEntry 3 }
+
+cipTgCmgrOperRemoteGrToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The host's Group Token for this CMPC+ TG.  This
+              token is extracted from the XID2 sent by the
+              the host to the CMCC.
+
+              Requests for Connection Manager virtual circuit
+              and Connection activation and deactivation flow
+              on this token."
+        ::= { cipTgCmgrOperEntry 4 }
+
+cipTgCmgrOperLocalVcToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The CMCC's token/handle for this CMPC+ TG Cmgr VC.
+              This token is included in the Connection Manager
+              virtual circuit activation message sent to the
+              host."
+        ::= { cipTgCmgrOperEntry 5 }
+
+cipTgCmgrOperRemoteVcToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The host's token/handle for this CMPC+ TG Cmgr VC.
+              This token is extracted from the Connection Manager
+              virtual circuit activation message received from 
+              the host."
+        ::= { cipTgCmgrOperEntry 6 }
+
+cipTgCmgrOperLocalConnToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The CMCC's token/handle for this CMPC+ TG Cmgr
+              connection.  This token is included in the Cmgr
+              connection activation message sent to the
+              host."
+        ::= { cipTgCmgrOperEntry 7 }
+
+cipTgCmgrOperRemoteConnToken OBJECT-TYPE
+        SYNTAX ChannelTgToken
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+             "The host's token/handle for this CMPC+ TG Cmgr
+              connection.  This token is extracted from the
+              Cmgr connection activation message received from 
+              the host."
+        ::= { cipTgCmgrOperEntry 8 }
+
+cipTgCmgrOperVcStatus OBJECT-TYPE
+        SYNTAX INTEGER {
+                reset             (1),
+                active            (2)    
+        }
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Activation state of the CMPC+ TG connection Manager
+                 virtual circuit.
+                 reset          - Awaiting virtual circuit activate indication
+                                  from the host.
+                 active         - A virtual circuit active indication has
+		   	          been receive from the host and CMCC has sent 
+			          a virtual circuit active indication to the
+			          host.  The virtual circuit is now active."
+	::= { cipTgCmgrOperEntry 9 }
+
+cipTgCmgrOperConnStatus OBJECT-TYPE
+        SYNTAX INTEGER {
+                reset             (1),
+                active            (2)    
+        }
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "Activation state of the CMPC+ TG Connection Manager
+                 connection.
+                 reset          - Awaiting Cmgr Connection Request from the
+                                  host.
+                 active         - A Cmgr Connection Request has been receive from
+			          the host and CMCC has returned Cmgr Connection 
+			          Request to the host.  The Cmgr connection is
+			          now active."
+	::= { cipTgCmgrOperEntry 10 }
+
+
+-- *****************************************************************
+-- *                Conformance Information                        *
+-- *****************************************************************
+
+ciscoCipTgMibConformance OBJECT IDENTIFIER ::= { ciscoCipTgMIB 3 }
+ciscoCipTgMibCompliances OBJECT IDENTIFIER ::= { ciscoCipTgMibConformance 1 }
+ciscoCipTgMibGroups OBJECT IDENTIFIER ::= { ciscoCipTgMibConformance 2 }
+
+--
+-- Compliance Statements
+--
+
+ciscoCipTgMibCompliance MODULE-COMPLIANCE
+        STATUS obsolete  --  superseded by ciscoCipTgMibComplianceRev1
+        DESCRIPTION
+                "The compliance statement for the CMCC
+                TG feature."
+        MODULE MANDATORY-GROUPS {
+                ciscoCipTgLlcGroup
+        }
+        ::= { ciscoCipTgMibCompliances 1 }
+
+ciscoCipTgMibComplianceRev1 MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+                "The compliance statement for the CMCC
+                TG feature."
+        MODULE MANDATORY-GROUPS {
+                ciscoCipTgLlcGroupRev1,
+                ciscoCipTgIpGroup,
+                ciscoCipTgCmgrGroup
+        }
+        ::= { ciscoCipTgMibCompliances 2 }
+    
+ciscoCipTgLlcGroup OBJECT-GROUP
+        OBJECTS {
+                -- Table Header
+                --  cipTgLlcAdminTable
+                --  cipTgLlcAdminEntry
+                -- Table Header
+                --  cipTgLlcOperTable
+                --  cipTgLlcOperEntry
+                -- Table Header
+                --  cipTgLlcStatsTable
+                --  cipTgLlcStatsEntry
+                -- Table Indicies
+                --  ifIndex
+                --  cipTgLlcAdminName
+    
+                cipTgLlcAdminLanType,
+                cipTgLlcAdminAdaptNo,
+                cipTgLlcAdminLSAP,
+                cipTgLlcAdminRMAC,
+                cipTgLlcAdminRSAP,
+                cipTgLlcAdminRowStatus,
+                cipTgLlcOperState,
+                cipTgLlcOperTGN,
+                cipTgLlcOperLocalCP,
+                cipTgLlcOperRemoteCP,
+                cipTgLlcOperMaxIn,
+                cipTgLlcOperMaxOut,
+                cipTgLlcOperHpr,
+                cipTgLlcOperHprLSAP,
+                cipTgLlcOperHprRSAP,
+                cipTgLlcOperRIF,
+                cipTgLlcStatsIFramesIn,
+                cipTgLlcStatsIFrameBytesIn,
+                cipTgLlcStatsHCIFrameBytesIn,
+                cipTgLlcStatsIFramesOut,
+                cipTgLlcStatsIFrameBytesOut,
+                cipTgLlcStatsHCIFrameBytesOut,
+                cipTgLlcStatsUIFramesIn,
+                cipTgLlcStatsUIFrameBytesIn,
+                cipTgLlcStatsHCUIFrameBytesIn,
+                cipTgLlcStatsUIFramesOut,
+                cipTgLlcStatsUIFrameBytesOut,
+                cipTgLlcStatsHCUIFrameBytesOut,
+                cipTgLlcStatsTestCmdsOut,
+                cipTgLlcStatsTestRspsIn,
+                cipTgLlcStatsXidCmdsIn,
+                cipTgLlcStatsXidCmdsOut,
+                cipTgLlcStatsXidRspsIn,
+                cipTgLlcStatsXidRspsOut
+        }
+        STATUS obsolete  --  superseded by ciscoCipTgLlcGroupRev1
+        DESCRIPTION
+                "A collection of objects providing CMCC LLC 
+                TG Administration, Operational status and 
+                Statistics."
+        ::= { ciscoCipTgMibGroups 2 }
+
+ciscoCipTgLlcGroupRev1 OBJECT-GROUP
+        OBJECTS {
+                -- Table Header
+                --  cipTgLlcAdminTable
+                --  cipTgLlcAdminEntry
+                -- Table Header
+                --  cipTgLlcOperTable
+                --  cipTgLlcOperEntry
+                -- Table Header
+                --  cipTgLlcStatsTable
+                --  cipTgLlcStatsEntry
+                -- Table Indicies
+                --  ifIndex
+                --  cipTgLlcAdminName
+    
+                cipTgLlcAdminLanType,
+                cipTgLlcAdminAdaptNo,
+                cipTgLlcAdminLSAP,
+                cipTgLlcAdminRMAC,
+                cipTgLlcAdminRSAP,
+                cipTgLlcAdminRowStatus,
+                cipTgLlcOperState,
+                cipTgLlcOperTGN,
+                cipTgLlcOperLocalCP,
+                cipTgLlcOperRemoteCP,
+                cipTgLlcOperMaxIn,
+                cipTgLlcOperMaxOut,
+                cipTgLlcOperHpr,
+                cipTgLlcOperHprLSAP,
+                cipTgLlcOperHprRSAP,
+                cipTgLlcOperRIF,
+                cipTgLlcOperLocalVcToken,
+                cipTgLlcOperRemoteVcToken,
+                cipTgLlcOperLocalConnToken,
+                cipTgLlcOperRemoteConnToken,
+                cipTgLlcOperVcStatus,
+                cipTgLlcOperConnStatus,
+                cipTgLlcStatsIFramesIn,
+                cipTgLlcStatsIFrameBytesIn,
+                cipTgLlcStatsHCIFrameBytesIn,
+                cipTgLlcStatsIFramesOut,
+                cipTgLlcStatsIFrameBytesOut,
+                cipTgLlcStatsHCIFrameBytesOut,
+                cipTgLlcStatsUIFramesIn,
+                cipTgLlcStatsUIFrameBytesIn,
+                cipTgLlcStatsHCUIFrameBytesIn,
+                cipTgLlcStatsUIFramesOut,
+                cipTgLlcStatsUIFrameBytesOut,
+                cipTgLlcStatsHCUIFrameBytesOut,
+                cipTgLlcStatsTestCmdsOut,
+                cipTgLlcStatsTestRspsIn,
+                cipTgLlcStatsXidCmdsIn,
+                cipTgLlcStatsXidCmdsOut,
+                cipTgLlcStatsXidRspsIn,
+                cipTgLlcStatsXidRspsOut,
+                cipTgLlcStatsConnNumberRecv,
+                cipTgLlcStatsConnNumberSent
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing CMCC LLC 
+                 TG Administration, Operational status and 
+                 Statistics."
+        ::= { ciscoCipTgMibGroups 3 }
+
+ciscoCipTgIpGroup OBJECT-GROUP
+        OBJECTS {
+                -- Table Header
+                --  cipTgIpAdminTable
+                --  cipTgIpAdminEntry
+                -- Table Header
+                --  cipTgIpOperTable
+                --  cipTgIpOperEntry
+                -- Table Header
+                --  cipTgIpStatsTable
+                --  cipTgIpStatsEntry
+                -- Table Indicies
+                --  ifIndex
+                --  cipTgIpAdminName
+    
+                cipTgIpAdminType,
+                cipTgIpAdminRemoteIpAddr,
+                cipTgIpAdminLocalIpAddr,
+                cipTgIpAdminBroadcast,
+                cipTgIpAdminRowStatus,
+                cipTgIpOperLocalVcToken,
+                cipTgIpOperRemoteVcToken,
+                cipTgIpOperLocalConnToken,
+                cipTgIpOperRemoteConnToken,
+                cipTgIpOperVcStatus,
+                cipTgIpOperConnStatus,
+                cipTgIpStatsPacketsIn,
+                cipTgIpStatsBytesIn,
+                cipTgIpStatsHCBytesIn,
+                cipTgIpStatsPacketsOut,
+                cipTgIpStatsBytesOut,
+                cipTgIpStatsHCBytesOut
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing CMCC IP 
+                 TG Administration, Operational status and 
+                 Statistics."
+        ::= { ciscoCipTgMibGroups 4 }
+
+ciscoCipTgCmgrGroup OBJECT-GROUP
+        OBJECTS {
+                -- Table Header
+                --  cipTgCmgrOperTable
+                --  cipTgCmgrOperEntry
+                -- Table Indicies
+                --  ifIndex
+                --  cipTgCmgrOperName
+	
+                cipTgCmgrOperType,
+                cipTgCmgrOperLocalGrToken,
+                cipTgCmgrOperRemoteGrToken,
+                cipTgCmgrOperLocalVcToken,
+                cipTgCmgrOperRemoteVcToken,
+                cipTgCmgrOperLocalConnToken,
+                cipTgCmgrOperRemoteConnToken,
+                cipTgCmgrOperVcStatus,
+                cipTgCmgrOperConnStatus	    
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing CMCC 
+                 TG Connection Manager Operational status."
+        ::= { ciscoCipTgMibGroups 5 }
+
+END
+

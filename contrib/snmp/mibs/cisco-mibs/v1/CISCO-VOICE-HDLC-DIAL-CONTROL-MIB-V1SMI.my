@@ -1,0 +1,134 @@
+-- MIB created 6/25/99 12:57:48, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-VOICE-HDLC-DIAL-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VOICE-HDLC-DIAL-CONTROL-MIB.my"
+
+IMPORTS
+    OBJECT-TYPE
+            FROM RFC-1212
+    DisplayString
+            FROM SNMPv2-TC-v1
+    CvcGUid
+            FROM CISCO-VOICE-DIAL-CONTROL-MIB
+    cCallHistoryIndex
+            FROM CISCO-DIAL-CONTROL-MIB
+    ciscoExperiment
+            FROM CISCO-SMI;
+
+ciscoVoiceHdlcDialControlMIB OBJECT IDENTIFIER ::= { ciscoExperiment 37 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9804140000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-voice@cisco.com
+--  Descr
+--    This MIB module enhances the IETF Dial Control MIB (RFC2128)
+--     by providing HDLC management information over a data network.
+
+cvhdlcdcMIBObjects OBJECT IDENTIFIER ::= { ciscoVoiceHdlcDialControlMIB 1 }
+cvHdlcCallHistory OBJECT IDENTIFIER ::= { cvhdlcdcMIBObjects 1 }
+cvhdlcdcMIBConformance OBJECT IDENTIFIER ::= { ciscoVoiceHdlcDialControlMIB 3 }
+cvhdlcdcMIBCompliances OBJECT IDENTIFIER ::= { cvhdlcdcMIBConformance 1 }
+cvhdlcdcMIBGroups OBJECT IDENTIFIER ::= { cvhdlcdcMIBConformance 2 }
+
+cvHdlcCallHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvHdlcCallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is the HDLC extension to the call history table of
+         IETF Dial Control MIB. It contains HDLC call leg information
+         about specific voice over HDLC call."
+    ::= { cvHdlcCallHistory 1 }
+
+cvHdlcCallHistoryEntry OBJECT-TYPE
+    SYNTAX CvHdlcCallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single HDLC call leg.
+         An entry of this table is created when its associated call
+         history entry in the IETF Dial Control MIB is created and the
+         call history entry contains information for the call
+         establishment to the peer on the data network backbone via a voice 
+         over HDLC peer.
+         The entry is deleted when its associated call history entry in
+         the IETF Dial Control MIB is deleted."
+    INDEX { cCallHistoryIndex }
+    ::= { cvHdlcCallHistoryTable 1 }
+
+CvHdlcCallHistoryEntry ::= SEQUENCE {
+    cvHdlcCallHistoryConnectionId CvcGUid,
+    cvHdlcCallHistoryLowerIfName DisplayString,
+    cvHdlcCallHistorySessionTarget DisplayString
+    }
+
+cvHdlcCallHistoryConnectionId OBJECT-TYPE
+    SYNTAX CvcGUid
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The global call identifier for the tandem call."
+    ::= { cvHdlcCallHistoryEntry 1 }
+
+cvHdlcCallHistoryLowerIfName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..24))
+--    Rsyntax OCTET STRING(SIZE(0..24))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The textual name of lower layer interface associated
+         with this HDLC call."
+    ::= { cvHdlcCallHistoryEntry 2 }
+
+cvHdlcCallHistorySessionTarget OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object specifies the session target of the peer that
+         is used for the voice over HDLC call. A null string indicates 
+         that the value is unavailable."
+    ::= { cvHdlcCallHistoryEntry 3 }
+
+cvHdlcCallHistoryGroup OBJECT IDENTIFIER ::= { cvhdlcdcMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the HDLC Call
+--     capability.
+--  objects
+--    cvHdlcCallHistoryConnectionId, cvHdlcCallHistoryLowerIfName, 
+--    cvHdlcCallHistorySessionTarget
+
+cvhdlcdcMIBCompliance OBJECT IDENTIFIER ::= { cvhdlcdcMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO VOICE HDLC DIAL CONTROL MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvHdlcCallHistoryGroup
+
+
+END
+

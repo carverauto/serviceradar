@@ -1,0 +1,253 @@
+ -- *****************************************************************
+-- CISCO-CBP-TARGET-TC-MIB.my 
+--
+-- Textual Conventions for class based policy target representation.
+--                              
+-- March 2006, Tim Swanson
+--
+-- Copyright  2006 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-CBP-TARGET-TC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, 
+    Unsigned32 
+       FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+       FROM SNMPv2-TC
+    ciscoMgmt
+       FROM CISCO-SMI
+;
+
+ciscoCbpTargetTCMIB MODULE-IDENTITY
+     LAST-UPDATED    "200603240000Z"  -- 24 Mar 2006 00:00:00 GMT
+     ORGANIZATION    "Cisco Systems, Inc."
+     CONTACT-INFO
+        "          Cisco Systems
+                   Customer Service
+        
+           Postal: 170 W. Tasman Drive
+                   San Jose, CA 95134-1706
+                   USA
+        
+              Tel: +1 800 553-NETS
+        
+           E-mail: cs-qos@cisco.com, cs-c3pl@cisco.com"
+
+    DESCRIPTION
+        "This MIB module defines Textual Conventions for
+         representing targets which have class based policy 
+         mappings. A target can be any logical interface 
+         or entity to which a class based policy is able to be 
+         associated." 
+    REVISION     "200603240000Z"
+    DESCRIPTION
+        "Initial version."
+    ::= { ciscoMgmt 511 }
+
+CcbptTargetType ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "A Textual Convention that represents a type of target.
+
+         genIf(1)    A target of type interface defined by 
+                     CcbptTargetIdIf Textual Convention.
+
+         atmPvc(2)   A target of type ATM PVC defined 
+                     by the CcbptTargetIdAtmPvc Textual Convention.
+
+         frDlci(3)   A target of type Frame Relay DLCI 
+                     defined by the CcbptTargetIdFrDlci Textual 
+                     Convention.
+
+         entity(4) A target of type entity defined by the 
+                   CcbptTargetIdEntity Textual Convention.  This target
+                   type is used to indicate the attachment of a Class 
+                   Based Policy to a physical entity.
+
+         fwZone(5)   A target of type Firewall Security Zone
+                     defined by the CcbptTargetIdNameString 
+                     Textual Convention.
+
+         fwZonePair(6) A target of type Firewall Security Zone 
+                       defined by the CcbptTargetIdNameString
+                       Textual Convention.
+         
+         aaaSession(7) A target of type AAA Session define by the
+                       CcbptTargetIdAaaSession Textual Convention.
+
+        "
+    SYNTAX       INTEGER {
+                    genIf(1),
+                    atmPvc(2),
+                    frDlci(3),
+                    entity(4),
+                    fwZone(5),
+                    fwZonePair(6),
+                    aaaSession(7)
+    }
+
+CcbptTargetDirection ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "A Textual Convention that represents a direction for a target.
+
+         undirected(1)    Indicates that direction has no meaning 
+                          relative to the target.
+
+         input(2)    Refers to the input direction relative to the 
+                     target.
+
+         output(3)   Refers to the output direction relative to the
+                     target.
+     
+         inOut(4)    Refers to both the input and output directions
+                     relative to the target.
+        "
+    SYNTAX       INTEGER {
+                    undirected(1),
+                    input(2),
+                    output(3),
+                    inOut(4)
+    }
+
+CcbptTargetId ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "Denotes a generic target ID.
+
+         A CcbptTargetId value is always interpreted within the 
+         context of an CcbptTargetType value. Every usage of the 
+         CcbptTargetId Textual Convention is required to specify the
+         CcbptTargetType object which provides the context. It is 
+         suggested that the CcbptTargetType object is logically 
+         registered before the object(s) which use the CcbptTargetId
+         Textual Convention if they appear in the same logical row.
+
+         The value of an CcbptTargetId object must always be
+         consistent with the value of the associated CcbptTargetType
+         object. Attempts to set a CcbptTargetId object to a value
+         which is inconsistent with the associated targetType
+         must fail with an inconsistentValue error.
+         "
+    SYNTAX      OCTET STRING (SIZE (0..64))
+
+--
+-- Type Specific Target ID definitions
+-- 
+-- NOTE:  Some or all of the target ID definitions may be unused 
+--        in actual object definitions. However, since they 
+--        unambiguously illustrate the format of each type of target
+--        ID, the definitions corresponding to each possible value of
+--        CcbptTargetType are included.
+--
+
+CcbptTargetIdIf ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "4d"
+    STATUS       current
+    DESCRIPTION
+        "Represents an interface target:
+
+           octets   contents              encoding
+            1-4     ifIndex               network-byte order
+         "
+    SYNTAX   OCTET STRING (SIZE (4))
+
+CcbptTargetIdAtmPvc ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "4d:2d:2d"
+    STATUS       current
+    DESCRIPTION
+        "Represents an ATM PVC target:
+
+           octets    contents              encoding
+            1-4      ifIndex               network-byte order
+            5-6      atmVclVpi             network-byte order
+            7-8      atmVclVci             network-byte order
+        "
+    SYNTAX       OCTET STRING (SIZE (8))
+
+CcbptTargetIdFrDlci ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "4d:2d"
+    STATUS       current
+    DESCRIPTION
+        "Represents a Frame Relay DLCI target:
+
+           octets   contents               encoding
+            1-4     ifIndex                network-byte order
+            5-6     DlciNumber             network-byte order
+
+        "
+    SYNTAX       OCTET STRING (SIZE (6))
+
+CcbptTargetIdEntity ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "4d"
+    STATUS       current
+    DESCRIPTION
+        "Represents the entPhysicalIndex of the physical entity 
+         target:
+
+           octets   contents               encoding
+            1-4     entPhysicalIndex       network-byte order
+
+        "
+    SYNTAX       OCTET STRING (SIZE (4))
+
+CcbptTargetIdNameString ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "Represents a target identified by a name string.  
+         This is the ASCII name identifying this target.
+        "
+    SYNTAX       OCTET STRING (SIZE (0..64))
+
+CcbptTargetIdAaaSession ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "4d"
+    STATUS       current
+    DESCRIPTION
+        "Represents a AAA Session target:
+
+           octets   contents               encoding
+            1-4     casnSessionId      network-byte order
+
+        "
+    SYNTAX       OCTET STRING (SIZE (4))
+
+CcbptPolicySourceType ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "This Textual Convention represents the types of sources of 
+         policies.
+
+         ciscoCbQos(1)      Cisco Class Based QOS policy source.
+                            The source of the policy is Cisco Class 
+                            Based QOS specific.
+
+         ciscoCbpCommon(2)  Cisco Common Class Based Policy type.
+                            The source of the policy is Cisco Common
+                            Class Based.
+        "
+    SYNTAX       INTEGER {
+                    ciscoCbQos(1),
+                    ciscoCbpBase(2) 
+    }
+
+CcbptPolicyIdentifier ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "A type specific, arbitrary identifier uniquely given
+         to a policy-map attachment to a target.
+        "
+    SYNTAX Unsigned32 (1..4294967295)
+
+CcbptPolicyIdentifierOrZero  ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "This refers to CcbptPolicyIdentifier values, as applies, 
+         or 0.  The behavior of the value of 0 should be described
+         in the description of objects using this type.
+        "
+    SYNTAX Unsigned32 (0..4294967295)
+
+END

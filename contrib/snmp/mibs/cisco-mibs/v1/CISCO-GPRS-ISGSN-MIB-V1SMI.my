@@ -1,0 +1,149 @@
+-- MIB file created 03-May-2010 11:38:32, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-GPRS-ISGSN-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-GPRS-ISGSN-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoGprsIsgsnMIB OBJECT IDENTIFIER ::= { ciscoMgmt 9992 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9810150000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-gprs@cisco.com
+--  Descr
+--    The MIB Module for managing the General Packet Radio 
+--     Service(GPRS) iSGSN protocol on Servicing GPRS Support
+--     Node (SGSN). 
+--     In the Alcatel/Cisco SGSN architecture, a Telecom part 
+--     (T-unit) and Datacom part (D-unit) have been defined.  
+--     The Datacom part is in charge of managing the Gn interface 
+--     with the GPRS backbone. The Telecom part is in charge of 
+--     managing the Gb interface with the BSS. 
+--     The iSGSN protocol is the high layer protocol of the 
+--     interface between the Datacom part and Telecom part. 
+--     It supports the relay function between the Gb and Gn 
+--     protocol stacks, and intra SGSN nodes management.
+
+ciscoGprsIsgsnMIBObjects OBJECT IDENTIFIER ::= { ciscoGprsIsgsnMIB 1 }
+ciscoGprsIsgsnStats OBJECT IDENTIFIER ::= { ciscoGprsIsgsnMIBObjects 1 }
+ciscoGprsIsgsnConformances OBJECT IDENTIFIER ::= { ciscoGprsIsgsnMIB 3 }
+cgprsIsgsnGroups OBJECT IDENTIFIER ::= { ciscoGprsIsgsnConformances 1 }
+cgprsIsgsnCompliances OBJECT IDENTIFIER ::= { ciscoGprsIsgsnConformances 2 }
+
+cgprsIsgsnRxPacketCountFromTnode OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of packets received from the T-node, by
+         iSGSN protocol component on the D-node."
+    ::= { ciscoGprsIsgsnStats 1 }
+
+cgprsIsgsnTxPacketCountToTnode OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of packets transmitted by the D-node iSGSN
+         protocol component, to its peer on the T-node."
+    ::= { ciscoGprsIsgsnStats 2 }
+
+cgprsIsgsnRxOctetCountFromTnode OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of octets received from the T-node, by
+         iGSN protocol component on the D-node."
+    ::= { ciscoGprsIsgsnStats 3 }
+
+cgprsIsgsnTxOctetCountToTnode OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of octets transmitted by the D-node iSGSN
+         protocol component, to its peer on the T-node."
+    ::= { ciscoGprsIsgsnStats 4 }
+
+cgprsIsgsnErrorCountRxFromTnode OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of errors due to illegal or bad packets received
+         from the T-node, by iSGSN protocol component on the D-node."
+    ::= { ciscoGprsIsgsnStats 5 }
+
+cgprsIsgsnErrorCountRxToTnode OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of errors attributable to the transmision of bad or
+        illegal packets transmitted by the D-node iSGSN protocol
+        component, to its peer on the T-node."
+    ::= { ciscoGprsIsgsnStats 6 }
+
+cgprsIsgsnStatsGroup OBJECT IDENTIFIER ::= { cgprsIsgsnGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--     A collection of statistics for ISGSN.
+--  objects
+--    cgprsIsgsnRxPacketCountFromTnode, 
+--    cgprsIsgsnTxPacketCountToTnode, 
+--    cgprsIsgsnRxOctetCountFromTnode, 
+--    cgprsIsgsnTxOctetCountToTnode, 
+--    cgprsIsgsnErrorCountRxFromTnode, 
+--    cgprsIsgsnErrorCountRxToTnode
+
+cgprsIsgsnCompliance1 OBJECT IDENTIFIER ::= { cgprsIsgsnCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--     The compliance statement for the system that supports ISGSN 
+--      protocol.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cgprsIsgsnStatsGroup
+
+
+END
+

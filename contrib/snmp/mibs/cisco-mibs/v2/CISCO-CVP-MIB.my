@@ -1,0 +1,3623 @@
+-- ******************************************************************
+-- CISCO-CVP-MIB.my:
+-- Cisco Unified Customer Voice Portal MIB file.
+--   
+-- May 2006, Steven Harter
+--   
+-- Copyright (c) 2006-2007, 2011 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-CVP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32,
+    Gauge32,
+    Counter32,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    InetAddressDNS
+        FROM INET-ADDRESS-MIB
+    TEXTUAL-CONVENTION,
+    DateAndTime,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CiscoURLString
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCvpMIB MODULE-IDENTITY
+    LAST-UPDATED    "201109220000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems Customer Service
+
+            Postal:
+            170 W. Tasman Drive
+            San Jose, CA  95134  USA
+
+            Tel: +1 800 553-NETS
+            E-mail: ccbu-serviceability@cisco.com"
+    DESCRIPTION
+        "The Cisco Unified Customer Voice Portal (CVP) application
+        integrates with both traditional time-division multiplexing
+        (TDM) and IP-based contact centers to provide an unparalleled
+        call management and call treatment solution with a self-
+        service, speech-enabled Interactive Voice Rresponse (IVR)
+        option that can use information available to customers on the
+        corporate Web server.
+
+        With support for automated speech recognition (ASR) and text-
+        to-speech (TTS) capabilities, callers can obtain personalized
+        answers to increasingly complex questions and can conduct
+        business in new and innovative ways ?- all without the costs
+        of interacting with a live agent.
+
+        CVP is a distributed, self-service IVR application.  The
+        solution is comprised of a set of distinct services; each
+        performs a specific function.  The services are loosely
+        coupled, which aides its distributed nature, and yet they are
+        tightly integrated.  Each service provides a core function
+        and is dependent upon the other services to perform that
+        function.
+
+        A single CVP server may have one or more services installed
+        on a single server; even in the smallest deployment scenarios,
+        there will be at least two servers -- a call server and a
+        Voice XML (VXML) server.  The call server, whether it is a
+        single physical server or a virtual set of servers, will
+        include the SIP service, the IVR service and in many cases,
+        the ICM service.  Environments desiring the use of the H.323
+        protocol will have the H.323 service either exclusively or in
+        concert with the SIP service available on the call server.
+        The server providing VXML services will have the VXML server
+        (which executes the IVR scripts, plays prompts and collects
+        digits) and the VXML service which provides the interface
+        between the other CVP services and the VXML server.  A
+        reporting server houses a database management system and the
+        CVP reporting service which receives events from other CVP
+        services and writes data to the database.  The number of
+        servers that are part of the solution will scale to the
+        expected capacity for that deployment.
+
+        For many deployments, CVP works in concert with the Cisco
+        Unified Intelligent Contact Management (ICM) Enterprise and/or
+        the Cisco Unified Contact Center Enterprise contact management
+        systems.  In this deployment scenario, CVP acts as a self-
+        service and IVR platform and interfaces with the ICM for
+        subsequent call routing, typically to a call center agent (a
+        human resource tasked with answering inbound calls and
+        providing services to callers).  Using the aforementioned call
+        control protocols -- SIP and H.323 -- CVP interacts with all
+        these devices to switch the calls to the desired destination.
+
+        The Cisco Unified Customer Voice Portal (CVP) Management
+        Information Base (MIB) module defines management
+        instrumentation for CVP services.  Each distinct CVP service
+        exposes instrumentation related to its specific function.
+        The bulk of this instrumentation is run-time statistics that
+        provide insight into the health, performance and capacity
+        utilization of the CVP solution.  Notifications are also a
+        key component of this instrumentation.  This MIB also defines
+        a notification format that offers descriptive objects as well
+        as objects that ease the task of correlating events at the
+        management station.
+
+        The MIB is structured such that at the highest level is a
+        single generic table which enumerates the installed CVP
+        services and provides a description of each as well as a
+        real-time status.  The index of this table is used to relate
+        the service entry to an entry in a table of additional
+        instrumentation that is specific to that CVP service type.
+        There are also several groups of objects that are exposed on
+        each CVP server regardless of the services installed.
+
+        DEFINITION OF TERMS AND ACRONYMS
+        CVP     Customer Voice Portal
+        GED-125 A messaging protocol that extends an interface to a
+                Interactive Voice Response (IVR) (AKA Voice Response
+                Unit (VRU)) device.  The protocol allows for basic
+                call control and running scripts on the IVR to play
+                prompts and collect user input.
+        IVR     Interactive Voice Response
+        JVM     Java Virtual Machine
+        OAMP    Operations, Administration, Maintenance and
+                Provisioning
+        RTP     Real-time Transport Protocol
+        SIP     Session Initiation Protocol
+        VRU     Voice Response Unit"
+    REVISION        "201109220000Z"
+    DESCRIPTION
+        "Added ccvpSipIntPostCallAnswered,		
+        ccvpSipIntWhisperAnswered,ccvpSipIntWhisperFailed,ccvpSipIntGree
+        tingAnswered , ccvpSipIntGreetingFailed"
+    REVISION        "200710310000Z"
+    DESCRIPTION
+        "Added ccvpSipVideoTableGroup, ccvpIvrVideoTableGroup and
+        ccvpIcmVideoTableGroup to include Video statistics."
+    REVISION        "200610060000Z"
+    DESCRIPTION
+        "Added objects: ccvpLicPortUsageWarning and
+        ccvpLicPortUsageCritical to expose the current threshold
+        settings for the port usage states of 'warning' and 'critical'
+        respectively.  Also added UNITS clause 'minutes' to
+        ccvpServiceIntPeriod."
+    REVISION        "200605191200Z"
+    DESCRIPTION
+        "This is the initial version of this MIB module."
+    ::= { ciscoMgmt 590 }
+
+
+-- *******************************************************************
+-- Notifications
+-- *******************************************************************
+
+ciscoCvpMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCvpMIB 0 }
+
+-- *******************************************************************
+-- MIB Objects
+-- *******************************************************************
+
+ciscoCvpMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCvpMIB 1 }
+
+ccvpGeneralInfo  OBJECT IDENTIFIER
+    ::= { ciscoCvpMIBObjects 1 }
+
+ccvpLicensingInfo  OBJECT IDENTIFIER
+    ::= { ciscoCvpMIBObjects 2 }
+
+ccvpThreadPoolInfo  OBJECT IDENTIFIER
+    ::= { ciscoCvpMIBObjects 3 }
+
+ccvpJvmInfo  OBJECT IDENTIFIER
+    ::= { ciscoCvpMIBObjects 4 }
+
+ccvpServices  OBJECT IDENTIFIER
+    ::= { ciscoCvpMIBObjects 5 }
+
+ccvpServiceInfo  OBJECT IDENTIFIER
+    ::= { ciscoCvpMIBObjects 6 }
+
+ccvpNotificationInfo  OBJECT IDENTIFIER
+    ::= { ciscoCvpMIBObjects 7 }
+
+-- *******************************************************************
+-- Conformance
+-- *******************************************************************
+
+ciscoCvpMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoCvpMIB 2 }
+
+ciscoCvpMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCvpMIBConform 1 }
+
+ciscoCvpMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCvpMIBConform 2 }
+
+
+-- *******************************************************************
+-- Textual Conventions
+-- *******************************************************************
+
+CcvpIndex ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This syntax is used as the index into a table.  A positive
+        value is used to identify a unique entry in the table."
+    SYNTAX          Unsigned32 (1..4294967295)
+
+CcvpServiceType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This syntax is used to identify the type of Customer Voice
+        Portal service.  A CVP solution includes at least one, but
+        probably multiple, of the following services.
+
+        'sip':          SIP Service:  The CVP SIP service acts as an
+                       active intermediary for a call, communicating
+                       with both the source and destination legs of
+                       the call, and providing 3rd party call control
+                       capabilities on behalf of a routing engine.
+
+        'h323':         H.323 Voice Browser Service:  The CVP H.323
+                       service interacts with the CVP IVR service to
+                       relay call arrival, departure and transfer
+                       instructions between it and other H.323
+                       devices in the network.
+
+        'ivr':          Interactive Voice Response (IVR) Service:  The
+                       CVP IVR service is responsible for creating
+                       the VXML pages which implement the CVP
+                       microapps based on instructions received from
+                       the ICM.
+
+        'icm':          Intelligent Contact Management (ICM) Interface
+                       Service:  The CVP ICM service is responsible
+                       for all communication between CVP components
+                       and ICM.
+
+        'reporting':    Reporting Service:  The CVP Reporting service
+                       receives reporting events from the CVP IVR
+                       service, the CVP SIP service, and the CVP
+                       VoiceXML service.
+
+        'vxml':         Voice XML Service:  The Voice XML service
+                       affords standalone applications the ability
+                       to forward reporting events to a CVP reporting
+                       server, and to make ancillary routing requests
+                       and exchange call context information with an
+                       ICM, if one is present."
+    SYNTAX          INTEGER  {
+                        sip(1),
+                        h323(2),
+                        ivr(3),
+                        icm(4),
+                        reporting(5),
+                        vxml(6)
+                    }
+
+CcvpServiceStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This syntax is used to identify the run status of a Customer
+        Voice Portal distributed service.  The value shown is the
+        result of evaluating the current run status of each of the
+        individual elements associated with the service.
+
+        'disabled'          The service has not yet begun to start
+                            up.
+
+        'starting'          The service is in initialization
+                            procedure, configuring and licensing, not
+                            accepting connections yet.
+
+        'inService'         The service is up and running optimally,
+                            accepting connections at full QoS (if
+                            applicable).
+
+        'inServiceWarning'  The service is running sub-optimally,
+                            possibly due to poor QoS or a threshold
+                            reached; see transition reason for
+                            explanation.
+
+        'inServiceCritical' The service is running but very near to
+                            failure, similar to 'inServiceWarning'
+                            but much more dire.
+
+        'partialService'    The service is no longer accepting new
+                            calls but finishes processing active calls
+                            (may be due to a loss of a dependency/
+                            connectivity, or a shutdown request).
+
+        'stopping'          The service no longer accepts new
+                            connections, lets current connections
+                            terminate gracefully.
+
+        'stopped'           The service has shut down and is not
+                            processing any more calls.  The process
+                            itself is terminating (doing memory
+                            cleanup, saving settings, shutting down
+                            threads, etc.).
+
+        'unknown'           The status of the CVP service is unknown
+                            to the SNMP agent either because the link
+                            between the agent and the application has
+                            been broken or the agent is in the midst
+                            of refreshing service status.  (A refresh
+                            typically occurs after an agent restart
+                            due to configuration changes.)"
+    SYNTAX          INTEGER  {
+                        disabled(0),
+                        starting(1),
+                        inService(2),
+                        inServiceWarning(3),
+                        inServiceCritical(4),
+                        partialService(5),
+                        stopping(6),
+                        stopped(7),
+                        unknown(8)
+                    }
+
+-- ******************************************************************
+-- General Information Objects
+-- ******************************************************************
+
+ccvpServerName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The server name object is the fully-qualified domain name of
+        the Customer Voice Portal server." 
+    ::= { ccvpGeneralInfo 1 }
+
+ccvpDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The description object holds a textual description of the
+        Customer Voice Portal software installed on this server.
+        This is typically the full name of the application." 
+    ::= { ccvpGeneralInfo 2 }
+
+ccvpVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The version object identifies the version number of the
+        Customer Voice Portal software installed on this server." 
+    ::= { ccvpGeneralInfo 3 }
+
+ccvpStartTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The start time object is thedate and time that the Customer
+        Voice Portal application was started on this server." 
+    ::= { ccvpGeneralInfo 4 }
+
+ccvpTimeZoneName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time zone name object specifies the name of the time zone
+        where the Customer Voice Portal server is physically located." 
+    ::= { ccvpGeneralInfo 5 }
+
+ccvpTimeZoneOffsetHours OBJECT-TYPE
+    SYNTAX          Integer32 (-12..12)
+    UNITS           "hours"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time zone offset hours object represents the number of
+        hours that the local time, in the time zone where the Customer
+        Voice Portal server is physically located, differs from
+        Greenwich Mean Time (GMT)." 
+    ::= { ccvpGeneralInfo 6 }
+
+ccvpTimeZoneOffsetMinutes OBJECT-TYPE
+    SYNTAX          Integer32 (-59..59)
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time zone offset minutes object represents the number of
+        minutes that the local time, in the time zone where the
+        Customer Voice Portal server is physically located, differs
+        from Greenwich Mean Time (GMT).  This object is combined with
+        ccvpTimeZoneOffsetHours object to represent the local time
+        zone's total offset from GMT." 
+    ::= { ccvpGeneralInfo 7 }
+
+ccvpOpsConsoleURL OBJECT-TYPE
+    SYNTAX          CiscoURLString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ops console URL object holds the URL for the Customer
+        Voice Portal operations Console web server.  The operations
+        console offers a web-based, centralized interface for mapping
+        and summarizing the solution network configuration, setting
+        and displaying configuration infomration on a batch or
+        per-node basis and storing local copies of those
+        configurations.  Other functions include troubleshooting,
+        health monitoring and direct administration.
+
+        This object offers a web navigation point from the management
+        station (assuming a web interface) to quickly access the CVP
+        Operations Console web server." 
+    ::= { ccvpGeneralInfo 8 }
+
+ccvpSupportToolsURL OBJECT-TYPE
+    SYNTAX          CiscoURLString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The support tools URL object holds the URL for an enterprise
+        contact center support tools application server.  The support
+        tools application server is an optional component of the
+        solution and offers a centralized server for diagnostic and
+        troubleshooting tools.  This object offers a navigation point
+        from the management station (assuming a web interface) to
+        quickly access the support tools application server." 
+    ::= { ccvpGeneralInfo 9 }
+
+ccvpEnableNotifications OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The enable notifications object allows the management
+        station to disable and alternatively enable outbound
+        notifications.  By default, notifications are enabled." 
+    ::= { ccvpGeneralInfo 10 }
+
+-- ******************************************************************
+-- Port Licensing Information
+-- ******************************************************************
+
+ccvpLicRtPortsAvail OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time port licenses available object is a real-time
+        snapshot metric indicating the number of port licenses
+        available for the processing of new calls.  Exactly one port
+        license is used per call, independent of the calls traversal
+        of the individual call server subsystems." 
+    ::= { ccvpLicensingInfo 1 }
+
+ccvpLicRtPortsInUse OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time ports in use object is a real-time snapshot
+        metric indicating the number of port licenses currently in
+        use on the call server.  Exactly one port license is used
+        per call, independent of the call's traversal of the
+        individual call server subsystems." 
+    ::= { ccvpLicensingInfo 2 }
+
+ccvpLicRtPortState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        safe(0),
+                        unknown(1),
+                        warning(2),
+                        critical(3),
+                        failure(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time port state object is a real-time snapshot
+        metric indicating the threshold level of port license usage.
+
+        There are five levels:
+            'safe'      Port usage is within a safe range.
+            'unknown'   Port usage state is currently unknown.
+            'warning'   Port usage is rising, approaching a level
+                        of concern.
+            'critical'  Port usage is precariously close to the limit.
+            'failure'   Port usage has reached or exceeded the maximum
+                        allowable and calls are currently being
+                        rejected.
+
+        An administrator may set the required percentage of port
+        licenses in use needed to reach a given threshold level, with
+        the exception of the failure level which is reached when the
+        number of ports checked out is equal to the total number of
+        licenses ports." 
+    ::= { ccvpLicensingInfo 3 }
+
+ccvpLicIntLastUpdate OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval last update object holds the date and time of
+        the last refresh of interval and aggregate statistic object
+        values.  Interval and aggregate statistics are reported at a
+        regular interval (the interval held by the interval period
+        object)." 
+    ::= { ccvpLicensingInfo 4 }
+
+ccvpLicIntPeriod OBJECT-TYPE
+    SYNTAX          Gauge32 (1..1440)
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval period object defines the number of minutes
+        of accumulated values for the 'interval' and 'aggregate'
+        statistic objects in this instrumentation group.  Once this
+        period elapses, each CVP service reports the next group of
+        accumulated interval and aggregate statistical values." 
+    ::= { ccvpLicensingInfo 5 }
+
+ccvpLicIntPortReqs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval port requests object is an interval metric
+        indicating the number of port license checkout requests made
+        in the current interval.  For each port license checkout
+        request, whether it checks out a new port license or not,
+        this object value is increased by one." 
+    ::= { ccvpLicensingInfo 6 }
+
+ccvpLicIntAvgPortReqs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval average port requests per minute object is an
+        interval metric indicating the average number of port
+        license checkout requests made per minute in the current
+        interval.  This metric is calculated by dividing the port
+        license requests metric by the number of minutes elapsed in
+        the current interval." 
+    ::= { ccvpLicensingInfo 7 }
+
+ccvpLicIntMaxPortsInUse OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval maximum ports in use object is an interval
+        metric indicating the peak number of simultaneous port
+        licenses used during this interval.  When a port checkout
+        occurs, this object value is set to the current port licenses
+        in use object value if that value is greater than this
+        object's current peak value." 
+    ::= { ccvpLicensingInfo 8 }
+
+ccvpLicIntPortReqsDenied OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval port requests denied object is an interval
+        metric indicating the number of port license checkout
+        requests that were denied during this interval.  The only
+        reason a port license checkout request would be denied is if
+        the number of port licenses checked out at the time of the
+        request is equal to the total number of port license
+        available.  When a port license checkout is denied, the
+        call does not receive regular treatment (caller may hear
+        a busy tone or an error message)." 
+    ::= { ccvpLicensingInfo 9 }
+
+ccvpLicAggPortReqs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate port requests object is an aggregate metric
+        indicating the number of port license checkout requests
+        made since the system was started.  For each port license
+        checkout request, whether it checks out new port license or
+        not, this object value is increased by one." 
+    ::= { ccvpLicensingInfo 10 }
+
+ccvpLicAggAvgPortReqs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate average port requests per minute object is an
+        aggregate metric indicating the average number of port
+        license checkout requests made per minute since the system
+        was started.  This object value is calculated by dividing the
+        aggregate port license requests metric by the number of
+        minutes elapsed since the system was started." 
+    ::= { ccvpLicensingInfo 11 }
+
+ccvpLicAggMaxPortsInUse OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "ports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate maximum ports in use object is an aggregate
+        metric indicating the peak number of simultaneous port
+        licenses used since the start of the system.  When a port
+        checkout occurs, this object value is set to the current port
+        licenses in use object value if that value is greater than
+        this object's current peak value." 
+    ::= { ccvpLicensingInfo 12 }
+
+ccvpLicAggPortReqsDenied OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate port requests denied object is an aggregate
+        metric indicating the number of port license checkout
+        requests that were denied since the start of the system.  The
+        only reason a port license checkout request would be denied
+        is if the number of port licenses checked out at the time of
+        the request is equal to the total number of port licenses
+        available.  When a port license checkout is denied, the call
+        does not receive regular treatment (the caller may hear a
+        busy tone or an error message)." 
+    ::= { ccvpLicensingInfo 13 }
+
+ccvpLicPortUsageWarning OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The port usage warning object reflects the threshold value of a
+        port usage state transition from 'safe' to 'warning'.  The
+        threshold is represented as a percentage of ports currently in
+        use.  When the percentage of ports used -- ports in use divided
+        by port available (the maximum permitted with this license) --
+        meets or exceeds this threshold value, there is concern that the
+        system may soon exhaust all available ports."
+    DEFVAL          { 94 } 
+    ::= { ccvpLicensingInfo 14 }
+
+ccvpLicPortUsageCritical OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The port usage critical object reflects the threshold value of
+        a port usage state transition from 'warning' to 'critical'.  The
+        threshold is represented as a percentage of ports currently in
+        use.  When the percentage of ports used -- ports in use divided
+        by port available (the maximum permitted with this license) --
+        meets or exceeds this threshold value, there is concern that the
+        system will soon exhaust all available ports."
+    DEFVAL          { 97 } 
+    ::= { ccvpLicensingInfo 15 }
+
+-- ******************************************************************
+-- Thread Pool Information Table
+-- ******************************************************************
+
+ccvpTPoolRtIdleThreads OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time idle threads object is a real-time snapshot
+        metric indicating the number of idle threads in the pool
+        waiting for work.  The thread pool is a cache of threads used
+        (by CVP components only) for the processing of relatively
+        short tasks.  Using a thread pool eliminates the waste of
+        resources encountered when rapidly creating and destroying
+        threads for these types of tasks." 
+    ::= { ccvpThreadPoolInfo 1 }
+
+ccvpTPoolRtRunningThreads OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time running threads object is a real-time snapshot
+        metric indicating the number of running threads in the pool
+        currently processing work.  The thread pool is a cache of
+        threads used (by CVP components only) for the processing of
+        relatively short tasks.  Using a thread pool eliminates the
+        waste of resources encountered when rapidly creating and
+        destroying threads for these types of tasks." 
+    ::= { ccvpThreadPoolInfo 2 }
+
+ccvpTPoolRtCoreThreads OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time core threads object is a real-time snapshot
+        metric indicating the number of threads in the pool that will
+        never be destroyed no matter how long they remain idle.  The
+        thread pool is a cache of threads used (by CVP components
+        only) for the processing of relatively short tasks.  Using a
+        thread pool eliminates the waste of resources encountered
+        when rapidly creating and destroying threads for these types
+        of tasks." 
+    ::= { ccvpThreadPoolInfo 3 }
+
+ccvpTPoolRtMaxThreadsAvail OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Thereal-time maximum threads available object is a real-time
+        snapshot metric indicating the maximum number of threads in
+        the pool that can exist simultaneously.  The thread pool is a
+        cache of threads used (by CVP components only) for the
+        processing of relatively short tasks.  Using a thread pool
+        eliminates the waste of resources encountered when rapidly
+        creating and destroying threads for these types of tasks." 
+    ::= { ccvpThreadPoolInfo 4 }
+
+ccvpTPoolRtMaxThreadsUsed OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time maximum threads used object is a real-time
+        snapshot metric indicating the peak number of threads in the
+        pool that are simultaneously tasked with work to process.
+        The thread pool is a cache of threads used (by CVP components
+        only) for the processing of relatively short tasks.  Using a
+        thread pool eliminates the waste of resources encountered
+        when rapidly creating and destroying threads for these types
+        of tasks." 
+    ::= { ccvpThreadPoolInfo 5 }
+
+-- ******************************************************************
+-- JVM Information Group
+-- ******************************************************************
+
+ccvpJvmRtMaxMemUsed OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time maximum memory used object is a real-time
+        snapshot metric indicating the peak memory usage by the Java
+        virtual machine since startup.  The object value is expressed
+        as a count of bytes and indicates the high water mark of
+        memory used simultaneously by this JVM." 
+    ::= { ccvpJvmInfo 1 }
+
+ccvpJvmRtCurrMemUsed OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time current memory used object is a real-time
+        snapshot metric indicating the current memory usage by the
+        Java virtual machine.  The object value is expressed as a
+        count of bytes and indicates the current amount of memory
+        used by this JVM." 
+    ::= { ccvpJvmInfo 2 }
+
+ccvpJvmRtMaxMemAvail OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time maximum memory available object is a real-time
+        snapshot metric indicating the amount of memory available to
+        the Java virtual machine.  The object value is expresses as a
+        count of bytes and indicates the amount of system memory
+        available for use by the JVM." 
+    ::= { ccvpJvmInfo 3 }
+
+ccvpJvmRtCurrMemAvail OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time current memory available object is a real-time
+        snapshot metric indicating the amount of avilable memory in
+        the Java virtual machine.  The object value is expressed as a
+        count of bytes and indicates the amount of current system
+        memory claimed by the JVM that is not currently being used." 
+    ::= { ccvpJvmInfo 4 }
+
+ccvpJvmRtCurrThreadsInUse OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time current threads in use object is a real-time
+        snapshot metric indicating a count of threads that are in use
+        in the Java virtual machine.  The number of threads in use by
+        the JVM include all of the CVP standalone and thread pool
+        threads as well as those threads created by the web
+        application server running within the same JVM." 
+    ::= { ccvpJvmInfo 5 }
+
+ccvpJvmRtMaxThreadsUsed OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time maximum threads used object is a real-time
+        snapshot metric indicating the peak amount of threads used
+        simultaneously in the Java virtual machine since startup.
+        The maximum number of threads used by the JVM includes all
+        Customer Voice Portal standalone and thread pool threads as
+        well as threads created by the web application server running
+        within the same JVM." 
+    ::= { ccvpJvmInfo 6 }
+
+ccvpJvmRtUpTime OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time up time object is a real-time snapshot metric
+        indicating how long the JVM has been running.  The object
+        value is expressed as a count of milliseconds that have
+        elapsed since the Java virual machine process began
+        executing." 
+    ::= { ccvpJvmInfo 7 }
+-- ******************************************************************
+-- Service Table
+-- ******************************************************************
+
+ccvpServiceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcvpServiceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The service table is a list of Customer Voice Portal (CVP)
+        functional services.  A CVP solution includes a collection
+        of interconnected functional services, each of which perform
+        a specific, necessary function of the CVP application.  This
+        table enumerates and lists all CVP functional services
+        installed and configured on this server.  A single server is
+        permitted to have multiple functional services of a different
+        type, but also multiple services of the same type (although
+        far less likely).
+
+        The service table is indexed by a unique numeric identifier
+        for each functional service.  This service index is
+        arbitrarily assigned by the SNMP agent.  These same index
+        values are used in the individual service information tables,
+        thus, the individual service information tables have a sparse
+        dependency relationship with this table.
+
+        The SNMP agent constructs the service table at startup based
+        upon static data saved in a properties file.  Since services
+        can only be configured while the CVP application is stopped,
+        service table entries cannot be added to or deleted from the
+        table at run time.  Object values can and will be modified by
+        the agent but not the management station.  All objects in
+        this table are read-only to the management station."
+    ::= { ccvpServices 1 }
+
+ccvpServiceEntry OBJECT-TYPE
+    SYNTAX          CcvpServiceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each service entry represents a Customer Voice Portal
+        functional service installed and configured on this server.
+        This table lists these functional services and provides
+        a map to the service information table entry via the index."
+    INDEX           { ccvpServiceIndex } 
+    ::= { ccvpServiceTable 1 }
+
+CcvpServiceEntry ::= SEQUENCE {
+        ccvpServiceIndex         CcvpIndex,
+        ccvpServiceType          CcvpServiceType,
+        ccvpServiceName          SnmpAdminString,
+        ccvpServiceStatus        CcvpServiceStatus,
+        ccvpServiceIntLastUpdate DateAndTime,
+        ccvpServiceIntPeriod     Gauge32
+}
+
+ccvpServiceIndex OBJECT-TYPE
+    SYNTAX          CcvpIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The service index is a value that uniquely identifies an
+        entry in the service table.  This value is arbitrarily
+        assigned by the SNMP agent." 
+    ::= { ccvpServiceEntry 1 }
+
+ccvpServiceType OBJECT-TYPE
+    SYNTAX          CcvpServiceType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The service type object identifies the type of Customer
+        Voice Portal application functional service." 
+    ::= { ccvpServiceEntry 2 }
+
+ccvpServiceName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The service name object is a user-intuitive textual name for
+        the Customer Voice Portal application service." 
+    ::= { ccvpServiceEntry 3 }
+
+ccvpServiceStatus OBJECT-TYPE
+    SYNTAX          CcvpServiceStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The service status object is the last known status of the
+        Customer Voice Portal application service." 
+    ::= { ccvpServiceEntry 4 }
+
+ccvpServiceIntLastUpdate OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The service interval last update object holds the date and
+        time of the last refresh of interval and aggregate
+        statistic object values for this CVP service.  Interval
+        and
+        aggregate statistics are reported at a regular interval
+        (the interval held by the interval period object)." 
+    ::= { ccvpServiceEntry 5 }
+
+ccvpServiceIntPeriod OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval period object defines the number of minutes
+        of accumulated values for the 'interval' and 'aggregate'
+        statistic objects in this instrumentation group.  Once
+        this period elapses, each CVP service reports the next
+        group of accumulated interval and aggregate statistical
+        values." 
+    ::= { ccvpServiceEntry 6 }
+ 
+
+-- ******************************************************************
+-- SIP Service Information Table
+-- ******************************************************************
+
+ccvpSipTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcvpSipEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The SIP service table lists each Customer Voice Portal SIP
+        service configured on this server.  The CVP SIP service is a
+        software module which always resides in the CVP Call Server.
+
+        The CVP SIP service is a SIP Back-to-Back User Agent (B2BUA).
+        On the front end, it supports two SIP call legs, one incoming
+        and one outgoing.  This service does not terminate RTP flows;
+        it only deals with SIP messages.  On the back end, the SIP
+        service implements the (GED-125) Service Control Interface
+        (SCI) to the Cisco Intelligent Contact Management (ICM)
+        application for call control functions only (no VRU scripts).
+
+        The purpose of a B2BUA is to act as an active intermediary
+        for a call, communicating with both the source and the
+        destination legs of the call, and providing 3rd party call
+        control capabilities on behalf of a routing engine (such as
+        the ICM contact router).  Because it must track the call
+        throughout its life, it becomes a key source of call-level
+        reporting data and a natural place for moderating call
+        switching resources.
+
+        Generally speaking, a SIP B2BUA is two User Agents (UAs).
+        The device receives incoming calls in one UA and immediately
+        creates an outgoing call via its other UA.  Thereafter, all
+        SIP messages from either one are forwarded to the other.
+        What makes it useful is the fact that it puts ICM in between
+        the two legs.  On incoming calls, it asks the ICM where the
+        outgoing call should be addressed.  Once the call has been
+        delivered, ICM has the opportunity to end the outgoing leg
+        and reconnect it to a subsequent destination.  In practice,
+        there will typically be a delivery to the subsequent agents
+        (call center agents - a human resources tasked with answering
+        inbound calls and providing specific services) or back to
+        the VRU leg.
+
+        The SIP service table has a sparse dependent relationship
+        with the (generic) ccvpService table.  The service index acts
+        as the primary index, relating the entry to the corresponding
+        entry in the ccvpService table.
+
+        The SNMP agent constructs this table at startup.  Since
+        services can only be added or deleted when the CVP
+        application is stopped, service information entries cannot be
+        added to or deleted from the table either by the agent or the
+        management station while the application is running.  The
+        agent will update service information table objects as their
+        values change when the application is running.  All objects
+        in this table are read-only to the management station."
+    ::= { ccvpServiceInfo 1 }
+
+ccvpSipEntry OBJECT-TYPE
+    SYNTAX          CcvpSipEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a Customer Voice Portal (CVP) SIP
+        service configured on the server.  The SIP service acts as an
+        active intermediary for a call, communicating with both the
+        source and destination legs of the call, and providing 3rd
+        party call control capabilities on behalf of a routing
+        engine."
+    INDEX           { ccvpServiceIndex } 
+    ::= { ccvpSipTable 1 }
+
+CcvpSipEntry ::= SEQUENCE {
+        ccvpSipRtActiveCalls         Gauge32,
+        ccvpSipRtTotalCallLegs       Gauge32,
+        ccvpSipIntNewCalls           Gauge32,
+        ccvpSipIntConnectsRcv        Gauge32,
+        ccvpSipIntAvgLatency1        Gauge32,
+        ccvpSipIntAvgLatency2        Gauge32,
+        ccvpSipIntFailedXferPre      Gauge32,
+        ccvpSipIntFailedXferPost     Gauge32,
+        ccvpSipAggNewCalls           Counter64,
+        ccvpSipAggConnectsRcv        Counter64,
+        ccvpSipAggAvgLatency1        Gauge32,
+        ccvpSipAggAvgLatency2        Gauge32,
+        ccvpSipAggFailedXferPre      Counter64,
+        ccvpSipAggFailedXferPost     Counter64,
+        ccvpSipRtBasicVideoOffered   Gauge32,
+        ccvpSipRtBasicVideoAnswered  Gauge32,
+        ccvpSipIntBasicVideoOffered  Gauge32,
+        ccvpSipIntBasicVideoAnswered Gauge32,
+        ccvpSipAggBasicVideoOffered  Counter64,
+        ccvpSipAggBasicVideoAnswered Counter64,
+        ccvpSipIntPostCallAnswered   Gauge32,
+        ccvpSipIntWhisperAnswered    Gauge32,
+        ccvpSipIntWhisperFailed      Gauge32,
+        ccvpSipIntGreetingAnswered   Gauge32,
+        ccvpSipIntGreetingFailed     Gauge32
+}
+
+ccvpSipRtActiveCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time active calls object is a real-time snapshot
+        metric indicating a count of active calls being handled by
+        the CVP SIP service.  It will not include H323 calls." 
+    ::= { ccvpSipEntry 1 }
+
+ccvpSipRtTotalCallLegs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "call legs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time total call legs object is a real-time snapshot
+        metric indicating a count of the number of SIP call legs
+        being handled by the SIP service.  A call leg is also known
+        as a SIP dialog.  The object value includes incoming,
+        outgoing and ringtone type call legs.  For each active call
+        in the SIP subsystem, there will be an incoming call leg and
+        an outgoing call leg to the destination of the transfer
+        label." 
+    ::= { ccvpSipEntry 2 }
+
+ccvpSipIntNewCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval new calls object is a metric indicating the
+        number of SIP INVITE messages received by CVP since system
+        start time.  The object value also includes failed calls as
+        well as calls rejected due to the SIP service being in an
+        'out of service' state." 
+    ::= { ccvpSipEntry 3 }
+
+ccvpSipIntConnectsRcv OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "connects"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval connects received object is a metric indicating
+        the number of CONNECT messages received by the SIP service in
+        order to perform a Customer Voice Portal transfer, since
+        system start.  The object value also includes the regular CVP
+        transfers as well as 'Refer' transfers.  Any label coming
+        from the ICM service is considered a CONNECT message, whether
+        it is a label to send to the VRU or a label to transfer to an
+        agent." 
+    ::= { ccvpSipEntry 4 }
+
+ccvpSipIntAvgLatency1 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval average latency first object is a metric
+        indicating the average period of time elapsed between the
+        arrival of a CONNECT message from ICM and when the call is
+        actually answered, on the first transfer request for the
+        calls.  The object value also includes the average latency
+        computation for all the calls that have been answered on the
+        first transfer since system start.  The first transfer in
+        comprehensive deployments is typically to the VXML gateway,
+        which will answer quickly.  In call director deployments, the
+        first transfer may be to an agent or to another SIP endpoint
+        in the network, such as an automatic call distributor (ACD).
+        This object value calculation does not include latency for
+        REFER transfers." 
+    ::= { ccvpSipEntry 5 }
+
+ccvpSipIntAvgLatency2 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval average latency second object is a metric
+        indicating the average period of time between the arrival of
+        a CONNECT message from ICM and when the call is actually
+        answered, on the second and subsequent transfer request for
+        the call.  The object value reflects the average latency
+        computation for all of the calls that have been answered on
+        the second and any subsequent transfers since system start.
+        The second transfer in comprehensive deployments is typically
+        to the agent on the Call Manager, and will indicate the
+        average time to answer for agents.  The computation for this
+        metric does not include intermediate calls to play ringback
+        for callers during subsequent Customer Voice Portal
+        transfers.  This object value calculation does not include
+        latency for REFER transfers." 
+    ::= { ccvpSipEntry 6 }
+
+ccvpSipIntFailedXferPre OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "transfers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval failed transfers pre-dialog object is a metric
+        indicating the total number of failed transfers on the first
+        Customer Voice Portal transfer since system start.  A SIP
+        dialog is established after the first CVP transfer is
+        completed.  The object value does not include rejections due
+        to the SIP service being in an 'out of service' state.  The
+        object value does include failed transfers that were
+        attempted after a label was returned from the ICM within the
+        CONNECT message body." 
+    ::= { ccvpSipEntry 7 }
+
+ccvpSipIntFailedXferPost OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "transfers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval failed transfers post-dialog object is a metric
+        indicating the total number of failed transfers on second
+        and subsequent Customer Voice Portal transfers since system
+        start.  After a SIP dialog is established, CVP performs SIP
+        transfers using re-INVITE messages.  The object value does
+        not include rejections of SIP REFER transfers.  The object
+        value does include failed transfers that were attempted after
+        a label was returned from the ICM within the CONNECT message
+        body." 
+    ::= { ccvpSipEntry 8 }
+
+ccvpSipAggNewCalls OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate new calls object is a metric indicating the
+        number of SIP INVITE messages received by the Customer Voice
+        Portal application since service start.  The object value
+        includes failed calls as well as calls rejected due to the
+        SIP service being in an 'out of service' state." 
+    ::= { ccvpSipEntry 9 }
+
+ccvpSipAggConnectsRcv OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "connects"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate connects received object is a metric
+        indicating the number of SIP CONNECT messages received by the
+        SIP service in order to perform a Customer Voice Portal
+        transfer, since service start.  This object value includes
+        regular CVP transfers as well as REFER transfers.  Any label
+        coming from the ICM service is considered to be a CONNECT
+        message, whether it is a label to send the call to the VRU or
+        a label to transfer the call to an agent." 
+    ::= { ccvpSipEntry 10 }
+
+ccvpSipAggAvgLatency1 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate average latency first (transfer) object is a
+        metric indicating the average period of time elapsed between
+        receipt of the CONNECT message from the ICM and the moment
+        when the call is actually answered, on the first transfer
+        request for the calls.  The object value is the computed
+        average latency, since service start, for all calls that have
+        been answered on the first transfer.  The first transfer in
+        comprehensive deployments is typically to the VXML gateway,
+        which will answer quickly.  In call director deployments, the
+        first transfer may be to an agent or another SIP endpoint in
+        the network, such as an automatic call distributor (ACD).
+        The object value computation does not include REFER
+        transfer latency." 
+    ::= { ccvpSipEntry 11 }
+
+ccvpSipAggAvgLatency2 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate average latency second (transfer) object is a
+        metric indicating the average period of time elapsed between
+        receipt of the CONNECT message from the ICM and the moment
+        when the call is actually answered, on the second and
+        subsequent transfer requests for the calls.  The object value
+        is the computed average latency, since service start, for all
+        calls that have been answered on the second or subsequent
+        transfers.  The second transfer in comprehensive deployments
+        is typically to the agent on the Call Manager, and will
+        indicate the average time to answer for agents.  The
+        computed object value does not include intermediate calls to
+        play ringback for callers during subsequent CVP transfers.
+        The object value computation does not include REFER
+        transfer latency." 
+    ::= { ccvpSipEntry 12 }
+
+ccvpSipAggFailedXferPre OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "transfers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate failed transfers pre-dialog object is a count
+        of failed transfers on the first Customer Voice Portal
+        transfer since service start.  A SIP dialog is established
+        after the first CVP transfer is completed.  The object value
+        does not include rejections due to the SIP service being in
+        an 'out of service' state.  The object value does include
+        failed transfers that were attempted after a label was
+        returned by the ICM within a CONNECT message body." 
+    ::= { ccvpSipEntry 13 }
+
+ccvpSipAggFailedXferPost OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "transfers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate failed transfers post-dialog object is a count
+        of failed transfers on second and subsequent Customer Voice
+        Portal transfers since service start.  After SIP dialog is
+        established, CVP performs SIP transfers using re-INVITE
+        messages.  The object value does not include rejections of
+        SIP REFER transfers.  The object value does include failed
+        transfers that were attempted after a label was returned by
+        the ICM within a CONNECT message body." 
+    ::= { ccvpSipEntry 14 }
+
+ccvpSipRtBasicVideoOffered OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time basic video calls object is a real-time snapshot
+        metric indicating a count of active calls being handled by 
+        the CVP SIP service that have had video capability offered 
+        by the caller.  Video capabilites are negotiated by caller and 
+        callee in order for two way video to occur on a call." 
+    ::= { ccvpSipEntry 15 }
+
+ccvpSipRtBasicVideoAnswered OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time basic video calls object is a real-time snapshot
+        metric indicating a count of active calls being handled by
+        the CVP SIP service that was answered by an IVR or Agent
+        capable of handling video services." 
+    ::= { ccvpSipEntry 16 }
+
+ccvpSipIntBasicVideoOffered OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval basic video calls object is an interval
+        metric indicating a count of active calls being handled by
+        the CVP SIP service that have had video capability offered 
+        by the caller.  Video capabilites are negotiated by caller and 
+        callee in order for two way video to occur on a call.  The
+        interval at which this object is updated is defined by
+        ccvpServiceIntPeriod." 
+    ::= { ccvpSipEntry 17 }
+
+ccvpSipIntBasicVideoAnswered OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval basic video calls object is an interval
+        metric indicating a count of active calls being handled by
+        the CVP SIP service that was handled by an IVR or Agent capable
+        of handling video services.  The interval at which this object
+        is updated is defined by ccvpServiceIntPeriod." 
+    ::= { ccvpSipEntry 18 }
+
+ccvpSipAggBasicVideoOffered OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate basic video calls object is a metric indicating
+        a count of active calls being handled by the CVP SIP service
+        that have had video capability offered by the callers since 
+        the start of the system.  Video capabilites are negotiated 
+        by caller and callee in order for two way video to occur 
+        on a call." 
+    ::= { ccvpSipEntry 19 }
+
+ccvpSipAggBasicVideoAnswered OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval basic video calls object is a metric indicating a
+        count of calls that have been handled by the CVP SIP service 
+        that have been handled by an IVR or Agent capable of handling 
+        video services since the start of the system." 
+    ::= { ccvpSipEntry 20 }
+
+ccvpSipIntPostCallAnswered OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval post call answered object is a metric indicating
+        Number of Post Call Survey calls which were answered since the
+        start of the system." 
+    ::= { ccvpSipEntry 21 }
+
+ccvpSipIntWhisperAnswered OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval whisper answered object is a metric indicating
+        Number of calls to the whisper service which were answered since
+        the start of the system." 
+    ::= { ccvpSipEntry 22 }
+
+ccvpSipIntWhisperFailed OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval whisper failed object is a metric indicating
+        Number of 
+        calls to the whisper service which failed since the start of the
+        system." 
+    ::= { ccvpSipEntry 23 }
+
+ccvpSipIntGreetingAnswered OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval greeting answered object is a metric indicating
+        Number of agent greeting playback calls which were answered
+        since the start of the system." 
+    ::= { ccvpSipEntry 24 }
+
+ccvpSipIntGreetingFailed OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval greeting failed object is a metric indicating
+        Number of agent greeting playback calls which failed since the
+        start of the system." 
+    ::= { ccvpSipEntry 25 }
+ 
+
+-- ******************************************************************
+-- H.323 Service Information Table
+-- ******************************************************************
+
+ccvpH323Table OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcvpH323Entry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The H.323 Service table lists each Customer Voice Portal
+        (CVP) H.323 service configured on this server.  This service
+        is a software component which always resides on the CVP Call
+        Server.  The CVP H.323 service interacts with the CVP IVR
+        service to relay call arrival, departure and transfer
+        instructions between it and other H.323 devices.
+
+        The CVP H.323 service is a legacy service used only in H.323-
+        based deployments.  Although this service started as a true,
+        albeit incomplete, voice browser, its strength was its
+        ability to effect complicated H.323 call control activities
+        with the Gateway and the Cisco Call Manager.  Over time, the
+        VXML Gateway's IOS voice browser supplanted it as a voice
+        interaction device and call control became its main focus.
+
+        SIP is still a young protocol compared to H.323 and there are
+        still certain capabilities which either the gateway, the Call
+        Manager or the protocol itself does not yet support.  Users
+        who require these capabilities, as well as those who wish to
+        upgrade without switching from H.323 to SIP will therefore
+        continue to use the CVP H.323 service in place of the CVP SIP
+        service.
+
+        This table has a sparse dependent relationship with the
+        Service table.  The service index acts as the primary
+        index, relating the entry to the corresponding entry in the
+        Service table.
+
+        The SNMP agent constructs this table at startup.  Since
+        services can only be added or deleted when the CVP
+        application is stopped, service information table entries
+        cannot be added to or deleted from the table either by the
+        agent or the management station while the application is
+        running.  The agent will update service information table
+        objects as their values change when the application is
+        running.  All objects in this table are read-only to the
+        management station."
+    ::= { ccvpServiceInfo 2 }
+
+ccvpH323Entry OBJECT-TYPE
+    SYNTAX          CcvpH323Entry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a Customer Voice Portal (CVP) H.323
+        service configured on the server.  The H.323 service
+        interacts with the CVP IVR service to relay call arrival,
+        departure and transfer instructions between it and other
+        H.323 devices in the network."
+    INDEX           { ccvpServiceIndex } 
+    ::= { ccvpH323Table 1 }
+
+CcvpH323Entry ::= SEQUENCE {
+        ccvpH323RtCallsInProgress    Gauge32,
+        ccvpH323RtMemoryInUse        Gauge32,
+        ccvpH323IntArrivalRate       Gauge32,
+        ccvpH323IntTransferRate      Gauge32,
+        ccvpH323IntMaxNewCallLatency Gauge32,
+        ccvpH323IntAvgNewCallLatency Gauge32,
+        ccvpH323IntMaxXferToAlert    Gauge32,
+        ccvpH323IntAvgXferToAlert    Gauge32,
+        ccvpH323IntMaxXferToAnswer   Gauge32,
+        ccvpH323IntAvgXferToAnswer   Gauge32,
+        ccvpH323IntNewCalls          Gauge32,
+        ccvpH323IntTransferred       Gauge32,
+        ccvpH323IntRedirected        Gauge32,
+        ccvpH323IntNotTransferred    Gauge32,
+        ccvpH323IntPromptsNotFound   Gauge32,
+        ccvpH323IntCriticalMedia     Gauge32,
+        ccvpH323IntCallsFinished     Gauge32,
+        ccvpH323IntMaxCpuUsage       Gauge32,
+        ccvpH323IntAvgCpuUsage       Gauge32
+}
+
+ccvpH323RtCallsInProgress OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time calls in progress object represents the total
+        number of internal call objects known to the Customer Voice
+        Portal H.323 service.  This object value should never exceed
+        the value of the ShowMaxTotalCalls command in VBAdmin.  A
+        value greater than ShowMaxTotalCalls indicates a resource
+        leak in the CVP H.323 service." 
+    ::= { ccvpH323Entry 1 }
+
+ccvpH323RtMemoryInUse OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time memory in use object represents the current
+        virtual memory in use on the server, expressed as a
+        percentage of total virtual memory.  A steadily increasing
+        value over time could indicate a memory leak in the CVP H.323
+        service." 
+    ::= { ccvpH323Entry 2 }
+
+ccvpH323IntArrivalRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls per minute"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval arrival rate object indicates the maximum
+        number of inbound calls arriving per minute to the Customer
+        Voice Portal H.323 service during this interval period.  This
+        value represents the peak value over the interval period and
+        is expressed as 'calls per minute'." 
+    ::= { ccvpH323Entry 3 }
+
+ccvpH323IntTransferRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls per minute"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval transfer rate object indicates the maximum
+        number of calls transferred per minute by the Customer Voice
+        Portal H.323 service during this interval period.  This value
+        represents the peak value over the interval period and is
+        expressed as 'calls transferred per minute'." 
+    ::= { ccvpH323Entry 4 }
+
+ccvpH323IntMaxNewCallLatency OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval maximum new call latency object represents the
+        maximum elapsed time in milliseconds from when the Customer
+        Voice Portal H.323 service sends a 'New Call' request to the
+        ICM until the time when the H.323 service receives a response
+        from the ICM.  This value is expressed in milliseconds and
+        indicates the high-water mark for the interval period." 
+    ::= { ccvpH323Entry 5 }
+
+ccvpH323IntAvgNewCallLatency OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval average new call latency object represents the
+        average elapsed time in milliseconds from when the Customer
+        Voice Portal H.323 service sends a 'New Call' request to the
+        ICM until the time when the H.323 service receives a response
+        from the ICM.  This value is expressed in milliseconds and is
+        averaged over the interval period." 
+    ::= { ccvpH323Entry 6 }
+
+ccvpH323IntMaxXferToAlert OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval maximum transfer to alerting object holds the
+        maximum amount of time elapsed for a transferred call to
+        enter the 'alerting' state once transferred.  This value is
+        expressed in milliseconds and indicates the high-water mark
+        for the interval period." 
+    ::= { ccvpH323Entry 7 }
+
+ccvpH323IntAvgXferToAlert OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval average transfer to alerting object holds the
+        average amount of time elapsed for a transferred call to
+        enter the 'alerting' state once transferred.  This value is
+        expressed in milliseconds and is averaged over the interval
+        period." 
+    ::= { ccvpH323Entry 8 }
+
+ccvpH323IntMaxXferToAnswer OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval maximum transfer to answer object holds the
+        maximum amount of time elapsed for a transferred call to be
+        answered at the destination once transferred.  This value is
+        expressed in milliseconds and indicates the high-water mark
+        for the interval period." 
+    ::= { ccvpH323Entry 9 }
+
+ccvpH323IntAvgXferToAnswer OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval average transfer to answer object holds the
+        average amount of time elapsed for a transferred call to be
+        answered at the destination once transferred.  This value is
+        expressed in milliseconds and indicates the average time for
+        the interval period." 
+    ::= { ccvpH323Entry 10 }
+
+ccvpH323IntNewCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval new calls object holds a count of new inbound
+        calls handled by the Customer Voice Portal H.323 service
+        during the interval period." 
+    ::= { ccvpH323Entry 11 }
+
+ccvpH323IntTransferred OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval transferred object holds a count of calls that
+        have been transferred by the Customer Voice Portal H.323
+        service during the interval period.  The CVP H.323 service
+        may do multiple transfers for a single call so the value may
+        not be equal to the new calls object." 
+    ::= { ccvpH323Entry 12 }
+
+ccvpH323IntRedirected OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval redirected object holds a count of calls that
+        have been redirected by the Customer Voice Portal H.323
+        service.  The H.323 service will only redirect calls when it
+        is in an 'out of service' state.  A redirected call means
+        that the H.323 service did not accept the call.  This allows
+        the originating gateway to redirect the call to an alternate
+        CVP H.323 server, if so configured in its dial-peers." 
+    ::= { ccvpH323Entry 13 }
+
+ccvpH323IntNotTransferred OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval not transferred object holds a count of calls
+        that could not be transferred by the Customer Voice Portal
+        H.323 service during this interval.  The CVP H.323 service
+        was unable to transfer the call to a particular destination
+        due to one of several factors:  ring-no-answer; busy;
+        incorrect configuration; call admission control (CAC)
+        denials.  It is a recoverable error if proper configuration
+        elements have been put in place, such as ICM router requery,
+        and/or gatekeeper alternate endpoints." 
+    ::= { ccvpH323Entry 14 }
+
+ccvpH323IntPromptsNotFound OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval prompts not found object holds a count of calls
+        to which prompts could not be played during this interval
+        period.  This is indicative of a failure within the solution
+        for each of these calls.  It could be caused by an ICM script
+        error, a missing prompt, or failure of the HTTP media
+        server." 
+    ::= { ccvpH323Entry 15 }
+
+ccvpH323IntCriticalMedia OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval critical media object holds a count of calls to
+        which critical media needed to be played during the interval
+        period.  This usually, but not always, indicates an abnormal
+        termination of the caller.  In some benign cases, it can be
+        caused by improper ICM script termination practices." 
+    ::= { ccvpH323Entry 16 }
+
+ccvpH323IntCallsFinished OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval calls finished object holds a count of calls to
+        which the Customer Voice Portal H.323 service has completed
+        servicing during the interval period.  These calls have ended
+        and are no longer being handled by the CVP H.323 service." 
+    ::= { ccvpH323Entry 17 }
+
+ccvpH323IntMaxCpuUsage OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval maximum CPU usage object holds the maximum
+        server central processing unit (CPU) usage for the Customer
+        Voice Portal H.323 service during this particular interval
+        period.  The CPU usage value is expressed as a percentage of
+        potential usage available is represents a high water mark of
+        CPU usage during this interval." 
+    ::= { ccvpH323Entry 18 }
+
+ccvpH323IntAvgCpuUsage OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval average CPU usage object holds the average
+        server central processing unit (CPU) usage for the Customer
+        Voice Portal H.323 service computed during this particular
+        interval period.  The CPU usage value is expressed as a
+        percentage of potential usage available." 
+    ::= { ccvpH323Entry 19 }
+ 
+
+-- ******************************************************************
+-- IVR Service Information Table
+-- ******************************************************************
+
+ccvpIvrTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcvpIvrEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The IVR Service table lists each Customer Voice Portal
+        Interactive Voice Response service configured on this server.
+        Each entry in the table defines a separate IVR service; a
+        single server is permitted to have multiple IVR services.
+        The CVP IVR service is a software module which always resides
+        int he CVP Call Server.
+
+        The CVP IVR service is responsible for creating the VXML
+        pages which implement the CVP Microapps based on 'Run Script'
+        instructions received from the ICM. (The 'Run Script'
+        instruction is part of the Service Control Interface offered
+        with the GED-125 messaging protocol.)
+
+        The service function as the VRU leg in ICM parlance and calls
+        must be transferred to it from the SIP service in order to
+        execute microapps.  The VXML pages created by this module are
+        sent to the VXML Gateway to be executed.
+
+        In legacy deployments only -- those which use H.323 instead
+        of SIP -- the CVP IVR service can act as the switch leg as
+        well.  The deployment includes a CVP H.3232 service which
+        interacts with the CVP IVR service for call control
+        activities.  Calls still need to be transferred to a VRU leg
+        before microapps can be executed, however, in legacy
+        deployments, that transferred leg may end up using the same
+        CVP IVR service as the switch leg.
+
+        The CVP IVR service plays a significant role in implementing
+        CVP's native failover mechanism -- those capabilities which
+        can be achieved without a Content Services Switch -- for
+        Media Servers, ASR/TTS Servers and CVP VoiceXML Servers.  Up
+        to two of each such server are supported and the CVP IVR
+        service orchestrates retries and failover between them.
+
+        This table has a sparse dependent relationship with the
+        Service table.  The service index acts as the primary
+        index, relating the entry to the corresponding entry in the
+        Service table.
+
+        The SNMP agent constructs this table at startup.  Since
+        services can only be added or deleted when the CVP
+        application is stopped, service information table entries
+        cannot be added to or deleted from the table either by the
+        agent or the management station while the application is
+        running.  The agent will update service information table
+        objects as their values change when the application is
+        running.  All objects in this table are read-only to the
+        management station."
+    ::= { ccvpServiceInfo 3 }
+
+ccvpIvrEntry OBJECT-TYPE
+    SYNTAX          CcvpIvrEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a Customer Voice Portal (CVP)
+        Interactive Voice Response (IVR) service configured on the
+        server.  The IVR service is responsible for creating the VXML
+        pages which implement the CVP microapps based on instructions
+        received from the ICM."
+    INDEX           { ccvpServiceIndex } 
+    ::= { ccvpIvrTable 1 }
+
+CcvpIvrEntry ::= SEQUENCE {
+        ccvpIvrRtActiveCalls                 Gauge32,
+        ccvpIvrRtActiveHttpReqs              Gauge32,
+        ccvpIvrIntNewCalls                   Gauge32,
+        ccvpIvrIntMaxActiveCalls             Gauge32,
+        ccvpIvrIntCallsFinished              Gauge32,
+        ccvpIvrIntAvgCallLatency             Gauge32,
+        ccvpIvrIntMaxCallLatency             Gauge32,
+        ccvpIvrIntMinCallLatency             Gauge32,
+        ccvpIvrIntHttpReqs                   Gauge32,
+        ccvpIvrIntMaxActiveHttpReqs          Gauge32,
+        ccvpIvrIntMaxHttpReqRate             Gauge32,
+        ccvpIvrIntAvgHttpReqRate             Gauge32,
+        ccvpIvrAggNewCalls                   Counter64,
+        ccvpIvrAggMaxActiveCalls             Counter32,
+        ccvpIvrAggHttpReqs                   Counter64,
+        ccvpIvrAggMaxHttpReqs                Counter32,
+        ccvpIvrRtFullVideoCalls              Gauge32,
+        ccvpIvrIntFullVideoCalls             Gauge32,
+        ccvpIvrAggFullVideoCalls             Gauge32,
+        ccvpIvrIntMaxFullVideoCalls          Gauge32,
+        ccvpIvrAggMaxFullVideoCalls          Counter64,
+        ccvpIvrAggAgentPushedVideo           Counter64,
+        ccvpIvrAggAgentInitiatedRecordings   Counter64,
+        ccvpIvrAggAgentVCRControlInvocations Counter64
+}
+
+ccvpIvrRtActiveCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time active calls object is a metric that indicates
+        the current number of simultaneous calls being processed by
+        the IVR service.  This object value represents the real-time
+        number of simultaneous calls being serviced by the IVR
+        service." 
+    ::= { ccvpIvrEntry 1 }
+
+ccvpIvrRtActiveHttpReqs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time active HTTP requests object is a metric that
+        indicates the current number of simultaneous HTTP requests
+        being processed by the IVR Service.  This object value
+        represents the real-time number of simultaneous HTTP requests
+        being serviced by the IVR service." 
+    ::= { ccvpIvrEntry 2 }
+
+ccvpIvrIntNewCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval new calls object is a metric that counts the
+        number of New Call requests received from the IOS Gateway or
+        the CVP H323 service.  A New Call includes the switch leg of
+        the call and the IVR leg of the call.  This object value
+        reflects a count of the total number of New Call requests
+        received by the IVR service during this interval." 
+    ::= { ccvpIvrEntry 3 }
+
+ccvpIvrIntMaxActiveCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval maximum active calls object is a metric that
+        indicates the maximum number of simulteneous calls being
+        processed by the IVR service during this interval." 
+    ::= { ccvpIvrEntry 4 }
+
+ccvpIvrIntCallsFinished OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A call is a metric that represents the switch leg of the CVP
+        call and the IVR leg of the CVP call.  When both legs of the
+        call are finished, this object value will be incremented by
+        one.  The interval calls finished object is a metric that
+        counts the number of CVP calls that have finished during this
+        interval." 
+    ::= { ccvpIvrEntry 5 }
+
+ccvpIvrIntAvgCallLatency OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval average call latency object is a metric that
+        represents the average amount of time, in milliseconds, that
+        elapsed for the IVR service to complete the processing of a
+        New Call or Call Result request during this interval." 
+    ::= { ccvpIvrEntry 6 }
+
+ccvpIvrIntMaxCallLatency OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval maximum call latency object is a metric that
+        represents the maximum amount of time, in milliseconds, that
+        elapsed for the IVR service to complete the processing of a
+        New Call Request or a Call Result.  Maximum call latency is
+        the highest call latency value reached during this interval." 
+    ::= { ccvpIvrEntry 7 }
+
+ccvpIvrIntMinCallLatency OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval minimum call latency object is a metric that
+        represents the least amount of time, in milliseconds, that
+        elapsed for the IVR service to complete the processing of a
+        New Call Request or a Call Result.  Minimum call latency is
+        the lowest call latency value seen during this interval." 
+    ::= { ccvpIvrEntry 8 }
+
+ccvpIvrIntHttpReqs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval HTTP requests object is a metric that
+        represents the total number of HTTP Requests received by the
+        IVR service during this interval." 
+    ::= { ccvpIvrEntry 9 }
+
+ccvpIvrIntMaxActiveHttpReqs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval maximum active HTTP requests object is a metric
+        that represents the maximum simultaneous HTTP requests being
+        processed by the IVR service during this interval." 
+    ::= { ccvpIvrEntry 10 }
+
+ccvpIvrIntMaxHttpReqRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval maximum HTTP request Rate is a metric that
+        represents the maximum number of HTTP requests the IVR
+        service received, per second, from a client.  This object
+        value is a high water mark." 
+    ::= { ccvpIvrEntry 11 }
+
+ccvpIvrIntAvgHttpReqRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval average HTTP request rate object is the average
+        number of HTTP requests the IVR service received per second
+        during this interval." 
+    ::= { ccvpIvrEntry 12 }
+
+ccvpIvrAggNewCalls OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate new calls object is a metric that indicates
+        the accumulated count of New Call requests received from the
+        IOS Gateway or the CVP H323 service since system startup.  A
+        New Call includes the switch leg of the call and the IVR leg
+        of the call." 
+    ::= { ccvpIvrEntry 13 }
+
+ccvpIvrAggMaxActiveCalls OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate maximum active calls object is the maximum
+        number of simultaneous calls processed by the IVR service
+        at any given time since system startup.  This object value
+        represents a high water mark." 
+    ::= { ccvpIvrEntry 14 }
+
+ccvpIvrAggHttpReqs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate HTTP requests object is a metric that
+        represents the total number of HTTP requests received from a
+        client.  This object value is the accumulated count of HTTP
+        requests received by the IVR service since system startup." 
+    ::= { ccvpIvrEntry 15 }
+
+ccvpIvrAggMaxHttpReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate maximum HTTP requests object represents the
+        maximum number of active HTTP requests received since system
+        startup.  This object value is a high water." 
+    ::= { ccvpIvrEntry 16 }
+
+ccvpIvrRtFullVideoCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time active full video calls object is a metric that
+        indicates the current number of simultaneous full video 
+        calls being processed by the IVR service." 
+    ::= { ccvpIvrEntry 17 }
+
+ccvpIvrIntFullVideoCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval new full video calls object is a metric that
+        counts the number of New Full Video Call requests received.  The
+        interval at which this object is updated is defined by
+        ccvpServiceIntPeriod." 
+    ::= { ccvpIvrEntry 18 }
+
+ccvpIvrAggFullVideoCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate maximum active full video calls object is a
+        metric that indicates the maximum number of simultaneous full 
+        video calls being processed by the IVR service during this 
+        interval." 
+    ::= { ccvpIvrEntry 19 }
+
+ccvpIvrIntMaxFullVideoCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval new full video calls object is a metric
+        that indicates the accumulated count of New Full Video 
+        Call requests received since system startup.  The interval at
+        which this object is updated is defined by
+        ccvpServiceIntPeriod." 
+    ::= { ccvpIvrEntry 20 }
+
+ccvpIvrAggMaxFullVideoCalls OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate maximum active full video calls object is the
+        maximum number of simultaneous full video calls processed by 
+        the IVR service at any given time since system startup.  
+        This object value represents a high water mark." 
+    ::= { ccvpIvrEntry 21 }
+
+ccvpIvrAggAgentPushedVideo OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate agent initiated video pushed object is a
+        metric that indicates the accumulated count of video 
+        push requests received since system startup from Call 
+        Center agents." 
+    ::= { ccvpIvrEntry 22 }
+
+ccvpIvrAggAgentInitiatedRecordings OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate agent initiated video recording object is a
+        metric that indicates the accumulated count of start 
+        video recording requests received since system startup from 
+        Call Center agents." 
+    ::= { ccvpIvrEntry 23 }
+
+ccvpIvrAggAgentVCRControlInvocations OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate agent initiated video VCR control object is a
+        metric that indicates the accumulated count of video VCR 
+        control requests received since system startup from Call 
+        Center agents." 
+    ::= { ccvpIvrEntry 24 }
+ 
+
+-- ******************************************************************
+-- ICM Service Information Table
+-- ******************************************************************
+
+ccvpIcmTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcvpIcmEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The ICM Service table lists each Customer Voice Portal
+        ICM service configured on this server.  Each entry in the
+        table defines a separate ICM service.  The CVP ICM service is
+        responsible for all communication between CVP components and
+        the Intelligent Contact Management (ICM) application.
+
+        The CVP ICM service implements the GED-125 Service Control
+        Interface (SCI) protocol, and sends and receives messages on
+        behalf of the CVP SIP service, the CVP IVR service, and the
+        CVP VoiceXML service.  Users do not explicitly install the
+        CVP ICM Subsystem; it is installed and activated
+        automatically in the CVP Call Server and the CVP VoiceXML
+        Server.  This service is visible at the CVP Operations
+        Server, however, since it does require a small amount of
+        configuration.
+
+        This table has a sparse dependent relationship with the
+        Service table.  The service index acts as the primary
+        index, relating the entry to the corresponding entry in the
+        Service table.
+
+        The SNMP agent constructs this table at startup.  Since
+        services can only be added or deleted when the CVP
+        application is stopped, service information table entries
+        cannot be added to or deleted from the table either by the
+        agent or the management station while the application is
+        running.  The agent will update service information table
+        objects as their values change when the application is
+        running.  All objects in this table are read-only to the
+        management station."
+    ::= { ccvpServiceInfo 4 }
+
+ccvpIcmEntry OBJECT-TYPE
+    SYNTAX          CcvpIcmEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a Customer Voice Portal (CVP) ICM
+        service configured on the server.  The ICM service is
+        responsible for all communication between CVP components
+        and ICM."
+    INDEX           { ccvpServiceIndex } 
+    ::= { ccvpIcmTable 1 }
+
+CcvpIcmEntry ::= SEQUENCE {
+        ccvpIcmRtActiveCalls              Gauge32,
+        ccvpIcmRtActiveSIPCallLegs        Gauge32,
+        ccvpIcmRtActiveH323CallLegs       Gauge32,
+        ccvpIcmRtActiveVRUCallLegs        Gauge32,
+        ccvpIcmRtActiveICMLookupReqs      Gauge32,
+        ccvpIcmIntNewCalls                Gauge32,
+        ccvpIcmIntSipCallLegs             Gauge32,
+        ccvpIcmIntH323CallLegs            Gauge32,
+        ccvpIcmIntVruCallLegs             Gauge32,
+        ccvpIcmIntIcmLookupReqs           Gauge32,
+        ccvpIcmAggCalls                   Counter64,
+        ccvpIcmAggSipCallLegs             Counter64,
+        ccvpIcmAggH323CallLegs            Counter64,
+        ccvpIcmAggVruCallLegs             Counter64,
+        ccvpIcmAggIcmLookupReqs           Counter64,
+        ccvpIcmRtFullVideoCalls           Gauge32,
+        ccvpIcmRtOfferedBasicVideoCalls   Gauge32,
+        ccvpIcmRtAcceptedBasicVideoCalls  Gauge32,
+        ccvpIcmIntFullVideoCalls          Gauge32,
+        ccvpIcmIntOfferedBasicVideoCalls  Gauge32,
+        ccvpIcmIntAcceptedBasicVideoCalls Gauge32,
+        ccvpIcmAggFullVideoCalls          Counter64,
+        ccvpIcmAggOfferedBasicVideoCalls  Counter64,
+        ccvpIcmAggAcceptedBasicVideoCalls Counter64
+}
+
+ccvpIcmRtActiveCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time active calls object is a real-time snapshot
+        metric indicating the current number of calls being processed
+        by the Intelligent Contact Management (ICM) application.
+        This object value represents a count of calls currently being
+        serviced by the ICM for follow-on routing to a contact center
+        agent." 
+    ::= { ccvpIcmEntry 1 }
+
+ccvpIcmRtActiveSIPCallLegs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "call legs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Intelligent Contact Management (ICM) application has the
+        ability to accept Voice over IP (VoIP) calls that originate
+        via the Session Initiation Protocol (SIP) or H.323 protocol.
+        The real-time active SIP call legs object is a real-time
+        snapshot metric indicating the current number of calls
+        received by the ICM application via SIP." 
+    ::= { ccvpIcmEntry 2 }
+
+ccvpIcmRtActiveH323CallLegs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "call legs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Intelligent Contact Management (ICM) application has the
+        ability to accept Voice over IP (VoIP)Calls that originate
+        via the Session Initiation Protocol (SIP) or H.323 protocol.
+        The real-time active H323 call legs object is a real-time
+        snapshot metric indicating the current number of calls
+        received by the Intelligent Contact Management (ICM)
+        application via the H.323 protocol." 
+    ::= { ccvpIcmEntry 3 }
+
+ccvpIcmRtActiveVRUCallLegs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "call legs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time active VRU call legs object is a real-time
+        snapshot metric indicating the current number of calls
+        receiving Voice Response Unit (VRU) treatment from the
+        Intelligent Contact Management (ICM) application.  The VRU
+        treatment includes playing pre-recorded messages, asking for
+        Caller Entered Digits (CED) or speech recognition techniques
+        to understand the caller's spoken request." 
+    ::= { ccvpIcmEntry 4 }
+
+ccvpIcmRtActiveICMLookupReqs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Calls orginating in an external VXML (Voice XML) server need
+        call routing instructions from the Intelligent Contact
+        Management (ICM) application.  The real-time active ICM
+        lookup requests object is a specific snapshot metric
+        indicating the current number of external VXML server call
+        routing requests sent to the ICM application." 
+    ::= { ccvpIcmEntry 5 }
+
+ccvpIcmIntNewCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval new calls object is an interval specific
+        snapshot metric indicating the number of new calls received
+        by the Intelligent Contact Management (ICM) application for
+        follow-on Voice Response Unit (VRU) treatment and routing to
+        a contact center agent." 
+    ::= { ccvpIcmEntry 6 }
+
+ccvpIcmIntSipCallLegs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "call legs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Intelligent Contact Management (ICM) application has the
+        ability to accept Voice over IP (VoIP) calls that originate
+        via the Session Initiation Protocol (SIP) or H.323 protocol.
+        The interval SIP call legs object is an interval specific
+        snapshot metric indicating the number of calls received by
+        the ICM application via SIP during this interval period." 
+    ::= { ccvpIcmEntry 7 }
+
+ccvpIcmIntH323CallLegs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "call legs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Intelligent Contact Management (ICM) application has the
+        ability to accept Voice over IP (VoIP) calls that originate
+        via the Session Initiation Protocol (SIP) or H.323 protocol.
+        The interval H323 call legs object is an interval specific
+        snapshot metric indicating the number of calls received by
+        the ICM application via the H.323 protocol during this
+        interval period." 
+    ::= { ccvpIcmEntry 8 }
+
+ccvpIcmIntVruCallLegs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "call legs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval VRU call legs object is an interval specific
+        snapshot metric indicating the number of calls receiving
+        Voice Response Unit (VRU) treatment from the Intelligent
+        Contact Management (ICM) application during this interval
+        period.  The VRU treatment includes playing pre-recorded
+        messages, asking for Caller Entered Digits (CED) or speech
+        recognition techniques to understand the caller's spoken
+        request." 
+    ::= { ccvpIcmEntry 9 }
+
+ccvpIcmIntIcmLookupReqs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Calls orginating in an external VXML (Voice XML) Server
+        need call routing instructions from the Intelligent
+        Contact Management (ICM) application.  The interval ICM
+        lookup requests object is an interval specific metric
+        indicating the number of external VXML Server call routing
+        requests sent to the ICM application during this interval
+        period." 
+    ::= { ccvpIcmEntry 10 }
+
+ccvpIcmAggCalls OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate calls object is a metric indicating the total
+        number of new calls received by the Intelligent Contact
+        Management (ICM) application for follow-on Voice Response
+        Unit (VRU) treatment and routing to a contact center agent
+        since system start time." 
+    ::= { ccvpIcmEntry 11 }
+
+ccvpIcmAggSipCallLegs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "call legs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Intelligent Contact Management (ICM) application has the
+        ability to accept Voice over IP (VoIP) calls that originate
+        via the Session Initiation Protocol (SIP) or H.323 protocol.
+        The aggregate SIP call legs object is a metric indicating the
+        total number of calls received by the ICM application via SIP
+        since system start time." 
+    ::= { ccvpIcmEntry 12 }
+
+ccvpIcmAggH323CallLegs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "call legs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Intelligent Contact Management (ICM) application has the
+        ability to accept Voice over IP (VoIP) calls that originate
+        via the Session Initiation Protocol (SIP) or H.323 protocol.
+        The aggregate H323 call legs object is a metric indicating
+        the total number of calls received by the ICM application via
+        the H.323 protocol since system start time." 
+    ::= { ccvpIcmEntry 13 }
+
+ccvpIcmAggVruCallLegs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "call legs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate VRU call legs object is a metric indicating
+        the total number of calls that have received Voice Response
+        Unit (VRU) treatment from the Intelligent Contact Management
+        (ICM) application since system start time.  The VRU treatment
+        includes playing pre-recorded messages, asking for Caller
+        Entered Digits (CED) or speech recognition techniques to
+        understand the caller's spoken request." 
+    ::= { ccvpIcmEntry 14 }
+
+ccvpIcmAggIcmLookupReqs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Calls orginating in an external VXML (Voice XML) Server need
+        call routing instructions from the Intelligent Contact
+        Management (ICM) application.  The aggregate ICM lookup
+        requests object is a metric indicating the total number of
+        external VXML server call routing requests sent to the ICM
+        application since system start time." 
+    ::= { ccvpIcmEntry 15 }
+
+ccvpIcmRtFullVideoCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time full video calls object is a real-time snapshot
+        metric indicating the current number of calls being processed by
+        the Intelligent Contact Management (ICM) application that offer
+        full video capabilities.  Full video capabilities include video
+        calls to IVR and Agents." 
+    ::= { ccvpIcmEntry 16 }
+
+ccvpIcmRtOfferedBasicVideoCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time offered basic video calls object is a real-time
+        snapshot metric indicating the current number of calls being
+        processed by the Intelligent Contact Management (ICM)
+        application that offer basic video capabilities.  Basic video
+        capabilities include video calls to Agents, but not to IVR." 
+    ::= { ccvpIcmEntry 17 }
+
+ccvpIcmRtAcceptedBasicVideoCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time accepted basic video calls object is a real-time
+        snapshot metric indicating the current number of calls being 
+        processed by the Intelligent Contact Management (ICM) 
+        application that have been accepted for using basic video 
+        capabilities.  Basic video capabilities include video calls 
+        to Agents, but not to IVR." 
+    ::= { ccvpIcmEntry 18 }
+
+ccvpIcmIntFullVideoCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval full video calls object is an interval snapshot
+        metric indicating the number of calls being processed
+        by the Intelligent Contact Management (ICM) application that 
+        offer full video capabilities.  Full video capabilities 
+        include video calls  to IVR and Agents.  The interval at which
+        this object is updated is defined by ccvpServiceIntPeriod." 
+    ::= { ccvpIcmEntry 19 }
+
+ccvpIcmIntOfferedBasicVideoCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval offered basic video calls object is an interval
+        snapshot metric indicating the number of calls being processed 
+        by the Intelligent Contact Management (ICM) application that 
+        offer basic video capabilities.  Basic video capabilities 
+        include video calls to Agents, but not to IVR.  The interval at
+        which this object is updated is defined by
+        ccvpServiceIntPeriod." 
+    ::= { ccvpIcmEntry 20 }
+
+ccvpIcmIntAcceptedBasicVideoCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval accepted basic video calls object is an interval
+        snapshot metric indicating the number of calls being processed
+        by the Intelligent Contact Management (ICM) application that 
+        have been accepted for using basic video capabilities.  
+        Basic video capabilities include video calls to Agents, but 
+        not to IVR.  The interval at which this object is updated is
+        defined by ccvpServiceIntPeriod." 
+    ::= { ccvpIcmEntry 21 }
+
+ccvpIcmAggFullVideoCalls OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate full video calls object is a metric indicating
+        the number of calls being processed by the Intelligent 
+        Contact Management (ICM) application that offer full video
+        capabilities since the start of the system.  Full video
+        capabilities include video calls to IVR and Agents." 
+    ::= { ccvpIcmEntry 22 }
+
+ccvpIcmAggOfferedBasicVideoCalls OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate offered basic video calls object is a metric
+        indicating the number of calls being processed by the
+        Intelligent Contact Management (ICM) application that 
+        offer basic video capabilities since the start of the system.  
+        Basic video capabilities include video calls to Agents, but 
+        not to IVR." 
+    ::= { ccvpIcmEntry 23 }
+
+ccvpIcmAggAcceptedBasicVideoCalls OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval accepted basic video calls object is a metric
+        indicating the number of calls being processed by the 
+        Intelligent Contact Management (ICM) application that have 
+        been accepted for using basic video capabilities since the 
+        start of the system.  Basic video capabilities include video
+        calls to Agents, but not to IVR." 
+    ::= { ccvpIcmEntry 24 }
+ 
+
+-- ******************************************************************
+-- Reporting Service Information Table
+-- ******************************************************************
+
+ccvpReptTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcvpReptEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Reporting service table lists each Customer Voice Portal
+        reporting service configured on this server.  The CVP
+        Reporting Server houses the CVP Reporting service as well as
+        a database management system to persist data.
+
+        The CVP reporting service receives reporting events from the
+        CVP IVR service, the CVP SIP service, and the CVP VoiceXML
+        service.  The service is deployed together with a database
+        management system and it transforms and writes this reporting
+        data into that database.  The database schema is prescribed
+        by the CVP product, but it is an open schema in that
+        customers may develop custom reports based on it.
+
+        There can only be one CVP Reporting Server in a deployment.
+        This does not represent a single point of failure however,
+        because data safety and security are provided by the database
+        management system, and temporary outages are tolerated due to
+        persistent buffering of information on the source components.
+
+        This table has a sparse dependent relationship with the
+        Service table.  The service index acts as the primary index,
+        relating the entry to the corresponding entry in the Service
+        table.
+
+        The SNMP agent constructs this table at startup.  Since
+        services can only be added or deleted when the CVP
+        application is stopped, service information table entries
+        cannot be added to or deleted from the table either by the
+        agent or the management station while the application is
+        running.  The agent will update service information table
+        objects as their values change when the application is
+        running.  All objects in this table are read-only to the
+        management station."
+    ::= { ccvpServiceInfo 5 }
+
+ccvpReptEntry OBJECT-TYPE
+    SYNTAX          CcvpReptEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a Customer Voice Portal Reporting
+        service configured on the server.  The Reporting service
+        receives reporting events from the CVP IVR service, the CVP
+        SIP service, and the CVP VoiceXML service."
+    INDEX           { ccvpServiceIndex } 
+    ::= { ccvpReptTable 1 }
+
+CcvpReptEntry ::= SEQUENCE {
+        ccvpReptIntVxmlEvents     Gauge32,
+        ccvpReptIntSipEvents      Gauge32,
+        ccvpReptIntIvrEvents      Gauge32,
+        ccvpReptIntDatabaseWrites Gauge32,
+        ccvpReptAggVxmlEvents     Counter64,
+        ccvpReptAggSipEvents      Counter64,
+        ccvpReptAggIvrEvents      Counter64,
+        ccvpReptAggDatabaseWrites Counter64
+}
+
+ccvpReptIntVxmlEvents OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval VXML events object is an interval metric
+        indicating the total number of reporting events received from
+        the VXML service during the interval.  For each reporting
+        event received from the VXML service, this object value will
+        be increased by one." 
+    ::= { ccvpReptEntry 1 }
+
+ccvpReptIntSipEvents OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval SIP events object is an interval metric
+        indicating the total number of reporting events received from
+        the SIP service during the interval.  For each reporting
+        event received from the SIP service, this metric will be
+        increased by one." 
+    ::= { ccvpReptEntry 2 }
+
+ccvpReptIntIvrEvents OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval IVR events object is an interval metric
+        indicating the total number of reporting events received from
+        the IVR service during the interval.  For each reporting
+        event received from the IVR service, this object value will
+        be increased by one." 
+    ::= { ccvpReptEntry 3 }
+
+ccvpReptIntDatabaseWrites OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "writes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval database writes object is an interval metric
+        indicating the total number of writes to the database made by
+        the reporting service during the interval.  For each write to
+        the database by the reporting service, this object value will
+        be increased by one." 
+    ::= { ccvpReptEntry 4 }
+
+ccvpReptAggVxmlEvents OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate VXML events object is a metric indicating the
+        total number of reporting events received from the VXML
+        service since startup.  For each reporting event received
+        from the VXML service, this object value will be increased
+        by one." 
+    ::= { ccvpReptEntry 5 }
+
+ccvpReptAggSipEvents OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate SIP events object is a metric indicating the
+        total number of reporting events received from the SIP
+        service since startup.  For each reporting event received
+        from the SIP service, this object value will be increased
+        by one." 
+    ::= { ccvpReptEntry 6 }
+
+ccvpReptAggIvrEvents OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate IVR events object is a metric indicating the
+        total number of reporting events received from the IVR
+        service since startup.  For each reporting event received
+        from the IVR service, this object value will be increased
+        by one." 
+    ::= { ccvpReptEntry 7 }
+
+ccvpReptAggDatabaseWrites OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "writes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate database writes object is a metric indicating
+        the total number of writes to the database made by the
+        reporting service since startup.  For each write to the
+        database by the reporting service, this object value will be
+        increased by one." 
+    ::= { ccvpReptEntry 8 }
+ 
+
+-- ******************************************************************
+-- Voice XML Service Information Table
+-- ******************************************************************
+
+ccvpVxmlTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcvpVxmlEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Voice XML Service table lists each Customer Voice Portal
+        Voice XML service installed and configured on this server.
+
+        The CVP VXML server includes both the CVP VXML service and
+        the VXML server software that executes complex IVR
+        applications by exchanging VoiceXML pages with the VXML
+        Gateway?s built-in voice browser.  Like almost all other CVP
+        product components, it runs within a J2EE application server
+        environment such as Tomcat, and many customers add their own
+        custom-built or off-the-shelf J2EE components to interact
+        with back-end hosts and services.  CVP VoiceXML Server
+        applications are written using the CVP VoiceXML Studio, and
+        deployed to the Server for execution.  They are invoked on an
+        as-needed basis by a special microapp which must be executed
+        from within the ICM routing script.
+
+        The VXML Server may also be deployed in a standalone
+        configuration ?- one which includes no ICM components.  In
+        this model, applications are invoked as a direct result of
+        calls arriving in the VXML Gateway, and a single
+        post-application transfer is allowed.  Users may add the CVP
+        VXML service software.  This affords standalone applications
+        the additional ability to forward reporting events to a CVP
+        Reporting Server, and to make ancillary routing requests and
+        exchange call context information with an ICM if one is
+        present.  However, the integration with ICM is nominal.
+
+        This table has a sparse dependent relationship with the
+        Service table.  The service index acts as the primary
+        index, relating the entry to the corresponding entry in the
+        Service table.
+
+        The SNMP agent constructs this table at startup.  Since
+        services can only be added or deleted when the CVP
+        application is stopped, service information table entries
+        cannot be added to or deleted from the table either by the
+        agent or the management station while the application is
+        running.  The agent will update service information table
+        objects as their values change when the application is
+        running.  All objects in this table are read-only to the
+        management station."
+    ::= { ccvpServiceInfo 6 }
+
+ccvpVxmlEntry OBJECT-TYPE
+    SYNTAX          CcvpVxmlEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a Customer Voice Portal (CVP) Voice
+        XML service configured on the server.  The Voice XML service
+        affords standalone applications the additional ability to
+        forward reporting events to a CVP reporting server, and to
+        make ancillary routing requests and exchange call context
+        information with an ICM if one is present."
+    INDEX           { ccvpServiceIndex } 
+    ::= { ccvpVxmlTable 1 }
+
+CcvpVxmlEntry ::= SEQUENCE {
+        ccvpVxmlRtActiveSessions    Gauge32,
+        ccvpVxmlRtActiveIcmLookups  Gauge32,
+        ccvpVxmlIntSessions         Gauge32,
+        ccvpVxmlIntReptEvents       Gauge32,
+        ccvpVxmlIntIcmLookupReqs    Gauge32,
+        ccvpVxmlIntIcmLookupResp    Gauge32,
+        ccvpVxmlIntIcmLookupSuccess Gauge32,
+        ccvpVxmlIntIcmLookupFails   Gauge32,
+        ccvpVxmlAggSessions         Counter64,
+        ccvpVxmlAggReptEvents       Counter64,
+        ccvpVxmlAggIcmLookupReqs    Counter64,
+        ccvpVxmlAggIcmLookupResp    Counter64,
+        ccvpVxmlAggIcmLookupSuccess Counter64,
+        ccvpVxmlAggIcmLookupFails   Counter64
+}
+
+ccvpVxmlRtActiveSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time active sessions object is a real time snapshot
+        metric indicating a count of the number of current sessions
+        being handled by the CVP VXML service." 
+    ::= { ccvpVxmlEntry 1 }
+
+ccvpVxmlRtActiveIcmLookups OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time active ICM lookups object is a real time
+        snapshot metric indicating the number of current ICM lookup
+        requests being handled by the CVP VXML service." 
+    ::= { ccvpVxmlEntry 2 }
+
+ccvpVxmlIntSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval sessions object is an interval metric
+        indicating the total number of sessions being handled by the
+        CVP VXML service during this interval.  For each session
+        handled by the VXML service, this object value will be
+        increased by one." 
+    ::= { ccvpVxmlEntry 3 }
+
+ccvpVxmlIntReptEvents OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval reporting events object is an interval metric
+        indicating the number of events sent to the CVP reporting
+        service from the VXML service during this interval.  For each
+        reporting event sent to the reporting service, this object
+        value will be increased by one." 
+    ::= { ccvpVxmlEntry 4 }
+
+ccvpVxmlIntIcmLookupReqs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval ICM lookup requests object is an interval
+        metric indicating the number of requests sent from the VXML
+        service to the ICM during this interval.  For each ICM lookup
+        request, whether the request succeeded or failed, this object
+        value will be increased by one." 
+    ::= { ccvpVxmlEntry 5 }
+
+ccvpVxmlIntIcmLookupResp OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval ICM lookup responses object is an interval
+        metric indicating the number of responses the ICM service
+        has sent to the VXML service during this interval.  For
+        each ICM lookup response, whether the response is a result of
+        a successful or a failed request, this object value will be
+        increased by one.  In the case that multiple response
+        messages are sent back to the VXML service to a single
+        request, this object value will increment once per response
+        message from the ICM service." 
+    ::= { ccvpVxmlEntry 6 }
+
+ccvpVxmlIntIcmLookupSuccess OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval ICM lookup success object is an interval metric
+        indicating the number of requests from the VXML service to
+        the ICM during this interval that were successful.  For each
+        ICM lookup request that succeeded, this object value will be
+        increased by one." 
+    ::= { ccvpVxmlEntry 7 }
+
+ccvpVxmlIntIcmLookupFails OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The interval ICM lookup fails object is an interval metric
+        indicating the number of requests from the VXML service to
+        the ICM that failed during this interval.  For each ICM
+        lookup request that failed, this object value will be
+        increased by one.  This object value will be incremented in
+        the case where an ICM failed message was received or in the
+        case where the VXML service generated the failed message." 
+    ::= { ccvpVxmlEntry 8 }
+
+ccvpVxmlAggSessions OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate sessions object is a metric indicating the
+        total number of sessions handled by the CVP VXML service
+        since startup.  For each session handled by the VXML service,
+        this object value will be increased by one." 
+    ::= { ccvpVxmlEntry 9 }
+
+ccvpVxmlAggReptEvents OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate reporting events object is a metric indicating
+        the total reporting events sent from the VXML service since
+        startup.  For each reporting event sent to the reporting
+        service, this object value will be increased by one." 
+    ::= { ccvpVxmlEntry 10 }
+
+ccvpVxmlAggIcmLookupReqs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate ICM lookup requests object is a metric
+        indicating the total number of requests from the VXML
+        service to the ICM since startup.  For each ICM lookup
+        request, whether the request succeeded or failed, this
+        object value will be increased by one." 
+    ::= { ccvpVxmlEntry 11 }
+
+ccvpVxmlAggIcmLookupResp OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate ICM lookup responses object is a metric
+        indicating the total number of responses the ICM service
+        has sent to the VXML service since startup.  For each ICM
+        lookup response, whether the response is to a successful or
+        failed request, this metric will be increased by one.  In the
+        case where multiple response messages are sent back to the
+        VXML service for a single request, this object value will
+        increment once per response message from the ICM service." 
+    ::= { ccvpVxmlEntry 12 }
+
+ccvpVxmlAggIcmLookupSuccess OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate ICM lookup success object is a metric
+        indicating the total number of requests from the VXML service
+        to the ICM since startup.  For each ICM lookup request that
+        succeeded, this object value will be increased by one." 
+    ::= { ccvpVxmlEntry 13 }
+
+ccvpVxmlAggIcmLookupFails OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The aggregate ICM lookup failures object is a metric
+        indicating the total number of failed requests from the VXML
+        service to the ICM since startup.  For each ICM lookup
+        request that failed, this object value will be increased by
+        one.  This object value will be incremented in the case where
+        an ICM failed message was received or in the case where VXML
+        service generates a failed message." 
+    ::= { ccvpVxmlEntry 14 }
+ 
+
+
+-- ******************************************************************
+-- ccvpNotificationInfo group
+-- ******************************************************************
+
+ccvpEventMessageId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event message ID is the unique notification message
+        identifier (value) that was assigned by the Customer Voice
+        Portal (CVP) application.  This identifier is unique for each
+        different notification but consistent for each instance of
+        the same notification." 
+    ::= { ccvpNotificationInfo 1 }
+
+ccvpEventHostName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event host name object specifies the host name or the
+        fully qualified domain name of the Customer Voice Portal
+        server from which this event originated." 
+    ::= { ccvpNotificationInfo 2 }
+
+ccvpEventAppName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event application name object specifies the service-
+        specific name of the Customer Voice Portal functional service
+        that generated this notification.  This name will vary, both
+        in content and in format, based on the service that generated
+        the notification.  For example, the name for a SIP service
+        may be 'CVP_SIP_SS' while the voice XML service name map be
+        'CVP_VXML_SS'.  By convention, the CVP application version
+        number shall appear in the application name as well, thus the
+        SIP service application name for CVP version 4.0 will be
+        'CVP_4_0_SIP'." 
+    ::= { ccvpNotificationInfo 3 }
+
+ccvpEventMessageName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event message name object specifies the service-
+        specific name of the Customer Voice Portal (CVP) service
+        notification message.  This name will vary, both in content
+        and in format, based on the event itself.  The object value
+        is used to group and correlate similar notifications." 
+    ::= { ccvpNotificationInfo 4 }
+
+ccvpEventState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        raise(1),
+                        clear(2)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event state object identifies the state (not to be
+        confused with severity) of the notification and potentially
+        the current state of the functional component that generated
+        the notification.  The possible states are:
+
+        'raise':    A raise state identifies a notification received
+                    as a result of a health-impacting condition, such
+                    as a process failure.  A subsequent clear state
+                    notification will follow when the error condition
+                    is resolved.
+
+        'clear':    The clear state indicates that the condition
+                    which generated a previous raise notification has
+                    been resolved." 
+    ::= { ccvpNotificationInfo 5 }
+
+ccvpEventSeverity OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        emergency(0),
+                        alert(1),
+                        critical(2),
+                        error(3),
+                        warning(4),
+                        notice(5),
+                        informational(6),
+                        debug(7)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event severity object indicates the severity level of
+        this notification.  The severity levels are:
+
+        'emergency':        The notification indicates that a
+                            devastating failure has occurred; the
+                            system or service is unusable.  Immediate
+                            operator intervention is required.  
+
+        'alert':            The notification indicates that a
+                            devastating failure is imminent that will
+                            render the system unusable.  Immediate
+                            operator attention is necessary.
+
+        'critical':         The notification indicates that a
+                            service impacting failure is likely to
+                            occur soon; an error has occurred that
+                            was not appropriately handled by the
+                            system.  Operator attention is needed as
+                            soon as possible.
+
+        'error':            The notification contains important
+                            operational state information and may
+                            indicate that the system has experienced
+                            a temporary impairment or an error that
+                            was appropriately handled by the system.
+                            An operator should review the notification
+                            soon to determine if action is needed.
+
+        'warning':          The notification contains important
+                            operational state information that may be
+                            a precursor to an error occurrence.  An
+                            operator should review the notification
+                            soon to determine if action is needed.
+
+        'notice':           The notification contains health or
+                            operational state information that may be
+                            pertinent to the health of the system but
+                            does not require the attention of the
+                            administrator at this time.
+
+        'informational':    The notification contains interesting
+                            system-level information that is valuable
+                            to an administrator, however, the event
+                            itself does not indicate a failure or
+                            impairment condition.
+
+        'debug':            The notification provides supplemental
+                            information that may be beneficial toward
+                            diagnosing or resolving a problem but does
+                            not in itself provide operational health
+                            status." 
+    ::= { ccvpNotificationInfo 6 }
+
+ccvpEventTimestamp OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event time stamp object specifies the date and time that
+        the notification was generated on the originating device." 
+    ::= { ccvpNotificationInfo 7 }
+
+ccvpEventText OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event text is the full text of the notification.  This
+        text includes a description of the event that was generated,
+        component state information and potentially a brief
+        description of administrative action that may be necessary
+        to correct the condition that caused the event to occur." 
+    ::= { ccvpNotificationInfo 8 }
+
+-- ******************************************************************
+-- Notification Type(s)
+-- ******************************************************************
+
+ccvpCvpEvent NOTIFICATION-TYPE
+    OBJECTS         {
+                        ccvpEventMessageId,
+                        ccvpEventHostName,
+                        ccvpEventAppName,
+                        ccvpEventMessageName,
+                        ccvpEventState,
+                        ccvpEventSeverity,
+                        ccvpEventTimestamp,
+                        ccvpEventText
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A CVP event is a notification that is sent by a functional
+        service of the Cisco Customer Voice Portal (CVP) self service
+        interactive voice response application."
+   ::= { ciscoCvpMIBNotifs 1 }
+
+-- ******************************************************************
+-- Compliance
+-- ******************************************************************
+
+ciscoCcvpMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "This object is the compliance statement for entities which
+        implement the Cisco Customer Voice Portal MIB."
+    MODULE          CISCO-CVP-MIB
+    MANDATORY-GROUPS {
+                        ccvpGeneralInfoGroup,
+                        ccvpLicensingInfoGroup,
+                        ccvpThreadPoolInfoGroup,
+                        ccvpJvmInfoGroup,
+                        ccvpServiceTableGroup,
+                        ccvpSipTableGroup,
+                        ccvpH323TableGroup,
+                        ccvpIvrTableGroup,
+                        ccvpIcmTableGroup,
+                        ccvpReptTableGroup,
+                        ccvpVxmlTableGroup,
+                        ccvpCvpNotificationInfoGroup,
+                        ccvpCvpEventsGroup
+                    }
+    ::= { ciscoCvpMIBCompliances 1 }
+
+ciscoCcvpMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This object is the compliance statement for entities which
+        implement the Cisco Customer Voice Portal MIB."
+    MODULE          CISCO-CVP-MIB
+    MANDATORY-GROUPS {
+                        ccvpGeneralInfoGroup,
+                        ccvpLicensingInfoGroup,
+                        ccvpThreadPoolInfoGroup,
+                        ccvpJvmInfoGroup,
+                        ccvpServiceTableGroup,
+                        ccvpSipTableGroup,
+                        ccvpSipVideoTableGroup,
+                        ccvpH323TableGroup,
+                        ccvpIvrTableGroup,
+                        ccvpIvrVideoTableGroup,
+                        ccvpIcmTableGroup,
+                        ccvpIcmVideoTableGroup,
+                        ccvpReptTableGroup,
+                        ccvpVxmlTableGroup,
+                        ccvpCvpNotificationInfoGroup,
+                        ccvpCvpEventsGroup
+                    }
+    ::= { ciscoCvpMIBCompliances 2 }
+
+ccvpGeneralInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpServerName,
+                        ccvpDescription,
+                        ccvpVersion,
+                        ccvpStartTime,
+                        ccvpTimeZoneName,
+                        ccvpTimeZoneOffsetHours,
+                        ccvpTimeZoneOffsetMinutes,
+                        ccvpOpsConsoleURL,
+                        ccvpSupportToolsURL,
+                        ccvpEnableNotifications
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The general info group defines the general Customer Voice
+        Portal information objects.  All application servers will
+        populate these objects."
+    ::= { ciscoCvpMIBGroups 1 }
+
+ccvpLicensingInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpLicRtPortsAvail,
+                        ccvpLicRtPortsInUse,
+                        ccvpLicRtPortState,
+                        ccvpLicIntLastUpdate,
+                        ccvpLicIntPeriod,
+                        ccvpLicIntPortReqs,
+                        ccvpLicIntAvgPortReqs,
+                        ccvpLicIntMaxPortsInUse,
+                        ccvpLicIntPortReqsDenied,
+                        ccvpLicAggPortReqs,
+                        ccvpLicAggAvgPortReqs,
+                        ccvpLicAggMaxPortsInUse,
+                        ccvpLicAggPortReqsDenied,
+                        ccvpLicPortUsageWarning,
+                        ccvpLicPortUsageCritical
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The licensing information group defines the set of statistic
+        objects for the Customer Voice Portal port licensing system.
+        All application servers will populate these objects."
+    ::= { ciscoCvpMIBGroups 2 }
+
+ccvpThreadPoolInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpTPoolRtIdleThreads,
+                        ccvpTPoolRtRunningThreads,
+                        ccvpTPoolRtCoreThreads,
+                        ccvpTPoolRtMaxThreadsAvail,
+                        ccvpTPoolRtMaxThreadsUsed
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The thread pool information group defines the set of
+        statistic objects for the Customer Voice Portal thread pools.
+        All application servers will populate these objects."
+    ::= { ciscoCvpMIBGroups 3 }
+
+ccvpJvmInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpJvmRtMaxMemUsed,
+                        ccvpJvmRtCurrMemUsed,
+                        ccvpJvmRtMaxMemAvail,
+                        ccvpJvmRtCurrMemAvail,
+                        ccvpJvmRtCurrThreadsInUse,
+                        ccvpJvmRtMaxThreadsUsed,
+                        ccvpJvmRtUpTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The Java virtual machine (JVM) information group defines the
+        set of statistic objects for the Customer Voice Portal JVM.
+        All application servers will populate these objects."
+    ::= { ciscoCvpMIBGroups 4 }
+
+ccvpServiceTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpServiceType,
+                        ccvpServiceName,
+                        ccvpServiceStatus,
+                        ccvpServiceIntLastUpdate,
+                        ccvpServiceIntPeriod
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The service table group defines the enterprise contact
+        center application functional component table objects."
+    ::= { ciscoCvpMIBGroups 5 }
+
+ccvpSipTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpSipRtActiveCalls,
+                        ccvpSipRtTotalCallLegs,
+                        ccvpSipIntNewCalls,
+                        ccvpSipIntConnectsRcv,
+                        ccvpSipIntAvgLatency1,
+                        ccvpSipIntAvgLatency2,
+                        ccvpSipIntFailedXferPre,
+                        ccvpSipIntFailedXferPost,
+                        ccvpSipAggNewCalls,
+                        ccvpSipAggConnectsRcv,
+                        ccvpSipAggAvgLatency1,
+                        ccvpSipAggAvgLatency2,
+                        ccvpSipAggFailedXferPre,
+                        ccvpSipAggFailedXferPost,
+                        ccvpSipIntPostCallAnswered,
+                        ccvpSipIntWhisperAnswered,
+                        ccvpSipIntWhisperFailed,
+                        ccvpSipIntGreetingAnswered,
+                        ccvpSipIntGreetingFailed
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The SIP service table group defines the customer voice
+        portal SIP service table objects."
+    ::= { ciscoCvpMIBGroups 6 }
+
+ccvpH323TableGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpH323RtCallsInProgress,
+                        ccvpH323RtMemoryInUse,
+                        ccvpH323IntArrivalRate,
+                        ccvpH323IntTransferRate,
+                        ccvpH323IntMaxNewCallLatency,
+                        ccvpH323IntAvgNewCallLatency,
+                        ccvpH323IntMaxXferToAlert,
+                        ccvpH323IntAvgXferToAlert,
+                        ccvpH323IntMaxXferToAnswer,
+                        ccvpH323IntAvgXferToAnswer,
+                        ccvpH323IntNewCalls,
+                        ccvpH323IntTransferred,
+                        ccvpH323IntRedirected,
+                        ccvpH323IntNotTransferred,
+                        ccvpH323IntPromptsNotFound,
+                        ccvpH323IntCriticalMedia,
+                        ccvpH323IntCallsFinished,
+                        ccvpH323IntMaxCpuUsage,
+                        ccvpH323IntAvgCpuUsage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The CVP H.323 service table group defines the Customer
+        Voice Portal H.323 service table objects."
+    ::= { ciscoCvpMIBGroups 7 }
+
+ccvpIvrTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpIvrRtActiveCalls,
+                        ccvpIvrRtActiveHttpReqs,
+                        ccvpIvrIntNewCalls,
+                        ccvpIvrIntMaxActiveCalls,
+                        ccvpIvrIntCallsFinished,
+                        ccvpIvrIntAvgCallLatency,
+                        ccvpIvrIntMaxCallLatency,
+                        ccvpIvrIntMinCallLatency,
+                        ccvpIvrIntHttpReqs,
+                        ccvpIvrIntMaxActiveHttpReqs,
+                        ccvpIvrIntMaxHttpReqRate,
+                        ccvpIvrIntAvgHttpReqRate,
+                        ccvpIvrAggNewCalls,
+                        ccvpIvrAggMaxActiveCalls,
+                        ccvpIvrAggHttpReqs,
+                        ccvpIvrAggMaxHttpReqs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The IVR service table group defines the customer voice
+        portal interactive voice response service table objects."
+    ::= { ciscoCvpMIBGroups 8 }
+
+ccvpIcmTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpIcmRtActiveCalls,
+                        ccvpIcmRtActiveSIPCallLegs,
+                        ccvpIcmRtActiveH323CallLegs,
+                        ccvpIcmRtActiveVRUCallLegs,
+                        ccvpIcmRtActiveICMLookupReqs,
+                        ccvpIcmIntNewCalls,
+                        ccvpIcmIntSipCallLegs,
+                        ccvpIcmIntH323CallLegs,
+                        ccvpIcmIntVruCallLegs,
+                        ccvpIcmIntIcmLookupReqs,
+                        ccvpIcmAggCalls,
+                        ccvpIcmAggSipCallLegs,
+                        ccvpIcmAggH323CallLegs,
+                        ccvpIcmAggVruCallLegs,
+                        ccvpIcmAggIcmLookupReqs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The ICM table group defines the Customer Voice Portal
+        Intelligent Contact Management interface table objects."
+    ::= { ciscoCvpMIBGroups 9 }
+
+ccvpReptTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpReptIntVxmlEvents,
+                        ccvpReptIntSipEvents,
+                        ccvpReptIntIvrEvents,
+                        ccvpReptIntDatabaseWrites,
+                        ccvpReptAggVxmlEvents,
+                        ccvpReptAggSipEvents,
+                        ccvpReptAggIvrEvents,
+                        ccvpReptAggDatabaseWrites
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The reporting service table group defines the Customer
+        Voice Portal reporting service table objects."
+    ::= { ciscoCvpMIBGroups 10 }
+
+ccvpVxmlTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpVxmlRtActiveSessions,
+                        ccvpVxmlRtActiveIcmLookups,
+                        ccvpVxmlIntSessions,
+                        ccvpVxmlIntReptEvents,
+                        ccvpVxmlIntIcmLookupReqs,
+                        ccvpVxmlIntIcmLookupResp,
+                        ccvpVxmlIntIcmLookupSuccess,
+                        ccvpVxmlIntIcmLookupFails,
+                        ccvpVxmlAggSessions,
+                        ccvpVxmlAggReptEvents,
+                        ccvpVxmlAggIcmLookupReqs,
+                        ccvpVxmlAggIcmLookupResp,
+                        ccvpVxmlAggIcmLookupSuccess,
+                        ccvpVxmlAggIcmLookupFails
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The voice XML service table group defines the Customer
+        Voice Portal voice XML table objects."
+    ::= { ciscoCvpMIBGroups 11 }
+
+ccvpCvpNotificationInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpEventMessageId,
+                        ccvpEventHostName,
+                        ccvpEventAppName,
+                        ccvpEventMessageName,
+                        ccvpEventState,
+                        ccvpEventSeverity,
+                        ccvpEventTimestamp,
+                        ccvpEventText
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The CVP notification info group defines the Customer Voice
+        Portal notification objects."
+    ::= { ciscoCvpMIBGroups 12 }
+
+ccvpCvpEventsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ccvpCvpEvent }
+    STATUS          current
+    DESCRIPTION
+        "The CVP events group defines the notification types
+        identified in this MIB."
+    ::= { ciscoCvpMIBGroups 13 }
+
+ccvpSipVideoTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpSipRtBasicVideoOffered,
+                        ccvpSipRtBasicVideoAnswered,
+                        ccvpSipIntBasicVideoOffered,
+                        ccvpSipIntBasicVideoAnswered,
+                        ccvpSipAggBasicVideoOffered,
+                        ccvpSipAggBasicVideoAnswered
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The SIP service table group defines the customer voice
+        portal SIP service table objects."
+    ::= { ciscoCvpMIBGroups 14 }
+
+ccvpIvrVideoTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpIvrRtFullVideoCalls,
+                        ccvpIvrIntFullVideoCalls,
+                        ccvpIvrAggFullVideoCalls,
+                        ccvpIvrIntMaxFullVideoCalls,
+                        ccvpIvrAggMaxFullVideoCalls,
+                        ccvpIvrAggAgentPushedVideo,
+                        ccvpIvrAggAgentInitiatedRecordings,
+                        ccvpIvrAggAgentVCRControlInvocations
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The IVR service table group defines the customer voice
+        portal interactive voice response service table objects."
+    ::= { ciscoCvpMIBGroups 15 }
+
+ccvpIcmVideoTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccvpIcmRtFullVideoCalls,
+                        ccvpIcmRtOfferedBasicVideoCalls,
+                        ccvpIcmRtAcceptedBasicVideoCalls,
+                        ccvpIcmIntFullVideoCalls,
+                        ccvpIcmIntOfferedBasicVideoCalls,
+                        ccvpIcmIntAcceptedBasicVideoCalls,
+                        ccvpIcmAggFullVideoCalls,
+                        ccvpIcmAggOfferedBasicVideoCalls,
+                        ccvpIcmAggAcceptedBasicVideoCalls
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The ICM table group defines the Customer Voice Portal
+        Intelligent Contact Management interface table objects."
+    ::= { ciscoCvpMIBGroups 16 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

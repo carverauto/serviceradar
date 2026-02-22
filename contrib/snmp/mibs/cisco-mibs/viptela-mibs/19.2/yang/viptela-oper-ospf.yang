@@ -1,0 +1,1033 @@
+module viptela-oper-ospf {
+  namespace "http://viptela.com/oper-ospf";
+  prefix viptela-oper-ospf;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import ietf-yang-types {
+    prefix yang;
+  }
+    prefix tailf;
+  }
+  import viptela-common {
+    prefix viptela;
+  }
+  import viptela-system {
+    prefix viptela-system;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:support@viptela.com";
+  description
+    "This module defines the data model for OSPF operational data";
+
+  revision 2019-08-15 {
+    description
+      "Release version: 19.2";
+  }
+  revision 2018-11-01 {
+    description
+      "Release version: 18.4";
+  }
+  revision 2018-08-20 {
+    description
+      "Release version: 18.3.1";
+  }
+  revision 2018-06-25 {
+    description
+      "Release version: 18.3";
+  }
+  revision 2018-04-25 {
+    description
+      "Release version: 18.2";
+  }
+  revision 2018-03-15 {
+    description
+      "Release version: 18.1.1";
+  }
+  revision 2018-01-16 {
+    description
+      "Release version: 17.2.3";
+  }
+  revision 2017-11-01 {
+    description
+      "Release version: 17.2.1";
+  }
+  revision 2017-08-01 {
+    description
+      "Release version: 17.2";
+  }
+  revision 2017-05-25 {
+    description
+      "Release version: 17.1.1";
+  }
+  revision 2017-04-06 {
+    description
+      "Release version: 17.1";
+  }
+  revision 2017-02-15 {
+    description
+      "Release version: 16.3.2";
+  }
+  revision 2017-02-06 {
+    description
+      "Release version: 16.3.1";
+  }
+  revision 2016-11-16 {
+    description
+      "Release version: 16.3";
+  }
+  revision 2016-10-25 {
+    description
+      "Release version: 16.2.10";
+  }
+  revision 2016-10-24 {
+    description
+      "Release version: 16.2.4";
+  }
+  revision 2016-08-10 {
+    description
+      "Release version: 16.2.2";
+  }
+  revision 2016-08-01 {
+    description
+      "Release version: 16.2.1";
+  }
+  revision 2016-06-09 {
+    description
+      "Release version: 16.2";
+  }
+  revision 2016-04-22 {
+    description
+      "Release version: 16.1.1";
+  }
+  revision 2016-03-15 {
+    description
+      "Release version: 16.1";
+  }
+  revision 2016-01-30 {
+    description
+      "Release version: 15.4.3";
+  }
+  revision 2015-12-28 {
+    description
+      "Release version: 15.4.1";
+  }
+  revision 2015-12-01 {
+    description
+      "Release version: 15.4.0";
+  }
+  revision 2015-10-31 {
+    description
+      "Release version: 15.3.5";
+  }
+  revision 2015-09-27 {
+    description
+      "Release version: 15.3.3";
+  }
+  revision 2015-09-01 {
+    description
+      "Release version: 15.3.1";
+  }
+  revision 2015-07-01 {
+    description
+      "Release version: 15.3";
+  }
+  revision 2015-06-01 {
+    description
+      "Release version: 15.2.8";
+  }
+  revision 2015-05-01 {
+    description
+      "Release version: 15.2";
+  }
+  revision 2015-02-01 {
+    description
+      "Release version: 15.1";
+  }
+  revision 2014-12-01 {
+    description
+      "Release version: 14.3";
+  }
+  revision 2014-07-01 {
+    description
+      "Release version: 14.2";
+  }
+  revision 2013-02-12 {
+    description
+      "Initial revision";
+  }
+
+  typedef ospf-neighbor-options {
+    type bits {
+      bit T;
+      bit E;
+      bit MC;
+      bit NP;
+      bit EA;
+      bit DC;
+      bit O;
+      bit DN;
+    }
+  }
+
+  typedef ospf-db-rlsa-flags {
+    type bits {
+      bit ABR;
+      bit ASBR;
+      bit VL;
+      bit Type-7 {
+        position 4;
+      }
+      bit Shortcut-ABR {
+        position 5;
+      }
+    }
+  }
+
+  container ospf {
+    description "OSPF information";
+    when "/viptela-system:system/viptela-system:personality = 'vedge'";
+    config false;
+    list neighbor {
+      description "List of neighbors";
+      config false;
+      key "vpn-id source if-index";
+      leaf vpn-id {
+        description "VPN ID";
+        type viptela:vpn-id;
+      }
+      leaf source {
+        description "Neighbor address";
+        type inet:ipv4-address;
+      }
+      leaf if-index {
+        description "Interface index";
+        type uint32;
+      }
+      leaf if-name {
+        description "Interface name";
+        type viptela:named-type;
+      }
+      leaf router-id {
+        description "Neighbor ID";
+        type inet:ipv4-address;
+      }
+      leaf if-address {
+        description "Interface address";
+        type inet:ipv4-address;
+      }
+      leaf area {
+        description "Area";
+        type uint32;
+      }
+      leaf area-type {
+        description "Area type";
+        type enumeration {
+          enum "regular";
+          enum "stub";
+          enum "nssa";
+        }
+      }
+      leaf neighbor-state {
+        description "Neighbor state";
+        type viptela:ospf-state-enum;
+      }
+      leaf interface-state {
+        description "Interface state";
+        type viptela:ospf-if-state-enum;
+      }
+      leaf priority {
+        description "Priority";
+        type uint32;
+      }
+      leaf state-changes {
+        description "Number of state changes";
+        type uint32;
+      }
+      leaf progressive-change-time {
+        description "Progressive change time, in seconds";
+        type uint32;
+      }
+      leaf regressive-change-time {
+        description "Regressive change time, in seconds";
+        type uint32;
+      }
+      leaf regressive-change-reason {
+        description "Regressive change reason";
+        type viptela:named-type;
+      }
+      leaf designated-router-id {
+        description "Designated router ID";
+        type inet:ipv4-address;
+      }
+      leaf backup-designated-router-id {
+        description "Backup designated router ID";
+        type inet:ipv4-address;
+      }
+      leaf dead-timer {
+        description "Dead timer, in seconds";
+        type uint32;
+      }
+      leaf db-summary-list {
+        description "Database summary list";
+        type uint32;
+      }
+      leaf link-state-req-list {
+        description "Link state request list";
+        type yang:counter64;
+      }
+      leaf link-state-retrans-list {
+        description "Link-state retransmission list";
+        type yang:counter64;
+      }
+      leaf options {
+        description "OSPF neighbor options (DN|DC|E|EA|MC|NP|O|T)";
+        type ospf-neighbor-options;
+      }
+    }
+    list interface {
+      description "List of interfaces";
+      config false;
+      key "vpn-id if-addr if-index";
+      leaf vpn-id {
+        description "VPN ID";
+        type viptela:vpn-id;
+      }
+      leaf if-addr {
+        description "Interface address";
+        type ipv4-address-and-prefix-length;
+      }
+      leaf if-index {
+        description "Interface index";
+        type uint32;
+      }
+      leaf if-name {
+        description "Interface name";
+        type viptela:named-type;
+      }
+      leaf mtu {
+        description "MTU, in bytes";
+        type uint32;
+      }
+      leaf bandwidth {
+        description "Bandwidth, in kilobits";
+        type uint32;
+      }
+      leaf broadcast-addr {
+        description "Broadcast address";
+        type inet:ipv4-address;
+      }
+      leaf area-addr {
+        description "Area address";
+        type uint32;
+      }
+      leaf mtu-mismatch {
+        description "MTU mismatch detection";
+        type boolean;
+      }
+      leaf router-id {
+        description "Router ID";
+        type inet:ipv4-address;
+      }
+      leaf if-type {
+        description "Interface type";
+        type enumeration {
+          enum "none";
+          enum "point-to-point";
+          enum "broadcast";
+          enum "nbma";
+          enum "point-to-multipoint";
+          enum "loopback";
+        }
+      }
+      leaf cost {
+        description "Cost";
+        type uint32;
+      }
+      leaf delay {
+        description "Delay";
+        type uint32;
+      }
+      leaf ospf-if-state {
+        description "State";
+        type viptela:ospf-if-state-enum;
+      }
+      leaf priority {
+        description "Priority";
+        type uint32;
+      }
+      leaf designated-router-id {
+        description "Designated router ID";
+        type inet:ipv4-address;
+      }
+      leaf backup-designated-router-id {
+        description "Backup designated router ID";
+        type inet:ipv4-address;
+      }
+      leaf designated-router-ip {
+        description "Designated router address";
+        type inet:ipv4-address;
+      }
+      leaf backup-designated-router-ip {
+        description "Backup designated router address";
+        type inet:ipv4-address;
+      }
+      leaf lsa-seqnum {
+        description "LSA sequence number";
+        type uint32;
+      }
+      leaf members {
+        description "Members";
+        type enumeration {
+          enum "all";
+          enum "designated";
+          enum "both";
+        }
+      }
+      leaf hello-timer {
+        description "Hello timer, in seconds";
+        type uint32;
+      }
+      leaf dead-interval {
+        description "Dead interval, in seconds";
+        type uint32;
+      }
+      leaf retransmit-timer {
+        description "Retransmit timer, in seconds";
+        type uint32;
+      }
+      leaf neighbor-count {
+        description "Neighbor count";
+        type uint32;
+      }
+      leaf adj-neighbor-count {
+        description "Adjacent neighbor count";
+        type uint32;
+      }
+      leaf hello-due-time {
+        description "Hello due time, in seconds";
+        type uint32;
+      }
+      leaf oper-state {
+        description "Up or down";
+        type boolean;
+      }
+      leaf md5-key-id {
+        description "MD5 key ID";
+        type uint8;
+      }
+      leaf md5-key {
+        description "MD5 key (hashed)";
+        type viptela:named-type;
+      }
+    }
+    list lsa-database {
+      description "LSA database";
+      config false;
+      key "vpn-id area lsa-type link-id adv-router";
+      leaf vpn-id {
+        description "VPN ID";
+        type viptela:vpn-id;
+      }
+      leaf area {
+        description "Area";
+        type uint32;
+      }
+      leaf lsa-type {
+        description "Link type";
+        type enumeration {
+          enum "unknown";
+          enum "router";
+          enum "network";
+          enum "summary";
+          enum "asbr-summary";
+          enum "external";
+          enum "group-member";
+          enum "nssa-external";
+          enum "type-ext-attributes";
+          enum "link-local-opaque";
+          enum "area-local-opaque";
+          enum "as-external-opaque";
+        }
+      }
+      leaf link-id {
+        description "Link state ID";
+        type inet:ipv4-address;
+      }
+      leaf adv-router {
+        description "Advertising router";
+        type inet:ipv4-address;
+      }
+      leaf checksum {
+        description "Checksum";
+        type uint32;
+      }
+      leaf age {
+        description "Age";
+        type uint32;
+      }
+      leaf sequence {
+        description "Sequence";
+        type uint32;
+      }
+      leaf length {
+        description "Length";
+        type uint32;
+      }
+      leaf options {
+        description "Options";
+        type uint32;
+      }
+      leaf options-flags {
+        description "Options flags";
+        type ospf-neighbor-options;
+      }
+      leaf flags {
+        description "Flags";
+        type uint32;
+      }
+      leaf rlsa-flags {
+        description "Router LSA flags (valid for router) (ABR, ASBR, NT, shortcut ABR, Type-7, Virtual";
+        type ospf-db-rlsa-flags;
+      }
+      leaf rlsa-flags-value {
+        description "Router LSA flags value (valid for router)";
+        type uint32;
+      }
+      leaf prefix {
+        description "Prefix";
+        type inet:ipv4-prefix;
+      }
+      leaf tag {
+        description "Tag";
+        type uint32;
+      }
+      leaf metric-type {
+        description "Metric type";
+        type viptela:metric-enum;
+      }
+      leaf mask {
+        description "Mask";
+        type inet:ipv4-address;
+      }
+      leaf metric {
+        description "Metric";
+        type uint32;
+      }
+      leaf forwarding-addr {
+        description "Forwarding address";
+        type inet:ipv4-address;
+      }
+      leaf link-count {
+        description "Router links";
+        type uint32;
+      }
+      list router-link {
+        description "List of router links";
+        key "link-index";
+        leaf link-index {
+          description "Link Index";
+          type uint32;
+        }
+        leaf router-link-id {
+          description "Link ID";
+          type inet:ipv4-address;
+        }
+        leaf data {
+          description "Link Data";
+          type inet:ipv4-address;
+        }
+        leaf tos-metric {
+          description "TOS metric";
+          type uint32;
+        }
+        leaf router-link-type {
+          description "Link type";
+          type enumeration {
+            enum "point-to-point";
+            enum "transit";
+            enum "stub";
+          }
+        }
+      }
+      list network-link {
+        key "link-index";
+        description "List of network links";
+        leaf link-index {
+          description "Link Index";
+          type uint32;
+        }
+        leaf network-link-id {
+          description "Link ID";
+          type inet:ipv4-address;
+        }
+      }
+    }
+    list external-database {
+      description "External LSA database";
+      config false;
+      key "vpn-id link-id adv-router";
+      leaf vpn-id {
+        description "VPN ID";
+        type viptela:vpn-id;
+      }
+      leaf link-id {
+        description "Link-state ID";
+        type inet:ipv4-address;
+      }
+      leaf adv-router {
+        description "Advertising router";
+        type inet:ipv4-address;
+      }
+      leaf checksum {
+        description "Checksum";
+        type uint32;
+      }
+      leaf age {
+        description "Age";
+        type uint32;
+      }
+      leaf sequence {
+        description "Sequence";
+        type uint32;
+      }
+      leaf length {
+        description "Length";
+        type uint32;
+      }
+      leaf options {
+        description "Options";
+        type uint32;
+      }
+      leaf options-flags {
+        description "Options flags";
+        type ospf-neighbor-options;
+      }
+      leaf flags {
+        description "Flags";
+        type uint32;
+      }
+      leaf prefix {
+        description "Prefix";
+        type inet:ipv4-prefix;
+      }
+      leaf tag {
+        description "Tag";
+        type uint32;
+      }
+      leaf metric-type {
+        description "Metric type";
+        type viptela:metric-enum;
+      }
+      leaf mask {
+        description "Mask";
+        type inet:ipv4-address;
+      }
+      leaf metric {
+        description "Metric";
+        type uint32;
+      }
+      leaf forwarding-addr {
+        description "Forwarding address";
+        type inet:ipv4-address;
+      }
+    }
+    list routes-table {
+      description "List of routes";
+      config false;
+      key "vpn-id route-type prefix";
+      leaf vpn-id {
+        description "VPN ID";
+        type viptela:vpn-id;
+      }
+      leaf route-type {
+        description "Route type";
+        type enumeration {
+          enum "router" {
+            description
+              "Route type: router";
+            description "Route type: router";
+          }
+          enum "network" {
+            description
+              "Route type: network";
+            description "Route type: network";
+          }
+          enum "external" {
+            description
+              "Route type: external";
+            description "Route type: external";
+          }
+        }
+      }
+      leaf prefix {
+        description "Route";
+        type inet:ipv4-prefix;
+      }
+      list info {
+        description "List of route information";
+        key "info-id";
+        leaf info-id {
+          description "Info ID";
+          type uint32;
+        }
+        leaf area-id {
+          description "Area ID";
+          type uint32;
+        }
+        leaf cost {
+          description "Cost";
+          type uint32;
+        }
+        leaf flags {
+          description "Flags";
+          type uint32;
+        }
+        leaf path-type {
+          description "Path type";
+          type enumeration {
+            enum "intra-area";
+            enum "inter-area";
+            enum "external1";
+            enum "external2";
+            enum "nssa-external1";
+            enum "nssa-external2";
+          }
+        }
+        leaf dest-type {
+          description "Destination type";
+          type enumeration {
+            enum "router";
+            enum "network";
+            enum "discard";
+          }
+        }
+        leaf tag {
+          description "Tag";
+          type uint32;
+        }
+        leaf type2-cost {
+          description "Type 2 cost";
+          type uint32;
+        }
+        leaf next-hop {
+          description "Next hop";
+          type inet:ipv4-address;
+        }
+        leaf if-name {
+          description "Interface name";
+          type viptela:named-type;
+        }
+      }
+    }
+    list database-summary {
+      description "OSPF database summary";
+      config false;
+      key "vpn-id area-id";
+      leaf vpn-id {
+        description "VPN ID";
+        type viptela:vpn-id;
+      }
+      leaf area-id {
+        description "Area ID";
+        type uint32;
+      }
+      leaf router-lsa {
+        description "Router LSA count";
+        type uint32;
+      }
+      leaf network-lsa {
+        description "Network LSA count";
+        type uint32;
+      }
+      leaf summary-lsa {
+        description "Summary LSA count";
+        type uint32;
+      }
+      leaf as-external-lsa {
+        description "AS external LSA count";
+        type uint32;
+      }
+      leaf nssa-lsa {
+        description "NSSA LSA count";
+        type uint32;
+      }
+      leaf total-lsa {
+        description "Total LSA count";
+        type uint32;
+      }
+    }
+    list process {
+      description "OSPF process";
+      config false;
+      key "vpn-id";
+      leaf vpn-id {
+        description "VPN ID";
+        type viptela:vpn-id;
+      }
+      leaf router-id {
+        description "Router ID";
+        type inet:ipv4-address;
+      }
+      leaf deferred-shutdown {
+        description "Deferred shutdown";
+        type boolean;
+      }
+      leaf rfc1583-compatible {
+        description "RFC 1583 compatible";
+        type boolean;
+      }
+      leaf stub-router-adv {
+        description "Stub router advertisement";
+        type boolean;
+      }
+      leaf stub-router-start {
+        description "Stub router advertisement after startup, in seconds";
+        type uint32;
+      }
+      leaf stub-router-shut {
+        description "Stub router advertisement before shutdown, in seconds";
+        type uint32;
+      }
+      leaf spf-delay {
+        description "SPF delay, in milliseconds";
+        type uint32;
+      }
+      leaf spf-holdtime {
+        description "SPF hold time, in milliseconds";
+        type uint32;
+      }
+      leaf spf-max-holdtime {
+        description "SPF maximum hold time, milliseconds";
+        type uint32;
+      }
+      leaf spf-hold-multiplier {
+        description "SPF hold multiplier";
+        type uint32;
+      }
+      leaf spf-last-exec-time {
+        description "SPF last executed time, in seconds";
+        type uint32;
+      }
+      leaf spf-next-due-time {
+        description "SPF next due time, in seconds";
+        type uint32;
+      }
+      leaf lsa-refresh-interval {
+        description "LSA refresh interval, in seconds";
+        type uint32;
+      }
+      leaf asbr-router {
+        description "ASBR router";
+        type boolean;
+      }
+      leaf external-lsa-count {
+        description "External LSA count";
+        type uint32;
+      }
+      leaf external-lsa-checksum {
+        description "External LSA checksum";
+        type uint32;
+      }
+      leaf number-areas {
+        description "Number of areas";
+        type uint32;
+      }
+      leaf log-adj-changes {
+        description "Log adjacency changes";
+        type boolean;
+      }
+      leaf ignore-down-bit {
+        description "Ignore down bit during SPF calculation";
+        type boolean;
+      }
+      leaf hello-received {
+        description "Number of hello packets received";
+        type uint32;
+      }
+      leaf hello-sent {
+        description "Number of hello packets sent";
+        type uint32;
+      }
+      leaf dbd-received {
+        description "Number of database description packets received";
+        type uint32;
+      }
+      leaf dbd-sent {
+        description "Number of databse description packets sent";
+        type uint32;
+      }
+      leaf ls-req-received {
+        description "Number of link-state request packets received";
+        type uint32;
+      }
+      leaf ls-req-sent {
+        description "Number of link-state request packets sent";
+        type uint32;
+      }
+      leaf ls-upd-received {
+        description "Number of link-state update packets received";
+        type uint32;
+      }
+      leaf ls-upd-sent {
+        description "Number of link-state update packets sent";
+        type uint32;
+      }
+      leaf ls-ack-received {
+        description "Number of link-state acknowledgement packets received";
+        type uint32;
+      }
+      leaf ls-ack-sent {
+        description "Number of link-state acknowledgement packets sent";
+        type uint32;
+      }
+      list area {
+        description "List of areas";
+        key "area-id";
+        leaf area-id {
+          description "Area ID";
+          type uint32;
+        }
+        leaf backbone-area {
+          description "Backbone area";
+          type boolean;
+        }
+        leaf routing-type {
+          description "Routing type";
+          type enumeration {
+            enum "default";
+            enum "stub";
+            enum "nssa";
+          }
+        }
+        leaf no-summ {
+          description "No summary";
+          type boolean;
+        }
+        leaf shortcut-configured {
+          description "Shortcut configuration";
+          type boolean;
+        }
+        leaf shortcut-mode {
+          description "Shortcut mode";
+          type enumeration {
+            enum "default";
+            enum "enable";
+            enum "disable";
+          }
+        }
+        leaf shortcut-capability {
+          description "Shortcut capability";
+          type boolean;
+        }
+        leaf num-interfaces {
+          description "Number of interfaces";
+          type uint32;
+        }
+        leaf abr {
+          description "Area border router";
+          type boolean;
+        }
+        leaf nssa-translate {
+          description "NSSA translate";
+          type boolean;
+        }
+        leaf translate-role {
+          description "Translate role";
+          type viptela:translate-enum;
+        }
+        leaf stub-route {
+          description "Stub route";
+          type boolean;
+        }
+        leaf stub-route-admin {
+          description "Stub route administratively enabled";
+          type boolean;
+        }
+        leaf stub-route-timer {
+          description "Stub route time left, in seconds";
+          type uint32;
+        }
+        leaf num-full-adj-routers {
+          description "Number of fully adjacent routers";
+          type uint32;
+        }
+        leaf authentication {
+          description "Authertication type";
+          type enumeration {
+            enum "null";
+            enum "simple";
+            enum "message-digest";
+          }
+        }
+        leaf num-virtual-adj-routers {
+          description "Number of full virtual adjacencies";
+          type uint32;
+        }
+        leaf spf-exec-count {
+          description "SPF algorithm executed count";
+          type uint32;
+        }
+        leaf lsa-count {
+          description "Number of LSAs";
+          type uint32;
+        }
+        leaf router-lsa-count {
+          description "Number of router LSAs";
+          type uint32;
+        }
+        leaf router-lsa-checksum {
+          description "Router LSA checksum";
+          type uint32;
+        }
+        leaf network-lsa-count {
+          description "Number of network LSAs";
+          type uint32;
+        }
+        leaf network-lsa-checksum {
+          description "Network LSA checksum";
+          type uint32;
+        }
+        leaf summary-lsa-count {
+          description "Number of summary LSAs";
+          type uint32;
+        }
+        leaf summary-lsa-checksum {
+          description "Summary LSA checksum";
+          type uint32;
+        }
+        leaf asbr-lsa-count {
+          description "Number of ASBR LSAs";
+          type uint32;
+        }
+        leaf asbr-lsa-checksum {
+          description "ASBR LSA checksum";
+          type uint32;
+        }
+        leaf nssa-lsa-count {
+          description "Number of NSSA LSAs";
+          type uint32;
+        }
+        leaf nssa-lsa-checksum {
+          description "NSSA LSA checksum";
+          type uint32;
+        }
+      }
+    }
+  }
+
+  typedef ipv4-address-and-prefix-length {
+    type string {
+      pattern "(([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])/(([0-9])|([1-2][0-9])|(3[0-2]))";
+    }
+    description
+      "The ipv4-address-and-prefix-length type represents a combination
+       of an IPv4 address and a prefix length. The prefix length is given
+       by the number following the slash character and must be less than
+       or equal to 32.";
+  }
+}

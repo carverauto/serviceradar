@@ -1,0 +1,2363 @@
+-- *****************************************************************
+-- ciscoWanAtmConnStatMIB
+--
+-- December 1998, Prashant Desai
+--
+-- Copyright (c) 1998, 2001, 2002, 2003, 2004, 2005 by
+--               cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-WAN-ATM-CONN-STAT-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Counter64,
+        Unsigned32,
+        Counter32,
+        Gauge32
+                FROM SNMPv2-SMI
+        TruthValue
+                FROM SNMPv2-TC
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        ifIndex
+                FROM IF-MIB
+        cwaChanVci,
+        cwaChanVpi
+                FROM CISCO-WAN-ATM-CONN-MIB
+        ciscoWan
+                FROM CISCOWAN-SMI;
+
+ciscoWanAtmConnStatMIB MODULE-IDENTITY
+        LAST-UPDATED        "200508250000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+
+        DESCRIPTION
+                "This module contains ATM switch connection related
+                 real time statistical counter objects."
+
+        REVISION        "200508250000Z"
+        DESCRIPTION
+                "Added cwacsBearerPVCTable."
+
+        REVISION        "200409100000Z"
+        DESCRIPTION
+                "Added 2 objects to cwacsExtStatsTable
+                 (extension of cwacsTable):
+                 cwacsTotalCR,
+                 cwacsAisSuppressCount."
+
+        REVISION        "200304180000Z"
+        DESCRIPTION
+                "Added 3 more objects to cwacsExtStatsTable
+                 (extension of cwacsTable):
+                 cwacsUsedConns, cwacsUtilizedCR,
+                 cwacsUsedVadConns."
+
+        REVISION        "200304010000Z"
+        DESCRIPTION
+                "Indentation/Editorial changes made across the MIB."
+
+        REVISION        "200210210000Z"
+        DESCRIPTION
+                "Added cwacsExtStatsTable (extension of cwacsTable)."
+
+        REVISION        "200207090000Z"
+        DESCRIPTION
+                "1. Added Following objects to cwacsTable, as upper
+                 32-bits for 64-bit wide counters:
+                 cwacsHighIngRcvCLP0, cwacsHighIngRcvCLP1,
+                 cwacsHighIngXmtCLP0, cwacsHighIngXmtCLP1,
+                 cwacsHighIngCLP0CoSDiscard, cwacsHighIngCLP1CoSDiscard,
+                 cwacsHighIngCLP0UpcDiscard, cwacsHighIngCLP1UpcDiscard,
+                 cwacsHighIngCLP0UpcTagged, cwacsHighIngRcvEFCI0,
+                 cwacsHighIngRcvEFCI1, cwacsHighIngEFCI0Discard,
+                 cwacsHighIngEFCI1Discard, cwacsHighIngRcvEOF1,
+                 cwacsHighIngEOF1Discard, cwacsHighEgrRcvCLP0,
+                 cwacsHighEgrRcvCLP1, cwacsHighEgrXmtCLP0,
+                 cwacsHighEgrXmtCLP1, cwacsHighEgrCLP0CoSDiscard,
+                 cwacsHighEgrCLP1CoSDiscard, cwacsHighEgrRcvEFCI0,
+                 cwacsHighEgrRcvEFCI1, cwacsHighEgrEFCI0Discard,
+                 cwacsHighEgrEFCI1Discard, cwacsHighEgrRcvEOF1,
+                 cwacsHighEgrEOF1Discard.
+
+                 2. Added cwacsXTable which contains 64-bits wide
+                 counters."
+
+        REVISION        "200207020000Z"
+        DESCRIPTION
+                "1. Added cwaConnStatsTable for real time statistical
+                   counter objects. This table applies to only atm
+                   service module such as BXM."
+
+        REVISION        "200105020000Z"
+        DESCRIPTION
+                "1. Added cwacsStatsClear object to cwacsEntry to clear
+                   channel connection statistic counters."
+
+        REVISION        "9812041445Z"
+        DESCRIPTION
+                "Initial version of the MIB module."
+
+        ::= { ciscoWan 2 }
+
+ciscoWanAtmConnStatMIBObjects OBJECT IDENTIFIER ::=
+                                    { ciscoWanAtmConnStatMIB 1 }
+
+cwacs           OBJECT IDENTIFIER ::=
+                                    { ciscoWanAtmConnStatMIBObjects 1 }
+
+-- The following example describes the ingress and egress directions.
+--
+-- switch
+--backplane               Ingress
+--   ||            <---------------------
+--   ||
+--   ||           ________________________
+--   ||           |                      |
+--   ||  VPL/VCL  |                      | VPL/VCL(Channel)
+--   || Transmit  |  Traffic Management  |  Receive
+--   || <======== X      Entity          X <=======
+--   ||           X                      X              PORT
+--   || ========> X                      X =======>
+--   || Receive   |                      |  Transmit
+--   ||           |______________________|
+--   ||
+--   ||            --------------------->
+--   ||                   Egress
+--   ||
+
+cwacsTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CwacsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "Contains traffic statistic information for every Channel
+                entry in the atmTable. It is used to monitor the
+                usage of the Channel in terms of Ingress(incoming
+                direction) cells and Egress (outgoing direction) cells.
+                In each direction counters are collected before and
+                after the traffic management entity."
+        ::=  { cwacs 1 }
+
+cwacsEntry OBJECT-TYPE
+        SYNTAX     CwacsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry in the ATM connection Channel statistic
+                 table. An entry is created for every Channel."
+        INDEX   { ifIndex, cwaChanVpi, cwaChanVci }
+        ::= { cwacsTable 1 }
+
+CwacsEntry ::=
+        SEQUENCE {
+                -- Ingress statistics
+                cwacsIngRcvCLP0                 Counter32,
+                cwacsIngRcvCLP1                 Counter32,
+                cwacsIngXmtCLP0                 Counter32,
+                cwacsIngXmtCLP1                 Counter32,
+                cwacsIngCLP0CoSDiscard          Counter32,
+                cwacsIngCLP1CoSDiscard          Counter32,
+                cwacsIngCLP0UpcDiscard          Counter32,
+                cwacsIngCLP1UpcDiscard          Counter32,
+                cwacsIngCLP0UpcTagged           Counter32,
+                cwacsIngRcvEFCI0                Counter32,
+                cwacsIngRcvEFCI1                Counter32,
+                cwacsIngEFCI0Discard            Counter32,
+                cwacsIngEFCI1Discard            Counter32,
+                cwacsIngRcvOAM                  Counter32,
+                cwacsIngOAMDiscard              Counter32,
+                cwacsIngRcvRM                   Counter32,
+                cwacsIngRMDiscard               Counter32,
+                cwacsIngXmtFRm                  Counter32,
+                cwacsIngXmtBRmFsRm              Counter32,
+                cwacsIngRcvEOF1                 Counter32,
+                cwacsIngEOF1Discard             Counter32,
+                cwacsIngACR                     Gauge32,
+                cwacsIngVCQueueDepth            Gauge32,
+                -- Egress statistics
+                cwacsEgrRcvCLP0                 Counter32,
+                cwacsEgrRcvCLP1                 Counter32,
+                cwacsEgrXmtCLP0                 Counter32,
+                cwacsEgrXmtCLP1                 Counter32,
+                cwacsEgrCLP0CoSDiscard          Counter32,
+                cwacsEgrCLP1CoSDiscard          Counter32,
+                cwacsEgrRcvEFCI0                Counter32,
+                cwacsEgrRcvEFCI1                Counter32,
+                cwacsEgrEFCI0Discard            Counter32,
+                cwacsEgrEFCI1Discard            Counter32,
+                cwacsEgrRcvOAM                  Counter32,
+                cwacsEgrOAMDiscard              Counter32,
+                cwacsEgrRcvRM                   Counter32,
+                cwacsEgrRMDiscard               Counter32,
+                cwacsEgrXmtFRm                  Counter32,
+                cwacsEgrXmtBRmFsRm              Counter32,
+                cwacsEgrRcvEOF1                 Counter32,
+                cwacsEgrEOF1Discard             Counter32,
+                cwacsEgrACR                     Gauge32,
+                cwacsEgrVCQueueDepth            Gauge32,
+                -- channel statistics control object
+                cwacsStatsClear                 TruthValue,
+                -- Upper 32-bits for counters which are 64-bit wide
+                   -- Ingress statistics
+                cwacsHighIngRcvCLP0                     Counter32,
+                cwacsHighIngRcvCLP1                     Counter32,
+                cwacsHighIngXmtCLP0                     Counter32,
+                cwacsHighIngXmtCLP1                     Counter32,
+                cwacsHighIngCLP0CoSDiscard              Counter32,
+                cwacsHighIngCLP1CoSDiscard              Counter32,
+                cwacsHighIngCLP0UpcDiscard              Counter32,
+                cwacsHighIngCLP1UpcDiscard              Counter32,
+                cwacsHighIngCLP0UpcTagged               Counter32,
+                cwacsHighIngRcvEFCI0                    Counter32,
+                cwacsHighIngRcvEFCI1                    Counter32,
+                cwacsHighIngEFCI0Discard                Counter32,
+                cwacsHighIngEFCI1Discard                Counter32,
+                cwacsHighIngRcvEOF1                     Counter32,
+                cwacsHighIngEOF1Discard                 Counter32,
+                   -- Egress statistics
+                cwacsHighEgrRcvCLP0                     Counter32,
+                cwacsHighEgrRcvCLP1                     Counter32,
+                cwacsHighEgrXmtCLP0                     Counter32,
+                cwacsHighEgrXmtCLP1                     Counter32,
+                cwacsHighEgrCLP0CoSDiscard              Counter32,
+                cwacsHighEgrCLP1CoSDiscard              Counter32,
+                cwacsHighEgrRcvEFCI0                    Counter32,
+                cwacsHighEgrRcvEFCI1                    Counter32,
+                cwacsHighEgrEFCI0Discard                Counter32,
+                cwacsHighEgrEFCI1Discard                Counter32,
+                cwacsHighEgrRcvEOF1                     Counter32,
+                cwacsHighEgrEOF1Discard                 Counter32
+                }
+
+cwacsIngRcvCLP0 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 ATM cells in the
+                 ingress direction of this Channel prior to the
+                 traffic management entity."
+        ::= { cwacsEntry 1 }
+
+cwacsIngRcvCLP1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 ATM cells in the
+                 ingress direction of this Channel prior to the
+                 traffic management entity."
+        ::= { cwacsEntry 2 }
+
+cwacsIngXmtCLP0 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 ATM cells in the
+                 ingress direction of this Channel after the
+                 traffic management entity."
+        ::= { cwacsEntry 3 }
+
+cwacsIngXmtCLP1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 ATM cells in the
+                 ingress direction of this Channel after the
+                 traffic management entity."
+        ::= { cwacsEntry 4 }
+
+cwacsIngCLP0CoSDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the ingress
+                 direction of this Channel that are discarded at
+                 the class of service queue due to overflow."
+        ::= { cwacsEntry 5 }
+
+cwacsIngCLP1CoSDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 cells in the ingress
+                 direction of this Channel that are discarded
+                 at the class of service queue due to overflow."
+        ::= { cwacsEntry 6 }
+
+cwacsIngCLP0UpcDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the ingress
+                 direction of this Channel that are discarded at
+                 the traffic policing entity due to UPC/PCR
+                 parameter violation.
+
+                 UPC(Usage Parameter Control) operation checks
+                 the validity of the user traffic on a
+                 connection. If incoming cells violate
+                 established user-network contract .If cell
+                 violates PCR(Peak Cell Rate) parameter for the
+                 connection it is discarded.
+                 Or else the cell is marked low priority by
+                 setting CLP=1."
+        ::= { cwacsEntry 7 }
+
+cwacsIngCLP1UpcDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 cells in the ingress
+                 direction of this Channel that are discarded at
+                 the traffic policing entity due to UPC/PCR
+                 parameter violation."
+        ::= { cwacsEntry 8 }
+
+cwacsIngCLP0UpcTagged OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the ingress
+                 direction of this Channel that are tagged as
+                 low priority by UPC."
+        ::= { cwacsEntry 9 }
+
+cwacsIngRcvEFCI0 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=0 cells in the ingress
+                 direction of this Channel before class of
+                 service queue.
+
+                 EFCI(Explicit Forward Congestion Indication)
+                 is an ATM header bit."
+        ::= { cwacsEntry 10 }
+
+cwacsIngRcvEFCI1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=1 cells in the ingress
+                 direction of this Channel before the class of
+                 service queue."
+        ::= { cwacsEntry 11 }
+
+cwacsIngEFCI0Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid UPC/PCR parameter compliant
+                 EFCI=0 cells in the ingress direction of this
+                 Channel that are discarded at the CoS queue."
+        ::= { cwacsEntry 12 }
+
+cwacsIngEFCI1Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid UPC/PCR parameter compliant
+                 EFCI=1 cells in the ingress direction of this
+                 Channel that are discarded at the CoS queue."
+        ::= { cwacsEntry 13 }
+
+cwacsIngRcvOAM OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid OAM cells in the ingress
+                 direction of this Channel before the CoS
+                 queue."
+        ::= { cwacsEntry 14 }
+
+cwacsIngOAMDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid OAM cells in the ingress
+                 direction of this Channel that are discarded
+                 at the CoS queue."
+        ::= { cwacsEntry 15 }
+
+cwacsIngRcvRM OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid RM cells in the ingress
+                 direction of this Channel before the CoS
+                 queue."
+        ::= { cwacsEntry 16 }
+
+cwacsIngRMDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid RM cells in the ingress
+                 direction of this Channel that are discarded
+                 at the CoS queue due to overflow."
+        ::= { cwacsEntry 17 }
+
+cwacsIngXmtFRm OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of FRm(Forward RM) ATM cells in the
+                 ingress direction of this Channel PRIOR to the
+                 traffic management entity."
+        ::= { cwacsEntry 18 }
+
+cwacsIngXmtBRmFsRm OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The total number of BRm(backward RM cells) and
+                 FsRm (foresight RM cells) ATM cells in the
+                 ingress direction of this Channel AFTER the
+                 traffic management entity."
+        ::= { cwacsEntry 19 }
+
+cwacsIngRcvEOF1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EOF=1 ATM cells in the
+                 ingress direction of this Channel PRIOR to the
+                 traffic management entity."
+        ::= { cwacsEntry 20 }
+
+cwacsIngEOF1Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EOF=1 ATM cells in the
+                 ingress direction of this Channel which are
+                 discard at the traffic management entity."
+        ::= { cwacsEntry 21 }
+
+cwacsIngACR OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "cells/second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Current value of the ingress ACR(Allowed Cell
+                 Rate) parameter. It is an ABR service parameter
+                 and is the current rate in cells/sec at which a
+                 source is allowed to send packets. For traffic
+                 type other than ABR this parameter is not
+                 instantiated. This variable is used for shaping
+                 the traffic going onto the backplane."
+        ::= { cwacsEntry 22 }
+
+cwacsIngVCQueueDepth OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Current length of the ingress queue of this
+                 Channel in terms of number of cells."
+        ::= { cwacsEntry 23 }
+
+cwacsEgrRcvCLP0 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 ATM cells in the
+                 egress direction of this Channel PRIOR to the
+                 traffic management entity."
+        ::= { cwacsEntry 24 }
+
+cwacsEgrRcvCLP1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 ATM cells in the
+                 egress direction of this Channel PRIOR to the
+                 traffic management entity."
+        ::= { cwacsEntry 25 }
+
+cwacsEgrXmtCLP0 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 ATM cells in the
+                 egress direction of this Channel AFTER the
+                 traffic management entity."
+        ::= { cwacsEntry 26 }
+
+cwacsEgrXmtCLP1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 ATM cells in the
+                 egress direction of this Channel AFTER the
+                 traffic management entity."
+        ::= { cwacsEntry 27 }
+
+cwacsEgrCLP0CoSDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the egress
+                 direction of this Channel that are discarded
+                 at the CoS queue due to overflow."
+        ::= { cwacsEntry 28 }
+
+cwacsEgrCLP1CoSDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 cells in the egress
+                 direction of this Channel that are discarded at
+                 the CoS queue due to overflow."
+        ::= { cwacsEntry 29 }
+
+cwacsEgrRcvEFCI0 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=0 cells in the egress
+                 direction of this Channel before CoS queue."
+                ::= { cwacsEntry 30 }
+
+cwacsEgrRcvEFCI1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=1 cells in the egress
+                 direction of this Channel before the class of
+                 service queue."
+                ::= { cwacsEntry 31 }
+
+cwacsEgrEFCI0Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=0 cells in the egress
+                 direction of this Channel that are discarded
+                 at the CoS queue."
+        ::= { cwacsEntry 32 }
+
+cwacsEgrEFCI1Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=1 cells in the egress
+                 direction of this Channel that are discarded at
+                 the CoS queue."
+        ::= { cwacsEntry 33 }
+
+cwacsEgrRcvOAM OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid OAM cells in the egress
+                 direction of this Channel before the CoS
+                 queue."
+        ::= { cwacsEntry 34 }
+
+cwacsEgrOAMDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid OAM cells in the egress
+                 direction of this Channel that are discarded
+                 at the CoS queue."
+        ::= { cwacsEntry 35 }
+
+cwacsEgrRcvRM OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid RM cells in the egress
+                 direction of this Channel before the CoS
+                 queue."
+        ::= { cwacsEntry 36 }
+
+cwacsEgrRMDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid RM cells in the egress
+                 direction of this Channel that are discarded
+                 at the CoS queue due to overflow."
+        ::= { cwacsEntry 37 }
+
+cwacsEgrXmtFRm OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of FRm ATM cells in the egress
+                 direction of this Channel PRIOR to the traffic
+                 management entity."
+        ::= { cwacsEntry 38 }
+
+cwacsEgrXmtBRmFsRm OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The total number of BRm and FsRm ATM cells in
+                 the egress direction of this Channel AFTER the
+                 traffic management entity."
+        ::= { cwacsEntry 39 }
+
+cwacsEgrRcvEOF1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EOF=1 ATM cells in the
+                 egress direction of this Channel PRIOR to the
+                 traffic management entity."
+        ::= { cwacsEntry  40 }
+
+cwacsEgrEOF1Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EOF=1 ATM cells in the
+                 egress direction of this Channel which are
+                 discard at the traffic management entity."
+        ::= { cwacsEntry 41 }
+
+cwacsEgrACR OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "cells/second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Current value of the egress ACR(Allowed Cell
+                 Rate) parameter.  It is an ABR service
+                 parameter and is the current rate in
+                 cells/sec at which a source is allowed to send
+                 packets. For traffic type other than ABR this
+                 parameter is not instantiated. This variable
+                 is used for shaping the traffic going onto the
+                 backplane."
+        ::= { cwacsEntry 42 }
+
+cwacsEgrVCQueueDepth OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Current length of the egress queue of this
+                 Channel in terms of number of cells."
+        ::= { cwacsEntry 43 }
+
+
+cwacsStatsClear OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The agent clears the channel statistics
+                 collection if it receives a set to value of
+                 true(1) request from a manager.
+                 Setting a value of false(2) has no
+                 implication."
+        DEFVAL { false }
+        ::= { cwacsEntry 44 }
+
+cwacsHighIngRcvCLP0 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 ATM cells in the
+                 ingress direction of this Channel PRIOR to
+                 the traffic management entity.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngRcvCLP0. The lower 32-bits will
+                 be present in cwacsIngRcvCLP0."
+        ::= { cwacsEntry 45 }
+
+cwacsHighIngRcvCLP1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 ATM cells in the
+                 ingress direction of this Channel PRIOR to
+                 the traffic management entity.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngRcvCLP1. The lower 32-bits will
+                 be present in cwacsIngRcvCLP1."
+        ::= { cwacsEntry 46 }
+
+cwacsHighIngXmtCLP0 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 ATM cells in the
+                 ingress direction of this Channel AFTER the
+                 traffic management entity.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngXmtCLP0. The lower 32-bits will
+                 be present in cwacsIngXmtCLP0."
+        ::= { cwacsEntry 47 }
+
+cwacsHighIngXmtCLP1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 ATM cells in the
+                 ingress direction of this Channel AFTER the
+                 traffic management entity.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngXmtCLP1. The lower 32-bits will
+                 be present in cwacsIngXmtCLP1."
+        ::= { cwacsEntry 48 }
+
+cwacsHighIngCLP0CoSDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the
+                 ingress direction of this Channel that
+                 are discarded at the class of service
+                 queue due to overflow.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngCLP0CoSDiscard.
+                 The lower 32-bits will be present in
+                 cwacsIngCLP0CoSDiscard."
+        ::= { cwacsEntry 49 }
+
+cwacsHighIngCLP1CoSDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 cells in the
+                 ingress direction of this Channel that
+                 are discarded at the class of service
+                 queue due to overflow.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngCLP1CoSDiscard.
+                 The lower 32-bits will be present in
+                 cwacsIngCLP1CoSDiscard."
+        ::= { cwacsEntry 50 }
+
+cwacsHighIngCLP0UpcDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the
+                 ingress direction of this Channel that
+                 are discarded at the traffic policing
+                 entity due to UPC/PCR parameter
+                 violation.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngCLP0UpcDiscard.
+                 The lower 32-bits will be present in
+                 cwacsIngCLP0UpcDiscard."
+        ::= { cwacsEntry 51 }
+
+cwacsHighIngCLP1UpcDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 cells in the
+                 ingress direction of this Channel that
+                 are discarded at the traffic policing
+                 entity due to UPC/PCR parameter
+                 violation.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngCLP1UpcDiscard.
+                 The lower 32-bits will be present in
+                 cwacsIngCLP1UpcDiscard."
+        ::= { cwacsEntry 52 }
+
+cwacsHighIngCLP0UpcTagged OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the
+                 ingress direction of this Channel that
+                 are tagged as low priority by UPC.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngCLP0UpcTagged.
+                 The lower 32-bits will be present in
+                 cwacsIngCLP0UpcTagged."
+        ::= { cwacsEntry 53 }
+
+cwacsHighIngRcvEFCI0 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=0 cells in the ingress
+                 direction of this Channel before class of
+                 service queue.
+
+                 EFCI(Explicit Forward Congestion Indication)
+                 is an ATM header bit.
+
+                 This counter carries upper 32-bits of
+                 cwacsHCIngRcvEFCI0. The lower 32-bits will be
+                 present in cwacsIngRcvEFCI0."
+        ::= { cwacsEntry 54 }
+
+cwacsHighIngRcvEFCI1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=1 cells in the ingress
+                 direction of this Channel before the class of
+                 service queue.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngRcvEFCI1. The lower 32-bits will be
+                 present in cwacsIngRcvEFCI1"
+        ::= { cwacsEntry 55 }
+
+cwacsHighIngEFCI0Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid UPC/PCR parameter compliant
+                 EFCI=0 cells in the ingress direction of this
+                 Channel that are discarded at the CoS queue.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngEFCI0Discard.
+                 The lower 32-bits will be present in
+                 cwacsIngEFCI0Discard."
+        ::= { cwacsEntry 56 }
+
+cwacsHighIngEFCI1Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid UPC/PCR parameter compliant
+                 EFCI=1 cells in the ingress direction of this
+                 Channel that are discarded at the CoS queue.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngEFCI1Discard.
+                 The lower 32-bits will be present in
+                 cwacsIngEFCI1Discard."
+        ::= { cwacsEntry 57 }
+
+cwacsHighIngRcvEOF1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EOF=1 ATM cells in the
+                 ingress direction of this Channel PRIOR to the
+                 traffic management entity.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngRcvEOF1. The lower 32-bits will be
+                 present in cwacsIngRcvEOF1."
+        ::= { cwacsEntry 58 }
+
+cwacsHighIngEOF1Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EOF=1 ATM cells in the
+                 ingress direction of this Channel which are
+                 discarded at the traffic management entity.
+                 This counter carries upper 32-bits of
+                 cwacsHCIngEOF1Discard.
+                 The lower 32-bits will be present in
+                 cwacsIngEOF1Discard."
+        ::= { cwacsEntry 59 }
+
+cwacsHighEgrRcvCLP0 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 ATM cells in the
+                 egress direction of this Channel PRIOR to the
+                 traffic management entity.
+                 This counter carries upper 32-bits of
+                 cwacsHCEgrRcvCLP0. The lower 32-bits will be
+                 present in cwacsEgrRcvCLP0."
+        ::= { cwacsEntry 60 }
+
+cwacsHighEgrRcvCLP1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 ATM cells in the
+                 egress direction of this Channel PRIOR to the
+                 traffic management entity.
+                 This counter carries upper 32-bits of
+                 cwacsHCEgrRcvCLP1. The lower 32-bits will be
+                 present in cwacsEgrRcvCLP1."
+        ::= { cwacsEntry 61 }
+
+cwacsHighEgrXmtCLP0 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 ATM cells in the
+                 egress direction of this Channel AFTER the
+                 traffic management entity.
+                 This counter carries upper 32-bits of
+                 cwacsHCEgrXmtCLP0. The lower 32-bits will be
+                 present in cwacsEgrXmtCLP0."
+        ::= { cwacsEntry 62 }
+
+cwacsHighEgrXmtCLP1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 ATM cells in the
+                 egress direction of this Channel AFTER the
+                 traffic management entity.
+                 This counter carries upper 32-bits of
+                 cwacsHCEgrXmtCLP1.
+                 The lower 32-bits will be present in
+                 cwacsEgrXmtCLP1."
+        ::= { cwacsEntry 63 }
+
+cwacsHighEgrCLP0CoSDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the egress
+                 direction of this Channel that are discarded
+                 at the CoS queue due to overflow.
+                 This counter carries upper 32-bits of
+                 cwacsHCEgrCLP0CoSDiscard.
+                 The lower 32-bits will be present in
+                 cwacsEgrCLP0CoSDiscard."
+        ::= { cwacsEntry 64 }
+
+cwacsHighEgrCLP1CoSDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 cells in the egress
+                 direction of this Channel that are discarded
+                 at the CoS queue due to overflow.
+                 This counter carries upper 32-bits of
+                 cwacsHCEgrCLP1CoSDiscard.
+                 The lower 32-bits will be present in
+                 cwacsEgrCLP1CoSDiscard."
+        ::= { cwacsEntry 65 }
+
+cwacsHighEgrRcvEFCI0 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=0 cells in the egress
+                 direction of this Channel before CoS queue.
+                 This counter carries upper 32-bits of
+                 cwacsHCEgrRcvEFCI0.
+                 The lower 32-bits will be present in
+                 cwacsEgrRcvEFCI0."
+        ::= { cwacsEntry 66 }
+
+cwacsHighEgrRcvEFCI1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=1 cells in the egress
+                 direction of this Channel before the class of
+                 service queue.
+                 This counter carries upper 32-bits of
+                 cwacsHCEgrRcvEFCI1. The lower 32-bits will be
+                 present in cwacsEgrRcvEFCI1."
+        ::= { cwacsEntry 67 }
+
+cwacsHighEgrEFCI0Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=0 cells in the egress
+                 direction of this Channel that are discarded
+                 at the CoS queue.
+                 This counter carries upper 32-bits of
+                 cwacsHCEgrEFCI0Discard.
+                 The lower 32-bits will be present in
+                 cwacsEgrEFCI0Discard."
+        ::= { cwacsEntry 68 }
+
+cwacsHighEgrEFCI1Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=1 cells in the egress
+                 direction of this Channel that are discarded
+                 at the CoS queue.
+                 This counter carries upper 32-bits of
+                 cwacsHCEgrEFCI1Discard.
+                 The lower 32-bits will be present in
+                 cwacsEgrEFCI1Discard."
+        ::= { cwacsEntry 69 }
+
+cwacsHighEgrRcvEOF1 OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EOF=1 ATM cells in the
+                 egress direction of this Channel PRIOR to
+                 the traffic management entity.
+                 This counter carries upper 32-bits of
+                 cwacsHCEgrRcvEOF1.
+                 The lower 32-bits will be present in
+                 cwacsEgrRcvEOF1."
+        ::= { cwacsEntry  70 }
+
+cwacsHighEgrEOF1Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EOF=1 ATM cells in the
+                 egress direction of this Channel which are
+                 discarded at the traffic management entity.
+                 This counter carries upper 32-bits
+                 of cwacsHCEgrEOF1Discard. The lower 32-bits
+                 will be present in cwacsEgrEOF1Discard."
+        ::= { cwacsEntry 71 }
+
+--   Extension to the cwacs table
+cwacsXTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CwacsXEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "Contains traffic statistic information for every Channel
+                entry in the atmTable. It is used to monitor the
+                usage of the Channel in terms of Ingress(incoming
+                direction) cells and Egress (outgoing direction) cells.
+                In each direction counters are collected before and
+                after the traffic management entity. The objects will
+                carry 64-bit values for the statistics counters."
+        ::=  { cwacs 2 }
+
+cwacsXEntry OBJECT-TYPE
+        SYNTAX     CwacsXEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry in the ATM connection Channel statistic table.
+                 An entry is created for every Channel."
+        AUGMENTS    {cwacsEntry}
+        ::= { cwacsXTable 1 }
+
+CwacsXEntry ::=
+        SEQUENCE {
+                -- Ingress statistics
+                cwacsHCIngRcvCLP0                       Counter64,
+                cwacsHCIngRcvCLP1                       Counter64,
+                cwacsHCIngXmtCLP0                       Counter64,
+                cwacsHCIngXmtCLP1                       Counter64,
+                cwacsHCIngCLP0CoSDiscard                Counter64,
+                cwacsHCIngCLP1CoSDiscard                Counter64,
+                cwacsHCIngCLP0UpcDiscard                Counter64,
+                cwacsHCIngCLP1UpcDiscard                Counter64,
+                cwacsHCIngCLP0UpcTagged                 Counter64,
+                cwacsHCIngRcvEFCI0                      Counter64,
+                cwacsHCIngRcvEFCI1                      Counter64,
+                cwacsHCIngEFCI0Discard                  Counter64,
+                cwacsHCIngEFCI1Discard                  Counter64,
+                cwacsHCIngRcvEOF1                       Counter64,
+                cwacsHCIngEOF1Discard                   Counter64,
+                 -- Egress statistics
+                cwacsHCEgrRcvCLP0                       Counter64,
+                cwacsHCEgrRcvCLP1                       Counter64,
+                cwacsHCEgrXmtCLP0                       Counter64,
+                cwacsHCEgrXmtCLP1                       Counter64,
+                cwacsHCEgrCLP0CoSDiscard                Counter64,
+                cwacsHCEgrCLP1CoSDiscard                Counter64,
+                cwacsHCEgrRcvEFCI0                      Counter64,
+                cwacsHCEgrRcvEFCI1                      Counter64,
+                cwacsHCEgrEFCI0Discard                  Counter64,
+                cwacsHCEgrEFCI1Discard                  Counter64,
+                cwacsHCEgrRcvEOF1                       Counter64,
+                cwacsHCEgrEOF1Discard                   Counter64
+                }
+
+cwacsHCIngRcvCLP0 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 ATM cells in the
+                 ingress direction of this Channel PRIOR to
+                 the traffic management entity. This counter
+                 carries 64-bit value of this statistic."
+        ::= { cwacsXEntry 1 }
+
+cwacsHCIngRcvCLP1 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 ATM cells in the
+                 ingress direction of this Channel PRIOR to
+                 the traffic management entity.  This counter
+                 carries 64-bit value of this statistic."
+        ::= { cwacsXEntry 2 }
+
+cwacsHCIngXmtCLP0 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 ATM cells in the
+                 ingress direction of this Channel AFTER the
+                 traffic management entity. This counter
+                 carries 64-bit value of this statistic."
+        ::= { cwacsXEntry 3 }
+
+cwacsHCIngXmtCLP1 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 ATM cells in the
+                 ingress direction of this Channel AFTER the
+                 traffic management entity. This counter
+                 carries 64-bit value of this statistic."
+        ::= { cwacsXEntry 4 }
+
+cwacsHCIngCLP0CoSDiscard OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the ingress
+                 direction of this Channel that are discarded
+                 at the class of service queue due to overflow.
+                 This counter carries 64-bit value of this
+                 statistic."
+        ::= { cwacsXEntry 5 }
+
+cwacsHCIngCLP1CoSDiscard OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 cells in the ingress
+                 direction of this Channel that are discarded
+                 at the class of service queue due to
+                 overflow."
+        ::= { cwacsXEntry 6 }
+
+cwacsHCIngCLP0UpcDiscard OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the ingress
+                 direction of this Channel that are discarded
+                 at the traffic policing entity due to UPC/PCR
+                 parameter violation.
+                 This counter carries 64-bit value of this
+                 statistic."
+        ::= { cwacsXEntry 7 }
+
+cwacsHCIngCLP1UpcDiscard OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 cells in the ingress
+                 direction of this Channel that are discarded
+                 at the traffic policing entity due to UPC/PCR
+                 parameter violation. This counter carries
+                 64-bit value of this statistic."
+        ::= { cwacsXEntry 8 }
+
+cwacsHCIngCLP0UpcTagged OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the ingress
+                 direction of this Channel that are tagged as
+                 low priority by UPC.  This counter carries
+                 64-bit value of this statistic."
+        ::= { cwacsXEntry 9 }
+
+cwacsHCIngRcvEFCI0 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=0 cells in the ingress
+                 direction of this Channel before class of
+                 service queue.
+
+                 EFCI(Explicit Forward Congestion Indication)
+                 is an ATM header bit.
+
+                 This counter carries 64-bit value of this
+                 statistic."
+        ::= { cwacsXEntry 10 }
+
+cwacsHCIngRcvEFCI1 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=1 cells in the ingress
+                 direction of this Channel before the class of
+                 service queue. This counter carries 64-bit
+                 value of this statistic."
+        ::= { cwacsXEntry 11 }
+
+cwacsHCIngEFCI0Discard OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid UPC/PCR parameter compliant
+                 EFCI=0 cells in the ingress direction of this
+                 Channel that are discarded at the CoS queue.
+                 This counter carries 64-bit value of this
+                 statistic."
+        ::= { cwacsXEntry 12 }
+
+cwacsHCIngEFCI1Discard OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid UPC/PCR parameter compliant
+                 EFCI=1 cells in the ingress direction of this
+                 Channel that are discarded at the CoS queue.
+                 This counter carries 64-bit value of this
+                 statistic."
+        ::= { cwacsXEntry 13 }
+
+cwacsHCIngRcvEOF1 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EOF=1 ATM cells in the
+                 ingress direction of this Channel PRIOR to
+                 the traffic management entity.  This counter
+                 carries 64-bit value of this statistic."
+        ::= { cwacsXEntry 14 }
+
+cwacsHCIngEOF1Discard OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EOF=1 ATM cells in the
+                 ingress direction of this Channel which are
+                 discard at the traffic management entity.
+                 This counter carries 64-bit value of this
+                 statistic."
+        ::= { cwacsXEntry 15 }
+
+cwacsHCEgrRcvCLP0 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 ATM cells in the
+                 egress direction of this Channel PRIOR to
+                 the traffic management entity. This counter
+                 carries 64-bit value of this statistic."
+        ::= { cwacsXEntry 16 }
+
+cwacsHCEgrRcvCLP1 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 ATM cells in
+                 the egress direction of this Channel PRIOR
+                 to the traffic management entity. This
+                 counter carries 64-bit value of this
+                 statistic."
+        ::= { cwacsXEntry 17 }
+
+cwacsHCEgrXmtCLP0 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 ATM cells in the
+                 egress direction of this Channel AFTER the
+                 traffic management entity. This counter
+                 carries 64-bit value of this statistic."
+        ::= { cwacsXEntry 18 }
+cwacsHCEgrXmtCLP1 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 ATM cells in the
+                 egress direction of this Channel AFTER the
+                 traffic management entity. This counter
+                 carries 64-bit value of this statistic."
+        ::= { cwacsXEntry 19 }
+
+cwacsHCEgrCLP0CoSDiscard OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the egress
+                 direction of this Channel that are discarded
+                 at the CoS queue due to overflow. This counter
+                 carries 64-bit value of this statistic."
+        ::= { cwacsXEntry 20 }
+
+cwacsHCEgrCLP1CoSDiscard OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 cells in the egress
+                 direction of this Channel that are discarded
+                 at the CoS queue due to overflow. This counter
+                 carries 64-bit value of this statistic."
+        ::= { cwacsXEntry 21 }
+
+cwacsHCEgrRcvEFCI0 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=0 cells in the egress
+                 direction of this Channel before CoS queue.
+                 This counter carries 64-bit value of this
+                 statistic."
+        ::= { cwacsXEntry 22 }
+
+cwacsHCEgrRcvEFCI1 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=1 cells in the egress
+                 direction of this Channel before the class
+                 of service queue. This counter carries 64-bit
+                 value of this statistic."
+        ::= { cwacsXEntry 23 }
+
+cwacsHCEgrEFCI0Discard OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EFCI=0 cells in the egress
+                 direction of this Channel that are discarded
+                 at the CoS queue. This counter carries 64-bit
+                 value of this statistic."
+        ::= { cwacsXEntry 24 }
+
+cwacsHCEgrEFCI1Discard OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS          current
+        DESCRIPTION
+                "The number of valid EFCI=1 cells in the egress
+                 direction of this Channel that are discarded
+                 at the CoS queue. This counter carries 64-bit
+                 value of this statistic."
+        ::= { cwacsXEntry 25 }
+
+cwacsHCEgrRcvEOF1 OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EOF=1 ATM cells in the
+                 egress direction of this Channel PRIOR to
+                 the traffic management entity. This counter
+                 carries 64-bit value of this statistic."
+        ::= { cwacsXEntry  26 }
+
+cwacsHCEgrEOF1Discard OBJECT-TYPE
+        SYNTAX     Counter64
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid EOF=1 ATM cells in the
+                 egress direction of this Channel which are
+                 discarded at the traffic management entity.
+                 This counter carries 64-bit value of
+                 this statistic."
+        ::= { cwacsXEntry 27 }
+
+-- cwaConnStatsTable
+
+cwaConnStatsTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CwaConnStatsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "Contains traffic statistic information for every Channel
+                entry in the atmTable. It is used to monitor the
+                usage of the Channel in terms of Ingress(incoming
+                direction) cells and Egress (outgoing direction) cells.
+                In each direction counters are collected before and
+                after the traffic management entity.
+
+                This table only applies to ATM service module such as
+                BXM."
+        ::=  { cwacs 3 }
+
+cwaConnStatsEntry OBJECT-TYPE
+        SYNTAX     CwaConnStatsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry in the ATM connection Channel statistic
+                 table. An entry is  created for every Channel. These
+                 counters applies to Channels on ATM service module
+                 such as BXM."
+        INDEX { ifIndex, cwaChanVpi, cwaChanVci }
+        ::= { cwaConnStatsTable 1 }
+
+CwaConnStatsEntry ::=
+        SEQUENCE {
+                -- Ingress statistics
+                cwaConnStatsIngRcv               Counter32,
+                cwaConnStatsIngCLP0Discard       Counter32,
+                cwaConnStatsIngCLP1Discard       Counter32,
+                cwaConnStatsIngTotalDiscard      Counter32,
+                -- Egress statistics
+                cwaConnStatsEgrXmt               Counter32,
+                cwaConnStatsEgrCLP0Discard       Counter32,
+                cwaConnStatsEgrCLP1Discard       Counter32,
+                cwaConnStatsEgrTotalDiscard      Counter32,
+                -- channel statistics control object
+                cwaConnStatsClear                TruthValue
+                }
+
+cwaConnStatsIngRcv OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 and CLP=1 ATM cells in the
+                 ingress direction of this Channel prior to the traffic
+                 management entity."
+        ::= { cwaConnStatsEntry 1 }
+
+
+cwaConnStatsIngCLP0Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the ingress
+                 direction of this Channel that are discarded at the
+                 traffic policing entity due to UPC parameter violation
+                 and at the class of service queue due to overflow."
+        ::= { cwaConnStatsEntry 2 }
+
+cwaConnStatsIngCLP1Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 cells in the ingress
+                 direction of this Channel that are discarded at the
+                 traffic policing entity due to UPC parameter violation
+                 and at the class of service queue due to overflow."
+        ::= { cwaConnStatsEntry 3 }
+
+cwaConnStatsIngTotalDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Total number of CLP=0 cells, CLP=1 cells, OAM cells,
+                 and RM cells in the ingress direction of this Channel
+                 that are discarded due to UPC parameter violation and
+                 the class of service queue overflow."
+        ::= { cwaConnStatsEntry 4 }
+
+cwaConnStatsEgrXmt OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 and CLP=1 ATM cells in the
+                 egress direction of this Channel prior to the traffic
+                 management entity."
+        ::= { cwaConnStatsEntry 5 }
+
+cwaConnStatsEgrCLP0Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=0 cells in the egress
+                 direction of this Channel that are discarded at the
+                 class of service queue due to overflow."
+        ::= { cwaConnStatsEntry 6 }
+
+cwaConnStatsEgrCLP1Discard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid CLP=1 cells in the egress
+                 direction of this Channel that are discarded at the
+                 the class of service queue due to overflow."
+        ::= { cwaConnStatsEntry 7 }
+
+cwaConnStatsEgrTotalDiscard OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Total number of CLP=0 cells, CLP=1 cells, OAM cells,
+                 and RM cells in the egress direction of this Channel
+                 that are discarded due to the class of service queue
+                 overflow."
+        ::= { cwaConnStatsEntry 8 }
+
+cwaConnStatsClear OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "The agent clears the channel statistics collection if
+                 it receives a set to value of true(1) request from a
+                 manager.
+                 Setting a value of false(2) has no implication."
+        DEFVAL { false }
+        ::= { cwaConnStatsEntry 9 }
+
+cwacsExtStatsTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CwacsExtStatsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "This table is extension of cwacsTable and is used
+                to store traffic statistic information for each
+                channel.
+                The information in this table is related to voice over
+                aal2(VoAtm)."
+        ::=  { cwacs 4 }
+
+cwacsExtStatsEntry OBJECT-TYPE
+        SYNTAX     CwacsExtStatsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry in cwacsTable."
+        AUGMENTS   { cwacsEntry }
+        ::= { cwacsExtStatsTable 1 }
+
+CwacsExtStatsEntry ::=
+        SEQUENCE {
+                cwacsEgrAal2HecErrors           Counter32,
+                cwacsEgrAal2InvalidOsfCells     Counter32,
+                cwacsEgrAal2InvalidParCells     Counter32,
+                cwacsAal2CpsSentPkts            Counter32,
+                cwacsAal2CpsRcvdPkts            Counter32,
+                cwacsEgrAal2CpsInvalidCidPkts   Counter32,
+                cwacsCacPassedCalls             Counter32,
+                cwacsCacRejectedCalls           Counter32,
+                cwacsIngXmtOAM                  Counter32,
+                cwacsUsedConns                  Gauge32,
+                cwacsUtilizedCR                 Gauge32,
+                cwacsUsedVadConns               Gauge32,
+                cwacsTotalCR                    Gauge32,
+                cwacsAisSuppressCount           Counter32
+                }
+
+cwacsEgrAal2HecErrors OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "PDUs"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of egress AAL2 CPS(Common Part Sub-layer)
+                 PDUs dropped due to HEC (Header Error Control)
+                 error."
+        ::= { cwacsExtStatsEntry 1 }
+
+cwacsEgrAal2InvalidOsfCells OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The Number of AAL2 cells dropped due to invalid OSF
+                 (OffSet Field) in the egress direction."
+        ::= { cwacsExtStatsEntry 2 }
+
+cwacsEgrAal2InvalidParCells OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The Number of AAL2 cells dropped due to invalid
+                 Parity bit field in the egress direction."
+        ::= { cwacsExtStatsEntry 3 }
+
+cwacsAal2CpsSentPkts OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "packets"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+               "The number of AAL2 CPS packets sent to the network."
+        ::= { cwacsExtStatsEntry 4 }
+
+cwacsAal2CpsRcvdPkts OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "packets"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of AAL2 CPS packets received from the
+                 network.
+                 This does not include the packets which are counted
+                 as error packets."
+        ::= { cwacsExtStatsEntry 5 }
+
+cwacsEgrAal2CpsInvalidCidPkts OBJECT-TYPE
+        SYNTAX      Counter32
+        UNITS       "packets"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The number of AAL2 CPS packets dropped in the egress
+                 direction due to invalid CID.
+                 The CID may be considered as invalid if -
+                 a) It is out of range.
+                 b) It is not configured
+
+                 CID is Channel ID of a voice channel which set-up
+                 within PVC/SVC(only AAL2) and the CID is unique within
+                 the context of PVC/SVC."
+        ::= { cwacsExtStatsEntry 6 }
+
+-- The following 2 objects are related to CAC
+
+cwacsCacPassedCalls OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of calls that passed successfully the
+                 CAC function.
+
+                 For example, CAC functionality is applied either
+                 due to:
+
+                 1) The CRCX message sent to Voice Gateway from the
+                    Call Agent to set up a new connection OR AAL2
+                    trunking application.
+
+                 or
+
+                 2) Upspeed request due to Fax/modem tone detection
+                    on a connection configured for compression.
+                    For the initial version of Alabama release,
+                    only case 2 is valid."
+        ::= { cwacsExtStatsEntry 7 }
+
+cwacsCacRejectedCalls OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of calls that got rejected due to
+                 CAC function.  The CAC rejection was due to the
+                 bandwidth not being available on a given
+                 ATM connection."
+        ::= { cwacsExtStatsEntry 8 }
+
+cwacsIngXmtOAM OBJECT-TYPE
+        SYNTAX     Counter32
+        UNITS      "cells"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The number of valid OAM cells in the ingress direction
+                 of this Channel after the traffic management entity."
+        ::= { cwacsExtStatsEntry 9 }
+
+cwacsUsedConns OBJECT-TYPE
+        SYNTAX     Gauge32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "This attribute indicates the number of connections
+             currently in used."
+        ::= { cwacsExtStatsEntry 10 }
+
+cwacsUtilizedCR OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "cells per second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This attribute indicates the current utilized CR
+                 (cell Rate) applied for PVC connection."
+        ::= { cwacsExtStatsEntry 11 }
+
+cwacsUsedVadConns OBJECT-TYPE
+        SYNTAX     Gauge32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This attribute indicates the number of connections
+                 currently using VAD (Voice Activity Detection)."
+        ::= { cwacsExtStatsEntry 12 }
+
+cwacsTotalCR OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "cells per second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This attribute indicates the Total CR (cell
+                 Rate) applied for PVC connection."
+        ::= { cwacsExtStatsEntry 13 }
+
+cwacsAisSuppressCount OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object holds the number of times that ATM network
+                 alarms were successfully suppressed and prevented from
+                 propagating onto the TDM side for this PVC."
+        ::= { cwacsExtStatsEntry 14 }
+
+--
+-- cwacsBearerPVCTable
+--
+
+cwacsBearerPVCTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CwacsBearerPVCEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+               "This table stores the bearer PVC statistic
+                information."
+        ::=  { cwacs 5 }
+
+cwacsBearerPVCEntry OBJECT-TYPE
+        SYNTAX     CwacsBearerPVCEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry represents a valid bearer PVC.
+                 An entry is added/deleted automatically when a
+                 bearer PVC is added/deleted.  A bearer PVC
+                 excludes the secondary one in a dual PVC pair."
+        INDEX { ifIndex, cwaChanVpi, cwaChanVci }
+        ::= { cwacsBearerPVCTable 1 }
+
+CwacsBearerPVCEntry ::=
+        SEQUENCE {
+                  cwacsAvailableBearerPVCBWMin  Gauge32,
+                  cwacsAvailableBearerPVCBWMax  Gauge32,
+                  cwacsAvailableBearerPVCBWAvg  Gauge32,
+                  cwacsBearerPVCSinceLastReset  Unsigned32
+                 }
+
+cwacsAvailableBearerPVCBWMin OBJECT-TYPE
+        SYNTAX     Gauge32 (0..100)
+        UNITS      "percentage"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The minimum available bandwidth of a bearer PVC
+                 in the statistics interval."
+        ::= { cwacsBearerPVCEntry 1 }
+
+cwacsAvailableBearerPVCBWMax OBJECT-TYPE
+        SYNTAX     Gauge32 (0..100)
+        UNITS      "percentage"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The maximum available bandwidth of a bearer PVC
+                 in the statistics interval."
+        ::= { cwacsBearerPVCEntry 2 }
+
+cwacsAvailableBearerPVCBWAvg OBJECT-TYPE
+        SYNTAX     Gauge32 (0..100)
+        UNITS      "percentage"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The average available bandwidth of a bearer PVC
+                 in the statistics interval."
+        ::= { cwacsBearerPVCEntry 3 }
+
+cwacsBearerPVCSinceLastReset OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "seconds"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The elapsed time (in seconds) since the last periodic
+                 reset."
+        ::= { cwacsBearerPVCEntry 4 }
+
+-- Notifications
+
+ciscoWanAtmConnStatMIBNotificationPrefix OBJECT IDENTIFIER ::=
+                          { ciscoWanAtmConnStatMIB 2 }
+ciscoWanAtmConnStatMIBNotifications OBJECT IDENTIFIER      ::=
+                          { ciscoWanAtmConnStatMIBNotificationPrefix 0 }
+
+-- Compliance
+
+ciscoWanAtmConnStatMIBConformance OBJECT IDENTIFIER ::=
+                                 { ciscoWanAtmConnStatMIB 3 }
+ciscoWanAtmConnStatMIBCompliances OBJECT IDENTIFIER ::=
+                                 { ciscoWanAtmConnStatMIBConformance 1 }
+ciscoWanAtmConnStatMIBGroups      OBJECT IDENTIFIER ::=
+                                 { ciscoWanAtmConnStatMIBConformance 2 }
+-- Conformance
+
+ciscoWanAtmConnStatMIBCompliance MODULE-COMPLIANCE
+        STATUS  deprecated -- replaced by
+                           -- ciscoWanAtmConnStatMIBCompliance2
+        DESCRIPTION
+                "The compliance statement for the Cisco statistics
+                 MIB."
+        MODULE  -- this module
+                MANDATORY-GROUPS {  cwacsGroup
+                                 }
+        ::= { ciscoWanAtmConnStatMIBCompliances 1 }
+
+ciscoWanAtmConnStatMIBCompliance2 MODULE-COMPLIANCE
+        STATUS  deprecated -- replaced by
+                           -- ciscoWanAtmConnStatMIBCompliance3
+        DESCRIPTION
+                "The compliance statement for the Cisco statistics
+                 MIB."
+        MODULE  -- this module
+        MANDATORY-GROUPS {  cwacsGroup,
+                            cwaConnStatsGroup
+                         }
+        ::= { ciscoWanAtmConnStatMIBCompliances 2 }
+
+ciscoWanAtmConnStatMIBCompliance3 MODULE-COMPLIANCE
+        STATUS  deprecated -- replaced by
+                           -- ciscoWanAtmConnStatMIBCompliance4
+        DESCRIPTION
+                "The compliance statement for the Cisco statistics
+                 MIB."
+        MODULE  -- this module
+                MANDATORY-GROUPS {  cwacsGroup1,
+                                    cwaConnStatsGroup
+                                 }
+        GROUP cwacsHCGroup
+        DESCRIPTION
+                "Required if the system has interface speed of OC12 or
+                 higher."
+        ::= { ciscoWanAtmConnStatMIBCompliances 3 }
+
+ciscoWanAtmConnStatMIBCompliance4 MODULE-COMPLIANCE
+        STATUS  deprecated -- replaced by
+                           -- ciscoWanAtmConnStatMIBCompliance5
+        DESCRIPTION
+                "The compliance statement for the Cisco statistics
+                 MIB."
+        MODULE  -- this module
+                MANDATORY-GROUPS {  cwacsGroup1,
+                                    cwaConnStatsGroup
+                                 }
+        GROUP cwacsHCGroup
+        DESCRIPTION
+                "Required if the system has interface speed of OC12 or
+                 higher."
+
+        GROUP cwacsAal2Group
+        DESCRIPTION
+                "Implementation of this group is not mandatory for the
+                 switches which does not support voice gateway."
+        ::= { ciscoWanAtmConnStatMIBCompliances 4 }
+
+ciscoWanAtmConnStatMIBCompliance5 MODULE-COMPLIANCE
+        STATUS  deprecated -- replaced by
+                           -- ciscoWanAtmConnStatMIBCompliance6
+        DESCRIPTION
+                "The compliance statement for the Cisco statistics
+                 MIB."
+        MODULE  -- this module
+                MANDATORY-GROUPS {  cwacsGroup1,
+                                    cwaConnStatsGroup
+                                 }
+        GROUP cwacsHCGroup
+        DESCRIPTION
+                "Required if the system has interface speed of OC12 or
+                 higher."
+
+        GROUP cwacsAal2GroupRev1
+        DESCRIPTION
+                "Implementation of this group is not mandatory for the
+                 switches which does not support voice gateway."
+        ::= { ciscoWanAtmConnStatMIBCompliances 5 }
+
+ciscoWanAtmConnStatMIBCompliance6 MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for the Cisco statistics
+                 MIB."
+        MODULE  -- this module
+                MANDATORY-GROUPS {  cwacsGroup1,
+                                    cwaConnStatsGroup
+                                 }
+        GROUP cwacsHCGroup
+        DESCRIPTION
+                "Required if the system has interface speed of OC12 or
+                 higher."
+
+        GROUP cwacsAal2GroupRev1
+        DESCRIPTION
+                "Implementation of this group is not mandatory for the
+                 switches which does not support voice gateway."
+
+        GROUP cwacsBearerPVCGroup
+        DESCRIPTION
+                "Implementation of this group is optional."
+
+        ::= { ciscoWanAtmConnStatMIBCompliances 6 }
+
+
+-- Units of Conformance
+
+cwacsGroup OBJECT-GROUP
+        OBJECTS {
+                cwacsIngRcvCLP0,
+                cwacsIngRcvCLP1,
+                cwacsIngXmtCLP0,
+                cwacsIngXmtCLP1,
+                cwacsIngCLP0CoSDiscard,
+                cwacsIngCLP1CoSDiscard,
+                cwacsIngCLP0UpcDiscard,
+                cwacsIngCLP1UpcDiscard,
+                cwacsIngCLP0UpcTagged,
+                cwacsIngRcvEFCI0,
+                cwacsIngRcvEFCI1,
+                cwacsIngEFCI0Discard,
+                cwacsIngEFCI1Discard,
+                cwacsIngRcvOAM,
+                cwacsIngOAMDiscard,
+                cwacsIngRcvRM,
+                cwacsIngRMDiscard,
+                cwacsIngXmtFRm,
+                cwacsIngXmtBRmFsRm,
+                cwacsIngRcvEOF1,
+                cwacsIngEOF1Discard,
+                cwacsIngACR,
+                cwacsIngVCQueueDepth,
+                -- Egress statistics
+                cwacsEgrRcvCLP0,
+                cwacsEgrRcvCLP1,
+                cwacsEgrXmtCLP0,
+                cwacsEgrXmtCLP1,
+                cwacsEgrCLP0CoSDiscard,
+                cwacsEgrCLP1CoSDiscard,
+                cwacsEgrRcvEFCI0,
+                cwacsEgrRcvEFCI1,
+                cwacsEgrEFCI0Discard,
+                cwacsEgrEFCI1Discard,
+                cwacsEgrRcvOAM,
+                cwacsEgrOAMDiscard,
+                cwacsEgrRcvRM,
+                cwacsEgrRMDiscard,
+                cwacsEgrXmtFRm,
+                cwacsEgrXmtBRmFsRm,
+                cwacsEgrRcvEOF1,
+                cwacsEgrEOF1Discard,
+                cwacsEgrACR,
+                cwacsEgrVCQueueDepth,
+                cwacsStatsClear
+                }
+        STATUS     deprecated -- replaced by cwacsGroup1
+        DESCRIPTION
+                "These are the objects which provide traffic statistic
+                 information related to an ATM Channel."
+        ::= { ciscoWanAtmConnStatMIBGroups 1 }
+
+cwaConnStatsGroup OBJECT-GROUP
+        OBJECTS {
+                -- Ingress statistics
+                cwaConnStatsIngRcv,
+                cwaConnStatsIngCLP0Discard,
+                cwaConnStatsIngCLP1Discard,
+                cwaConnStatsIngTotalDiscard,
+                -- Egress statistics
+                cwaConnStatsEgrXmt,
+                cwaConnStatsEgrCLP0Discard,
+                cwaConnStatsEgrCLP1Discard,
+                cwaConnStatsEgrTotalDiscard,
+                cwaConnStatsClear
+                }
+        STATUS     current
+        DESCRIPTION
+                "These are the objects which provide traffic statistic
+                 information related to an ATM Channel."
+        ::= { ciscoWanAtmConnStatMIBGroups 2 }
+
+cwacsGroup1 OBJECT-GROUP
+        OBJECTS {
+                -- Ingress statistics
+                cwacsIngRcvCLP0,
+                cwacsIngRcvCLP1,
+                cwacsIngXmtCLP0,
+                cwacsIngXmtCLP1,
+                cwacsIngCLP0CoSDiscard,
+                cwacsIngCLP1CoSDiscard,
+                cwacsIngCLP0UpcDiscard,
+                cwacsIngCLP1UpcDiscard,
+                cwacsIngCLP0UpcTagged,
+                cwacsIngRcvEFCI0,
+                cwacsIngRcvEFCI1,
+                cwacsIngEFCI0Discard,
+                cwacsIngEFCI1Discard,
+                cwacsIngRcvOAM,
+                cwacsIngOAMDiscard,
+                cwacsIngRcvRM,
+                cwacsIngRMDiscard,
+                cwacsIngXmtFRm,
+                cwacsIngXmtBRmFsRm,
+                cwacsIngRcvEOF1,
+                cwacsIngEOF1Discard,
+                cwacsIngACR,
+                cwacsIngVCQueueDepth,
+                -- Egress statistics
+                cwacsEgrRcvCLP0,
+                cwacsEgrRcvCLP1,
+                cwacsEgrXmtCLP0,
+                cwacsEgrXmtCLP1,
+                cwacsEgrCLP0CoSDiscard,
+                cwacsEgrCLP1CoSDiscard,
+                cwacsEgrRcvEFCI0,
+                cwacsEgrRcvEFCI1,
+                cwacsEgrEFCI0Discard,
+                cwacsEgrEFCI1Discard,
+                cwacsEgrRcvOAM,
+                cwacsEgrOAMDiscard,
+                cwacsEgrRcvRM,
+                cwacsEgrRMDiscard,
+                cwacsEgrXmtFRm,
+                cwacsEgrXmtBRmFsRm,
+                cwacsEgrRcvEOF1,
+                cwacsEgrEOF1Discard,
+                cwacsEgrACR,
+                cwacsEgrVCQueueDepth,
+                cwacsStatsClear,
+                -- Upper 32-bits for counters which are 64-bit wide
+                   -- Ingress statistics
+                cwacsHighIngRcvCLP0,
+                cwacsHighIngRcvCLP1,
+                cwacsHighIngXmtCLP0,
+                cwacsHighIngXmtCLP1,
+                cwacsHighIngCLP0CoSDiscard,
+                cwacsHighIngCLP1CoSDiscard,
+                cwacsHighIngCLP0UpcDiscard,
+                cwacsHighIngCLP1UpcDiscard,
+                cwacsHighIngCLP0UpcTagged,
+                cwacsHighIngRcvEFCI0,
+                cwacsHighIngRcvEFCI1,
+                cwacsHighIngEFCI0Discard,
+                cwacsHighIngEFCI1Discard,
+                cwacsHighIngRcvEOF1,
+                cwacsHighIngEOF1Discard,
+                   -- Egress statistics
+                cwacsHighEgrRcvCLP0,
+                cwacsHighEgrRcvCLP1,
+                cwacsHighEgrXmtCLP0,
+                cwacsHighEgrXmtCLP1,
+                cwacsHighEgrCLP0CoSDiscard,
+                cwacsHighEgrCLP1CoSDiscard,
+                cwacsHighEgrRcvEFCI0,
+                cwacsHighEgrRcvEFCI1,
+                cwacsHighEgrEFCI0Discard,
+                cwacsHighEgrEFCI1Discard,
+                cwacsHighEgrRcvEOF1,
+                cwacsHighEgrEOF1Discard
+                }
+        STATUS     current
+        DESCRIPTION
+                "These are the objects, which provide traffic
+                 statistic information related to an ATM Channel."
+        ::= { ciscoWanAtmConnStatMIBGroups 3 }
+
+cwacsHCGroup OBJECT-GROUP
+        OBJECTS {
+                -- 64-bit wide statistics counters
+                   -- Ingress statistics
+                cwacsHCIngRcvCLP0,
+                cwacsHCIngRcvCLP1,
+                cwacsHCIngXmtCLP0,
+                cwacsHCIngXmtCLP1,
+                cwacsHCIngCLP0CoSDiscard,
+                cwacsHCIngCLP1CoSDiscard,
+                cwacsHCIngCLP0UpcDiscard,
+                cwacsHCIngCLP1UpcDiscard,
+                cwacsHCIngCLP0UpcTagged,
+                cwacsHCIngRcvEFCI0,
+                cwacsHCIngRcvEFCI1,
+                cwacsHCIngEFCI0Discard,
+                cwacsHCIngEFCI1Discard,
+                cwacsHCIngRcvEOF1,
+                cwacsHCIngEOF1Discard,
+                   -- Egress statistics
+                cwacsHCEgrRcvCLP0,
+                cwacsHCEgrRcvCLP1,
+                cwacsHCEgrXmtCLP0,
+                cwacsHCEgrXmtCLP1,
+                cwacsHCEgrCLP0CoSDiscard,
+                cwacsHCEgrCLP1CoSDiscard,
+                cwacsHCEgrRcvEFCI0,
+                cwacsHCEgrRcvEFCI1,
+                cwacsHCEgrEFCI0Discard,
+                cwacsHCEgrEFCI1Discard,
+                cwacsHCEgrRcvEOF1,
+                cwacsHCEgrEOF1Discard
+                }
+        STATUS     current
+        DESCRIPTION
+                "These are the objects, which provide traffic
+                 statistic information related to an ATM Channel.
+                 These are the 64-bit versions of these statistics."
+        ::= { ciscoWanAtmConnStatMIBGroups 4 }
+
+cwacsAal2Group OBJECT-GROUP
+        OBJECTS {
+                cwacsEgrAal2HecErrors,
+                cwacsEgrAal2InvalidOsfCells,
+                cwacsEgrAal2InvalidParCells,
+                cwacsAal2CpsSentPkts,
+                cwacsAal2CpsRcvdPkts,
+                cwacsEgrAal2CpsInvalidCidPkts,
+                cwacsCacPassedCalls,
+                cwacsCacRejectedCalls,
+                cwacsIngXmtOAM,
+                cwacsUsedConns,
+                cwacsUtilizedCR,
+                cwacsUsedVadConns
+                }
+        STATUS     deprecated
+        DESCRIPTION
+                "These are objects provide statistic information of
+                 ATM connection related to voice gateway.
+                 This group has been replaced by cwacsAal2GroupRev1."
+        ::= { ciscoWanAtmConnStatMIBGroups 5 }
+
+cwacsAal2GroupRev1 OBJECT-GROUP
+        OBJECTS {
+                cwacsEgrAal2HecErrors,
+                cwacsEgrAal2InvalidOsfCells,
+                cwacsEgrAal2InvalidParCells,
+                cwacsAal2CpsSentPkts,
+                cwacsAal2CpsRcvdPkts,
+                cwacsEgrAal2CpsInvalidCidPkts,
+                cwacsCacPassedCalls,
+                cwacsCacRejectedCalls,
+                cwacsIngXmtOAM,
+                cwacsUsedConns,
+                cwacsUtilizedCR,
+                cwacsUsedVadConns,
+                cwacsTotalCR,
+                cwacsAisSuppressCount
+                }
+        STATUS     current
+        DESCRIPTION
+                "These are objects provide statistic information of
+                 ATM connection related to voice gateway."
+        ::= { ciscoWanAtmConnStatMIBGroups 6 }
+
+cwacsBearerPVCGroup OBJECT-GROUP
+        OBJECTS {
+                cwacsAvailableBearerPVCBWMin,
+                cwacsAvailableBearerPVCBWMax,
+                cwacsAvailableBearerPVCBWAvg,
+                cwacsBearerPVCSinceLastReset
+                }
+        STATUS     current
+        DESCRIPTION
+                "These are objects provide Bearer PVC statistic
+                 information related to voice gateway."
+        ::= { ciscoWanAtmConnStatMIBGroups 7 }
+
+END
+
+

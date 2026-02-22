@@ -1,0 +1,73 @@
+-- *****************************************************************
+-- CISCO-SECURE-SHELL-CAPABILITY.my:
+-- Cisco CISCO-SECURE-SHELL-MIB AGENT-CAPABILITIES
+--
+-- April 2004, Dipesh Gorashia
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SECURE-SHELL-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        RowStatus
+                FROM SNMPv2-TC
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoSecureShellCapability MODULE-IDENTITY
+        LAST-UPDATED    "200404190000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-lan-switch-snmp@cisco.com" 
+        DESCRIPTION
+                "The capabilities description of
+                CISCO-SECURE-SHELL-MIB."
+
+        REVISION        "200404190000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 999 }
+
+cSecureShellCapCatOSV08R0401k9 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "Cisco CatOS 8.4(1) cryptographic
+                         software with Secure Shell support."
+    STATUS               current
+    DESCRIPTION          "CISCO-SECURE-SHELL-MIB capabilities."
+
+    SUPPORTS             CISCO-SECURE-SHELL-MIB
+        INCLUDES         { cssConfigurationGroupRev1,
+                           cssServiceModeCfgGroup,
+                           cssSessionInfoGroup }
+
+        VARIATION        cssServiceActivation
+            ACCESS       read-only
+            DESCRIPTION  "Unable to set this object on CatOS."
+
+        VARIATION        cssKeyIndex
+            SYNTAX       INTEGER { rsa(1) } 
+            DESCRIPTION  "Only limited set of enumerated values
+                         are supported."
+
+        VARIATION        cssKeyRowStatus
+            SYNTAX       RowStatus { active(1), createAndGo(4),
+                                     destroy(6) }
+            DESCRIPTION  "Only limited set of enumerated values
+                         are supported."
+    ::= { ciscoSecureShellCapability 1 }
+
+END

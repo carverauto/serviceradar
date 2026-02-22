@@ -1,0 +1,837 @@
+-- *********************************************************************
+-- CISCO-COMMON-ROLES-EXT-MIB.my: Common Roles Extension Mib
+--   
+-- February 2008, Mukul Chauhan
+--   
+-- Copyright (c) 2003, 2008 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *********************************************************************
+
+CISCO-COMMON-ROLES-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    RowStatus,
+    TEXTUAL-CONVENTION,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ccrmConfigurationExtGroup
+        FROM CISCO-COMMON-ROLES-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCommonRolesExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "200802150000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553 -NETS
+            E-mail: cs-san@cisco.com"
+    DESCRIPTION
+        "A MIB Module for managing the roles that are common
+        between access methods like Command Line Interface (CLI),
+        SNMP and XML interface. This MIB is an extension to the
+        CISCO-COMMON-ROLES-MIB, which is for managing Common
+        Roles on a device with fixed feature.
+
+        Terminology:
+
+        Commands are the basic operations that can be performed
+        on a device. For example 'show aaa *', 'clear aaa *',
+        'config t; ip arp *'.
+
+        Commands can be organized into groups called
+        Features. Features can be organized into groups called
+        Feature Groups.
+
+        The constituents of a Feature (i.e. Commands) and the 
+        constituents of a Feature Group (i.e. Features) are
+        collectively referred to as Feature Elements.
+
+        This MIB extends the CISCO-COMMON-ROLES-MIB by adding
+        the following.
+
+        Features can be organized into groups called feature groups.
+        Access privileges can be assigned to feature group(s)
+        associated with a Role.
+
+        The five access privileges (clear, config, debug, show &
+        exec) are replaced by two access privileges ('read' and
+        'readWrite'). These two privileges have no relation to the
+        replaced five privileges.
+
+        The types of objects to which access can be restricted
+        is extended to include VLANs and Interfaces.
+        
+        A device implementing this MIB need not implement
+        CISCO-COMMON-ROLES-MIB."
+    REVISION        "200802150000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 651 }
+
+
+ciscoCommonRolesExtNotifications  OBJECT IDENTIFIER
+    ::= { ciscoCommonRolesExtMIB 0 }
+
+ciscoCommonRolesExtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCommonRolesExtMIB 1 }
+
+ciscoCommonRolesExtMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoCommonRolesExtMIB 2 }
+
+ccreInfo  OBJECT IDENTIFIER
+    ::= { ciscoCommonRolesExtMIBObjects 1 }
+
+ccreRoleConfig  OBJECT IDENTIFIER
+    ::= { ciscoCommonRolesExtMIBObjects 2 }
+
+ccreRuleConfig  OBJECT IDENTIFIER
+    ::= { ciscoCommonRolesExtMIBObjects 3 }
+
+
+-- Textual Conventions
+
+CcreOperation ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Privileges allowed for a common role.
+
+        read      - Read opeation
+        readWrite - Read-Write operation
+
+        Note that if a privilege is not supported by an access
+        method, then it does not apply to that access method.
+
+        There privileges are not related to the privileges
+        defined in 'CommonRoleOperation'"
+    SYNTAX          INTEGER  {
+                        read(1),
+                        readWrite(2)
+                    }
+
+CcreResourceAccess ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "A User can be restricted from accessing resources, in
+        addition to being restricted from performing certain
+        operations.
+        
+        For e.g. a user assigned a role can be restricted from
+        accessing all VLANs configured on the device except VLAN
+        1 and 4, or a user can be allowed to access all VSANs
+        configured on the device except VSAN 5 and 10, or a User
+        can be allowed to access Interface 1, 5, 10, 15 and 20
+        and restricted from accessing all other interfaces.
+        
+        This Bit mask lists the types of resources to which user
+        access can be controlled.
+        
+           vsan(0) 
+                Bit value of 0 indicates that the user has access
+                to no VSANs. However a user can be selectively
+                assigned access to VSANs and each such accessible
+                VSAN will have an entry in the 'ccreRoleScopeTable'.
+                Bit value of 1 indicates that the user has access
+                to all VSANs. In this case there are no VSAN entries
+                in the 'ccreRoleScopeTable'. Setting the bit to 1
+                results in deletion of all VSAN entries from the 
+                ccreRoleScopeTable, for the role identified by
+                'ccreRoleName'.
+                
+            vlan(1)             
+                Bit value of 0 indicates that the user has access
+                to no VLANs. However a user can be selectively
+                assigned access to VLANs and each such accessible
+                VLAN will have an entry in the 'ccreRoleScopeTable'.
+                Bit value of 1 indicates that the user has access
+                to all VLANs. In this case there are no VLAN entries
+                in the 'ccreRoleScopeTable'. Setting the bit to 1
+                results in deletion of all VLAN entries from the 
+                ccreRoleScopeTable, for the role identified by
+                'ccreRoleName'.
+                        
+            interface(2)
+                Bit value of 0 indicates that the user has access
+                to no interfaces. However a user can be selectively
+                assigned access to interfaces and each such accessible
+                interface will have an entry in the 'ccreRoleScopeTable'.
+                Bit value of 1 indicates that the user has access
+                to all interfaces. In this case there are no interface
+                entries in the 'ccreRoleScopeTable'. Setting the bit to 1
+                results in deletion of all interface entries from the 
+                ccreRoleScopeTable, for the role identified by
+                'ccreRoleName'."
+    SYNTAX          BITS {
+                        vsan(0),
+                        vlan(1),
+                        interface(2)
+                    }
+-- ccreFeatureElementTable
+
+ccreFeatureElementTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcreFeatureElementEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists all the features and feature groups
+        configured on a device.
+
+        For each feature it lists all the command(s) contained
+        in the feature.
+
+        For each feature groups it lists all the features
+        contained in the group.
+
+        A feature element is either a feature or a feature
+        group.
+
+        A device may have some predefined features which may
+        not be editable by a user. In addition, a device may
+        allow a user to define new feature group.
+
+        A device implementing this MIB need not implement the
+        objects that form a conceptual row in the
+        'commonRolesFeatureTable' table defined in the
+        CISCO-COMMON-ROLES MIB.
+
+        The entries in this table are persistent across device
+        reboots."
+    ::= { ccreInfo 1 }
+
+ccreFeatureElementEntry OBJECT-TYPE
+    SYNTAX          CcreFeatureElementEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the ccreFeatureElementTable.
+
+        Each row in this table represents an element (command
+        or a feature) contained in a feature or a feature group.
+
+        For example a 'radius' feature that contains three
+        commands - 'radius-server', 'radius-cfs' and
+        'aaa group server radius', this table
+        will have three entries, one each for the three
+        commands.
+
+        ccreFeatureName ccreFeatureIndex ccreFeatureElementName
+        'radius'                1        'radius-server'
+        'radius'                2        'radius-cfs'
+        'radius'                3        'aaa group server radius'
+        'arp'                   1        'show arp'
+        'arp'                   2        'clear ip arp'"
+    INDEX           {
+                        ccreFeatureName,
+                        ccreFeatureElementIndex
+                    } 
+    ::= { ccreFeatureElementTable 1 }
+
+CcreFeatureElementEntry ::= SEQUENCE {
+        ccreFeatureName         SnmpAdminString,
+        ccreFeatureElementIndex Unsigned32,
+        ccreFeatureElementName  SnmpAdminString,
+        ccreFeatureElementType  INTEGER ,
+        ccreFeatureRowStatus    RowStatus
+}
+
+ccreFeatureName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Identifies the feature or the feature group for which
+        this entry represents an element.
+
+        This object is the same as the commonRoleFeatureName." 
+    ::= { ccreFeatureElementEntry 1 }
+
+ccreFeatureElementIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index value for this element which uniquely
+        distinguishes it from all other elements of same
+        feature." 
+    ::= { ccreFeatureElementEntry 2 }
+
+ccreFeatureElementName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Name of the feature element represented by this row." 
+    ::= { ccreFeatureElementEntry 3 }
+
+ccreFeatureElementType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        command(1),
+                        feature(2),
+                        none(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "An indication of the type of element represented by
+        this row.
+
+        When this field has the value 'command', this row
+        represents a command name.
+
+        When this field has the value 'feature', this row
+        represents a feature name.
+
+        This field must have the value 'none' when a
+        feature could not otherwise be represented in this
+        table because the feature does not yet have any
+        elements defined for it. When features are added to
+        an empty feature-group, the row with element type
+        'none' is still maintained in this table. Deleting this
+        row (with type as 'none') will delete the feature group
+        and all other rows representing relationship between
+        this feature group and its members.
+
+        A feature should have at least one element, whereas a
+        feature-group may have zero or more entries.
+
+        All entries in this table are persistent across device
+        reboots" 
+    ::= { ccreFeatureElementEntry 4 }
+
+ccreFeatureRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Status of this row." 
+    ::= { ccreFeatureElementEntry 5 }
+ 
+
+-- ccreRoleTable
+
+ccreRoleTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcreRoleEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists all the common roles configured on this
+        device. Common roles are the user roles which are common
+        across SNMP and CLI.
+
+        A device implementing this MIB need not implement the
+        objects that form a conceptual row in the
+        'commonRoleTable' defined in the CISCO-COMMON-ROLES MIB.
+
+        This table and the 'commonRoleTable' table both have
+        one entry per Role defined on the device. However unlike
+        the 'commonRoleTable', this table does not contain any
+        scope restriction information. The scope restriction
+        information instead is contained in the
+        'ccreRoleScopeTable' Table.
+
+        If a device implements this this table along with
+        'commonRoleTable' a row existing in
+        'commonRoleTable' should also exist in this table and
+        vice versa.
+
+        All entries in this table are persistent across device
+        reboots."
+    ::= { ccreRoleConfig 2 }
+
+ccreRoleEntry OBJECT-TYPE
+    SYNTAX          CcreRoleEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the ccreRoleTable.
+        One entry per role defined on the device."
+    INDEX           { ccreRoleName } 
+    ::= { ccreRoleTable 1 }
+
+CcreRoleEntry ::= SEQUENCE {
+        ccreRoleName            SnmpAdminString,
+        ccreRoleDescription     SnmpAdminString,
+        ccreRoleResourceAccess  CcreResourceAccess,
+        ccreRoleRowStatus       RowStatus
+}
+
+ccreRoleName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Name of the common role. This is same as
+        commonRoleName." 
+    ::= { ccreRoleEntry 1 }
+
+ccreRoleDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Description of the common role. This is same as
+        commonRoleDescription." 
+    ::= { ccreRoleEntry 2 }
+
+ccreRoleResourceAccess OBJECT-TYPE
+    SYNTAX          CcreResourceAccess
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines the default access to the resources to which
+        access can be controlled.
+                        
+            vsan(0) 
+                Bit value of 0 indicates that the user has access
+                to no VSANs. However a user can be selectively
+                assigned access to VSANs and each such accessible
+                VSAN will have an entry in the 'ccreRoleScopeTable'.
+                Bit value of 1 indicates that the user has access
+                to all VSANs. In this case there are no VSAN entries
+                in the 'ccreRoleScopeTable'. Setting the bit to 1
+                results in deletion of all VSAN entries from the 
+                ccreRoleScopeTable, for the role identified by
+                'ccreRoleName'.
+                
+            vlan(1)             
+                Bit value of 0 indicates that the user has access
+                to no VLANs. However a user can be selectively
+                assigned access to VLANs and each such accessible
+                VLAN will have an entry in the 'ccreRoleScopeTable'.
+                Bit value of 1 indicates that the user has access
+                to all VLANs. In this case there are no VLAN entries
+                in the 'ccreRoleScopeTable'. Setting the bit to 1
+                results in deletion of all VLAN entries from the 
+                ccreRoleScopeTable, for the role identified by
+                'ccreRoleName'.
+                        
+            interface(2)
+                Bit value of 0 indicates that the user has access
+                to no Interfaces. However a user can be selectively
+                assigned access to interfaces and each such accessible
+                interface will have an entry in the 'ccreRoleScopeTable'.
+                Bit value of 1 indicates that the user has access
+                to all interfaces. In this case there are no interface
+                entries in the 'ccreRoleScopeTable'. Setting the bit to 1
+                results in deletion of all interface entries from the 
+                ccreRoleScopeTable, for the role identified by
+                'ccreRoleName'.
+
+        For example a role which has access to all VSANs,
+        all VLANs and no Interface will have this field set
+        as
+         - - -
+        |0|1|1|
+         - - -" 
+    ::= { ccreRoleEntry 3 }
+
+ccreRoleRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Status of this role." 
+    ::= { ccreRoleEntry 4 }
+ 
+
+-- ccreRoleScopeTable
+
+ccreRoleScopeTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcreRoleScopeEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the resources to which a user belonging
+        to a role can access. 
+
+        A role may be restricted from accessing various
+        resources of a device. This table lists the resources
+        that a role can access.
+
+        If for a role there is no entry in this table, then
+        restriction, if any, is determined by the
+        ccrePermitAllPolicies object in the ccreRoleTable.
+
+        Each resource (VSAN, VLAN or Interface) to which a role
+        has access to, has a separate entry in the table.
+        For e.g. if a role has access to VLAN 1, 2, 6 and 7;
+        VSAN 2, 5 and 8 and interface 2/1 and 2/3, this table
+        will have 9 entries, 4 for VSANs, 3 for VLANs and 2 for
+        Interfaces.
+
+        Entries in this table can be created/deleted using
+        ccreRoleScopeRowStatus.
+
+        The table provides the same information as
+        'commonRoleScopeRestriction', 'commonRoleScope1' and
+        'commonRoleScope2' but in a different way.
+
+        The object 'commonRoleScope1' and 'commonRoleScope2'
+        are 256*8 bit mask with each bit representing a VLAN.
+        'commonRoleScope1' identifies VLANS 1 to 2048 whereas
+        'commonRoleScope2' identifies VLANS 2049 to 4096.
+
+        In this table, there is a separate entry for each VSAN,
+        along with separate entry for each VLAN and Interface
+        to which a role has access. The purpose of this table
+        is to remove the limit of 4096 that are supported by
+        'commonRoleTable'.
+
+        All entries in this table are persistent across device
+        reboots"
+    ::= { ccreRoleConfig 3 }
+
+ccreRoleScopeEntry OBJECT-TYPE
+    SYNTAX          CcreRoleScopeEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the ccreRoleScopeTable.
+
+        There is one entry for each different scope value of a
+        Role. If a Role 'R1' is defined to have scope on
+        VSAN-1, VSAN-2, VLAN-1, VLAN#, Interface fc1/1 and
+        fc1/2, then there will be six entries for role 'R1' in
+        this table, one each for VSAN-1, VSAN2, VLAN-1, VLAN-1,
+        fc1/1 and fc1/2."
+    INDEX           {
+                        ccreRoleName,
+                        ccreRoleScopeIndex
+                    } 
+    ::= { ccreRoleScopeTable 1 }
+
+CcreRoleScopeEntry ::= SEQUENCE {
+        ccreRoleScopeIndex       Unsigned32,
+        ccreRoleScopeRestriction INTEGER ,
+        ccreRoleScopeValue       Integer32,
+        ccreRoleScopeRowStatus   RowStatus
+}
+
+ccreRoleScopeIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index value for this entry which uniquely
+        distinguishes it from all other entries for same
+        Role." 
+    ::= { ccreRoleScopeEntry 1 }
+
+ccreRoleScopeRestriction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        vsan(1),
+                        vlan(2),
+                        interface(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of the scope restriction
+        about which the information is provided by row." 
+    ::= { ccreRoleScopeEntry 2 }
+
+ccreRoleScopeValue OBJECT-TYPE
+    SYNTAX          Integer32 (1..2147483647 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the resource this role
+        can access.
+
+        If the value of 'ccreRoleScopeRestriction' is 'vsan'
+        or 'vlan', this object specifies the Id (which is
+        a number) of the VSAN/VLAN.
+
+        If the value of 'ccreRoleScopeRestriction' is
+        'interface', this object specifies the IfIndex
+        of the interface." 
+    ::= { ccreRoleScopeEntry 3 }
+
+ccreRoleScopeRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Status of this scope restriction entry." 
+    ::= { ccreRoleScopeEntry 4 }
+ 
+
+-- ccreRuleTable
+
+ccreRuleTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcreRuleEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists all the rules configured for roles
+        defined in the ccreRoleTable. Each rule defines the
+        access (permit/deny) allowed to a particular command,
+        feature or a feature group.
+
+        Entries in this table are also created/deleted using
+        ccreRuleRowStatus.
+
+        A row in this table cannot be made 'active' until a
+        value is explicitly provided for that row's instances
+        of following objects :
+        - ccreRuleOperation
+
+        If ccreRuleFeatureElementName is a command,
+        then
+        - ccreRuleOperation is not needed to be set
+
+        A device implementing this MIB need not implement the
+        objects that form a conceptual row in the
+        'commonRuleRoleTable' table, which is defined in the
+        CISCO-COMMON-ROLES-MIB.
+
+        There is no relation between the rows in
+        'commonRuleRoleTable' and this table as both define
+        different operation types. Each table can have rows
+        with no corresponding rows in other table.
+
+        All entries in this table are persistent across device
+        reboots"
+    ::= { ccreRuleConfig 2 }
+
+ccreRuleEntry OBJECT-TYPE
+    SYNTAX          CcreRuleEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the ccreRuleRuleTable.
+
+        There is one entry for each Rule contained in a Role.
+        For eg. if a Role 'R1' has 6 rules, there will be
+        six entries for Role 'R1'."
+    INDEX           {
+                        ccreRoleName,
+                        ccreRuleNumber
+                    } 
+    ::= { ccreRuleTable 1 }
+
+CcreRuleEntry ::= SEQUENCE {
+        ccreRuleNumber             Unsigned32,
+        ccreRuleFeatureElementName SnmpAdminString,
+        ccreRuleFeatureElementType INTEGER ,
+        ccreRuleOperation          CcreOperation,
+        ccreRuleOperationPermitted TruthValue,
+        ccreRuleRowStatus          RowStatus
+}
+
+ccreRuleNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..256)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique index for a rule in a particular role.
+        The rule are applied according to their rule
+        number, i.e. Rule 1 will be the first rule applied
+        followed by Rule 2 and so on.
+
+        Rule numbers need not be contiguous, for e.g. a Role
+        can have three rule numbered 1, 4 & 7. Further when
+        a new rule is added to this Role it can be rule number
+        2 or 5 or 9 (any number other than 1, 4 and 7)." 
+    ::= { ccreRuleEntry 1 }
+
+ccreRuleFeatureElementName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Name of the command or feature or feature group.
+        If this is a zero-length string, then this rule applies
+        to all the features supported on the device as
+        enumerated in commonRoleFeatureTable."
+    DEFVAL          { ''H } 
+    ::= { ccreRuleEntry 2 }
+
+ccreRuleFeatureElementType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        command(1),
+                        feature(2),
+                        featureGroup(3),
+                        all(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Specifies the type of entry (command or feature or
+        feature group) as specified by the object
+        ccreRuleFeatureElementName" 
+    ::= { ccreRuleEntry 3 }
+
+ccreRuleOperation OBJECT-TYPE
+    SYNTAX          CcreOperation
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The operation for this rule." 
+    ::= { ccreRuleEntry 4 }
+
+ccreRuleOperationPermitted OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object tells if the operation
+        `ccreRuleOperation' is permitted or denied.
+        The operation is permitted if
+        the value of this object is `true'.
+        If the value of the object is 'false', the operation is
+        not permitted."
+    DEFVAL          { true } 
+    ::= { ccreRuleEntry 5 }
+
+ccreRuleRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Status of this rule." 
+    ::= { ccreRuleEntry 6 }
+ 
+
+-- Conformance
+
+ccreMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCommonRolesExtMIBConformance 1 }
+
+ccreMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCommonRolesExtMIBConformance 2 }
+
+
+ccreMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-COMMON-ROLES-EXT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ccreConfigurationGroup }
+
+    OBJECT          ccreFeatureElementName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    OBJECT          ccreFeatureElementType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    OBJECT          ccreFeatureRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    OBJECT          ccreRoleDescription
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    OBJECT          ccreRoleResourceAccess
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    OBJECT          ccreRoleRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    OBJECT          ccreRoleScopeRestriction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    OBJECT          ccreRoleScopeValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    OBJECT          ccreRoleScopeRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    OBJECT          ccreRuleFeatureElementName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    OBJECT          ccreRuleFeatureElementType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    OBJECT          ccreRuleOperation
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    OBJECT          ccreRuleOperationPermitted
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    OBJECT          ccreRuleRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Support for write/create access is not required."
+
+    MODULE          CISCO-COMMON-ROLES-MIB
+    MANDATORY-GROUPS { ccrmConfigurationExtGroup }
+
+    OBJECT          commonRoleSupportedOperation
+    SYNTAX          BITS {
+                        read(5),
+                        readWrite(6)
+                    }
+    DESCRIPTION
+        "Only 'read', 'readWrite' need to be supported."
+    ::= { ccreMIBCompliances 1 }
+
+-- Units of Conformance
+
+ccreConfigurationGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccreFeatureElementName,
+                        ccreFeatureElementType,
+                        ccreFeatureRowStatus,
+                        ccreRoleDescription,
+                        ccreRoleResourceAccess,
+                        ccreRoleRowStatus,
+                        ccreRoleScopeRestriction,
+                        ccreRoleScopeValue,
+                        ccreRoleScopeRowStatus,
+                        ccreRuleFeatureElementName,
+                        ccreRuleFeatureElementType,
+                        ccreRuleOperation,
+                        ccreRuleOperationPermitted,
+                        ccreRuleRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for Common Roles
+        Extention configuration."
+    ::= { ccreMIBGroups 1 }
+
+END
+

@@ -1,0 +1,664 @@
+
+-- *****************************************************************
+-- CISCO-SDWAN-BFD-MIB.my:
+-- OID assignments for Cisco bfd
+
+
+-- July 2021, Richard Fu
+
+-- Copyright (c) 2020-2021 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SDWAN-BFD-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, 
+    OBJECT-TYPE, 
+    Integer32, 
+    Unsigned32, 
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION 
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoSdwanBfdMIB MODULE-IDENTITY
+    LAST-UPDATED "202101260000Z"
+    ORGANIZATION    "Cisco Systems, Inc. "
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+               Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION "This module defines data model for BFD"
+    REVISION "202101260000Z"
+    DESCRIPTION "Cisco SDWAN BFD reversion 0"
+    ::= { ciscoMgmt 1002 }
+
+
+InetAddressIP ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "confd:inetAddressIP"
+    SYNTAX      OCTET STRING (SIZE (4|16))
+
+UnsignedByte ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d"
+    STATUS      current
+    DESCRIPTION "xs:unsignedByte"
+    SYNTAX      Unsigned32 (0 .. 255)
+
+UnsignedShort ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d"
+    STATUS      current
+    DESCRIPTION "xs:unsignedShort"
+    SYNTAX      Unsigned32 (0 .. 65535)
+
+String ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "1t"
+    STATUS      current
+    DESCRIPTION "xs:string"
+    SYNTAX      OCTET STRING
+
+BfdmgrStateEnum ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "BFD manager state"
+    SYNTAX      INTEGER {adminDown(0),
+                         down(1),
+                         init(2),
+                         up(3),
+                         invalid(4),
+                         inactive(5)}
+
+ciscoSdwanBfdMIBNotifs OBJECT IDENTIFIER
+    ::= { ciscoSdwanBfdMIB 0 }
+
+ciscoSdwanBfdMIBObjects OBJECT IDENTIFIER 
+    ::= { ciscoSdwanBfdMIB 1 }
+
+ciscoSdwanBfdMIBNotifObjects OBJECT IDENTIFIER
+    ::= { ciscoSdwanBfdMIB 2 }
+
+ciscoSdwanBfdMIBConform  OBJECT IDENTIFIER 
+    ::= { ciscoSdwanBfdMIB 3 }
+
+-- Configure BFD
+-- tagpath /bfd
+bfd OBJECT IDENTIFIER ::= { ciscoSdwanBfdMIBObjects 1 }
+
+-- BFD summary
+-- tagpath /bfd/summary
+bfdSummary OBJECT IDENTIFIER ::= { bfd 5 }
+--bfdSummary OBJECT IDENTIFIER ::= { ciscoSdwanBfdMIBObjects 5 }
+
+-- tagpath /bfd/summary/bfd-sessions-total
+bfdSummaryBfdSessionsTotal OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Current total number of bfd sessions created"
+    ::= { bfdSummary 1 }
+
+-- tagpath /bfd/summary/bfd-sessions-up
+bfdSummaryBfdSessionsUp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of bfd sessions that are in UP state"
+    ::= { bfdSummary 2 }
+
+-- tagpath /bfd/summary/bfd-sessions-max
+bfdSummaryBfdSessionsMax OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Maximum total number of bfd sessions 
+                 created since bootup"
+    ::= { bfdSummary 3 }
+
+-- tagpath /bfd/summary/bfd-sessions-flap
+bfdSummaryBfdSessionsFlap OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of bfd session flaps 
+                 seen (transitions out of UP state)"
+    ::= { bfdSummary 4 }
+
+-- tagpath /bfd/summary/poll-interval
+bfdSummaryPollInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "App route poll interval"
+    ::= { bfdSummary 5 }
+
+-- tagpath /bfd/sessions-list
+bfdSessionsListTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF BfdSessionsListEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "BFD sessions table"
+    ::= { bfd 1 }
+
+-- tagpath /bfd/sessions-list
+bfdSessionsListEntry OBJECT-TYPE
+    SYNTAX      BfdSessionsListEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "BFD sessions table entry"
+    INDEX { bfdSessionsListSrcIp, 
+            bfdSessionsListDstIp, 
+	    bfdSessionsListProto, 
+            bfdSessionsListSrcPort, 
+	    bfdSessionsListDstPort }
+        ::= { bfdSessionsListTable 1 }
+
+BfdSessionsListEntry ::=
+    SEQUENCE {
+        bfdSessionsListSrcIp InetAddressIP,
+        bfdSessionsListDstIp InetAddressIP,
+        bfdSessionsListProto INTEGER,
+        bfdSessionsListSrcPort UnsignedShort,
+        bfdSessionsListDstPort UnsignedShort,
+        bfdSessionsListSystemIp InetAddressIP,
+        bfdSessionsListSiteId Unsigned32,
+        bfdSessionsListLocalColor INTEGER,
+        bfdSessionsListColor INTEGER,
+        bfdSessionsListState BfdmgrStateEnum,
+        bfdSessionsListDetectMultiplier UnsignedByte,
+        bfdSessionsListTxInterval Unsigned32,
+        bfdSessionsListUptime String,
+        bfdSessionsListTransitions Integer32
+    }
+
+-- tagpath /bfd/sessions-list/src-ip
+bfdSessionsListSrcIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Local TLOC IP address"
+    ::= { bfdSessionsListEntry 1 }
+
+-- tagpath /bfd/sessions-list/dst-ip
+bfdSessionsListDstIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Remote TLOC IP address"
+    ::= { bfdSessionsListEntry 2 }
+
+-- tagpath /bfd/sessions-list/proto
+bfdSessionsListProto OBJECT-TYPE
+    SYNTAX      INTEGER {gre(1),ipsec(2)}
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Protocol or encap"
+    ::= { bfdSessionsListEntry 3 }
+
+-- tagpath /bfd/sessions-list/src-port
+bfdSessionsListSrcPort OBJECT-TYPE
+    SYNTAX      UnsignedShort
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Local port number"
+    ::= { bfdSessionsListEntry 4 }
+
+-- tagpath /bfd/sessions-list/dst-port
+bfdSessionsListDstPort OBJECT-TYPE
+    SYNTAX      UnsignedShort
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Remote port number"
+    ::= { bfdSessionsListEntry 5 }
+
+-- tagpath /bfd/sessions-list/system-ip
+bfdSessionsListSystemIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "System IP address"
+    ::= { bfdSessionsListEntry 6 }
+
+-- tagpath /bfd/sessions-list/site-id
+bfdSessionsListSiteId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Site ID"
+    ::= { bfdSessionsListEntry 7 }
+
+-- tagpath /bfd/sessions-list/local-color
+bfdSessionsListLocalColor OBJECT-TYPE
+    SYNTAX      INTEGER {default(1),
+                         mpls(2),
+                         metroEthernet(3),
+                         bizInternet(4),
+                         publicInternet(5),
+                         lte(6),
+                         threeG(7),
+                         red(8),
+                         green(9),
+                         blue(10),
+                         gold(11),
+                         silver(12),
+                         bronze(13),
+                         custom1(14),
+                         custom2(15),
+                         custom3(16),
+                         private1(17),
+                         private2(18),
+                         private3(19),
+                         private4(20),
+                         private5(21),
+                         private6(22)}
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local color"
+    ::= { bfdSessionsListEntry 8 }
+
+-- tagpath /bfd/sessions-list/color
+bfdSessionsListColor OBJECT-TYPE
+    SYNTAX      INTEGER {default(1),
+                         mpls(2),
+                         metroEthernet(3),
+                         bizInternet(4),
+                         publicInternet(5),
+                         lte(6),threeG(7),
+                         red(8),
+                         green(9),
+                         blue(10),
+                         gold(11),
+                         silver(12),
+                         bronze(13),
+                         custom1(14),
+                         custom2(15),
+                         custom3(16),
+                         private1(17),
+                         private2(18),
+                         private3(19),
+                         private4(20),
+                         private5(21),
+                         private6(22)}
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Remote color"
+    ::= { bfdSessionsListEntry 9 }
+
+-- tagpath /bfd/sessions-list/state
+bfdSessionsListState OBJECT-TYPE
+    SYNTAX      BfdmgrStateEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "State"
+    ::= { bfdSessionsListEntry 10 }
+
+-- tagpath /bfd/sessions-list/detect-multiplier
+bfdSessionsListDetectMultiplier OBJECT-TYPE
+    SYNTAX      UnsignedByte
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Detect multiplier"
+    ::= { bfdSessionsListEntry 11 }
+
+-- tagpath /bfd/sessions-list/tx-interval
+bfdSessionsListTxInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Transmit interval"
+    ::= { bfdSessionsListEntry 12 }
+
+-- tagpath /bfd/sessions-list/uptime
+bfdSessionsListUptime OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Up time"
+    ::= { bfdSessionsListEntry 13 }
+
+-- tagpath /bfd/sessions-list/transitions
+bfdSessionsListTransitions OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Transitions"
+    ::= { bfdSessionsListEntry 14 }
+
+-- tagpath /bfd/history-list
+bfdHistoryListTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF BfdHistoryListEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "BFD session history table"
+    ::= { bfd 2 }
+
+-- tagpath /bfd/history-list
+bfdHistoryListEntry OBJECT-TYPE
+    SYNTAX      BfdHistoryListEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "BFD session history table entry"
+    INDEX { bfdHistoryListSrcIp, 
+            bfdHistoryListDstIp, 
+            bfdHistoryListProto, 
+	    bfdHistoryListSrcPort, 
+	    bfdHistoryListDstPort, 
+	    bfdHistoryListIndex }
+        ::= { bfdHistoryListTable 1 }
+
+BfdHistoryListEntry ::=
+    SEQUENCE {
+        bfdHistoryListSrcIp InetAddressIP,
+        bfdHistoryListDstIp InetAddressIP,
+        bfdHistoryListProto INTEGER,
+        bfdHistoryListSrcPort UnsignedShort,
+        bfdHistoryListDstPort UnsignedShort,
+        bfdHistoryListIndex Unsigned32,
+        bfdHistoryListSystemIp InetAddressIP,
+        bfdHistoryListSiteId Unsigned32,
+        bfdHistoryListColor INTEGER,
+        bfdHistoryListState BfdmgrStateEnum,
+        bfdHistoryListTime String,
+        bfdHistoryListRxPkts Counter64,
+        bfdHistoryListTxPkts Counter64,
+        bfdHistoryListDel UnsignedByte
+    }
+
+-- tagpath /bfd/history-list/src-ip
+bfdHistoryListSrcIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Local TLOC IP address"
+    ::= { bfdHistoryListEntry 1 }
+
+-- tagpath /bfd/history-list/dst-ip
+bfdHistoryListDstIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Remote TLOC IP address"
+    ::= { bfdHistoryListEntry 2 }
+
+-- tagpath /bfd/history-list/proto
+bfdHistoryListProto OBJECT-TYPE
+    SYNTAX      INTEGER {gre(1),ipsec(2)}
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Protocol or encap"
+    ::= { bfdHistoryListEntry 3 }
+
+-- tagpath /bfd/history-list/src-port
+bfdHistoryListSrcPort OBJECT-TYPE
+    SYNTAX      UnsignedShort
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Local port number"
+    ::= { bfdHistoryListEntry 4 }
+
+-- tagpath /bfd/history-list/dst-port
+bfdHistoryListDstPort OBJECT-TYPE
+    SYNTAX      UnsignedShort
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Remote port number"
+    ::= { bfdHistoryListEntry 5 }
+
+-- tagpath /bfd/history-list/index
+bfdHistoryListIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "History index"
+    ::= { bfdHistoryListEntry 6 }
+
+-- tagpath /bfd/history-list/system-ip
+bfdHistoryListSystemIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "System IP address"
+    ::= { bfdHistoryListEntry 7 }
+
+-- tagpath /bfd/history-list/site-id
+bfdHistoryListSiteId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Site ID"
+    ::= { bfdHistoryListEntry 8 }
+
+-- tagpath /bfd/history-list/color
+bfdHistoryListColor OBJECT-TYPE
+    SYNTAX      INTEGER {default(1),
+                         mpls(2),
+                         metroEthernet(3),
+                         bizInternet(4),
+                         publicInternet(5),
+                         lte(6),
+                         threeG(7),
+                         red(8),
+                         green(9),
+                         blue(10),
+                         gold(11),
+                         silver(12),
+                         bronze(13),
+                         custom1(14),
+                         custom2(15),
+                         custom3(16),
+                         private1(17),
+                         private2(18),
+                         private3(19),
+                         private4(20),
+                         private5(21),
+                         private6(22)}
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Color"
+    ::= { bfdHistoryListEntry 9 }
+
+-- tagpath /bfd/history-list/state
+bfdHistoryListState OBJECT-TYPE
+    SYNTAX      BfdmgrStateEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "State"
+    ::= { bfdHistoryListEntry 10 }
+
+-- tagpath /bfd/history-list/time
+bfdHistoryListTime OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Time"
+    ::= { bfdHistoryListEntry 11 }
+
+-- tagpath /bfd/history-list/rx-pkts
+bfdHistoryListRxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Received packets"
+    ::= { bfdHistoryListEntry 12 }
+
+-- tagpath /bfd/history-list/tx-pkts
+bfdHistoryListTxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Transmit packets"
+    ::= { bfdHistoryListEntry 13 }
+
+-- tagpath /bfd/history-list/del
+bfdHistoryListDel OBJECT-TYPE
+    SYNTAX      UnsignedByte
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Del"
+    ::= { bfdHistoryListEntry 14 }
+
+-- tagpath /bfd/tloc-summary-list
+bfdTlocSummaryListTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF BfdTlocSummaryListEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "BFD TLOC summary table"
+    ::= { bfd 6 }
+
+-- tagpath /bfd/tloc-summary-list
+bfdTlocSummaryListEntry OBJECT-TYPE
+    SYNTAX      BfdTlocSummaryListEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "BFD TLOC summary table entry"
+    INDEX { bfdTlocSummaryListIfName, 
+            bfdTlocSummaryListEncap }
+        ::= { bfdTlocSummaryListTable 1 }
+
+BfdTlocSummaryListEntry ::=
+    SEQUENCE {
+        bfdTlocSummaryListIfName String,
+        bfdTlocSummaryListEncap INTEGER,
+        bfdTlocSummaryListSessionsTotal Unsigned32,
+        bfdTlocSummaryListSessionsUp Unsigned32,
+        bfdTlocSummaryListSessionsFlap Unsigned32
+    }
+
+-- tagpath /bfd/tloc-summary-list/if-name
+bfdTlocSummaryListIfName OBJECT-TYPE
+    SYNTAX      String (SIZE (1 .. 32))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Local TLOC Interface"
+    ::= { bfdTlocSummaryListEntry 1 }
+
+-- tagpath /bfd/tloc-summary-list/encap
+bfdTlocSummaryListEncap OBJECT-TYPE
+    SYNTAX      INTEGER {gre(1),ipsec(2)}
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Local TLOC encapsulation"
+    ::= { bfdTlocSummaryListEntry 2 }
+
+-- tagpath /bfd/tloc-summary-list/sessions-total
+bfdTlocSummaryListSessionsTotal OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Total number of bfd sessions created"
+    ::= { bfdTlocSummaryListEntry 3 }
+
+-- tagpath /bfd/tloc-summary-list/sessions-up
+bfdTlocSummaryListSessionsUp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of bfd sessions that are in UP state"
+    ::= { bfdTlocSummaryListEntry 4 }
+
+-- tagpath /bfd/tloc-summary-list/sessions-flap
+bfdTlocSummaryListSessionsFlap OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of bfd session flaps seen 
+                        (transitions out of UP state)"
+    ::= { bfdTlocSummaryListEntry 5 }
+
+-- *******************************************************************
+-- *    Compliance statements
+-- *******************************************************************
+
+ciscoSdwanBfdMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSdwanBfdMIBConform 1 }
+
+ciscoSdwanBfdMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSdwanBfdMIBConform 2 }
+
+ciscoSdwanBfdMIBCompliance MODULE-COMPLIANCE
+    STATUS         current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities
+         that implement the ciscoSdwanBfdMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cSdwanBfdSummaryGroup,
+                        cSdwanBfdSessionsListGroup,
+                        cSdwanBfdHistoryListGroup,
+                        cSdwanBfdTlocSummaryListGroup
+                    }
+    ::= { ciscoSdwanBfdMIBCompliances 1 }
+
+-- *******************************************************************
+-- *    Units of conformance
+-- *******************************************************************
+
+cSdwanBfdSummaryGroup OBJECT-GROUP
+    OBJECTS         {
+                        bfdSummaryBfdSessionsTotal,
+                        bfdSummaryBfdSessionsUp,
+                        bfdSummaryBfdSessionsMax,
+                        bfdSummaryBfdSessionsFlap,
+                        bfdSummaryPollInterval
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of bfd summary. "
+    ::= { ciscoSdwanBfdMIBGroups 1 }
+
+cSdwanBfdSessionsListGroup OBJECT-GROUP
+    OBJECTS         {
+                        bfdSessionsListSystemIp,
+                        bfdSessionsListSiteId,
+                        bfdSessionsListLocalColor,
+                        bfdSessionsListColor,
+                        bfdSessionsListState,
+                        bfdSessionsListDetectMultiplier,
+                        bfdSessionsListTxInterval,
+                        bfdSessionsListUptime,
+                        bfdSessionsListTransitions
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of bfd sessions list. "
+    ::= { ciscoSdwanBfdMIBGroups 2 }
+
+cSdwanBfdHistoryListGroup OBJECT-GROUP
+    OBJECTS         {
+                        bfdHistoryListSystemIp,
+                        bfdHistoryListSiteId,
+                        bfdHistoryListColor,
+                        bfdHistoryListState,
+                        bfdHistoryListTime,
+                        bfdHistoryListRxPkts,
+                        bfdHistoryListTxPkts,
+                        bfdHistoryListDel
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of bfd history list. "
+    ::= { ciscoSdwanBfdMIBGroups 3 }
+
+cSdwanBfdTlocSummaryListGroup OBJECT-GROUP
+    OBJECTS         {
+                        bfdTlocSummaryListSessionsTotal,
+                        bfdTlocSummaryListSessionsUp,
+                        bfdTlocSummaryListSessionsFlap
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of bfd Tloc summary list. "
+    ::= { ciscoSdwanBfdMIBGroups 4 }
+
+
+END

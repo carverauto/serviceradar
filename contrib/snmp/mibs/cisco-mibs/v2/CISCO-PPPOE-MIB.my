@@ -1,0 +1,1013 @@
+-- *****************************************************************
+-- CISCO-PPPOE-MIB.my: PPPoE Sessions Management MIB file
+--
+-- February 2001, Ashoka K
+--
+-- Copyright (c) 2001, 2005-2011 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+-- $Endlog$
+--
+
+CISCO-PPPOE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, 
+        OBJECT-TYPE, 
+        NOTIFICATION-TYPE,
+        Gauge32, Counter32, Unsigned32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP,
+        NOTIFICATION-GROUP
+                FROM SNMPv2-CONF
+        ciscoMgmt
+                FROM CISCO-SMI
+    	MacAddress,
+        TruthValue
+                FROM SNMPv2-TC
+        ifIndex,
+        ifDescr
+                FROM IF-MIB
+        atmVclVpi, 
+        atmVclVci,
+        atmVclEntry
+                FROM ATM-MIB
+	Percent
+		FROM CISCO-QOS-PIB-MIB
+	AtmVpIdentifier,
+	AtmVcIdentifier 
+		FROM ATM-TC-MIB
+	VlanId,
+        VlanIndex
+		FROM Q-BRIDGE-MIB;
+
+ciscoPppoeMIB MODULE-IDENTITY
+        LAST-UPDATED        "201104250000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO 
+                "            Cisco Systems
+                             Customer Service
+ 
+                 Postal:     170 W Tasman Drive 
+                             San Jose, CA 95134
+                             USA 
+ 
+                    Tel:     +1 800 553-NETS
+ 
+                 E-mail:     cs-ppp@cisco.com"
+        DESCRIPTION
+                "Cisco PPPoE sessions management MIB Module." 
+-- REFERENCE
+--   "RFC 2516 - A Method for Transmitting PPP Over Ethernet (PPPOE)" 
+        REVISION             "201104250000Z"
+        DESCRIPTION
+           "Added following new groups
+               cPppoePerInterfaceGroup,
+               cPppoeSystemLimitsThresholdsNotifObjectsGroup
+               cPppoeSystemLimitsThresholdsNotifGroup and
+               cPppoeSystemLimitsThresholdsGroup.
+	   Added a new compliance ciscoPppoeMIBBasicComplianceRev1 which 
+	   deprecates ciscoPppoeMIBBasicCompliance. "
+
+    REVISION        "200512210000Z"
+        DESCRIPTION 
+            "Updated the imports such that Unsigned32 is imported
+	     from SNMPv2-SMI instead of CISCO-TC." 
+
+        REVISION             "200102200000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+
+        ::= { ciscoMgmt 194}
+
+        
+ciscoPppoeMIBObjects OBJECT IDENTIFIER::={ ciscoPppoeMIB 1 }
+cPppoeSystemSessionInfo  OBJECT IDENTIFIER ::= 
+      { ciscoPppoeMIBObjects 1 }
+cPppoeVcCfgInfo OBJECT IDENTIFIER ::=
+      { ciscoPppoeMIBObjects 2 }
+cPppoeVcSessionsInfo   OBJECT IDENTIFIER ::= 
+      { ciscoPppoeMIBObjects 3 }
+cPppoeSessionsPerInterfaceInfo OBJECT IDENTIFIER ::=
+      { ciscoPppoeMIBObjects 4 }
+cPppoeSystemSessionNotifyObjects  OBJECT IDENTIFIER ::=
+      { ciscoPppoeMIBObjects 5 }
+
+cPppoeSystemCurrSessions OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "sessions"
+        MAX-ACCESS read-only
+        STATUS     current 
+        DESCRIPTION
+                "The current number of active PPPoE sessions within 
+                 this system."
+        ::= { cPppoeSystemSessionInfo 1 }
+
+cPppoeSystemHighWaterSessions OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "sessions"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The high water mark of the established PPPoE 
+                 sessions since the system was initialized."
+        ::= { cPppoeSystemSessionInfo 2 }
+
+cPppoeSystemMaxAllowedSessions OBJECT-TYPE
+        SYNTAX     Unsigned32 
+        UNITS      "sessions"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "Maximum number of allowed PPPoE sessions within
+                 the system." 
+        ::= { cPppoeSystemSessionInfo 3 }
+
+cPppoeSystemThresholdSessions OBJECT-TYPE
+        SYNTAX     Unsigned32 
+        UNITS      "sessions"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "Threshold value of the established PPPoE sessions 
+                 within the system. Default value is equal to
+                 cPppoeSystemMaxSessionsConfigurable"
+        ::= { cPppoeSystemSessionInfo 4 }
+
+cPppoeSystemExceededSessionErrors OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The accumulated number of errors for 
+                 establishing PPPoE session in the system due 
+                 to the cPppoeSystemCurrSessions value exceeds 
+                 the cPppoeSystemMaxAllowedSessions value." 
+        ::= { cPppoeSystemSessionInfo 5 }
+
+cPppoeSystemPerMacSessionlimit OBJECT-TYPE
+        SYNTAX     Unsigned32 
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+             "This object provides limit on number of PPPoE sessions
+              for a single client Ethernet MAC address. If the limit 
+              is reached new session request from the client would 
+              be denied"
+        ::= { cPppoeSystemSessionInfo 6 }
+
+cPppoeSystemPerMacIWFSessionlimit OBJECT-TYPE
+        SYNTAX     Unsigned32 
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+            "This object provides limit on number of PPPoE sessions 
+             with interworking flag(IWF) enabled, from a single client
+             MAC address. If the limit is reached new session request 
+             would be denied."
+        ::= { cPppoeSystemSessionInfo 7 }
+
+cPppoeSystemPerMacThrottleRatelimit OBJECT-TYPE
+        SYNTAX     Unsigned32 
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+             "This object provides the rate limit at which PPPoE 
+              session were created from a single client MAC address. 
+              During a configured time interval, once the number of 
+              new session requests coming from a particular client 
+              MAC address reaches this limit, it's expected to have 
+              delay in response for those clients."
+        ::= { cPppoeSystemSessionInfo 8 }
+
+cPppoeSystemPerVLANlimit OBJECT-TYPE
+        SYNTAX     Unsigned32 
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+            "This object provides limit on number of PPPoE sessions 
+             on a particular Vlan. If the limit is reached new session 
+             request on this vlan would be denied."
+        ::= { cPppoeSystemSessionInfo 9 }
+
+cPppoeSystemPerVLANthrottleRatelimit OBJECT-TYPE
+        SYNTAX     Unsigned32
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+             "This object provides the rate limit at which PPPoE 
+              session were created on a Vlan. During a configured
+              time interval once the number of new session requests 
+              coming on a particular Vlan reaches this limit, 
+              it's expected to have delay in response for client 
+              on this Vlan."
+        ::= { cPppoeSystemSessionInfo 10 }
+
+
+cPppoeSystemPerVClimit OBJECT-TYPE
+        SYNTAX     Unsigned32
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+            "This object provides limit on number of PPPoE sessions on 
+             a particular ATM-VC. If the limit is reached new session 
+             request on this VC would be denied."
+        ::= { cPppoeSystemSessionInfo 11 }
+
+cPppoeSystemPerVCThrottleRatelimit OBJECT-TYPE
+        SYNTAX     Unsigned32
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+              "This object provides the rate limit at which PPPoE 
+               session were created on an ATM-VC. During a configured 
+               time interval, once the number of new session requests 
+               coming on an ATM-VC reaches this limit, it's expected to 
+               have delay in response for those clients on this VC."
+        ::= { cPppoeSystemSessionInfo 12 }
+
+cPppoeSystemSessionLossThreshold  OBJECT-TYPE
+         SYNTAX     Unsigned32 
+         MAX-ACCESS read-write
+         STATUS     current
+         DESCRIPTION
+            "This object is used to monitor number of active PPPoE 
+             sessions above a healthy watermark. If number of PPPoE
+             sessions falls below this watermark then we can expect
+             something wrong happened.  So we send out trap to user
+             indicating session loss below watermark."
+         ::= { cPppoeSystemSessionInfo 13 }
+
+cPppoeSystemSessionLossPercent OBJECT-TYPE
+         SYNTAX     Percent
+         MAX-ACCESS read-write
+         STATUS     current
+         DESCRIPTION
+             "This object is used to monitor the percentage of PPPoE 
+              sessions going down at a configured time interval.
+                 
+              During a time interval if percentage of PPPoE sessions 
+              lost, falls above this object value, we send trap 
+              indicating loss of sessions above percentage expected."
+         ::= { cPppoeSystemSessionInfo 14 }
+
+cPppoeSystemSessionClientMacAddress OBJECT-TYPE
+         SYNTAX     MacAddress
+         MAX-ACCESS accessible-for-notify
+         STATUS     current
+         DESCRIPTION
+	    "The client MAC address that is referred as a part
+             of the notification information.
+             Example: cPppoeSystemSessionPerMACLimitNotif"
+         ::= { cPppoeSystemSessionNotifyObjects 1 }
+
+cPppoeSystemSessionVlanID OBJECT-TYPE
+         SYNTAX     VlanId 
+         MAX-ACCESS accessible-for-notify
+         STATUS     current
+         DESCRIPTION
+	    "The Vlan ID of PPPoE session that is referred as a 
+             part of the notification information.
+             Example: cPppoeSystemSessionPerVLANLimitNotif"
+         ::= { cPppoeSystemSessionNotifyObjects 2 }
+
+cPppoeSystemSessionInnerVlanID OBJECT-TYPE
+         SYNTAX     VlanIndex
+         MAX-ACCESS accessible-for-notify
+         STATUS     current
+         DESCRIPTION
+	    "The inner Vlan ID of PPPoE QinQ session that is referred
+             as a part of the notification information.
+
+             Example: cPppoeSystemSessionPerVLANLimitNotif"
+         ::= { cPppoeSystemSessionNotifyObjects 3 }
+
+cPppoeSystemSessionVci OBJECT-TYPE
+         SYNTAX     AtmVcIdentifier 
+         MAX-ACCESS accessible-for-notify
+         STATUS     current
+         DESCRIPTION
+            "The ATM VCI of PPPoE session that is referred as a part
+             of the  notification information.
+            Example:cPppoeSystemSessionPerVCLimitTrap"
+         ::= { cPppoeSystemSessionNotifyObjects 4 }
+
+cPppoeSystemSessionVpi OBJECT-TYPE
+         SYNTAX     AtmVpIdentifier
+         MAX-ACCESS accessible-for-notify
+         STATUS     current
+         DESCRIPTION
+            "The ATM VPI of PPPoE session that is referred as a part
+             of the  notification information.
+             Example: cPppoeSystemSessionPerVCLimitTrap"
+         ::= { cPppoeSystemSessionNotifyObjects 5 }
+
+cPppoeVcCfgTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CPppoeVcCfgEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "The table contains the PPPoE protocol related 
+                 configuration for the VCLs(ATM Interface 
+                 Virtual Channel Link)." 
+        ::= { cPppoeVcCfgInfo 1 } 
+
+cPppoeVcCfgEntry OBJECT-TYPE          
+         SYNTAX     CPppoeVcCfgEntry 
+         MAX-ACCESS not-accessible
+         STATUS     current
+         DESCRIPTION
+                "An entry containing additional PPPoE protocol 
+                 configuration related management information
+                 applicable to a particular VCL." 
+         AUGMENTS { atmVclEntry } 
+         ::= { cPppoeVcCfgTable 1 }
+
+CPppoeVcCfgEntry ::= SEQUENCE            {
+         cPppoeVcEnable                  TruthValue  
+         }
+
+cPppoeVcEnable OBJECT-TYPE 
+         SYNTAX     TruthValue 
+         MAX-ACCESS read-write
+         STATUS     current
+         DESCRIPTION
+                 "This object specifies whether the PPPoE protocol
+                  should be enabled for this VCL. If the value of 
+                  this object is `false`, PPPoE protocol is 
+                  disabled; otherwise the PPPoE protocol is
+                  enabled." 
+         DEFVAL { false } 
+         ::= { cPppoeVcCfgEntry 1 } 
+
+cPppoeVcSessionsTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CPppoeVcSessionsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Table of configuration and statistics about the 
+                 number of PPPoE sessions on a list of VCLs(ATM 
+                 Interface Virtual Channel Link)." 
+        ::= { cPppoeVcSessionsInfo 1 } 
+
+cPppoeVcSessionsEntry OBJECT-TYPE             
+         SYNTAX     CPppoeVcSessionsEntry 
+         MAX-ACCESS not-accessible
+         STATUS     current
+         DESCRIPTION
+                "An entry in the table containing PPPoE session
+                 related information on a VCL. The entry of this
+                 table is created when the value of cPppoeVcEnable 
+                 object is set to `true` for the entry associated 
+                 VCL. The entry of this table is deleted when the
+                 of cPppoeVcEnable object set to `false` or the
+                 entry associated VCL is deleted from 
+                 atmVclTable." 
+         INDEX { ifIndex, atmVclVpi, atmVclVci } 
+         ::= { cPppoeVcSessionsTable 1 }
+
+CPppoeVcSessionsEntry ::= SEQUENCE            {
+         cPppoeVcCurrSessions            Gauge32,  
+         cPppoeVcHighWaterSessions       Gauge32,
+         cPppoeVcMaxAllowedSessions      Unsigned32,
+         cPppoeVcThresholdSessions       Unsigned32,
+         cPppoeVcExceededSessionErrors   Counter32
+         } 
+
+cPppoeVcCurrSessions OBJECT-TYPE 
+         SYNTAX     Gauge32
+         UNITS      "sessions"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                 "The current number of active PPPoE sessions on 
+                  the VCL."
+         ::= { cPppoeVcSessionsEntry 1 } 
+
+cPppoeVcHighWaterSessions OBJECT-TYPE
+         SYNTAX     Gauge32  
+         UNITS      "sessions"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                 "The high water mark of the established PPPoE 
+                  sessions on the VCL."
+         ::= { cPppoeVcSessionsEntry 2 }
+
+cPppoeVcMaxAllowedSessions OBJECT-TYPE
+         SYNTAX     Unsigned32  
+         UNITS      "sessions"
+         MAX-ACCESS read-write
+         STATUS     current
+         DESCRIPTION
+                 "The maximum number of allowed PPPoE sessions on 
+                  the VCL." 
+         ::= { cPppoeVcSessionsEntry 3 }
+
+cPppoeVcThresholdSessions OBJECT-TYPE
+         SYNTAX     Unsigned32  
+         UNITS      "sessions"
+         MAX-ACCESS read-write
+         STATUS     current
+         DESCRIPTION
+                 "The Threshold value of the established PPPoE 
+                  sessions on the VCL. Default value is equal to 
+                  cPppoeVcMaxAllowedSessions."  
+         ::= { cPppoeVcSessionsEntry 4 }
+
+cPppoeVcExceededSessionErrors OBJECT-TYPE
+         SYNTAX     Counter32  
+         UNITS      "attempts"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                 "The accumulated number of errors for 
+                  establishing PPPoE session in the VC 
+                  due to the cPppoeVcCurrSessions value
+                  exceeds the cPppoeVcMaxAllowedSessions 
+                  value."
+         ::= { cPppoeVcSessionsEntry 5 }
+
+cPppoeSessionsPerInterfaceTable OBJECT-TYPE
+         SYNTAX     SEQUENCE OF CPppoeSessionsPerInterfaceEntry
+         MAX-ACCESS not-accessible
+         STATUS     current
+         DESCRIPTION
+		  "A list of interfaces' PPPoE session information."
+         ::= { cPppoeSessionsPerInterfaceInfo 1 }
+
+cPppoeSessionsPerInterfaceEntry OBJECT-TYPE
+         SYNTAX CPppoeSessionsPerInterfaceEntry
+         MAX-ACCESS not-accessible
+         STATUS     current
+         DESCRIPTION
+             "An entry in the table containing PPPoE sessions 
+              information such as count information of various 
+              states like PPP Termination Aggregation(PTA), 
+              Forwarded(FWDED), Transient (TRANS) and TOTAL count and 
+              the configured loss threshold per given physical 
+              interface"
+         INDEX { ifIndex }
+         ::= { cPppoeSessionsPerInterfaceTable 1 } 
+
+CPppoeSessionsPerInterfaceEntry ::= SEQUENCE            {
+         cPppoeTotalSessions                      Gauge32,
+         cPppoePtaSessions                        Gauge32,
+         cPppoeFwdedSessions                      Gauge32,
+         cPppoeTransSessions                      Gauge32,
+         cPppoePerInterfaceSessionLossThreshold   Unsigned32,
+         cPppoePerInterfaceSessionLossPercent     Unsigned32
+         }
+
+cPppoeTotalSessions   OBJECT-TYPE
+         SYNTAX     Gauge32
+         UNITS      "sessions"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+             "The total number of PPPoE sessions which includes PPP
+              Termination Aggregation(PTA), Forwarded(FWDED) and 
+              Transient(TRANS) state on a physical interface. "
+         ::= { cPppoeSessionsPerInterfaceEntry 1 }
+
+cPppoePtaSessions      OBJECT-TYPE              
+         SYNTAX     Gauge32 
+         UNITS      "sessions"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+            "Number of PPPoE sessions which are in PPP Termination  
+             Aggregation(PTA) state on a particular physical 
+         interface."
+         ::= { cPppoeSessionsPerInterfaceEntry 2}
+
+cPppoeFwdedSessions    OBJECT-TYPE
+         SYNTAX     Gauge32
+         UNITS      "sessions"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+             "Number of PPPoE sessions which are in Forwarded(FWDED)
+              state on a particular physical interface."
+         ::= { cPppoeSessionsPerInterfaceEntry 3}
+
+cPppoeTransSessions    OBJECT-TYPE
+         SYNTAX     Gauge32
+         UNITS      "sessions"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+             "Number of PPPoE sessions which are in Transient(TRANS)
+              state on a particular physical interface."
+         ::= { cPppoeSessionsPerInterfaceEntry 4}
+
+cPppoePerInterfaceSessionLossThreshold OBJECT-TYPE
+         SYNTAX     Unsigned32 
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+             "This object is used to monitor number of active PPPoE 
+              sessions, initiated from a particular physical interface. 
+              The sssion count is accumulation of all the pppoe session 
+              came on a physical and its sub-interfaces. If this count 
+              drops below this object water mark, we expect some 
+              problem and send out trap indicating drop of sessions 
+              below watermark."
+              
+         ::= { cPppoeSessionsPerInterfaceEntry 5}
+
+cPppoePerInterfaceSessionLossPercent OBJECT-TYPE
+         SYNTAX     Unsigned32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+             "This object is used to monitor the percentage of PPPoE 
+              sessions loss on a particular physical interface 
+              including all of its sub-interfaces. If during a 
+              configured interval of time, percentage of PPPoE 
+              sessions lost on a physical interface is above this 
+              object value we send a trap."
+         ::= { cPppoeSessionsPerInterfaceEntry 6}
+
+-- Notifications
+
+ciscoPppoeMIBNotificationPrefix OBJECT IDENTIFIER ::= {ciscoPppoeMIB 2}
+ciscoPppoeMIBNotification OBJECT IDENTIFIER ::= 
+     { ciscoPppoeMIBNotificationPrefix 0}
+
+cPppoeSystemSessionThresholdTrap  NOTIFICATION-TYPE
+       OBJECTS { cPppoeSystemCurrSessions,
+                 cPppoeSystemMaxAllowedSessions,
+                 cPppoeSystemThresholdSessions }
+       STATUS  current
+       DESCRIPTION
+               "A notification indicating that number of active 
+                sessions on the system exceeded system sessions 
+                threshold value. System sessions threshold value 
+                is indicated by cPppoeSystemThresholdSessions. 
+
+                An  agent  must  not  generate  more  than  one
+                cPppoeSessionThresholdTrap `trap-event` in a
+                30 second period,  where a  `trap-event` is  the
+                transmission of a single trap  PDU to a  list of
+                trap destinations. If additional `the number of
+                PPPoE  sessions  exceeds  threshold`  condition
+                occur within the 30  second `throttling` period,
+                then these  trap-events should be suppressed by
+                the agent. An NMS should periodically check the
+                value of  cPppoeCurrSessions to  detect  any
+                missed cPppoeVcSessionThresholdTrap trap-events,
+                e.g. due to throttling or transmission loss.
+                Where 30 is the `throttling` period of trap-event."
+ 
+        ::= { ciscoPppoeMIBNotification 1 }
+
+cPppoeVcSessionThresholdTrap  NOTIFICATION-TYPE
+        OBJECTS { cPppoeVcCurrSessions,
+                  cPppoeVcMaxAllowedSessions,
+                  cPppoeVcThresholdSessions }
+         STATUS current
+         DESCRIPTION
+                 "A notification indicating that number of active 
+                  sessions on the  VC  exceeded vc sessions 
+                  threshold value. VC sessions threshold value is 
+                  indicated by cPppoeVcThresholdSessions.
+
+                  An  agent  must  not  generate  more  than  one
+                  cPppoeVcSessionThresholdTrap `trap-event` in a 
+                  30 second period,  where a  `trap-event` is  the
+                  transmission of a single trap  PDU to a  list of 
+                  trap destinations. If additional `the number of 
+                  PPPoE  sessions  exceeds  threshold`  condition 
+                  occur within the 30  second `throttling` period, 
+                  then these  trap-events should be suppressed by 
+                  the agent. An NMS should periodically check the 
+                  value of  cPppoeVcCurrSessions to  detect  any 
+                  missed cPppoeVcSessionThresholdTrap trap-events, 
+                  e.g. due to throttling or transmission loss. 
+                  Where 30 is the `throttling` period of trap-event."
+
+         ::= { ciscoPppoeMIBNotification  2 }
+
+cPppoeSystemSessionPerMACLimitNotif  NOTIFICATION-TYPE
+       OBJECTS {cPppoeSystemPerMacSessionlimit, 
+		cPppoeSystemSessionClientMacAddress }
+       STATUS  current
+       DESCRIPTION
+           "A notification indicating that number of active session
+            from a particular client Ethernet MAC address has reached 
+            the configured per MAC limit. There won't be any more 
+            session possible from this client MAC address.
+
+            An  agent  must  not  generate  more  than  one 
+            cPppoeSystemSessionPerMACLimitNotif `trap-event` in a 
+            30 second period,  where a  `trap-event` is  the 
+            transmission of a single trap  PDU to a  list of 
+            trap destinations. If additional `the number of 
+            PPPoE  MAC sessions  exceeds the allowed limit`  condition 
+            occur within the 30  second `throttling` period, 
+            then these  trap-events should be suppressed by 
+            the agent."
+
+        ::= { ciscoPppoeMIBNotification  3 }
+
+cPppoeSystemSessionPerMACThrottleNotif  NOTIFICATION-TYPE
+       OBJECTS {cPppoeSystemPerMacThrottleRatelimit, 
+                cPppoeSystemSessionClientMacAddress}
+       STATUS  current
+       DESCRIPTION
+           "A notification indicating that the number of new PPPoE 
+            session requests coming in over a configured time 
+            interval, from a particular client Ethernet MAC address,
+            has crossed rate limit cPppoeSystemPerMacThrottleRatelimit.
+            The client MAC address on which this event happened is 
+            referred through object cPppoeSystemSessionClientMacAddress
+            
+            An agent should generate single 
+            cPppoeSystemSessionPerMACThrottleNotif trap for configured
+            time interval."
+
+        ::= { ciscoPppoeMIBNotification  4 }
+
+cPppoeSystemSessionPerVLANLimitNotif  NOTIFICATION-TYPE
+       OBJECTS {cPppoeSystemPerVLANlimit,
+		ifDescr,
+                cPppoeSystemSessionVlanID,
+                cPppoeSystemSessionInnerVlanID }
+       STATUS  current
+       DESCRIPTION
+           "A notification indicating that number of active session on
+            a Vlan has reached the maximum limit. There won't be any 
+            new PPPoE session possible on this Vlan. The maximum limit 
+            can be referred through object cPppoeSystemPerVLANlimit. 
+            The Vlan ID of vlan can be referred though object 
+            cPppoeSystemSessionVlanID. If Vlan is QinQ, 
+            cPppoeSystemSessionInnerVlanID refers the 
+            inner Vlan id. In case the vlan is not QinQ 
+            cPppoeSystemSessionInnerVlanID will be zero. The interface
+            details can be referred through ifDescr object.
+
+            An  agent  must  not  generate  more  than  one 
+            cPppoeSystemSessionPerVLANLimitNotif `trap-event` in a 
+            30 second period,  where a  `trap-event` is  the 
+            transmission of a single trap  PDU to a  list of 
+            trap destinations. If additional `the number of 
+            PPPoE sessions on this Vlan exceeds the allowed limit`
+            condition occur within the 30  second `throttling` period, 
+            then these  trap-events should be suppressed by 
+            the agent."
+
+         ::= { ciscoPppoeMIBNotification  5 }
+
+cPppoeSystemSessionPerVLANThrottleNotif  NOTIFICATION-TYPE
+       OBJECTS {cPppoeSystemPerVLANthrottleRatelimit,
+                ifDescr,
+                cPppoeSystemSessionVlanID,
+                cPppoeSystemSessionInnerVlanID }
+       STATUS  current
+       DESCRIPTION
+           "A notification indicating that the number of new PPPoE 
+            session request coming on a particular Vlan, over a 
+            configured time interval has reached rate limit. 
+            The rate limit is referred through object 
+            cPppoeSystemPerVLANthrottleRatelimit. 
+            The Vlan ID of vlan can be referred though object 
+            cPppoeSystemSessionVlanID. If Vlan is QinQ, 
+            cPppoeSystemSessionInnerVlanID refers the
+            inner Vlan Id. In case the vlan is not QinQ
+            cPppoeSystemSessionInnerVlanID will be zero.  The 
+            interface details can be referred through ifDescr object.
+
+            An agent should generate single 
+            cPppoeSystemSessionPerVLANThrottleNotif trap for the 
+            configured time interval"
+
+
+         ::= { ciscoPppoeMIBNotification  6 }
+
+cPppoeSystemSessionPerVCLimitNotif  NOTIFICATION-TYPE
+       OBJECTS {cPppoeSystemPerVClimit,
+		ifDescr,
+                cPppoeSystemSessionVci,
+                cPppoeSystemSessionVpi }
+       STATUS  current
+       DESCRIPTION
+            "A notification indicating that number of active sessions 
+             for a ATM VCI/VPI has crossed the configured maximum 
+             limit.  No more session would be possible on this VC 
+             interface. The maximum limit can be referred through 
+             object cPppoeSystemPerVClimit, The ATM VC details are
+             referred via objects cPppoeSystemSessionVci, and
+             cPppoeSystemSessionVpi. The Interface details can be 
+             referred via ifDescr object.
+
+             An  agent  must  not  generate  more  than  one 
+             cPppoeSystemSessionPerVCLimitTrap `trap-event` in a 
+             30 second period,  where a  `trap-event` is  the 
+             transmission of a single trap  PDU to a  list of 
+             trap destinations. If additional `the number of 
+             PPPoE sessions on this VC exceeds the allowed limit` 
+             condition occur within the 30  second `throttling` period, 
+             then these  trap-events should be suppressed by 
+             the agent."
+
+         ::= { ciscoPppoeMIBNotification  7 }
+
+cPppoeSystemSessionPerVCThrottleNotif  NOTIFICATION-TYPE
+       OBJECTS {cPppoeSystemPerVCThrottleRatelimit,
+                ifDescr,
+                cPppoeSystemSessionVci,
+                cPppoeSystemSessionVpi }
+       STATUS  current
+       DESCRIPTION
+           "A notification indicating that the number of new PPPoE
+            session request coming on a particular ATM VC, over a
+            configured time interval has reached rate limit.
+            The rate limit referred is referred through object 
+            cPppoeSystemPerVLANthrottleRatelimit.
+            The ATM VC details are referred via objects 
+            cPppoeSystemSessionVci and cPppoeSystemSessionVpi. 
+            The Interface details can be referred via ifDescr object.
+
+            An agent should generate single
+            cPppoeSystemSessionPerVLANThrottleNotif trap for the
+            configured time interval"
+
+         ::= { ciscoPppoeMIBNotification  8 }
+        
+cPppoeSystemSessionLossThresholdNotif  NOTIFICATION-TYPE
+         OBJECTS { cPppoeSystemSessionLossThreshold }
+         STATUS  current
+         DESCRIPTION
+             "A notification indicating that number of PPPoE session
+              count dropped below configured global threshold 
+              watermark.  There will be only one trap send whenever
+              count drops, further low count won't generate trap. 
+              Number of PPPoE sessions count need to cross
+	      the watermark and drop below watermark to generate 
+              trap again. The configured watermark can be referred
+              through object cPppoeSystemSessionLossThreshold.
+
+              An  agent  must  not  generate  more  than  one 
+              cPppoeSystemSessionLossThresholdTrap `trap-event` in a 
+              30 second period,  where a  `trap-event` is  the 
+              transmission of a single trap  PDU to a  list of 
+              trap destinations. If the PPPoE session count keep on
+              fluctuating around the watermark during 30 seconds, then 
+              these  trap-events should be suppressed by agent." 
+         ::= { ciscoPppoeMIBNotification  9 }
+
+cPppoePerInterfaceSessionLossThresholdNotif NOTIFICATION-TYPE
+         OBJECTS { ifDescr,
+                   cPppoePerInterfaceSessionLossThreshold }
+         STATUS  current 
+         DESCRIPTION
+             "A notification indicating that number of PPPoE session 
+              initiated via a particular interface has dropped below
+              the configured value for that interface.
+              The interface details can be referred via ifDescr object,
+              and the configured watermark can be referred through 
+              cPppoePerInterfaceSessionLossThreshold object.
+              
+              There will be only one trap send whenever
+              count drops, further low count won't generate trap. 
+              Number of PPPoE sessions count need to cross
+	      the watermark and drop below watermark to generate 
+              trap again.
+
+              An  agent  must  not  generate  more  than  one 
+              cPppoePerInterfaceSessionLossThresholdTrap `trap-event`
+              in a 30 second period,  where a  `trap-event` is  the 
+              transmission of a single trap  PDU to a  list of 
+              trap destinations. If the PPPoE session count keep on
+              fluctuating around the watermark during 30 seconds, then 
+              these  trap-events should be suppressed by agent." 
+         ::= { ciscoPppoeMIBNotification  10 }
+
+cPppoeSystemSessionLossPercentNotif NOTIFICATION-TYPE
+         OBJECTS { cPppoeSystemSessionLossPercent}
+         STATUS  current
+         DESCRIPTION
+            "A notification indicating that percentage of PPPoE session
+             lost globally over a duration of time has crossed the 
+             configured threshold. The configured percentage water mark
+             can be referred through cPppoeSystemSessionLossPercent 
+             object." 
+         ::= { ciscoPppoeMIBNotification  11 }
+
+cPppoePerInterfaceSessionLossPercentNotif NOTIFICATION-TYPE
+         OBJECTS { ifDescr,
+                   cPppoePerInterfaceSessionLossPercent}
+         STATUS  current 
+         DESCRIPTION
+	    "A notification indicating that percentage of PPPoE sessions
+	     lost has crossed configured threshold value for a 
+             particular interface. The interface details can be referred
+             through ifDescr object, and the configured threshold for 
+             the interface can be referred through 
+             cPppoePerInterfaceSessionLossPercent."
+         ::= { ciscoPppoeMIBNotification  12 }
+
+-- Conformance
+
+ciscoPppoeMIBConformance OBJECT IDENTIFIER ::= { ciscoPppoeMIB 3 }
+ciscoPppoeMIBCompliances OBJECT IDENTIFIER ::= 
+     { ciscoPppoeMIBConformance 1 }
+ciscoPppoeMIBGroups      OBJECT IDENTIFIER ::= 
+     { ciscoPppoeMIBConformance 2 }
+
+-- Compliance
+
+ciscoPppoeMIBBasicCompliance MODULE-COMPLIANCE
+        STATUS deprecated 
+        DESCRIPTION
+            "The compliance statement for entities which implement
+             the Cisco Basic PPPoE MIB. "
+        MODULE        -- this module
+                MANDATORY-GROUPS { 
+                                   cPppoeSystemGroup,
+                                   cPppoeVcCfgGroup,
+                                   cPppoeVcSessionsGroup,
+                                   cPppoePerInterfaceGroup,
+                                   cPppoeNotificationsGroup
+                                 }
+         ::= { ciscoPppoeMIBCompliances 1 }
+
+ciscoPppoeMIBBasicComplianceRev1 MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+             "The compliance statement for entities which implement
+              the Cisco Basic PPPoE MIB. "
+        MODULE        -- this module
+                MANDATORY-GROUPS { 
+                        cPppoeSystemGroup,
+                        cPppoeVcCfgGroup,
+                        cPppoeVcSessionsGroup,
+                        cPppoePerInterfaceGroup,
+                        cPppoeNotificationsGroup,
+                        cPppoeSystemLimitsThresholdsGroup,
+                        cPppoeSystemLimitsThresholdsNotifObjectsGroup,
+                        cPppoeSystemLimitsThresholdsNotifGroup }
+
+        OBJECT cPppoeSystemPerMacSessionlimit
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "The minimum access to this object is read only"
+
+        OBJECT cPppoeSystemPerMacIWFSessionlimit
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "The minimum access to this object is read only"
+
+        OBJECT cPppoeSystemPerMacThrottleRatelimit
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "The minimum access to this object is read only"
+
+        OBJECT cPppoeSystemPerVLANlimit
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "The minimum access to this object is read only"
+
+        OBJECT cPppoeSystemPerVLANthrottleRatelimit
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "The minimum access to this object is read only"
+
+        OBJECT cPppoeSystemPerVClimit
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "The minimum access to this object is read only"
+
+        OBJECT cPppoeSystemPerVCThrottleRatelimit
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "The minimum access to this object is read only"
+
+        OBJECT cPppoeSystemSessionLossThreshold
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "The minimum access to this object is read only"
+
+        OBJECT cPppoeSystemSessionLossPercent
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "The minimum access to this object is read only"
+
+         ::= { ciscoPppoeMIBCompliances 2 }
+
+--        UNITS of Conformance
+
+cPppoeSystemGroup   OBJECT-GROUP
+        OBJECTS { cPppoeSystemCurrSessions,
+                  cPppoeSystemHighWaterSessions,
+                  cPppoeSystemMaxAllowedSessions,
+                  cPppoeSystemThresholdSessions,
+                  cPppoeSystemExceededSessionErrors}
+        STATUS  current
+        DESCRIPTION
+            "A collection of objects providing information about the 
+             PPPoE sessions on a system."
+         ::= { ciscoPppoeMIBGroups 1 } 
+
+cPppoeVcCfgGroup   OBJECT-GROUP
+        OBJECTS { cPppoeVcEnable }
+        STATUS  current
+        DESCRIPTION
+            "A collection of objects specifying PPPoE protocol 
+             related configuration on the VCL." 
+         ::= { ciscoPppoeMIBGroups 2 } 
+
+cPppoeVcSessionsGroup   OBJECT-GROUP
+        OBJECTS { cPppoeVcCurrSessions,
+                  cPppoeVcHighWaterSessions,
+                  cPppoeVcMaxAllowedSessions,
+                  cPppoeVcThresholdSessions,
+                  cPppoeVcExceededSessionErrors }
+        STATUS  current
+        DESCRIPTION
+            "A collection of objects providing information about the 
+             number of sessions on the VCL."
+         ::= { ciscoPppoeMIBGroups 3 } 
+
+cPppoeNotificationsGroup NOTIFICATION-GROUP
+        NOTIFICATIONS {  cPppoeSystemSessionThresholdTrap,
+                        cPppoeVcSessionThresholdTrap }
+        STATUS  current
+        DESCRIPTION
+            "The collection of notifications used to indicate
+             high PPPoE session volume information(e.g, the
+             number of current PPPoE sessions exceeds threshold  
+             setting for the system or a VCL)."
+         ::= { ciscoPppoeMIBGroups 4 } 
+
+cPppoePerInterfaceGroup   OBJECT-GROUP
+         OBJECTS { cPppoeTotalSessions,
+                   cPppoePtaSessions,
+                   cPppoeFwdedSessions,
+                   cPppoeTransSessions,
+                   cPppoePerInterfaceSessionLossThreshold,
+                   cPppoePerInterfaceSessionLossPercent }
+         STATUS  current
+         DESCRIPTION
+               " A collection of objects providing PPPoE per-interface
+                 session state counts and configured threshold 
+         informations." 
+         ::= { ciscoPppoeMIBGroups 5 }
+
+cPppoeSystemLimitsThresholdsGroup   OBJECT-GROUP
+        OBJECTS { cPppoeSystemPerMacSessionlimit,
+                  cPppoeSystemPerMacIWFSessionlimit,
+                  cPppoeSystemPerMacThrottleRatelimit,
+                  cPppoeSystemPerVLANlimit,
+                  cPppoeSystemPerVLANthrottleRatelimit,
+                  cPppoeSystemPerVClimit,  
+                  cPppoeSystemPerVCThrottleRatelimit,
+                  cPppoeSystemSessionLossThreshold,
+                  cPppoeSystemSessionLossPercent
+          }
+          
+         STATUS  current
+         DESCRIPTION
+            "A collection of objects providing the session limit or 
+             throttling configuration. There are various Limitation 
+             we can impose on PPPoE Sessions it may be limit based on 
+             client-MAC or VLAN When ever the limitation is crossed
+             we send out traps.
+         "
+         ::= { ciscoPppoeMIBGroups 6 }
+
+cPppoeSystemLimitsThresholdsNotifObjectsGroup OBJECT-GROUP
+        OBJECTS { cPppoeSystemSessionClientMacAddress,
+                  cPppoeSystemSessionVlanID,
+                  cPppoeSystemSessionInnerVlanID,
+                  cPppoeSystemSessionVci,
+                  cPppoeSystemSessionVpi }
+         STATUS  current
+         DESCRIPTION
+            "This group is collection of notify objects which are 
+             used to carry notify information along with certain 
+             traps which implements Session restriction such as 
+             limit or throttling."
+
+         ::= { ciscoPppoeMIBGroups 7 }
+
+cPppoeSystemLimitsThresholdsNotifGroup NOTIFICATION-GROUP 
+    NOTIFICATIONS { 
+                    cPppoeSystemSessionPerMACLimitNotif,
+                    cPppoeSystemSessionPerMACThrottleNotif,
+                    cPppoeSystemSessionPerVLANLimitNotif,
+                    cPppoeSystemSessionPerVLANThrottleNotif,
+                    cPppoeSystemSessionPerVCLimitNotif,
+                    cPppoeSystemSessionPerVCThrottleNotif,
+                    cPppoeSystemSessionLossThresholdNotif,
+                    cPppoePerInterfaceSessionLossThresholdNotif,
+                    cPppoeSystemSessionLossPercentNotif,
+                    cPppoePerInterfaceSessionLossPercentNotif}
+         STATUS  current
+         DESCRIPTION
+             "This group is collection of notify objects used to 
+              send traps on various session restriction crossed."
+         ::= { ciscoPppoeMIBGroups 8 }
+END

@@ -1,0 +1,194 @@
+-- *****************************************************************
+-- CISCO-TM.my:  Cisco TM MIB
+--
+-- June 2000, R Rohit 
+--
+-- Copyright (c) 2000, 2001 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-TM DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,OBJECT-IDENTITY
+        FROM SNMPv2-SMI
+    ciscoDomains
+            FROM CISCO-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC;
+
+ciscoTransportMappings MODULE-IDENTITY
+        LAST-UPDATED   	"200108231600Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-snmp@cisco.com"
+        DESCRIPTION
+                "Extension of SNMPv2-TM MIB"
+	REVISION        "200108231600Z"
+	DESCRIPTION
+		"Added Cisco Networking Services (CNS) Transport
+		domain and identifier."
+        REVISION        "200006211600Z"
+	DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoDomains 1 }
+
+-- SNMPv2 over UDP-VPN over IPv4
+
+snmpUDPVPNDomain  OBJECT-IDENTITY
+    STATUS     current
+    DESCRIPTION
+            "This transport domain is used to specify that particular
+            SNMP messages are to be sent/received over a particular
+            Virtual Private Network (VPN), implemented using MPLS
+            (Multiprotocol Label Switching).  The corresponding
+            transport address is of type SnmpUDPVPNAddress.
+
+            A VPN is defined as a set of sites with a common
+            community of interest.  Sites within an MPLS-based VPN
+            often have private addresses which aren't accessible from
+            outside of the VPN, and may be duplicates of private
+            addresses used in other VPNs.  To uniquely identify such
+            a private address, it must be associated with a
+            particular VPN routing/forwarding instance, also known as
+            a VRF (VPN Routing and Forwarding table)."
+    REFERENCE  
+            "RFC 2547: BGP/MPLS VPNs"
+    ::= { ciscoTransportMappings 1 }
+
+SnmpUDPVPNAddress ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "1d.1d.1d.1d/2d/32a"
+    STATUS       current
+    DESCRIPTION
+            "Represents a UDP VPN address:
+
+             octets     contents            encoding
+              1-4       IP-address          network-byte order
+              5-6       UDP-port            network-byte order
+              7..38     VRF name            string of (up to 32) octets
+            IP address and port numbers should be represented in 
+            binary format.  String must contain printable characters." 
+            
+    SYNTAX       OCTET STRING (SIZE (7..38))
+
+
+-- SNMPv2 over AAL5 
+
+snmpAAL5Domain  OBJECT-IDENTITY
+    STATUS     current
+    DESCRIPTION
+            "This transport domain is used to specify that particular
+            SNMP messages are to be sent/received over AAL5 transport.
+            The corresponding transport address is of type 
+            SnmpAAL5VCIdentifier.
+
+            An ATM VCC referenced by a SnmpAAL5VCIdentifier must be
+            used only for SNMP packets, and not for any other kind 
+            of packets. 
+
+            Care must be taken with the use of this domain because its
+            associated transport address, SnmpAAL5VCIdentifier, 
+            contains identifiers which only have local and temporal 
+            uniqueness: ifIndex, VPI, VCI.
+
+            Use of this transport mapping is not recommended, except 
+            in circumstances where an IP address is not available 
+            and thus a mapping over UDP, such as snmpUDPDomain, 
+            can not be used."
+    ::= { ciscoTransportMappings 2 }
+
+SnmpAAL5VCIdentifier ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "4d/4d/4d"
+    STATUS       current  
+    DESCRIPTION
+            "Represents a AAL5 VCC:
+
+               octets       contents             encoding
+                1-4         ifIndex              network_byte order
+                5-8         vpi                  network-byte order
+                9-12        vci                  network-byte order
+             ifIndex, vpi and vci should be represented in binary
+             format.            
+             
+             ifIndex specifies the value of the ifIndex object
+             associated with the interface supporting the VCC.
+             vpi specifies the value of the VPI (Virtual Path
+             Identifier) associated with the VCC.
+             vci specifies the value of the VCI (Virtual Channel
+             Identifier) associated with the VCC."
+    SYNTAX       OCTET STRING (SIZE (12))
+
+
+-- SNMPv2 over Cisco Networking Services (CNS) Event Bus 
+
+snmpCNSDomain  OBJECT-IDENTITY
+    STATUS     current
+    DESCRIPTION
+            "This transport domain is used for transporting
+             SNMP messages over the CNS Event Service. The
+             corresponding transport addresses are of type
+             SnmpCNSIdentifier.
+
+             CNS Event service is an event based transport
+             mechanism. Events are published by producers
+             on particular subjects. Consumers listening
+             for these subjects receive the events.
+
+             Point to point communication is provided on
+             the CNS Event Service by the use of Name Space
+             Mapper Service that uses the device-id, appended 
+             at the end of the subject, to locate a specific
+             target.
+
+             An Event Agent subject used by a SnmpCNSIdentifier 
+             must be used only for SNMP events, and not for 
+             any other kind of events.
+
+             Use of this transport mapping is not recommended, except 
+             in circumstances where an IP address is not available 
+             and thus a mapping over UDP, such as snmpUDPDomain, 
+             can not be used."
+
+    ::= { ciscoTransportMappings 3 }
+
+SnmpCNSIdentifier ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "19a.255a"
+    STATUS       current  
+    DESCRIPTION
+            "Represents the address that identifies targets
+             in the CNS Event Service Transport mapping.
+
+              octets       contents             encoding
+              1-19       service-field   string of (19) octets   
+              20-274     device-id       string of (upto 255) octets 
+
+             service-field specifies the type of service 
+             (request, response or notifications) and has a fixed 
+             length of 19 octets. It also serves the purpose of 
+             distinguishing SNMP Message events from other CNS Events.
+
+             device-id uniquely identifies devices subscribed to
+             the CNS Event Service Bus. device-id may be same
+             as the hostname for the device.
+
+             The device-id must be separated from the service-field by 
+             a '.'. If the device-id is omitted, SnmpCNSIdentifier
+             would contain just the fixed-length (19 octets)
+             service-field.
+
+             Thus target addresses are CNS Event subjects of the
+             form: <service-field>.<device-id>"
+
+    SYNTAX       OCTET STRING (SIZE (19..274))
+
+END

@@ -1,0 +1,151 @@
+-- *****************************************************************
+-- DNS-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-DNS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    IpAddress FROM SNMPv2-SMI
+    ME1200Unsigned16 FROM ME1200-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200DnsMib MODULE-IDENTITY
+    LAST-UPDATED "201401290000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the DNS MIB"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201310300000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 53 }
+
+
+ME1200DnsServerType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration indicates the configured DNS server type."
+    SYNTAX      INTEGER { dhcp(0), none(1), static(2), dhcpVlan(3) }
+
+me1200DnsMIBObjects OBJECT IDENTIFIER
+    ::= { me1200DnsMib 1 }
+
+me1200DnsConfig OBJECT IDENTIFIER
+    ::= { me1200DnsMIBObjects 2 }
+
+me1200DnsGlobals OBJECT IDENTIFIER
+    ::= { me1200DnsConfig 1 }
+
+me1200DnsGlobalsServerSetting OBJECT-TYPE
+    SYNTAX      ME1200DnsServerType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "DNS server administrative type. dhcp(0) denotes DNS server setting will
+         be derived from DHCP. none(1) denotes no DNS server setting will be
+         applied. static(2) denotes DNS server setting will be manually set.
+         dhcpVlan(3) denotes DNS server setting will be derived from DHCP on
+         specific VLAN."
+    ::= { me1200DnsGlobals 1 }
+
+me1200DnsGlobalsServerStaticAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The static DNS server address. It will be a reference only when
+         ServerSetting is static(2)."
+    ::= { me1200DnsGlobals 2 }
+
+me1200DnsGlobalsServerStaticVlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ID of specific VLAN interface that DNS server address will be
+         retrieved from DHCP. It will be a reference only when DnsServerType is
+         dhcpVlan(3)."
+    ::= { me1200DnsGlobals 3 }
+
+me1200DnsGlobalsProxyAdminState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable the DNS-Proxy feature."
+    ::= { me1200DnsGlobals 4 }
+
+me1200DnsStatus OBJECT IDENTIFIER
+    ::= { me1200DnsMIBObjects 3 }
+
+me1200DnsServerStatus OBJECT IDENTIFIER
+    ::= { me1200DnsStatus 1 }
+
+me1200DnsServerStatusIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "DNS Server IPv4 address."
+    ::= { me1200DnsServerStatus 1 }
+
+me1200DnsMIBConformance OBJECT IDENTIFIER
+    ::= { me1200DnsMib 2 }
+
+me1200DnsMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200DnsMIBConformance 1 }
+
+me1200DnsMIBGroups OBJECT IDENTIFIER
+    ::= { me1200DnsMIBConformance 2 }
+
+me1200DnsGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DnsGlobalsServerSetting, me1200DnsGlobalsServerStaticAddress, 
+                  me1200DnsGlobalsServerStaticVlanId, 
+                  me1200DnsGlobalsProxyAdminState }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DnsMIBGroups 1 }
+
+me1200DnsServerStatusInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DnsServerStatusIpAddress }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DnsMIBGroups 2 }
+
+me1200DnsMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200DnsGlobalsInfoGroup, 
+                  me1200DnsServerStatusInfoGroup }
+
+    ::= { me1200DnsMIBCompliances 1 }
+
+END

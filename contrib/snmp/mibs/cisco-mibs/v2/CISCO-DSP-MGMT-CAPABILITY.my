@@ -1,0 +1,847 @@
+-- *****************************************************************
+-- CISCO-DSP-MGMT-CAPABILITY
+--   
+-- AGENT-CAPABILITIES mib for CISCO-DSP-MGMT-MIB
+--   
+-- September 2003,  Keit Tran
+--   
+-- Copyright(c) 2003-2006, 2011 by Cisco Systems Inc.
+--   
+-- *****************************************************************
+
+CISCO-DSP-MGMT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32,
+    Gauge32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoDspMgmtCapability MODULE-IDENTITY
+    LAST-UPDATED    "201104180000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-voice@cisco.com"
+    DESCRIPTION
+        "The agent capabilities for CISCO-DSP-MGMT-MIB."
+    REVISION        "201104180000Z"
+    DESCRIPTION
+        "Added ciscoDspMgmtCapabilityV15R02."
+    REVISION        "200608090000Z"
+    DESCRIPTION
+        "Added ciscoDspMgmtCapabilityV5R400."
+    REVISION        "200510160000Z"
+    DESCRIPTION
+        "Added ciscoDspMgmtCapabilityV5R300."
+    REVISION        "200506290000Z"
+    DESCRIPTION
+        "Added ciscoDspMgmtCapabilityV12R03 for IOS."
+    REVISION        "200504210000Z"
+    DESCRIPTION
+        "Added ciscoDspMgmtCapabilityV5R100."
+    REVISION        "200408070000Z"
+    DESCRIPTION
+        "Added ciscoDspMgmtCapabilityV5R015"
+    REVISION        "200309180000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 121 }
+
+
+
+ciscoDspMgmtCapabilityV5R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "MGX8850 Release 5.0.0"
+    STATUS          current
+    DESCRIPTION
+        "Agent capabilities for Voice Switch Service
+        Module(VXSM) in Release 5.0.0."
+
+    SUPPORTS        CISCO-DSP-MGMT-MIB
+    INCLUDES        {
+                        cdspMgmtGeneralInfoGroup,
+                        cdspMgmtExtGeneralInfoGroup,
+                        cdspVoiceInfoGroup,
+                        cdspChannelGroup,
+                        cdspChannelExtGroup
+                    }
+    VARIATION       cdspCardIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardResourceUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardLastHiWaterUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardLastResetTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspAlarms
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmCause
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmCauseText
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspMIBEnableCardStatusNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardMaxChanPerDSP
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspInUseChannels
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspActiveChannels
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspOperState
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        congested(3),
+                        failed(4)
+                    }
+    DESCRIPTION
+        "Limited data values are supported.
+        shutdown (2) is not supported."
+
+    VARIATION       cdspNx64Dsp
+    ACCESS          read-only
+    DESCRIPTION
+        "Set is not allowed."
+
+    VARIATION       cdspDspSwitchOverThreshold
+    SYNTAX          Unsigned32 (1..252)
+    DESCRIPTION
+        "Valid range is 1..252."
+
+    VARIATION       cdspTotalDsp
+    SYNTAX          Unsigned32 (1..252)
+    DESCRIPTION
+        "Valid range is 1..252."
+
+    VARIATION       cdspFailedDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range is 0..252."
+
+    VARIATION       cdspCongestedDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range is 0..252."
+
+    VARIATION       cdspNormalDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range is 0..252."
+
+    VARIATION       cdspSigBearerChannelSplit
+    DESCRIPTION
+        "The value of the object is always 'true'."
+
+    ::= { ciscoDspMgmtCapability 1 }
+
+ciscoDspMgmtCapabilityV5R015 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "MGX8850 Release 5.0.15"
+    STATUS          current
+    DESCRIPTION
+        "Agent capabilities for Voice Switch Service
+        Module(VXSM) in Release 5.0.15"
+
+    SUPPORTS        CISCO-DSP-MGMT-MIB
+    INCLUDES        {
+                        cdspMgmtGeneralInfoGroup,
+                        cdspMgmtExtGeneralInfoGroup,
+                        cdspVoiceInfoGroup,
+                        cdspChannelGroup,
+                        cdspChannelExtGroup
+                    }
+    VARIATION       cdspCardIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardResourceUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardLastHiWaterUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardLastResetTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspAlarms
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmCause
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmCauseText
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspMIBEnableCardStatusNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardMaxChanPerDSP
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspInUseChannels
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspActiveChannels
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspOperState
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        congested(3),
+                        failed(4)
+                    }
+    DESCRIPTION
+        "Limited data values are supported.
+        shutdown (2) is not supported."
+
+    VARIATION       cdspNx64Dsp
+    ACCESS          read-only
+    DESCRIPTION
+        "Set is not allowed."
+
+    VARIATION       cdspDspSwitchOverThreshold
+    SYNTAX          Unsigned32 (1..252)
+    DESCRIPTION
+        "Valid range:
+        1..252 for OC3 card
+        1..96  for T1/E1 card"
+
+    VARIATION       cdspTotalDsp
+    SYNTAX          Unsigned32 (1..252)
+    DESCRIPTION
+        "Valid range:
+        1..252 for OC3 card
+        1..96  for T1/E1 card"
+
+    VARIATION       cdspFailedDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range:
+        0..252 for OC3 card
+        0..96  for T1/E1 card"
+
+    VARIATION       cdspCongestedDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range is 0..252."
+
+    VARIATION       cdspNormalDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range:
+        0..252 for OC3 card
+        0..96  for T1/E1 card"
+
+    VARIATION       cdspSigBearerChannelSplit
+    DESCRIPTION
+        "The value of the object is always 'true'."
+
+    VARIATION       cdspRtcpRecvMultiplier
+    SYNTAX          Unsigned32 (2..60)
+    DESCRIPTION
+        "Valid range is 2..60."
+
+    ::= { ciscoDspMgmtCapability 2 }
+
+ciscoDspMgmtCapabilityV5R100 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "MGX8880 Release 5.1.00"
+    STATUS          current
+    DESCRIPTION
+        "Agent capabilities for Voice Switch Service
+        Module(VXSM) in Release 5.1.00"
+
+    SUPPORTS        CISCO-DSP-MGMT-MIB
+    INCLUDES        {
+                        cdspMgmtGeneralInfoGroup,
+                        cdspMgmtExtGeneralInfoGroupRev1,
+                        cdspVoiceInfoGroupRev1,
+                        cdspChannelGroup,
+                        cdspChannelExtGroup
+                    }
+    VARIATION       cdspCardIndex
+    DESCRIPTION
+        "This object is always 0."
+
+    VARIATION       cdspCardState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardResourceUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardLastHiWaterUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardLastResetTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCodecTemplateSupported
+    SYNTAX          INTEGER  {
+                        tgw(1),
+                        cable(2)
+                    }
+    DESCRIPTION
+        "Limited data is supported."
+
+    VARIATION       cdspAlarms
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmCause
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmCauseText
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspMIBEnableCardStatusNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardMaxChanPerDSP
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspInUseChannels
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspActiveChannels
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspOperState
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        congested(3),
+                        failed(4)
+                    }
+    DESCRIPTION
+        "Limited data values are supported.
+        shutdown (2) is not supported."
+
+    VARIATION       cdspNx64Dsp
+    ACCESS          read-only
+    DESCRIPTION
+        "Set is not allowed."
+
+    VARIATION       cdspDspSwitchOverThreshold
+    SYNTAX          Unsigned32 (1..252)
+    DESCRIPTION
+        "Valid range:
+        1..252 for OC3 card
+        1..96  for T1/E1 card"
+
+    VARIATION       cdspTotalDsp
+    SYNTAX          Unsigned32 (1..252)
+    DESCRIPTION
+        "Valid range:
+        1..252 for OC3 card
+        1..96  for T1/E1 card"
+
+    VARIATION       cdspFailedDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range:
+        0..252 for OC3 card
+        0..96  for T1/E1 card"
+
+    VARIATION       cdspCongestedDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range is 0..252."
+
+    VARIATION       cdspNormalDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range:
+        0..252 for OC3 card
+        0..96  for T1/E1 card"
+
+    VARIATION       cdspSigBearerChannelSplit
+    DESCRIPTION
+        "The value of the object is always 'true'."
+
+    VARIATION       cdspRtcpRecvMultiplier
+    SYNTAX          Unsigned32 (2..60)
+    DESCRIPTION
+        "Valid range is 2..60."
+
+    ::= { ciscoDspMgmtCapability 3 }
+
+ciscoDspMgmtCapabilityV12R03 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.3"
+    STATUS          current
+    DESCRIPTION
+        "Cisco DSP Management MIB capabilities"
+
+    SUPPORTS        CISCO-DSP-MGMT-MIB
+    INCLUDES        {
+                        cdspMgmtGeneralInfoGroupRev1,
+                        cdspMgmtNotificationsGroupRev1
+                    }
+    VARIATION       cdspOperState
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        shutdown(2)
+                    }
+    DESCRIPTION
+        "congested(3) and failed(4) not available."
+
+    ::= { ciscoDspMgmtCapability 4 }
+
+ciscoDspMgmtCapabilityV5R300 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "MGX8880 Release 5.3.00"
+    STATUS          current
+    DESCRIPTION
+        "Agent capabilities for Voice Switch Service
+        Module(VXSM) in Release 5.3.00"
+
+    SUPPORTS        CISCO-DSP-MGMT-MIB
+    INCLUDES        {
+                        cdspMgmtGeneralInfoGroup,
+                        cdspMgmtExtGeneralInfoGroupRev1,
+                        cdspVoiceInfoGroupRev1,
+                        cdspChannelGroup,
+                        cdspChannelExtGroup,
+                        cdspVQMGroup
+                    }
+    VARIATION       cdspCardIndex
+    DESCRIPTION
+        "This object is always 0."
+
+    VARIATION       cdspCardState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardResourceUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardLastHiWaterUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardLastResetTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCodecTemplateSupported
+    SYNTAX          INTEGER  {
+                        tgw(1),
+                        cable(2)
+                    }
+    DESCRIPTION
+        "Limited data is supported."
+
+    VARIATION       cdspAlarms
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmCause
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmCauseText
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspMIBEnableCardStatusNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardMaxChanPerDSP
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspInUseChannels
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspActiveChannels
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspOperState
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        congested(3),
+                        failed(4)
+                    }
+    DESCRIPTION
+        "Limited data values are supported.
+        shutdown (2) is not supported."
+
+    VARIATION       cdspNx64Dsp
+    ACCESS          read-only
+    DESCRIPTION
+        "Set is not allowed."
+
+    VARIATION       cdspDspSwitchOverThreshold
+    SYNTAX          Unsigned32 (1..252)
+    DESCRIPTION
+        "Valid range:
+        1..252 for OC3 card
+        1..96  for T1/E1 card"
+
+    VARIATION       cdspTotalDsp
+    SYNTAX          Unsigned32 (1..252)
+    DESCRIPTION
+        "Valid range:
+        1..252 for OC3 card
+        1..96  for T1/E1 card"
+
+    VARIATION       cdspFailedDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range:
+        0..252 for OC3 card
+        0..96  for T1/E1 card"
+
+    VARIATION       cdspCongestedDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range is 0..252."
+
+    VARIATION       cdspNormalDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range:
+        0..252 for OC3 card
+        0..96  for T1/E1 card"
+
+    VARIATION       cdspSigBearerChannelSplit
+    DESCRIPTION
+        "The value of the object is always 'true'."
+
+    VARIATION       cdspRtcpRecvMultiplier
+    SYNTAX          Unsigned32 (2..60)
+    DESCRIPTION
+        "Valid range is 2..60."
+
+    VARIATION       cdspVqmThreshSES
+    DESCRIPTION
+        "Valid value has to be the multiple of 5
+        within range 10 to 1000."
+
+    ::= { ciscoDspMgmtCapability 5 }
+
+ciscoDspMgmtCapabilityV5R400 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "MGX8880 Release 5.4.00"
+    STATUS          current
+    DESCRIPTION
+        "Agent capabilities for Voice Switch Service
+        Module(VXSM) in Release 5.4.00"
+
+    SUPPORTS        CISCO-DSP-MGMT-MIB
+    INCLUDES        {
+                        cdspMgmtGeneralInfoGroup,
+                        cdspMgmtExtGeneralInfoGroupRev1,
+                        cdspVoiceInfoGroupRev1,
+                        cdspChannelGroup,
+                        cdspChannelExtGroup,
+                        cdspVQMGroup,
+                        cdspTransCodingGroup
+                    }
+    VARIATION       cdspCardIndex
+    DESCRIPTION
+        "This object is always 0."
+
+    VARIATION       cdspCardState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardResourceUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardLastHiWaterUtilization
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardLastResetTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCodecTemplateSupported
+    SYNTAX          INTEGER  {
+                        tgw(1),
+                        cable(2)
+                    }
+    DESCRIPTION
+        "Limited data is supported."
+
+    VARIATION       cdspAlarms
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmCause
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmCauseText
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspLastAlarmTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspMIBEnableCardStatusNotification
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspCardMaxChanPerDSP
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspInUseChannels
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspActiveChannels
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported."
+
+    VARIATION       cdspOperState
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        congested(3),
+                        failed(4)
+                    }
+    DESCRIPTION
+        "Limited data values are supported.
+        shutdown (2) is not supported."
+
+    VARIATION       cdspNx64Dsp
+    ACCESS          read-only
+    DESCRIPTION
+        "Set is not allowed."
+
+    VARIATION       cdspDspSwitchOverThreshold
+    SYNTAX          Unsigned32 (1..252)
+    DESCRIPTION
+        "Valid range:
+        1..252 for OC3 card
+        1..96  for T1/E1 card"
+
+    VARIATION       cdspTotalDsp
+    SYNTAX          Unsigned32 (1..252)
+    DESCRIPTION
+        "Valid range:
+        1..252 for OC3 card
+        1..96  for T1/E1 card"
+
+    VARIATION       cdspFailedDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range:
+        0..252 for OC3 card
+        0..96  for T1/E1 card"
+
+    VARIATION       cdspCongestedDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range is 0..252."
+
+    VARIATION       cdspNormalDsp
+    SYNTAX          Gauge32 (0..252)
+    DESCRIPTION
+        "Valid range:
+        0..252 for OC3 card
+        0..96  for T1/E1 card"
+
+    VARIATION       cdspSigBearerChannelSplit
+    DESCRIPTION
+        "The value of the object is always 'true'."
+
+    VARIATION       cdspRtcpRecvMultiplier
+    SYNTAX          Unsigned32 (2..60)
+    DESCRIPTION
+        "Valid range is 2..60."
+
+    VARIATION       cdspVqmThreshSES
+    DESCRIPTION
+        "Valid value has to be the multiple of 5
+        within range 10 to 1000."
+
+    VARIATION       cdspTransparentIpIp
+    DESCRIPTION
+        "This object is only applicable
+        at H.248 mode."
+
+    ::= { ciscoDspMgmtCapability 6 }
+
+ciscoDspMgmtCapabilityV15R02 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "OS=IOS
+                     OSVERSION=15.2(1)T
+                     PLATFORM=c29xx,c3925,c3945,c3925E,c3945E
+                     INTERFACE=None"
+    STATUS          current
+    DESCRIPTION
+        "Cisco DSP Management MIB capabilities for IOS."
+
+    SUPPORTS        CISCO-DSP-MGMT-MIB
+    INCLUDES        {
+                        cdspMgmtGeneralInfoGroupRev1,
+                        cdspMgmtNotificationsGroupRev1,
+                        cdspMgmtVideoNotificationsGroup,
+                        cdspMgmtVideoInfoGroup
+                    }
+    VARIATION       cdspOperState
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        shutdown(2)
+                    }
+    DESCRIPTION
+        "congested(3) and failed(4) not available."
+
+    VARIATION       cdspCardVideoPoolUtilizationThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "write access is not supported."
+
+    ::= { ciscoDspMgmtCapability 7 }
+
+END
+
+
+
+
+
+
+
+

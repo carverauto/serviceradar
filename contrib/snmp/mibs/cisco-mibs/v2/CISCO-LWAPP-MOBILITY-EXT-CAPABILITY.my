@@ -1,0 +1,723 @@
+-- *******************************************************************
+-- CISCO-LWAPP-MOBILITY-EXT MIB CAPABILITY
+--
+-- November 18, 2020
+--
+-- Copyright (c) 2020, 2022 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-MOBILITY-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+
+IMPORTS
+       MODULE-IDENTITY
+           FROM SNMPv2-SMI
+       AGENT-CAPABILITIES
+           FROM SNMPv2-CONF
+       ciscoAgentCapability
+           FROM CISCO-SMI;
+
+
+ciscoLwappMobilityExtCapability  MODULE-IDENTITY
+
+       LAST-UPDATED         "202011180000Z"
+       ORGANIZATION         "Cisco Systems, Inc."
+       CONTACT-INFO
+               "Cisco Systems
+               Customer Service
+
+               Postal: 170 W Tasman Drive
+               San Jose, CA  95134
+               USA
+
+               Tel: +1 800 553-NETS
+
+               E-mail: cs-wnbu-snmp@cisco.com"
+
+       DESCRIPTION
+               "Agent capabilities for
+               CISCO-LWAPP-MOBILITY-EXT-MIB "
+       REVISION      "202011180000Z"
+       DESCRIPTION
+               "Initial version of this MIB module. "
+
+   ::= { ciscoAgentCapability 1152 }
+
+ciscoLwappMobilityExtCapabilityCEV1R0 AGENT-CAPABILITIES
+
+       PRODUCT-RELEASE "Cisco EWLC 1.0"
+       STATUS          current
+       DESCRIPTION     "CISCO-LWAPP-MOBILITY-EXT--MIB capabilities."
+
+       SUPPORTS        CISCO-LWAPP-MOBILITY-EXT-MIB
+       INCLUDES        {
+                           cLMobilityExtMCClientTable,
+                           cLMobilityExtAnchorTable,
+                           cLMobilityExtSpgMemberTable,
+                           cLMobilityAnchorPolicyEntryTable,
+                           cLMobilityExtApMgrTable,
+                           cLMobilityExtForeignWlcMapTable,
+                           cLMobilityExtGroupMemberTable,
+                           cLMobilityExtMOClientTable,
+                           cLMobilityExtMCMAStatisticsTable,
+                           cLMobilityExtMOMCTable,
+                           cLMobilityExtSpgTable,
+                           cLMobilityExtMAPeerTable
+                       }
+
+       VARIATION       cLMobilityExtMCClientAnchorMCPrivateAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCClientAnchorMCPrivateAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCClientAssociatedMCAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCClientAssociatedMCAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCClientAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCClientAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCClientAssociationTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCClientLocalClient
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCClientAnchorMCGroupId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCClientAssociatedMCGroupId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCClientAssociatedMAAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCClientAssociatedMAAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCClientAnchorMAAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCClientAnchorMAAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtAnchorEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtAnchorAssociatedMCAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtAnchorAssociatedMCAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtAnchorStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtAnchorRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtAnchorPriority
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgMemberEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgMemberPrivateAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgMemberPrivateAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgMemberStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgMemberPublicAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgMemberPublicAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgMemberRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityAnchorWlanPolicyEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAMCPublicAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAMCPublicAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAMCPrivateAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAMCPrivateAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAToMCLinkStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMASpgPeerCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMASpgName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAOwnMulticastAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAOwnMulticastAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAKeepAliveCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAKeepAliveInterval
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMADscpValue
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCReceivedTotal
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCReceivedDrops
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCProtocolReceiveErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCProtocolTransmitErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCStateErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCProtocolRetransmitted
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCHandoffRequestsReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCHandoffCompleteReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCHandoffClientDeleteReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCHandoffRequestsTransmitted
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCHandoffCompleteTransmitted
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCHandoffClientDeleteTransmitted
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCTotalClientCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCWgbCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAReceivedTotal
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAReceivedDrops
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAProtocolReceiveErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAProtocolTransmitErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAStateErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAProtocolRetransmitted
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMATotalClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMALocalClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAAnchoredClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAForeignedClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMATotalInterGroupHandoffReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMATotalIntraGroupHandoffReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMATotalHandoffEndRequestReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMATotalInterGroupHandoffSent
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMATotalIntraGroupHandoffSent
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtReceivedTotal
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtTransmitTotal
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtTotalResourceAllocation
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtTotalResourceFree
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtApMgrEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtApMgrName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtApMgrAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtApMgrAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtApMgrNetmaskType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtApMgrNetmask
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtApMgrMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtApMgrVlanId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtApMgrInterfaceType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtApMgrRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCMOEnableStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCMOAdminEnableStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCEnableStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCAdminEnableStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCMOPublicAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCMOPublicAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCApCountLicensesInUse
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCMONumberOfClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCNumberOfMCs
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCTotalNumberOfReportedAPs
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCNumberOfReportedAPsInSubDomain
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMgrAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMgrAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMgrNetmaskType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMgrNetmask
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMgrMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMgrVlanId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMgrName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMgrInterfaceType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtNewArchitectureEnableStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtNewArchitectureAdminEnableStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtEncryptionStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtForeignWlcMapEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtForeignWlcAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtForeignWlcAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtForeignWlcMapIf
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtForeignWlcMapRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtGroupMemberEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtGroupMemberPrivateAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtGroupMemberPrivateAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtGroupMemberGroupName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtGroupMemberPublicAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtGroupMemberPublicAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtGroupMemberStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtGroupMemberMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtGroupMemberMulticastAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtGroupMemberMulticastAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtGroupMemberHashKey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtGroupMemberRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientAnchorMCPublicAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientAnchorMCPublicAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientAnchorMCPrivateAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientAnchorMCPrivateAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientAssociatedMCPublicAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientAssociatedMCPublicAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientAssociatedMCPrivateAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientAssociatedMCPrivateAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientLocalTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientAssociationTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOClientUpTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCMAStatisticsEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCMAPrivateAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCMAPrivateAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMCMAClientCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOMCEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOMCAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOMCAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOMCMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOMCLinkStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMOMCClientCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgGroupName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgGroupId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgBridgeDomainId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgMemberCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgMulticastAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgMulticastAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgMulticastMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgStorageType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtSpgRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAPeerEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAPeerPrivateAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAPeerPrivateAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAPeerPublicAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAPeerPublicAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLMobilityExtMAPeerLinkStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+   ::= { ciscoLwappMobilityExtCapability 1 }
+
+END

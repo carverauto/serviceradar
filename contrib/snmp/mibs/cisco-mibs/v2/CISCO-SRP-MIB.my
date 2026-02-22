@@ -1,0 +1,2966 @@
+-- *****************************************************************
+-- Cisco SRP MIB
+--
+-- April 2000, Stan Jedrysiak
+--
+-- Copyright (c) 2000-2005 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SRP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        NOTIFICATION-TYPE,
+        Integer32,
+        Counter32,
+        Counter64,
+        Unsigned32
+                FROM SNMPv2-SMI
+        MacAddress,
+        TruthValue,
+        TimeStamp,
+        DisplayString,
+        TEXTUAL-CONVENTION
+                FROM SNMPv2-TC         
+        ifIndex
+                FROM IF-MIB
+        ciscoExperiment
+                FROM CISCO-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP,
+        NOTIFICATION-GROUP
+                FROM SNMPv2-CONF;
+
+ciscosrpMIB  MODULE-IDENTITY
+        LAST-UPDATED        "200512190000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA 95134
+                        USA 
+
+                        Tel:  +1 800 553-NETS 
+
+                E-mail: cs-dpt@cisco.com"
+        DESCRIPTION
+               "The MIB module to describe objects for Spatial Reuse
+                Protocol (SRP) interface layer."
+        REVISION        "200512190000Z"
+        DESCRIPTION
+                "Updated the mib to import, Unsigned32 from SNMPv2-SMI 
+                 instead of CISCO-TC and ifIndex from IF-MIB instead
+                 of RFC1213-MIB.
+                 Modified the PerfCurrentCount64 and PerfIntervalCount64
+                 as per the HCPerfCurrentCount and HCPerfIntervalCount TCs
+                 in RFC3705. Replaced the use of CounterBasedGauge64 with
+                 PerfCurrentCount64 or PerfIntervalCount64.
+                 Added a new compliance including all the groups."
+        REVISION        "200103280000Z"
+        DESCRIPTION
+                 "Second version of this MIB module.
+                  srpErrorsCountersCurrentTable and
+                  srpErrorsCountersIntervalTable have been deprecated
+                  and replaced with srpErrCntCurrentTable and
+                  srpErrCntIntervalTable. 
+                  The srpMACCountersTable has been deprecated."
+        REVISION        "200004170000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoExperiment 60 } 
+
+InterfaceSide ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+      "An indication of the side of the interface. 
+       An SRP ring is composed of two fiber rings: Outer
+       and Inner. Outer ring traffic flows clockwise.
+       Inner ring traffic flows counter-clockwise.
+       The side of a node with Outer ring receive fiber
+       is identified as side A, the side of a node with
+       Inner ring receive fiber is identified as B.
+       Side A must be connected to side B.
+       The SRP protocol operates by sending data traffic
+       in one direction known as downstream and it's
+       corresponding control information in the opposite
+       direction known as upstream."
+     SYNTAX  INTEGER  {
+                   sideA(1),     -- side A of the SRP interface
+                   sideB(2)      -- side B of the SRP interface
+               }
+
+
+IpsMode ::= TEXTUAL-CONVENTION
+     STATUS  current
+     DESCRIPTION
+          "An Intelligent Protection Switching mode.
+ 
+          An SRP ring provides redundancy and protection from a failed
+          node or a link/fiber cut through the use of IPS modes that are
+          automatic or operator/user-configured.  Automatic IPS modes
+          take effect when the ring detects an event, a fiber cut, or a
+          node failure and remain in effect until the wait-to-restore
+          value expires.  As the protection requests travel around the
+          ring, the protection hierarchy is applied.  All modes are
+          signalled on the IPS messaging channel. If an node or fiber
+          facility failure is detected, traffic going toward or coming
+          from the failure direction is wrapped (looped) back to go in
+          opposite direction on the other ring.  The wrap around takes
+          place on the nodes adjacent to the failure.  This way the
+          traffic is re-routed from the failed span.
+
+          The ISP modes starting from the highest to the lowest level
+          in the IPS protection hierarchy are:
+  
+          'forcedSwitch' -
+               an operator-configured mode which causes a high-priority
+               protection switch wrap on each end of a specified span.
+          'signalFail' -
+               an automatically-detected mode which causes a protection
+               switch wrap on a span when a media signal failure is
+               detected.
+          'signalDegrade' -
+               an automatically-detected mode which causes protection
+               switch wraps on a span when a media signal degrade is
+               detected due to excessive Bit Error Rate.
+          'manualSwitch' -
+               an operator-configured mode which causes a low-prioority
+               protection switch wrap on each end of a specified span.
+          'waitToRestore' -
+               an automatically-invoked mode which results in a waiting
+               period after the working channel meets the restoration
+               criteria after a signal fail or signal degrade condition
+               disappears to prevent protection switch oscilation.
+          'normal' -
+               a mode which can be configured by an operator, and/or is
+               in effect when no other mode has been automatically
+               detected/invoked."
+     SYNTAX  INTEGER  {
+                 noRequest(1),   -- lowest priority protection request
+                 waitToRestore(2),
+                 manualSwitch(3),
+                 signalDegrade(4),
+                 signalFail(5),
+                 forcedSwitch(6) -- highest priority protection request
+              }
+
+PerfCurrentCount64 ::= TEXTUAL-CONVENTION
+     STATUS  current
+     DESCRIPTION
+            "A gauge associated with a performance measurement in a
+            current 15 minute measurement interval.  The value of an
+            object with an HCPerfCurrentCount syntax starts from zero
+            and is increased when associated events occur, until the
+            end of the 15 minute interval.  At that time the value of
+            the gauge is stored in the first 15 minute history
+            interval, and the gauge is restarted at zero.  In the case
+            where the agent has no valid data available for the
+            current interval, the corresponding object instance is not
+            available and upon a retrieval request a corresponding
+            error message shall be returned to indicate that this
+            instance does not exist.
+
+            This count represents a non-negative integer, which
+            may increase or decrease, but shall never exceed 2^64-1
+            (18446744073709551615 decimal), nor fall below 0.  The
+            value of an object with HCPerfCurrentCount syntax
+            assumes its maximum value whenever the underlying count
+            exceeds 2^64-1.  If the underlying count subsequently
+            decreases below 2^64-1 (due, e.g., to a retroactive
+            adjustment as a result of entering or exiting unavailable
+            time), then the object's value also decreases.
+
+            Note that this TC is not strictly supported in SMIv2,
+            because the 'always increasing' and 'counter wrap'
+            semantics associated with the Counter64 base type are not
+            preserved.  It is possible that management applications
+            which rely solely upon the (Counter64) ASN.1 tag to
+            determine object semantics will mistakenly operate upon
+            objects of this type as they would for Counter64 objects.
+
+            This textual convention represents a limited and short-
+            term solution, and may be deprecated as a long term
+            solution is defined and deployed to replace it."
+     SYNTAX  Counter64
+
+PerfIntervalCount64 ::= TEXTUAL-CONVENTION
+     STATUS  current
+     DESCRIPTION
+            "A gauge associated with a performance measurement in
+            a previous 15 minute measurement interval.  In the case
+            where the agent has no valid data available for a
+            particular interval, the corresponding object instance is
+            not available and upon a retrieval request a corresponding
+            error message shall be returned to indicate that this
+            instance does not exist.
+
+            Let X be an object with HCPerfIntervalCount syntax
+            Let Y be an object with HCPerfCurrentCount syntax.
+            Let Z be an object with HCPerfTotalCount syntax.
+            Then, in a system supporting a history of n intervals with
+            X(1) and X(n) the most and least recent intervals
+            respectively, the following applies at the end of a 15
+            minute interval:
+
+               - discard the value of X(n)
+               - the value of X(i) becomes that of X(i-1)
+                 for n >= i > 1
+               - the value of X(1) becomes that of Y.
+               - the value of Z, if supported, is adjusted.
+
+            This count represents a non-negative integer, which
+            may increase or decrease, but shall never exceed 2^64-1
+            (18446744073709551615 decimal), nor fall below 0.  The
+            value of an object with HCPerfIntervalCount syntax
+            assumes its maximum value whenever the underlying count
+            exceeds 2^64-1.  If the underlying count subsequently
+            decreases below 2^64-1 (due, e.g., to a retroactive
+            adjustment as a result of entering or exiting unavailable
+            time), then the value of the object also decreases.
+
+            Note that this TC is not strictly supported in SMIv2,
+            because the 'always increasing' and 'counter wrap'
+            semantics associated with the Counter64 base type are not
+            preserved.  It is possible that management applications
+            which rely solely upon the (Counter64) ASN.1 tag to
+            determine object semantics will mistakenly operate upon
+            objects of this type as they would for Counter64 objects.
+
+            This textual convention represents a limited and short-
+            term solution, and may be deprecated as a long term
+            solution is defined and deployed to replace it."
+     SYNTAX  Counter64
+
+
+srpMAC          OBJECT IDENTIFIER ::= { ciscosrpMIB 1 }
+-- Media Access Control layer (MAC) objects
+-- based on Spatial Reuse Protocol (SRP)
+
+srpRingCounters OBJECT IDENTIFIER ::= { ciscosrpMIB 2 }
+-- the Physical Layer 1 - medium dependent values Counters 
+
+srpHostCounters OBJECT IDENTIFIER ::= { ciscosrpMIB 3 }
+-- the Higher Layer Current values Counters 
+
+srpErrorsCounters OBJECT IDENTIFIER ::= { ciscosrpMIB 4 }
+-- the Errors Current values Counters 
+
+srpTrapsNotificationsPrefix OBJECT IDENTIFIER ::= { ciscosrpMIB 5 } 
+srpTrapsNotifications OBJECT IDENTIFIER
+                         ::= { srpTrapsNotificationsPrefix 0 }
+-- the SRP trap events notification 
+
+srpConformance OBJECT IDENTIFIER ::= { ciscosrpMIB 6 }
+-- the SRP MIB conformance
+
+srpGroups OBJECT IDENTIFIER ::= { srpConformance 1 }
+
+srpCompliances OBJECT IDENTIFIER ::= { srpConformance 2 }
+
+
+-- *******************************************************************
+-- the SRP MAC group
+-- Implementation of the MAC Group is mandatory for all
+-- systems which implement manageable SRP subsystems.
+-- *******************************************************************
+
+   srpIfTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF SrpIfEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+         "The SRP interface table."
+       ::= { srpMAC 1 }
+
+   srpIfEntry OBJECT-TYPE
+       SYNTAX  SrpIfEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+         "There exists one such entry for every interface
+          in the ifTable which has an ifType of SRP interface (151)
+          Each of these entries are indexed by the value
+          of ifIndex as defined in RFC2233."
+       INDEX   { ifIndex }
+       ::= { srpIfTable 1 }
+
+   SrpIfEntry ::=
+       SEQUENCE {
+            srpMACAddress           MacAddress,
+            srpPriorityThreshold    Integer32,
+            srpNodesOnTheRing       Integer32,
+            srpIpsState             INTEGER,
+            srpIpsLockedOut         TruthValue,
+            srpIpsWaitToRestoreTimer
+                                    Integer32,
+            srpIfTimeElapsed        Integer32,
+            srpIfValidIntervals     Integer32
+   }
+
+   srpMACAddress OBJECT-TYPE
+       SYNTAX  MacAddress -- OCTET STRING (SIZE (6))
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The MAC's 48-bit individual MAC address."
+       ::= { srpIfEntry 1 }
+
+   srpPriorityThreshold OBJECT-TYPE
+       SYNTAX  Integer32 (0..7)
+       MAX-ACCESS  read-write
+       STATUS  current
+       DESCRIPTION
+         "The priority threshold value to be compared against
+          the 3 bits of priority contained in each packet's SRP
+          header. If a packet's priority is greater or equal to
+          this threshold, that packet should be placed in the
+          high priority transmit or transit queue. If a packet's
+          priority is less than this threshold, it should be
+          placed in the low priority transmit or transit queue.
+
+          Since there are only two types of priority
+          queues (High Priority and Low Priority) a packet
+          is treated as either low or high priority once it is 
+          on the ring. Each node determines the threshold
+          value for classifying what is considered a high
+          priority packet and what is considered a low priority
+          packet." 
+   ::= { srpIfEntry 2 }
+
+   srpNodesOnTheRing OBJECT-TYPE
+       SYNTAX  Integer32 (0..128)
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The number of nodes in the SRP ring.
+          When interface is down the value is 0."
+   ::= { srpIfEntry 3 }
+
+   srpIpsState OBJECT-TYPE
+       SYNTAX  INTEGER  {
+                   idle(1),        -- node ready to perform
+                                   -- protection switching
+                   passThrough(2), -- node participate
+                                   -- in protection switch
+                   wrapped(3)      -- wrap is present
+               }
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "Each node in the Intelligent Protection Switching (IPS)
+          is one of the following states.
+          Idle - In this mode the node is ready to perform protection
+          and it sends to both neighboring nodes idle IPS messages,
+          which include self in the source address field
+          {0, SELF, 0, S}.
+
+          PassThrough - Node participate in a protection switch by
+          passing the wrapped traffic and long path signalling through
+          itself. This state is entered based on received IPS messages.
+
+          Wrapped - Node participate in a protection switch with a wrap
+          present. This state is entered based on protection request
+                issued locally or based on received IPS messages.
+
+          When interface is down the value for IPS state
+          is passThrough."
+       ::= { srpIfEntry 4 }
+
+   srpIpsLockedOut OBJECT-TYPE
+       SYNTAX TruthValue
+       MAX-ACCESS  read-write
+       STATUS  current
+       DESCRIPTION
+         "The boolean flag to indicate node
+          LockedOut of protection state. If it's true than
+          Intelligent Protection Swiching is disabled and
+          the node will not wrap on either side of the interface." 
+       ::= { srpIfEntry 5 }
+
+   srpIpsWaitToRestoreTimer OBJECT-TYPE
+       SYNTAX  Integer32 (10..600)
+       UNITS   "seconds"
+       MAX-ACCESS  read-write
+       STATUS  current
+       DESCRIPTION
+         "Indicates the length of time in seconds,
+          to remain in the wrap state, after the cause
+          of a wrap is removed. This mechanism prevents
+          protection switch oscillations. Default value is 60 sec."
+       ::= { srpIfEntry 6 }
+
+   srpIfTimeElapsed OBJECT-TYPE
+       SYNTAX  Integer32 (1..900)
+       UNITS   "seconds"
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The number of seconds, including partial seconds,
+          that have elapsed since the beginning of the current
+          measurement interval as described in RFC 2493.
+          If, for some reason, such as an
+          adjustment in the system's time-of-day clock, the
+          current interval exceeds the maximum value, the
+          agent will return the maximum value."
+   ::= { srpIfEntry 7 }
+
+   srpIfValidIntervals OBJECT-TYPE
+       SYNTAX  Integer32 (0..96)
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The number of previous 15-minute
+          measurement intervals
+          for which data was collected.
+          A SRP interface must be capable
+          of supporting at least n intervals.
+          The minimum value of n is 4.
+          The default of n is 32.
+          The maximum value of n is 96.
+          The value will be  unless the measurement was
+          (re-)started within the last (*15) minutes, in which
+          case the value will be the number of complete 15
+          minute intervals for which the agent has at least
+          some data. In certain cases (e.g., in the case
+          where the agent is a proxy) it is possible that some
+          intervals are unavailable.  In this case, this
+          interval is the maximum interval number for
+          which data is available. "
+  ::= { srpIfEntry 8 }
+
+
+-- *******************************************************************
+--  The MAC table 
+-- *******************************************************************
+   srpMACSideTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF SrpMACSideEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+         "A table of information about the sides of SRP interfaces."
+       ::= { srpMAC  2 }
+
+   srpMACSideEntry OBJECT-TYPE
+       SYNTAX  SrpMACSideEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+         "A list of information specific to a particular
+          side of a particular SRP interface."
+       INDEX   { ifIndex, srpMACInterfaceSide }
+       ::= { srpMACSideTable 1 }
+
+   SrpMACSideEntry ::=
+       SEQUENCE {
+           srpMACInterfaceSide
+                   InterfaceSide,
+           srpMACNeighborAddress
+                   MacAddress,
+           srpMACSideWrapped
+                   TruthValue,
+           srpMACIpsMgmtRequestedMode
+                   IpsMode,
+           srpMACIpsAutoDetectMode
+                   IpsMode,
+           srpMACIpsRemoteMode
+                   IpsMode,
+           srpMACIpsRemoteType
+                   INTEGER,
+           srpMACIpsActiveMode
+                   IpsMode, 
+           srpMACIpsWrapCounter
+                   Counter32,
+           srpMACIpsLastWrapTimeStamp
+                   TimeStamp,
+           srpMACIpsLastUnWrapTimeStamp
+                   TimeStamp,
+-- Clock source attribute 
+           srpMACClockSourceMode
+                   INTEGER,
+-- Topology timer attribute 
+           srpMACTopologyTimer
+                   Integer32
+       }
+
+   srpMACInterfaceSide OBJECT-TYPE
+       SYNTAX InterfaceSide
+       MAX-ACCESS not-accessible 
+       STATUS  current
+       DESCRIPTION
+         "An indication of the side of the interface for which
+          this row contains information."
+       ::= { srpMACSideEntry 1 }
+
+   srpMACNeighborAddress OBJECT-TYPE
+       SYNTAX  MacAddress -- OCTET STRING (SIZE (6))
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The MAC's neighbor's 48-bit individual
+          MAC address." 
+       ::= { srpMACSideEntry 2 }
+
+   srpMACSideWrapped  OBJECT-TYPE
+       SYNTAX TruthValue 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The boolean flag to indicate the node's wrapped state." 
+       ::= { srpMACSideEntry 3 }
+
+   srpMACIpsMgmtRequestedMode OBJECT-TYPE
+       SYNTAX  IpsMode
+       MAX-ACCESS  read-write
+       STATUS  current
+       DESCRIPTION
+         "The IPS mode requested by management for the local node
+          that can affect the srpMACIpsActiveMode state  
+          of the SRP node, according to the set of rules describing IPS 
+          protocol. This variable value is one from the following subset
+          (noRequest, manualSwitch, forcedSwitch)."
+       ::= { srpMACSideEntry 4 }
+
+   srpMACIpsAutoDetectMode OBJECT-TYPE
+       SYNTAX  IpsMode
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The current IPS mode as automatically detected 
+          by the the local node that can affect
+          the srpMACIpsActiveMode state of the SRP node,
+          according to the set of rules describing IPS protocol.
+          This variable value is one from the following subset
+          (SignalFail, SignalDegrade, WaitToRestore)."
+       ::= { srpMACSideEntry 5 }
+
+   srpMACIpsRemoteMode OBJECT-TYPE
+       SYNTAX  IpsMode
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The IPS mode indicated in IPS messages being received by
+          the local node from other nodes on the ring,
+          that can affect the srpMACIpsActiveMode state  
+          of the SRP node, according to the set of rules describing IPS 
+          protocol." 
+       ::= { srpMACSideEntry 6 }
+   
+   srpMACIpsRemoteType OBJECT-TYPE
+       SYNTAX  INTEGER  {
+             shortPath(1), -- between local node and
+                           -- adjacent nodes on the ring
+             longPath(2)   -- between local node and other
+                           -- non-adjacent nodes on the ring
+               }
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "Indicates if srpMACIpsRemoteMode object value
+          belongs to the adjacent node in the case of the shortPath
+          or belongs to the non-adjacent node in the case
+          of the longPath."
+       ::= { srpMACSideEntry 7 }
+
+   srpMACIpsActiveMode OBJECT-TYPE
+       SYNTAX  IpsMode
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The currently active IPS mode
+          for the local node, which can be changed based on
+          combined effect of the following variables:
+             srpMACIpsMgmtRequestedMode,
+             srpMACIpsAutoDetectMode,
+             srpMACIpsRemoteMode, and
+             srpMACIpsRemoteType
+          according to the set of rules describing IPS protocol."
+       ::= { srpMACSideEntry 8 }
+   
+   srpMACIpsWrapCounter OBJECT-TYPE
+       SYNTAX  Counter32 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The number of transition from unwrap  
+          to wrap state."  
+       ::= { srpMACSideEntry 9 }
+
+   srpMACIpsLastWrapTimeStamp OBJECT-TYPE
+       SYNTAX    TimeStamp
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The value of sysUpTime for the last wrap."
+       ::= { srpMACSideEntry 10 }
+
+   srpMACIpsLastUnWrapTimeStamp OBJECT-TYPE
+       SYNTAX    TimeStamp
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The value of sysUpTime for the last unwrap."
+       ::= { srpMACSideEntry 11 }
+
+   srpMACClockSourceMode OBJECT-TYPE
+       SYNTAX  INTEGER  {
+                   internal(1),
+                   line(2)
+               }
+       MAX-ACCESS  read-write
+       STATUS  current
+       DESCRIPTION
+         "Indicates the mode of the SRP interface clock source.
+
+         Internal - mode specifies the clock source as internal, and   
+         is used when connecting between two routers over a dark fiber
+         or over WDM system.
+         The internal mode is used as a default value.
+
+         Line -  mode specifies the clock source as line, and is used
+         when connecting a router to SONET/SDH ADM."
+       ::= { srpMACSideEntry 12 }
+
+   srpMACTopologyTimer OBJECT-TYPE
+       SYNTAX  Integer32 (1..600) 
+       MAX-ACCESS  read-write
+       STATUS  current
+       DESCRIPTION
+         "Indicates the topology-timer on a SRP ring, how frequently
+         topology discovery messages are sent around ring to identify
+         the nodes. Toplogy discovery is always on. 
+         The default value is 10 seconds."
+       ::= { srpMACSideEntry 13 }
+
+
+-- *******************************************************************
+--  The topology map  
+-- *******************************************************************
+   srpRingTopologyMapTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF SrpRingTopologyMapEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current 
+       DESCRIPTION
+         "A list of SRP ring topology map entries."
+       ::= { srpMAC  3 }
+
+   srpRingTopologyMapEntry OBJECT-TYPE
+       SYNTAX  SrpRingTopologyMapEntry 
+       MAX-ACCESS  not-accessible
+       STATUS  current 
+       DESCRIPTION
+         "A MAC entry containing information
+          specific to a particular node on the ring."
+       INDEX   { ifIndex, srpNodeHopsNumber }
+       ::= { srpRingTopologyMapTable 1 }
+
+   SrpRingTopologyMapEntry ::=
+       SEQUENCE {
+           srpNodeHopsNumber
+                   Unsigned32,
+           srpNodeMACAddress
+                   MacAddress,
+           srpNodeWrapped
+                   TruthValue,
+           srpNodeName
+                   DisplayString
+       }
+
+   srpNodeHopsNumber OBJECT-TYPE
+       SYNTAX  Unsigned32 (0..128)
+       MAX-ACCESS  not-accessible 
+       STATUS  current
+       DESCRIPTION
+         "A value, between 0 and (srpNodesOnTheRing - 1), used
+          to identify the particular node which is the number
+          of hops around the ring (clock-wise) away from
+          the local node."
+   ::= { srpRingTopologyMapEntry 1 }
+
+   srpNodeMACAddress OBJECT-TYPE
+       SYNTAX  MacAddress -- OCTET STRING (SIZE (6))
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The node MAC's 48-bit individual MAC address."
+       ::= { srpRingTopologyMapEntry 2 }
+
+   srpNodeWrapped  OBJECT-TYPE
+       SYNTAX TruthValue
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "Indicates in general if the node is wrapped
+          without specifying on which side." 
+       ::= { srpRingTopologyMapEntry 3 }
+
+   srpNodeName OBJECT-TYPE 
+       SYNTAX DisplayString (SIZE(0..255)) 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The node name reported by the SRP protocol.
+          If the name is not known then this field is left blank."
+   ::= { srpRingTopologyMapEntry 4 }
+
+ 
+
+-- *******************************************************************
+-- The MAC Layer traffic - Counters 
+-- *******************************************************************
+
+   srpMACCountersTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF SrpMACCountersEntry
+       MAX-ACCESS  not-accessible
+       STATUS  deprecated
+       DESCRIPTION
+               "The MAC layer traffic Counters table."
+       ::= { srpMAC  6 }
+
+   srpMACCountersEntry OBJECT-TYPE
+       SYNTAX  SrpMACCountersEntry
+       MAX-ACCESS  not-accessible
+       STATUS  deprecated
+       DESCRIPTION
+         "A packet counting and packet reject capability for a
+          source and/or destination address on a 
+          particular SRP interface."
+       INDEX   { ifIndex }
+       ::= { srpMACCountersTable 1 }
+
+   SrpMACCountersEntry ::=
+       SEQUENCE {
+-- Count packets by source address 
+           srpMACCountPktsBySourceFlag
+                   TruthValue,
+           srpMACCountPktsBySourceAddress
+                   MacAddress,
+           srpMACSourceDiscontTimeStamp
+                   TimeStamp,
+           srpMACCountPktsBySource
+                   Counter64,
+-- Count packets by destination address 
+           srpMACCountPktsByDestinationFlag
+                   TruthValue,
+           srpMACCountPktsByDestAddress
+                   MacAddress,
+           srpMACDestDiscontTimeStamp
+                   TimeStamp,
+           srpMACCountPktsByDest
+                   Counter64,
+-- Reject packets by source address 
+           srpMACRejectPktsBySourceFlag
+                   TruthValue,
+           srpMACRejectPktsBySourceAddress
+                   MacAddress,
+-- Reject packets by destination address
+           srpMACRejectPktsByDestFlag
+                   TruthValue,
+           srpMACRejectPktsByDestAddress
+                   MacAddress
+       }
+
+
+   srpMACCountPktsBySourceFlag OBJECT-TYPE
+       SYNTAX  TruthValue
+       MAX-ACCESS  read-write
+       STATUS  deprecated
+       DESCRIPTION
+         "Indicates that packets are to be counted
+          for a particular source address."
+       ::= { srpMACCountersEntry 1 }
+
+   srpMACCountPktsBySourceAddress OBJECT-TYPE
+       SYNTAX  MacAddress
+       MAX-ACCESS  read-write
+       STATUS  deprecated
+       DESCRIPTION
+         "Indicates the particular source address for which packets
+          are to be counted when the corresponding instance of
+          srpMACCountPktsBySourceFlag has the value 'true'."
+       ::= { srpMACCountersEntry 2 }
+
+   srpMACSourceDiscontTimeStamp OBJECT-TYPE
+       SYNTAX  TimeStamp
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The value of sysUpTime on the most recent occasion when
+          there was a change in the value of the corresponding
+          instances of either srpMACCountPktsBySourceAddress
+          or srpMACCountPktsBySourceFlag."
+       ::= { srpMACCountersEntry 3 }
+
+   srpMACCountPktsBySource OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "Counter for the number of packets received
+          from a particular source node's MAC address.
+          Discontinuities in the value of this counter can occur
+          at re-initialization of the management system, and at
+          other times as indicated by the value of
+          srpMACSourceDiscontTimeStamp."
+       ::= { srpMACCountersEntry 4 }
+
+   srpMACCountPktsByDestinationFlag OBJECT-TYPE
+       SYNTAX  TruthValue
+       MAX-ACCESS  read-write
+       STATUS  deprecated
+       DESCRIPTION
+         "Indicates that packets are to be counted
+          for a particular destination address."
+       ::= { srpMACCountersEntry 5 }
+
+   srpMACCountPktsByDestAddress OBJECT-TYPE
+       SYNTAX  MacAddress
+       MAX-ACCESS  read-write
+       STATUS  deprecated
+       DESCRIPTION
+         "Indicates the particular destination address for which 
+          packets are to be counted when the corresponding instance 
+          of srpMACCountPktsByDestinationFlag
+          has the value 'true'."
+       ::= { srpMACCountersEntry 6 }
+
+
+   srpMACDestDiscontTimeStamp OBJECT-TYPE
+       SYNTAX  TimeStamp
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The value of sysUpTime on the most recent occasion when
+          there was a change in the value of the corresponding
+          instances of either srpMACCountPktsByDestAddress 
+          or srpMACCountPktsByDestinationFlag."
+       ::= { srpMACCountersEntry 7 }
+
+
+   srpMACCountPktsByDest OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "Counter for the number of packets send
+          to a particular destination node's MAC address.
+          Discontinuities in the value of this counter can occur
+          at re-initialization of the management system, and at
+          other times as indicated by the value of
+          srpMACDestDiscontTimeStamp."
+
+       ::= { srpMACCountersEntry 8 }
+
+   srpMACRejectPktsBySourceFlag OBJECT-TYPE
+       SYNTAX  TruthValue
+       MAX-ACCESS  read-write
+       STATUS  deprecated
+       DESCRIPTION
+         "Indicates that packets are to be rejected
+          for a particular source address."
+       ::= { srpMACCountersEntry 9 }
+
+   srpMACRejectPktsBySourceAddress OBJECT-TYPE
+       SYNTAX  MacAddress
+       MAX-ACCESS  read-write
+       STATUS  deprecated
+       DESCRIPTION
+         "Indicates the particular source address for which
+          packets are to rejected when the corresponding
+          instance of srpMACRejectPktsBySourceFlag
+          has the value 'true'."
+       ::= { srpMACCountersEntry 10 }
+
+   srpMACRejectPktsByDestFlag OBJECT-TYPE
+       SYNTAX  TruthValue
+       MAX-ACCESS  read-write
+       STATUS  deprecated
+       DESCRIPTION
+         "Indicates that packets are to be rejected
+          for a particular destination address."
+       ::= { srpMACCountersEntry 11 }
+
+   srpMACRejectPktsByDestAddress OBJECT-TYPE
+       SYNTAX  MacAddress
+       MAX-ACCESS  read-write
+       STATUS  deprecated
+       DESCRIPTION
+         "Indicates the particular destination address for which
+          packets are to rejected when the corresponding
+          instance of srpMACRejectPktsByDestFlag
+          has the value 'true'."
+       ::= { srpMACCountersEntry 12 }
+
+
+
+-- *******************************************************************
+-- The Ring Physical Layer - media dependent Counters 
+-- *******************************************************************
+
+   srpRingCountersCurrentTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF SrpRingCountersCurrentEntry
+       MAX-ACCESS  not-accessible 
+       STATUS  current
+       DESCRIPTION
+         "The Physical medium dependent layer
+          Current counters table."
+       ::= { srpRingCounters  1 }
+
+   srpRingCountersCurrentEntry OBJECT-TYPE
+       SYNTAX  SrpRingCountersCurrentEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+         "Packets and octets statistics for the current interval
+          for the Physical medium dependent layer of a particular
+          side of a particular SRP interface. The corresponding
+          instance of srpIfTimeElapsed indicates the number
+          of seconds which have elapsed so far
+          in the current interval."
+       INDEX   { ifIndex, srpRingInterfaceSide }
+       ::= { srpRingCountersCurrentTable 1 }
+
+   SrpRingCountersCurrentEntry ::=
+       SEQUENCE {
+            srpRingInterfaceSide
+                   InterfaceSide,
+-- Rx PhysLayer LowPri counters 
+           srpRingCurUcastLowPriPktsIn
+                   PerfCurrentCount64,
+           srpRingCurUcastLowPriOctetsIn
+                   PerfCurrentCount64,
+           srpRingCurMcastLowPriPktsIn
+                   PerfCurrentCount64,
+           srpRingCurMcastLowPriOctetsIn
+                   PerfCurrentCount64,
+-- Rx PhysLayer High Priority counters  
+           srpRingCurUcastHighPriPktsIn
+                   PerfCurrentCount64,
+           srpRingCurUcastHighPriOctetsIn
+                   PerfCurrentCount64,
+           srpRingCurMcastHighPriPktsIn
+                   PerfCurrentCount64,
+           srpRingCurMcastHighPriOctetsIn
+                   PerfCurrentCount64,
+-- Tx PhysLayer LowPri counters 
+           srpRingCurUcastLowPriPktsOut
+                   PerfCurrentCount64,
+           srpRingCurUcastLowPriOctetsOut
+                   PerfCurrentCount64,
+           srpRingCurMcastLowPriPktsOut
+                   PerfCurrentCount64,
+           srpRingCurMcastLowPriOctetsOut
+                   PerfCurrentCount64,
+-- Tx PhysLayer High Priority counters 
+           srpRingCurUcastHighPriPktsOut
+                   PerfCurrentCount64,
+           srpRingCurUcastHighPriOctetsOut
+                   PerfCurrentCount64,
+           srpRingCurMcastHighPriPktsOut
+                   PerfCurrentCount64,
+           srpRingCurMcastHighPriOctetsOut
+                   PerfCurrentCount64
+
+       }
+
+   srpRingInterfaceSide OBJECT-TYPE
+       SYNTAX InterfaceSide
+       MAX-ACCESS  not-accessible 
+       STATUS  current
+       DESCRIPTION
+         "An indication of the side of the interface for which
+          this row contains information."
+       ::= { srpRingCountersCurrentEntry 1 }
+
+-- Rx PhysLayer: Indicate the amount of traffic
+-- received from the PhysLayer medium. 
+   srpRingCurUcastLowPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority 
+          unicast packets received from
+          the Physical medium dependent layer
+          in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 2 }
+
+   srpRingCurUcastLowPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64   
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority 
+          unicast octets received from
+          the Physical medium dependent layer
+          in the current 15minute interval."
+       ::= { srpRingCountersCurrentEntry 3 }
+
+   srpRingCurMcastLowPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority 
+          multicast packets received from
+          the Physical medium dependent layer
+          in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 4 }
+
+   srpRingCurMcastLowPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority 
+          multicast octets received from
+          the Physical medium dependent layer
+          in the current 15 minute interval."
+
+       ::= { srpRingCountersCurrentEntry 5 }
+   
+   srpRingCurUcastHighPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority 
+          unicast packets received from
+          the Physical medium dependent layer
+          in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 6 }
+
+   srpRingCurUcastHighPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority 
+          unicast octets received from
+          the Physical medium dependent layer
+          in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 7 }
+
+   srpRingCurMcastHighPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority 
+          multicast packets received from
+          the Physical medium dependent layer
+          in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 8 }
+
+   srpRingCurMcastHighPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority 
+          multicast octets received from
+          the Physical medium dependent layer
+          in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 9 }
+
+
+-- Tx PhysLayer: Indicate the amount of traffic going
+--  to the PhysLayer medium.
+
+   srpRingCurUcastLowPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority
+          unicast packets going to the Physical medium dependent 
+          layer in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 10 }
+
+   srpRingCurUcastLowPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority 
+          unicast octets going to the Physical medium dependent 
+          layer in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 11 }
+
+   srpRingCurMcastLowPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority 
+          multicast packets going to the Physical medium dependent 
+          layer in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 12 }
+
+   srpRingCurMcastLowPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority 
+          multicast octets going to the Physical medium dependent 
+          layer in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 13 }
+   
+   srpRingCurUcastHighPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority 
+          unicast packets going to the Physical medium dependent 
+          layer in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 14 }
+
+   srpRingCurUcastHighPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority 
+          unicast octets going to the Physical medium dependent 
+          layer in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 15 }
+
+   srpRingCurMcastHighPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast packets going to the Physical medium dependent 
+          layer in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 16 }
+
+   srpRingCurMcastHighPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast octets going to the Physical medium dependent 
+          layer in the current 15 minute interval."
+       ::= { srpRingCountersCurrentEntry 17 }
+
+
+
+-- *******************************************************************
+-- The Ring Physical Layer - media dependent Interval Counters table
+-- *******************************************************************
+   srpRingCountersIntervalTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF SrpRingCountersIntervalEntry
+       MAX-ACCESS  not-accessible 
+       STATUS  current
+       DESCRIPTION
+         "The Physical medium dependent layer
+          Interval counters table."
+       ::= { srpRingCounters  2 }
+
+   srpRingCountersIntervalEntry OBJECT-TYPE
+       SYNTAX  SrpRingCountersIntervalEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+         "Packets and octets statistics collected
+          for a particular interval
+          for the Physical medium dependent layer of a particular
+          side of a particular SRP interface.
+          The number of 15-minute intervals is between 1 and 96, 
+          identifies the intervals for which the set of
+          and statistics is available." 
+       INDEX   { ifIndex, srpRingIntInterfaceSide, 
+                 srpRingIntNumber }
+       ::= { srpRingCountersIntervalTable 1 }
+
+   SrpRingCountersIntervalEntry ::=
+       SEQUENCE {
+           srpRingIntInterfaceSide
+                   InterfaceSide,
+           srpRingIntNumber
+                   Integer32,
+           srpRingIntWrapCounter
+                   Counter32,
+-- Rx PhysLayer LowPri counters 
+           srpRingIntUcastLowPriPktsIn
+                   PerfIntervalCount64,
+           srpRingIntUcastLowPriOctetsIn
+                   PerfIntervalCount64,
+           srpRingIntMcastLowPriPktsIn
+                   PerfIntervalCount64,
+           srpRingIntMcastLowPriOctetsIn
+                   PerfIntervalCount64,
+-- Rx PhysLayer High Priority counters  
+           srpRingIntUcastHighPriPktsIn
+                   PerfIntervalCount64,
+           srpRingIntUcastHighPriOctetsIn
+                   PerfIntervalCount64,
+           srpRingIntMcastHighPriPktsIn
+                   PerfIntervalCount64,
+           srpRingIntMcastHighPriOctetsIn
+                   PerfIntervalCount64,
+-- Tx PhysLayer LowPri counters 
+           srpRingIntUcastLowPriPktsOut
+                   PerfIntervalCount64,
+           srpRingIntUcastLowPriOctetsOut
+                   PerfIntervalCount64,
+           srpRingIntMcastLowPriPktsOut
+                   PerfIntervalCount64,
+           srpRingIntMcastLowPriOctetsOut
+                   PerfIntervalCount64,
+-- Tx PhysLayer High Priority counters 
+           srpRingIntUcastHighPriPktsOut
+                   PerfIntervalCount64,
+           srpRingIntUcastHighPriOctetsOut
+                   PerfIntervalCount64,
+           srpRingIntMcastHighPriPktsOut
+                   PerfIntervalCount64,
+           srpRingIntMcastHighPriOctetsOut
+                   PerfIntervalCount64
+       }
+
+   srpRingIntInterfaceSide OBJECT-TYPE
+       SYNTAX InterfaceSide
+       MAX-ACCESS  not-accessible 
+       STATUS  current
+       DESCRIPTION
+         "An indication of the side of the interface for which
+          this row contains information."
+       ::= { srpRingCountersIntervalEntry 1 }
+
+
+   srpRingIntNumber OBJECT-TYPE
+       SYNTAX Integer32 (1..96)
+       MAX-ACCESS not-accessible 
+       STATUS current
+       DESCRIPTION
+         "A number between 1 and 96, which identifies the
+          intervals for which the set of statistics is available.
+          The interval identified by 1 is the most recently
+          completed 15 minute interval,
+          and interval identified by N is the interval
+          immediately preceding the one identified by N-1."
+       ::= { srpRingCountersIntervalEntry 2 }
+
+
+   srpRingIntWrapCounter OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter counts the number of
+          transition from unwrap to wrap state
+          for the last  intervals described by
+          the srpRingIntNumber variable."
+       ::= { srpRingCountersIntervalEntry 3 }
+
+
+
+
+-- Rx PhysLayer: Indicate the amount of traffic
+-- received from the PhysLayer medium. 
+   srpRingIntUcastLowPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority 
+          unicast packets received from the Physical medium dependent 
+          layer in a particular 15-minute interval
+          in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 4 }
+
+   srpRingIntUcastLowPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority
+          unicast octets received from the Physical medium dependent
+          layer in a particular 15-minute interval
+          in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 5 }
+
+   srpRingIntMcastLowPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority
+          multicast packets received from the Physical medium dependent
+          layer in a particular 15-minute interval
+          in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 6 }
+
+   srpRingIntMcastLowPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only 
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority
+          multicast octets  received from the Physical medium dependent
+          layer in a particular 15-minute interval
+          in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 7 }
+   
+   srpRingIntUcastHighPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          unicast packets received from the Physical medium dependent
+          layer in a particular 15-minute interval
+          in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 8 }
+
+   srpRingIntUcastHighPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          unicast octets received from the Physical medium dependent
+          layer in a particular 15-minute interval
+          in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 9 }
+
+   srpRingIntMcastHighPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast packets received from the Physical medium dependent
+          layer in a particular 15-minute interval
+          in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 10 }
+
+   srpRingIntMcastHighPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast octets received from the Physical medium dependent
+          layer in a particular 15-minute interval
+          in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 11 }
+
+
+-- Tx PhysLayer: Indicate the amount of traffic
+-- going to the PhysLayer medium.
+   srpRingIntUcastLowPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority
+         unicast packets going to the Physical medium dependent layer
+         in a particular 15-minute interval in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 12 }
+
+   srpRingIntUcastLowPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of low priority 
+          unicast octets going to the Physical medium dependent layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 13 }
+
+   srpRingIntMcastLowPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+        "The counter associated with the number of low priority 
+        multicast packets going to the Physical medium dependent layer
+        in a particular 15-minute interval in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 14 }
+
+   srpRingIntMcastLowPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+        "The counter associated with the number of low priority 
+         multicast octets going to the Physical medium dependent layer
+         in a particular 15-minute interval in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 15 }
+   
+   srpRingIntUcastHighPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority 
+          unicast packets going to the Physical medium dependent layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 16 }
+
+   srpRingIntUcastHighPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The counter associated with the number of high priority 
+           unicast octets going to the Physical medium dependent layer
+           in a particular 15-minute interval in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 17 }
+
+   srpRingIntMcastHighPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast packets going to the Physical medium dependent layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 18 }
+
+   srpRingIntMcastHighPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast octets going to the Physical medium dependent layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpRingCountersIntervalEntry 19 }
+
+
+
+-- *******************************************************************
+-- The Higher Layer Current Counters table
+-- These counters are for packets/octets passed by the SRP interface
+-- to its "higher-layer protocol" as defined by RFC 2233.
+-- *******************************************************************
+   srpHostCountersCurrentTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF SrpHostCountersCurrentEntry
+       MAX-ACCESS  not-accessible 
+       STATUS  current
+       DESCRIPTION
+         "The Higher Layer Current counters table."
+       ::= { srpHostCounters  1 }
+
+   srpHostCountersCurrentEntry OBJECT-TYPE
+       SYNTAX  SrpHostCountersCurrentEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+         "Packets and octets statistics for the current interval
+          for the Higher Layer of a particular
+          side of a particular SRP interface. The corresponding
+          instance of srpIfTimeElapsed indicates the number
+          of seconds which have elapsed so far
+          in the current interval."
+       INDEX   { ifIndex, srpHostInterfaceSide }
+       ::= { srpHostCountersCurrentTable 1 }
+
+   SrpHostCountersCurrentEntry ::=
+       SEQUENCE {
+           srpHostInterfaceSide
+                  InterfaceSide,
+-- Rx Higher Layer Low Priority counters 
+           srpHostCurUcastLowPriPktsIn
+                   PerfCurrentCount64,
+           srpHostCurUcastLowPriOctetsIn
+                   PerfCurrentCount64,
+           srpHostCurMcastLowPriPktsIn
+                   PerfCurrentCount64,
+           srpHostCurMcastLowPriOctetsIn
+                   PerfCurrentCount64,
+-- Rx Higher Layer High Priority counters 
+           srpHostCurUcastHighPriPktsIn
+                   PerfCurrentCount64,
+           srpHostCurUcastHighPriOctetsIn
+                   PerfCurrentCount64,
+           srpHostCurMcastHighPriPktsIn
+                   PerfCurrentCount64,
+           srpHostCurMcastHighPriOctetsIn
+                   PerfCurrentCount64,
+-- Tx Higher Layer Low Priority counters 
+           srpHostCurUcastLowPriPktsOut
+                   PerfCurrentCount64,
+           srpHostCurUcastLowPriOctetsOut
+                   PerfCurrentCount64,
+           srpHostCurMcastLowPriPktsOut
+                   PerfCurrentCount64,
+           srpHostCurMcastLowPriOctetsOut
+                   PerfCurrentCount64,
+-- Tx Higher Layer High Priority counters 
+           srpHostCurUcastHighPriPktsOut
+                   PerfCurrentCount64,
+           srpHostCurUcastHighPriOctetsOut
+                   PerfCurrentCount64,
+           srpHostCurMcastHighPriPktsOut
+                   PerfCurrentCount64,
+           srpHostCurMcastHighPriOctetsOut
+                   PerfCurrentCount64
+
+       }
+
+   srpHostInterfaceSide OBJECT-TYPE
+       SYNTAX InterfaceSide
+       MAX-ACCESS  not-accessible 
+       STATUS  current
+       DESCRIPTION
+         "An indication of the side of the interface for which
+          this row contains information."
+       ::= { srpHostCountersCurrentEntry 1 }
+
+-- Rx Higher Layer Low Priority counters 
+   srpHostCurUcastLowPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          unicast packets received from the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 2 }
+
+   srpHostCurUcastLowPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          unicast octets received from the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 3 }
+
+   srpHostCurMcastLowPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+               "The counter associated with the number of total
+                multicast packets received from the Higher Layer
+                in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 4 }
+
+   srpHostCurMcastLowPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+               "The counter associated with the number of total
+                multicast octets received from the Higher Layer
+                in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 5 }
+ 
+-- Rx Higher Layer High Priority counters  
+   srpHostCurUcastHighPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          unicast packets received from the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 6 }
+
+   srpHostCurUcastHighPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          unicast octets received from the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 7 }
+
+   srpHostCurMcastHighPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast packets received from the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 8 }
+
+   srpHostCurMcastHighPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast octets received from the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 9 }
+
+
+-- Tx Host: Indicate the amount of low priority
+-- traffic going to the Higher Layer.
+-- Tx Host Total counters 
+   srpHostCurUcastLowPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          unicast packets going to the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 10 }
+
+   srpHostCurUcastLowPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          unicast octets going to the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 11 }
+
+   srpHostCurMcastLowPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          multicast packets going to the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 12 }
+
+   srpHostCurMcastLowPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          multicast octets going to the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 13 }
+ 
+-- Tx Host High Priority counters  
+   srpHostCurUcastHighPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          unicast packets going to the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 14 }
+
+   srpHostCurUcastHighPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          unicast octets going to from the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 15 }
+
+   srpHostCurMcastHighPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast packets going to the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 16 }
+
+   srpHostCurMcastHighPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast octets going to the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpHostCountersCurrentEntry 17 }
+
+
+
+-- *******************************************************************
+-- The Higher Layer Interval Counters table
+-- *******************************************************************
+   srpHostCountersIntervalTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF SrpHostCountersIntervalEntry
+       MAX-ACCESS  not-accessible 
+       STATUS  current
+       DESCRIPTION
+         "The Higher Layer Interval counters table."
+       ::= { srpHostCounters  2 }
+
+   srpHostCountersIntervalEntry OBJECT-TYPE
+       SYNTAX  SrpHostCountersIntervalEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+        "Packets and octets statistics collected for a
+         particular interval for the Higher Layer
+         of a particular side of a particular SRP interface.
+         The number of 15-minute intervals is between 1 and 96, and
+         identifies the intervals for which the set of
+         statistics is available."
+       INDEX   { ifIndex, srpHostIntInterfaceSide, 
+                 srpHostIntNumber }
+       ::= { srpHostCountersIntervalTable 1 }
+
+   SrpHostCountersIntervalEntry ::=
+       SEQUENCE {
+           srpHostIntInterfaceSide
+                   InterfaceSide,
+           srpHostIntNumber
+                   Integer32,
+-- Rx Higher Layer Low Priority counters 
+           srpHostIntUcastLowPriPktsIn
+                   PerfIntervalCount64,
+           srpHostIntUcastLowPriOctetsIn
+                   PerfIntervalCount64,
+           srpHostIntMcastLowPriPktsIn
+                   PerfIntervalCount64,
+           srpHostIntMcastLowPriOctetsIn
+                   PerfIntervalCount64,
+-- Rx Higher Layer High Priority counters 
+           srpHostIntUcastHighPriPktsIn
+                   PerfIntervalCount64,
+           srpHostIntUcastHighPriOctetsIn
+                   PerfIntervalCount64,
+           srpHostIntMcastHighPriPktsIn
+                   PerfIntervalCount64,
+           srpHostIntMcastHighPriOctetsIn
+                   PerfIntervalCount64,
+-- Tx Higher Layer Total counters 
+           srpHostIntUcastLowPriPktsOut
+                   PerfIntervalCount64,
+           srpHostIntUcastLowPriOctetsOut
+                   PerfIntervalCount64,
+           srpHostIntMcastLowPriPktsOut
+                   PerfIntervalCount64,
+           srpHostIntMcastLowPriOctetsOut
+                   PerfIntervalCount64,
+-- Tx Higher Layer High Priority counters 
+           srpHostIntUcastHighPriPktsOut
+                   PerfIntervalCount64,
+           srpHostIntUcastHighPriOctetsOut
+                   PerfIntervalCount64,
+           srpHostIntMcastHighPriPktsOut
+                   PerfIntervalCount64,
+           srpHostIntMcastHighPriOctetsOut
+                   PerfIntervalCount64 
+       }
+
+   srpHostIntInterfaceSide OBJECT-TYPE
+       SYNTAX  InterfaceSide
+       MAX-ACCESS  not-accessible 
+       STATUS  current
+       DESCRIPTION
+         "An indication of the side of the interface for which
+          this row contains information."
+       ::= { srpHostCountersIntervalEntry 1 }
+
+   srpHostIntNumber OBJECT-TYPE
+       SYNTAX Integer32 (1..96)
+       MAX-ACCESS not-accessible
+       STATUS current
+       DESCRIPTION
+         "A number between 1 and 96, which identifies the
+          interval for which the set od statistics is available.
+          The interval identified by 1 is the most recently
+          completed 15 minute interval,
+          and interval identified by N is the interval
+          immediately preceding the one identified by N-1."
+       ::= { srpHostCountersIntervalEntry 2 }
+
+-- Rx Higher Layer Low Priority counters
+   srpHostIntUcastLowPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          unicast packets received from the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 3 }
+
+   srpHostIntUcastLowPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          unicast octets received from the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 4 }
+
+   srpHostIntMcastLowPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          multicast packets received from the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 5 }
+
+   srpHostIntMcastLowPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          multicast octets received from the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 6 }
+  
+   srpHostIntUcastHighPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          unicast packets received from the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 7 }
+
+   srpHostIntUcastHighPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          unicast octets received from from the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 8 }
+
+   srpHostIntMcastHighPriPktsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast packets received from the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 9 }
+
+   srpHostIntMcastHighPriOctetsIn OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast octets received from the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 10 }
+
+
+
+-- Tx Higher Layer Low Priority counters 
+   srpHostIntUcastLowPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          unicast packets going to the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 11 }
+
+   srpHostIntUcastLowPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          unicast octets going to the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 12 }
+
+   srpHostIntMcastLowPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          multicast packets going to the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 13 }
+
+   srpHostIntMcastLowPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of total
+          multicast octets going to the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 14 }
+  
+   srpHostIntUcastHighPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          unicast packets going to the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 15 }
+
+   srpHostIntUcastHighPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          unicast octets going to the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 16 }
+
+   srpHostIntMcastHighPriPktsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast packets going to the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 17 }
+
+   srpHostIntMcastHighPriOctetsOut OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the number of high priority
+          multicast octets going to the Higher Layer
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpHostCountersIntervalEntry 18 }
+
+
+-- *******************************************************************
+-- The SRP Interface Errors Current Counters table (deprecated)
+-- *******************************************************************
+   srpErrorsCountersCurrentTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF SrpErrorsCountersCurrentEntry
+       MAX-ACCESS  not-accessible 
+       STATUS  deprecated
+       DESCRIPTION
+               "The SRP Errors Current counters table."
+       ::= { srpErrorsCounters  1 }
+
+   srpErrorsCountersCurrentEntry OBJECT-TYPE
+       SYNTAX  SrpErrorsCountersCurrentEntry
+       MAX-ACCESS  not-accessible
+       STATUS  deprecated
+       DESCRIPTION
+        "Errors statistics for the current interval
+         of a particular side of a particular SRP interface.
+         The corresponding instance of srpIfTimeElapsed
+         indicates the number of seconds which have
+         elapsed so far in the current interval."
+       INDEX   { ifIndex, srpErrorsInterfaceSide }
+       ::= { srpErrorsCountersCurrentTable 1 }
+
+   SrpErrorsCountersCurrentEntry ::=
+       SEQUENCE {
+           srpErrorsInterfaceSide
+                   InterfaceSide,
+-- Rx PhysLayer Errors counters 
+           srpRingCurRxErrorsDataParity
+                   PerfCurrentCount64,
+           srpRingCurRxErrorsShortPackets
+                   PerfCurrentCount64,
+           srpRingCurRxErrorsGiantPackets
+                   PerfCurrentCount64,
+           srpRingCurRxErrorsSideBadPackets
+                   PerfCurrentCount64,
+           srpRingCurRxErrorsCRC
+                   PerfCurrentCount64,
+-- Rx Host Errors counters 
+           srpHostCurRxErrorsDataParity
+                   PerfCurrentCount64,
+           srpHostCurRxErrorsShortPackets
+                   PerfCurrentCount64,
+           srpHostCurRxErrorsGiantPackets
+                   PerfCurrentCount64,
+           srpHostCurRxErrorsSideBadPackets
+                   PerfCurrentCount64
+       }
+
+
+
+   srpErrorsInterfaceSide OBJECT-TYPE
+       SYNTAX  InterfaceSide
+       MAX-ACCESS  not-accessible 
+       STATUS  deprecated
+       DESCRIPTION
+         "An indication of the side of the interface for which
+          this row contains information."
+       ::= { srpErrorsCountersCurrentEntry 1 }
+
+
+   srpRingCurRxErrorsDataParity OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the  
+          number of data parity errors,
+          received from the Physical medium dependent layer 
+          in the current 15 minute interval."
+       ::= { srpErrorsCountersCurrentEntry 2 }
+
+   srpRingCurRxErrorsShortPackets OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the  
+          number of short packets,
+          received from the Physical medium dependent layer
+          in the current 15 minute interval.
+          A short packet is 16 octets or less."
+       ::= { srpErrorsCountersCurrentEntry 3 }
+
+   srpRingCurRxErrorsGiantPackets OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the  
+          number of giant packets,
+          received from the Physical medium dependent layer
+          in the current 15 minute interval.
+          A giant packet is larger than max size MTU,
+          which is 9216 octets."
+       ::= { srpErrorsCountersCurrentEntry 4 }
+
+   srpRingCurRxErrorsSideBadPackets OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the current 
+          number of bad packets,
+          received from the Physical medium dependent layer
+          in the current 15 minute interval.
+          A bad packet is an empty packet with a valid
+          Start-Of-Packet signal causing an incorrect CRC."
+       ::= { srpErrorsCountersCurrentEntry 5 }
+
+   srpRingCurRxErrorsCRC OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the current 
+          number of packets with CRC errors,
+          received from the Physical medium dependent layer
+          in the current 15 minute interval."
+       ::= { srpErrorsCountersCurrentEntry 6 }
+
+-- Rx Host Errors counters 
+   srpHostCurRxErrorsDataParity OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the current 
+          number of data parity errors, 
+          received from the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpErrorsCountersCurrentEntry 7 }
+
+   srpHostCurRxErrorsShortPackets OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the current 
+          number of short packets, 
+          received from the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpErrorsCountersCurrentEntry 8 }
+
+   srpHostCurRxErrorsGiantPackets OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+               "The counter associated with the current 
+                number of giant packets, 
+                received from the Higher Layer
+                in the current 15 minute interval."
+       ::= { srpErrorsCountersCurrentEntry 9 }
+
+   srpHostCurRxErrorsSideBadPackets OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the current 
+          number of bad packets, 
+          received from the Higher Layer
+          in the current 15 minute interval."
+       ::= { srpErrorsCountersCurrentEntry 10 }
+
+
+
+
+-- *******************************************************************
+-- The SRP Interface Errors Interval Counters table (deprecated)
+-- *******************************************************************
+   srpErrorsCountersIntervalTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF SrpErrorsCountersIntervalEntry
+       MAX-ACCESS  not-accessible 
+       STATUS  deprecated
+       DESCRIPTION
+         "The SRP Errors Interval counters table."
+       ::= { srpErrorsCounters  2 }
+
+   srpErrorsCountersIntervalEntry OBJECT-TYPE
+       SYNTAX  SrpErrorsCountersIntervalEntry
+       MAX-ACCESS  not-accessible
+       STATUS  deprecated
+       DESCRIPTION
+         "Error statistics collected for a particular interval
+          of a particular side of a particular SRP interface.
+          The number of 15-minute intervals is between 1 and 96, and
+          identifies the intervals for which the set of
+          statistics is available."
+       INDEX   { ifIndex, srpErrorsIntervalInterfaceSide,
+                 srpErrorsIntervalNumber }
+       ::= { srpErrorsCountersIntervalTable 1 }
+
+   SrpErrorsCountersIntervalEntry ::=
+       SEQUENCE {
+           srpErrorsIntervalInterfaceSide
+                   InterfaceSide,
+           srpErrorsIntervalNumber
+                   Integer32,
+-- Rx PhysLayer Errors counters 
+          srpRingIntRxErrorsDataParity
+                   PerfIntervalCount64,
+          srpRingIntRxErrorsShortPackets
+                   PerfIntervalCount64,
+          srpRingIntRxErrorsGiantPackets
+                   PerfIntervalCount64,
+          srpRingIntRxErrorsSideBadPackets
+                   PerfIntervalCount64,
+          srpRingIntRxErrorsCRC
+                   PerfIntervalCount64,
+-- Rx Host Errors counters 
+           srpHostIntRxErrorsDataParity
+                   PerfIntervalCount64,
+           srpHostIntRxErrorsShortPackets
+                   PerfIntervalCount64,
+           srpHostIntRxErrorsGiantPackets
+                   PerfIntervalCount64,
+           srpHostIntRxErrorsSideBadPackets
+                   PerfIntervalCount64
+       }
+
+
+   srpErrorsIntervalInterfaceSide OBJECT-TYPE
+       SYNTAX  InterfaceSide
+       MAX-ACCESS  not-accessible 
+       STATUS  deprecated
+       DESCRIPTION
+         "An indication of the side of the interface for which
+          this row contains information."
+       ::= { srpErrorsCountersIntervalEntry 1 }
+
+   srpErrorsIntervalNumber OBJECT-TYPE
+       SYNTAX Integer32 (1..96)
+       MAX-ACCESS not-accessible
+       STATUS  deprecated
+       DESCRIPTION
+         "A number between 1 and 96, which identifies the
+          interval for which the set od statistics is available.
+          The interval identified by 1 is the most recently
+          completed 15 minute interval,
+          and interval identified by N is the interval
+          immediately preceding the one identified by N-1."
+       ::= { srpErrorsCountersIntervalEntry 2 }
+
+  srpRingIntRxErrorsDataParity OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the interval 
+          number of data parity errors,
+          received from the Layer 1 Physical medium 
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrorsCountersIntervalEntry 3 }
+
+  srpRingIntRxErrorsShortPackets OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the interval 
+          number of short packets,
+          received from the Layer 1 Physical medium
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrorsCountersIntervalEntry 4 }
+
+  srpRingIntRxErrorsGiantPackets OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the interval 
+          number of giant packets,
+          received from the Layer 1 Physical medium
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrorsCountersIntervalEntry 5 }
+
+  srpRingIntRxErrorsSideBadPackets OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the interval 
+          number of bad packets,
+          received from the Layer 1 Physical medium
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrorsCountersIntervalEntry 6 }
+
+  srpRingIntRxErrorsCRC OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the interval 
+          number of packets with CRC errors,
+          received from the Layer 1 Physical medium
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrorsCountersIntervalEntry 7 }
+
+-- Rx Host Errors counters 
+   srpHostIntRxErrorsDataParity OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the interval 
+          number of data parity errors, 
+          received from the higher layer 
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrorsCountersIntervalEntry 8 }
+
+   srpHostIntRxErrorsShortPackets OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the interval 
+          number of short packets, 
+          received from the higher layer 
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrorsCountersIntervalEntry 9 }
+
+   srpHostIntRxErrorsGiantPackets OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the interval 
+          number of giant packets, 
+          received from the higher layer 
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrorsCountersIntervalEntry 10 }
+
+   srpHostIntRxErrorsSideBadPackets OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  deprecated
+       DESCRIPTION
+         "The counter associated with the interval 
+          number of bad packets, 
+          received from the higher layer 
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrorsCountersIntervalEntry 11 }
+
+
+-- *******************************************************************
+-- The SRP Interface Errors Current Counters table
+-- *******************************************************************
+   srpErrCntCurrTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF SrpErrCntCurrEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+               "The SRP Errors Current counters table."
+       ::= { srpErrorsCounters  3 }
+
+   srpErrCntCurrEntry OBJECT-TYPE
+       SYNTAX  SrpErrCntCurrEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+        "Errors statistics for the current interval
+         of a particular side of a particular SRP interface.
+         The corresponding instance of srpIfTimeElapsed
+         indicates the number of seconds which have
+         elapsed so far in the current interval."
+       INDEX   { ifIndex, srpErrCntCurrInterfaceSide }
+       ::= { srpErrCntCurrTable 1 }
+
+   SrpErrCntCurrEntry ::=
+       SEQUENCE {
+           srpErrCntCurrInterfaceSide
+                   InterfaceSide,
+-- Rx PhysLayer Errors counters
+           srpErrCntCurrRingRxTtlExpPkts
+                   PerfCurrentCount64,
+           srpErrCntCurrRingRxShortPkts
+                   PerfCurrentCount64,
+           srpErrCntCurrRingRxGiantPkts
+                   PerfCurrentCount64,
+           srpErrCntCurrRingRxAbortPkts
+                   PerfCurrentCount64, 
+           srpErrCntCurrRingRxCRC
+                   PerfCurrentCount64,
+-- Rx Host Errors counters
+           srpErrCntCurrHostRxDiscardPkts
+                   PerfCurrentCount64,
+           srpErrCntCurrHostRxShortPkts
+                   PerfCurrentCount64,
+           srpErrCntCurrHostRxGiantPkts
+                   PerfCurrentCount64
+       }
+
+   srpErrCntCurrInterfaceSide OBJECT-TYPE
+       SYNTAX  InterfaceSide
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+         "An indication of the side of the interface for which
+          this row contains information."
+       ::= { srpErrCntCurrEntry 1 }
+
+
+   srpErrCntCurrRingRxTtlExpPkts OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the
+          number of packets discarded due to TTL expiry,
+          received from the Physical medium dependent layer
+          in the current 15 minute interval."
+       ::= { srpErrCntCurrEntry 2 }
+
+   srpErrCntCurrRingRxShortPkts OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the
+          number of short packets,
+          received from the Physical medium dependent layer
+          in the current 15 minute interval.
+          A short packet is 16 octets or less."
+       ::= { srpErrCntCurrEntry 3 }
+
+   srpErrCntCurrRingRxGiantPkts OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the
+          number of giant packets,
+          received from the Physical medium dependent layer
+          in the current 15 minute interval.
+          A giant packet is larger than max size packet,
+          which is 9216 octets."
+       ::= { srpErrCntCurrEntry 4 }
+
+   srpErrCntCurrRingRxAbortPkts OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the current
+          number of aborted packets,
+          received from the Physical medium dependent layer
+          in the current 15 minute interval.
+          Aborted packets are packets that have
+          been aborted by an abort sequence code."
+       ::= { srpErrCntCurrEntry 5 }
+
+   srpErrCntCurrRingRxCRC OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the current
+          number of packets with CRC errors,
+          received from the Physical medium dependent layer
+          in the current 15 minute interval."
+       ::= { srpErrCntCurrEntry 6 }
+
+-- Rx Host Errors counters
+   srpErrCntCurrHostRxDiscardPkts OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the current
+          number of packets which were prevented from
+          being delivered to the Higher Layer because
+          of a resource limitation,
+          in the current 15 minute interval."
+       ::= { srpErrCntCurrEntry 7 }
+
+   srpErrCntCurrHostRxShortPkts OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the current
+          number of packets which were prevented from
+          being delivered to the Higher Layer because
+          of being too short,
+          in the current 15 minute interval."
+       ::= { srpErrCntCurrEntry 8 }
+
+   srpErrCntCurrHostRxGiantPkts OBJECT-TYPE
+       SYNTAX  PerfCurrentCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the current
+          number of packets discarded because of being
+          too big for the higher layer,
+          in the current 15 minute interval."
+       ::= { srpErrCntCurrEntry 9 }
+
+
+-- *******************************************************************
+-- The SRP Interface Errors Interval Counters table
+-- *******************************************************************
+   srpErrCntIntTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF SrpErrCntIntEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+         "The SRP Errors Interval counters table."
+       ::= { srpErrorsCounters  4 }
+
+   srpErrCntIntEntry OBJECT-TYPE
+       SYNTAX  SrpErrCntIntEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+         "Error statistics collected for a particular interval
+          of a particular side of a particular SRP interface.
+          The number of 15-minute intervals is between 1 and 96, and
+          identifies the intervals for which the set of
+          statistics is available. The value of srpIfValidIntervals 
+          indicates how many intervals are currently available."
+       INDEX   { ifIndex, srpErrCntIntInterfaceSide,
+                 srpErrCntIntNumber }
+       ::= { srpErrCntIntTable 1 }
+
+   SrpErrCntIntEntry ::=
+       SEQUENCE {
+          srpErrCntIntInterfaceSide
+                   InterfaceSide,
+          srpErrCntIntNumber
+                   Integer32,
+-- Rx PhysLayer Errors counters
+          srpErrCntIntRingRxTtlExpPkts
+                   PerfIntervalCount64,
+          srpErrCntIntRingRxShortPkts
+                   PerfIntervalCount64,
+          srpErrCntIntRingRxGiantPkts
+                   PerfIntervalCount64,
+          srpErrCntIntRingRxAbortPkts
+                   PerfIntervalCount64,
+          srpErrCntIntRingRxCRC
+                   PerfIntervalCount64,
+-- Rx Host Errors counters
+          srpErrCntIntHostRxDiscardPkts
+                   PerfIntervalCount64,
+          srpErrCntIntHostRxShortPkts
+                   PerfIntervalCount64,
+          srpErrCntIntHostRxGiantPkts
+                   PerfIntervalCount64
+       }
+
+   srpErrCntIntInterfaceSide OBJECT-TYPE
+       SYNTAX  InterfaceSide
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION
+         "An indication of the side of the interface for which
+          this row contains information."
+       ::= { srpErrCntIntEntry 1 }
+
+   srpErrCntIntNumber OBJECT-TYPE
+       SYNTAX Integer32 (1..96)
+       MAX-ACCESS not-accessible
+       STATUS current
+       DESCRIPTION
+         "A number between 1 and 96, which identifies the
+          interval for which the set od statistics is available.
+          The interval identified by 1 is the most recently
+          completed 15 minute interval,
+          and interval identified by N is the interval
+          immediately preceding the one identified by N-1."
+       ::= { srpErrCntIntEntry 2 }
+
+  srpErrCntIntRingRxTtlExpPkts OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the interval
+          number of expired packets,
+          received from the Layer 1 Physical medium
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrCntIntEntry 3 }
+
+  srpErrCntIntRingRxShortPkts OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the interval
+          number of short packets,
+          received from the Layer 1 Physical medium
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrCntIntEntry 4 }
+
+  srpErrCntIntRingRxGiantPkts OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the interval
+          number of giant packets,
+          received from the Layer 1 Physical medium
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrCntIntEntry 5 }
+
+  srpErrCntIntRingRxAbortPkts OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the interval
+          number of aborted packets,
+          received from the Layer 1 Physical medium
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrCntIntEntry 6 }
+
+  srpErrCntIntRingRxCRC OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the interval
+          number of packets with CRC errors,
+          received from the Layer 1 Physical medium
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrCntIntEntry 7 }
+
+-- Rx Host Errors counters
+   srpErrCntIntHostRxDiscardPkts OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the interval
+          number of packets discarded due to resource limitations,
+          received from the Layer 1 Physical medium
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrCntIntEntry 8 }
+
+   srpErrCntIntHostRxShortPkts OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the interval
+          number of packets discarded because of being
+          too short for the higher layer,
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrCntIntEntry 9 }
+
+   srpErrCntIntHostRxGiantPkts OBJECT-TYPE
+       SYNTAX  PerfIntervalCount64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+         "The counter associated with the interval
+          number of packets discarded because of being
+          too big for the higher layer,
+          in a particular 15-minute interval in the past 24 hours."
+       ::= { srpErrCntIntEntry 10 }
+
+
+
+-- *******************************************************************
+--  Spatial Reuse Protocol (SRP) Traps.
+-- *******************************************************************
+srpTrapRingWrapped  NOTIFICATION-TYPE
+    OBJECTS   { ifIndex, srpIpsState, 
+                srpMACIpsAutoDetectMode, srpMACIpsRemoteMode,
+                srpMACIpsRemoteType, srpMACIpsActiveMode,
+                srpMACIpsWrapCounter, srpMACIpsLastWrapTimeStamp,
+                srpMACIpsLastUnWrapTimeStamp } 
+    STATUS  current
+    DESCRIPTION
+        "An srpTrapRingWrapped notification is sent
+        when the value of an instance of
+        srpMACIpsWrapCounter increments."
+    ::= { srpTrapsNotifications 1 }
+
+srpTrapRingRestored  NOTIFICATION-TYPE
+    OBJECTS   { ifIndex, srpIpsState, 
+                srpMACIpsAutoDetectMode, srpMACIpsRemoteMode,
+                srpMACIpsRemoteType, srpMACIpsActiveMode,
+                srpMACIpsWrapCounter, srpMACIpsLastWrapTimeStamp,
+                srpMACIpsLastUnWrapTimeStamp }
+    STATUS  current
+    DESCRIPTION
+        "An srpTrapRingRestored notification is sent
+        when the value of an instance of
+        rpMACIpsLastUnWrapTimeStamp is changed."
+    ::= { srpTrapsNotifications 2 }
+
+
+
+-- *********************************************************************
+--  MIB groupings - units of conformance
+-- *********************************************************************
+
+
+
+srpIfGroup OBJECT-GROUP
+    OBJECTS   {
+                   srpMACAddress,
+                   srpPriorityThreshold,
+                   srpNodesOnTheRing,
+                   srpIpsState,
+                   srpIpsLockedOut,
+                   srpIpsWaitToRestoreTimer,
+                   srpIfTimeElapsed,        
+                   srpIfValidIntervals     
+              }
+    STATUS      current
+    DESCRIPTION "A collection of objects providing information
+                 independent from a particular side A or B and is
+                 applicable to all SRP interfaces."
+    ::= { srpGroups 1 } 
+
+srpMACSideGroup OBJECT-GROUP
+    OBJECTS   {    
+                  srpMACNeighborAddress,
+                  srpMACSideWrapped,
+                  srpMACIpsMgmtRequestedMode,
+                  srpMACIpsAutoDetectMode,
+                  srpMACIpsRemoteMode,
+                  srpMACIpsRemoteType,
+                  srpMACIpsActiveMode,
+                  srpMACIpsWrapCounter,
+                  srpMACIpsLastWrapTimeStamp,
+                  srpMACIpsLastUnWrapTimeStamp,
+                  srpMACClockSourceMode,
+                  srpMACTopologyTimer
+              }
+    STATUS      current
+    DESCRIPTION "A collection of objects providing information
+                 dependent from a particular side A or B and is
+                 specific to MAC and IPS (Intelligent protection
+                 Switching)."
+    ::= { srpGroups 2 } 
+
+srpRingTopologyMapGroup OBJECT-GROUP
+    OBJECTS   {   
+                  srpNodeMACAddress,
+                  srpNodeWrapped,
+                  srpNodeName
+              }
+    STATUS      current
+    DESCRIPTION "A collection of objects providing information
+                 on the ring topology and nodes status."
+    ::= { srpGroups 3 }
+
+srpMACCountersGroup OBJECT-GROUP
+    OBJECTS   { 
+                  srpMACCountPktsBySourceFlag,
+                  srpMACCountPktsBySourceAddress,
+                  srpMACSourceDiscontTimeStamp,
+                  srpMACCountPktsBySource,
+                  srpMACCountPktsByDestinationFlag,
+                  srpMACCountPktsByDestAddress,
+                  srpMACDestDiscontTimeStamp,
+                  srpMACCountPktsByDest,
+                  srpMACRejectPktsBySourceFlag,
+                  srpMACRejectPktsBySourceAddress,
+                  srpMACRejectPktsByDestFlag,
+                  srpMACRejectPktsByDestAddress
+              }
+    STATUS      deprecated
+    DESCRIPTION "A collection of objects providing information
+                 about packets received or rejected by
+                 a particular source or destination address."
+    ::= { srpGroups 4 }
+
+srpRingCountersCurrentGroup OBJECT-GROUP
+    OBJECTS   {
+                  srpRingCurUcastLowPriPktsIn,
+                  srpRingCurUcastLowPriOctetsIn,
+                  srpRingCurMcastLowPriPktsIn,
+                  srpRingCurMcastLowPriOctetsIn,
+                  srpRingCurUcastHighPriPktsIn,
+                  srpRingCurUcastHighPriOctetsIn,
+                  srpRingCurMcastHighPriPktsIn,
+                  srpRingCurMcastHighPriOctetsIn,
+
+                  srpRingCurUcastLowPriPktsOut,
+                  srpRingCurUcastLowPriOctetsOut,
+                  srpRingCurMcastLowPriPktsOut,
+                  srpRingCurMcastLowPriOctetsOut,
+                  srpRingCurUcastHighPriPktsOut,
+                  srpRingCurUcastHighPriOctetsOut,
+                  srpRingCurMcastHighPriPktsOut,
+                  srpRingCurMcastHighPriOctetsOut
+              }
+    STATUS      current
+    DESCRIPTION "A collection of objects providing information
+                 about unicast or multicast packets and octets
+                 coming from the ring to a particular node
+                 in the current 15 minute interval."
+    ::= { srpGroups 5 } 
+
+srpRingCountersIntervalGroup OBJECT-GROUP
+    OBJECTS   {
+                  srpRingIntWrapCounter,
+                  srpRingIntUcastLowPriPktsIn,
+                  srpRingIntUcastLowPriOctetsIn,
+                  srpRingIntMcastLowPriPktsIn,
+                  srpRingIntMcastLowPriOctetsIn,
+                  srpRingIntUcastHighPriPktsIn,
+                  srpRingIntUcastHighPriOctetsIn,
+                  srpRingIntMcastHighPriPktsIn,
+                  srpRingIntMcastHighPriOctetsIn,
+                  srpRingIntUcastLowPriPktsOut,
+                  srpRingIntUcastLowPriOctetsOut,
+                  srpRingIntMcastLowPriPktsOut,
+                  srpRingIntMcastLowPriOctetsOut,
+                  srpRingIntUcastHighPriPktsOut,
+                  srpRingIntUcastHighPriOctetsOut,
+                  srpRingIntMcastHighPriPktsOut,
+                  srpRingIntMcastHighPriOctetsOut
+              }
+    STATUS      current
+    DESCRIPTION "A collection of objects providing information
+                 about uni or multicast packets and octets
+                 coming from the ring to a particular node
+                 in a particular 15-minute interval
+                 in the past 24 hours."
+    ::= { srpGroups 6 } 
+
+srpHostCountersCurrentGroup OBJECT-GROUP
+    OBJECTS   {
+                  srpHostCurUcastLowPriPktsIn,
+                  srpHostCurUcastLowPriOctetsIn,
+                  srpHostCurMcastLowPriPktsIn,
+                  srpHostCurMcastLowPriOctetsIn,
+                  srpHostCurUcastHighPriPktsIn,
+                  srpHostCurUcastHighPriOctetsIn,
+                  srpHostCurMcastHighPriPktsIn,
+                  srpHostCurMcastHighPriOctetsIn,
+                  srpHostCurUcastLowPriPktsOut,
+                  srpHostCurUcastLowPriOctetsOut,
+                  srpHostCurMcastLowPriPktsOut,
+                  srpHostCurMcastLowPriOctetsOut,
+                  srpHostCurUcastHighPriPktsOut,
+                  srpHostCurUcastHighPriOctetsOut,
+                  srpHostCurMcastHighPriPktsOut,
+                  srpHostCurMcastHighPriOctetsOut
+              }
+    STATUS      current
+    DESCRIPTION "A collection of objects providing information
+                 about uni or multicast packets and octets
+                 coming from the host to a particular node
+                 in the current 15 minute interval."
+    ::= { srpGroups 7 } 
+
+srpHostCountersIntervalGroup OBJECT-GROUP
+    OBJECTS   {
+                  srpHostIntUcastLowPriPktsIn,
+                  srpHostIntUcastLowPriOctetsIn,
+                  srpHostIntMcastLowPriPktsIn,
+                  srpHostIntMcastLowPriOctetsIn,
+                  srpHostIntUcastHighPriPktsIn,
+                  srpHostIntUcastHighPriOctetsIn,
+                  srpHostIntMcastHighPriPktsIn,
+                  srpHostIntMcastHighPriOctetsIn,
+                  srpHostIntUcastLowPriPktsOut,
+                  srpHostIntUcastLowPriOctetsOut,
+                  srpHostIntMcastLowPriPktsOut,
+                  srpHostIntMcastLowPriOctetsOut,
+                  srpHostIntUcastHighPriPktsOut,
+                  srpHostIntUcastHighPriOctetsOut,
+                  srpHostIntMcastHighPriPktsOut,
+                  srpHostIntMcastHighPriOctetsOut
+              }
+    STATUS      current
+    DESCRIPTION "A collection of objects providing information
+                 about uni or multicast packets and octets
+                 coming from the host to a particular node
+                 in a particular 15-minute interval
+                 in the past 24 hours."
+
+    ::= { srpGroups 8 } 
+
+srpErrorsCountersCurrentGroup OBJECT-GROUP
+    OBJECTS   {  
+                  srpRingCurRxErrorsDataParity,
+                  srpRingCurRxErrorsShortPackets,
+                  srpRingCurRxErrorsGiantPackets,
+                  srpRingCurRxErrorsSideBadPackets,
+                  srpRingCurRxErrorsCRC,
+                  srpHostCurRxErrorsDataParity,
+                  srpHostCurRxErrorsShortPackets,
+                  srpHostCurRxErrorsGiantPackets,
+                  srpHostCurRxErrorsSideBadPackets
+              }
+    STATUS      deprecated
+    DESCRIPTION "A collection of objects providing information
+                 about errors coming from the ring 
+                 to a particular node
+                 in the current 15 minute interval."
+    ::= { srpGroups 9 }
+
+srpErrorsCountersIntervalGroup OBJECT-GROUP
+    OBJECTS   {
+                  srpRingIntRxErrorsDataParity,
+                  srpRingIntRxErrorsShortPackets,
+                  srpRingIntRxErrorsGiantPackets,
+                  srpRingIntRxErrorsSideBadPackets,
+                  srpRingIntRxErrorsCRC,
+                  srpHostIntRxErrorsDataParity,
+                  srpHostIntRxErrorsShortPackets,
+                  srpHostIntRxErrorsGiantPackets,
+                  srpHostIntRxErrorsSideBadPackets
+              }
+    STATUS      deprecated
+    DESCRIPTION "A collection of objects providing information
+                 about errors coming from the higher layer  
+                 to a particular interface
+                 in the current 15 minute interval."
+    ::= { srpGroups 10 } 
+
+srpErrCntCurrGroup OBJECT-GROUP
+    OBJECTS   {
+                  srpErrCntCurrRingRxTtlExpPkts,
+                  srpErrCntCurrRingRxShortPkts,
+                  srpErrCntCurrRingRxGiantPkts,
+                  srpErrCntCurrRingRxAbortPkts,
+                  srpErrCntCurrRingRxCRC,
+                  srpErrCntCurrHostRxDiscardPkts,
+                  srpErrCntCurrHostRxShortPkts,
+                  srpErrCntCurrHostRxGiantPkts
+              }
+    STATUS      current
+    DESCRIPTION "A collection of objects providing information
+                 about received errors,
+                 in the current 15 minute interval."
+    ::= { srpGroups 11 }
+
+srpErrCntIntGroup OBJECT-GROUP
+    OBJECTS   {
+                  srpErrCntIntRingRxTtlExpPkts,
+                  srpErrCntIntRingRxShortPkts,
+                  srpErrCntIntRingRxGiantPkts,
+                  srpErrCntIntRingRxAbortPkts,
+                  srpErrCntIntRingRxCRC,
+                  srpErrCntIntHostRxDiscardPkts,
+                  srpErrCntIntHostRxShortPkts,
+                  srpErrCntIntHostRxGiantPkts
+              }
+    STATUS      current
+    DESCRIPTION "A collection of objects providing information
+                 about received errors,
+                 in a particular 15-minute interval
+                 in the past 24 hours."
+    ::= { srpGroups 12 }
+
+srpNotificationsGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { srpTrapRingWrapped , srpTrapRingRestored }
+    STATUS current
+    DESCRIPTION
+        "The collection of notifications used to indicate
+        wrapped and unwrapped node state information."
+    ::= { srpGroups 13 }
+
+-- *********************************************************************
+-- SRP MIB compliance statement
+-- *********************************************************************
+
+srpCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for this MIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+                srpIfGroup,
+                srpMACSideGroup,
+                srpRingTopologyMapGroup }
+
+    GROUP       srpRingCountersCurrentGroup
+    DESCRIPTION "This group is optional."
+
+    GROUP       srpRingCountersIntervalGroup
+    DESCRIPTION "This group is optional."
+
+    GROUP       srpHostCountersCurrentGroup
+    DESCRIPTION "This group is optional."
+
+    GROUP       srpHostCountersIntervalGroup
+    DESCRIPTION "This group is optional."
+
+    GROUP       srpErrCntCurrGroup
+    DESCRIPTION "This group is optional."
+
+    GROUP       srpErrCntIntGroup
+    DESCRIPTION "This group is optional."
+
+    GROUP       srpNotificationsGroup
+    DESCRIPTION "This group is optional."
+
+    ::= { srpCompliances 1 }
+
+srpComplianceOld MODULE-COMPLIANCE
+    STATUS      deprecated
+    DESCRIPTION
+        "A compliance statement whose only purpose is to list
+        explicitly the deprecated groups."
+    MODULE  -- this module
+
+    GROUP       srpMACCountersGroup
+    DESCRIPTION "This group is deprecated."
+
+    GROUP       srpErrorsCountersCurrentGroup
+    DESCRIPTION "This group is deprecated."
+
+    GROUP       srpErrorsCountersIntervalGroup
+    DESCRIPTION "This group is deprecated."
+
+    ::= { srpCompliances 2 }
+END

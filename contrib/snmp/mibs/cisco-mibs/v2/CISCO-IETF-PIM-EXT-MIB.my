@@ -1,0 +1,1514 @@
+-- ******************************************************************
+-- CISCO-IETF-PIM-EXT-MIB: MIB module for management of PIM routers
+--   
+-- February 2005, Swaroop George
+--   
+-- Copyright (c) 2005-2006, 2014 by Cisco Systems Inc.
+--   
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-IETF-PIM-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32,
+    Integer32,
+    TimeTicks
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TruthValue
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddressPrefixLength,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    IANAipMRouteProtocol
+        FROM IANA-RTPROTO-MIB
+    InterfaceIndex
+        FROM IF-MIB
+    cPimIfEntry,
+    cPimNbrEntry,
+    cPimInetMRouteEntry,
+    cPimInetMRouteNextHopEntry,
+    cPimCRPEntry,
+    cPimNbrIfIndex,
+    cPimNbrAddressType,
+    cPimNbrAddress,
+    cPimIfStatus
+        FROM CISCO-IETF-PIM-MIB
+    cpimRPMappingChangeType
+        FROM CISCO-PIM-MIB
+    ciscoExperiment
+        FROM CISCO-SMI;
+
+
+ciscoIetfPimExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "201406120000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+             San Jose, CA  95134
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ipmulticast@cisco.com"
+    DESCRIPTION
+        "The MIB module which extends PIM management
+        capabilities defined in CISCO-IETF-PIM-MIB."
+    REVISION        "201406120000Z"
+    DESCRIPTION
+        "Remove the range for cpimExtNbrGenId."
+    REVISION        "200608250000Z"
+    DESCRIPTION
+        "Added ciscoIetfPimExtNotifs,
+        cpimExtInterfaceStateChangeNotifEnabled,
+        cpimExtRPMappingChangeNotifEnabled, 
+        ciscoIetfPimExtInterfaceUp, 
+        ciscoIetfPimExtInterfaceDown,
+        ciscoIetfPimExtRPMappingChange,
+        ciscoIetfPimExtMIBComplianceRev1, 
+        ciscoIetfPimExtNotifEnabledGroup,
+        ciscoIetfPimExtNotificationGroup"
+    REVISION        "200502210000Z"
+    DESCRIPTION
+        "Initial version of this MIB module"
+    ::= { ciscoExperiment 120 }
+
+
+ciscoIetfPimExtNotifs  OBJECT IDENTIFIER
+    ::= { ciscoIetfPimExtMIB 0 }
+
+ciscoIetfPimExtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoIetfPimExtMIB 1 }
+
+ciscoPimExt  OBJECT IDENTIFIER
+    ::= { ciscoIetfPimExtMIBObjects 1 }
+
+
+cpimExtIfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpimExtIfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The (conceptual) table listing the router's PIM interfaces.
+        IGMP and PIM are enabled on all interfaces listed in this
+        table. This table is augmented to cPimIfTable"
+    ::= { ciscoPimExt 1 }
+
+cpimExtIfEntry OBJECT-TYPE
+    SYNTAX          CpimExtIfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cpimExtIfTable.
+        Each entry represents multicast related interface 
+        configuration and operational states. An interface
+        can have more than one type of Inet address family
+        enabled and there will be one entry per interface
+        and address family version"
+    AUGMENTS           { cPimIfEntry  } 
+    ::= { cpimExtIfTable 1 }
+
+CpimExtIfEntry ::= SEQUENCE {
+        cpimExtIfTrigHelloInterval  Unsigned32,
+        cpimExtIfHelloHoldtime      Unsigned32,
+        cpimExtIfLanPruneDelay      BITS,
+        cpimExtIfPropagationDelay   Unsigned32,
+        cpimExtIfOverrideInterval   Unsigned32,
+        cpimExtIfGenerationID       BITS,
+        cpimExtIfJoinPruneHoldtime  Unsigned32,
+        cpimExtIfGraftRetryInterval Unsigned32,
+        cpimExtIfMaxGraftRetries    Unsigned32,
+        cpimExtIfSRTTLThreshold     Unsigned32,
+        cpimExtIfLanDelayEnabled    TruthValue,
+        cpimExtIfSRCapable          TruthValue,
+        cpimExtIfDRPriority         Unsigned32,
+        cpimExtIfBidirCapable       TruthValue,
+        cpimExtIfBSRBorder          TruthValue
+}
+
+cpimExtIfTrigHelloInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum time before a triggered PIM Hello message
+        is transmitted on this interface."
+    DEFVAL          { 5 } 
+    ::= { cpimExtIfEntry 1 }
+
+cpimExtIfHelloHoldtime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value set in the Holdtime field of Hello messages
+        transmitted on this interface.  This should be 3.5 
+        times the value of cPimInterfaceHelloInterval."
+    DEFVAL          { 105 } 
+    ::= { cpimExtIfEntry 2 }
+
+cpimExtIfLanPruneDelay OBJECT-TYPE
+    SYNTAX          BITS {
+                        off(0),
+                        on(1)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Turns the LAN Prune Delay Option off and on on this
+        interface."
+    DEFVAL          { { on } } 
+    ::= { cpimExtIfEntry 3 }
+
+cpimExtIfPropagationDelay OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..32767)
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value inserted into the LAN Prune Delay field of a
+        LAN Prune Delay option on this interface."
+    DEFVAL          { 500 } 
+    ::= { cpimExtIfEntry 4 }
+
+cpimExtIfOverrideInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value inserted into the Override Interval field of
+        a LAN Prune Delay option on this interface."
+    DEFVAL          { 2500 } 
+    ::= { cpimExtIfEntry 5 }
+
+cpimExtIfGenerationID OBJECT-TYPE
+    SYNTAX          BITS {
+                        off(0),
+                        on(1)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Turns the Generation ID Option off and on on this
+        interface. Generation ID is a random value for the
+        interface and is used to determine neighbor restart"
+    REFERENCE       "RFC3973 Section 4.7.5.3"
+    DEFVAL          { { off } } 
+    ::= { cpimExtIfEntry 6 }
+
+cpimExtIfJoinPruneHoldtime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value inserted into the Holdtime field of a Join/
+        Prune message sent on this interface.  The value should
+        be 3.5 times cPimInterfaceJoinPruneInterval."
+    DEFVAL          { 210 } 
+    ::= { cpimExtIfEntry 7 }
+
+cpimExtIfGraftRetryInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The interval a PIM router waits for a Graft Ack before
+        resending a Graft on this interface."
+    DEFVAL          { 3 } 
+    ::= { cpimExtIfEntry 8 }
+
+cpimExtIfMaxGraftRetries OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of times this router will resend a
+        Graft on this interface."
+    DEFVAL          { 2 } 
+    ::= { cpimExtIfEntry 9 }
+
+cpimExtIfSRTTLThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The Time To Live in a PIM-DM State Refresh message at
+        which it is not forwarded on this interface."
+    DEFVAL          { 0 } 
+    ::= { cpimExtIfEntry 10 }
+
+cpimExtIfLanDelayEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Evaluates to 'true' if all routers on this interface are
+        using the LAN Prune Delay Option." 
+    ::= { cpimExtIfEntry 11 }
+
+cpimExtIfSRCapable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Evaluates to 'true' if all routers on this interface are
+        using the State Refresh Capable Option." 
+    ::= { cpimExtIfEntry 12 }
+
+cpimExtIfDRPriority OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The Designater Router Priority inserted into the DR
+        priority option on this interface."
+    DEFVAL          { 1 } 
+    ::= { cpimExtIfEntry 13 }
+
+cpimExtIfBidirCapable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Evaluates to 'true' if all routers on this interface are
+        using the Bidirectional-PIM Capable Option." 
+    ::= { cpimExtIfEntry 14 }
+
+cpimExtIfBSRBorder OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object denotes whether this interface acts as
+        the border for all BSR messages for all groups 
+        with any scope."
+    DEFVAL          { false } 
+    ::= { cpimExtIfEntry 15 }
+ 
+
+-- Neighbor table
+
+cpimExtNbrTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpimExtNbrEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The (conceptual) table listing the router's PIM
+        neighbors. This table is augmented to cPimNbrTable"
+    ::= { ciscoPimExt 2 }
+
+cpimExtNbrEntry OBJECT-TYPE
+    SYNTAX          CpimExtNbrEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cpimExtNbrTable.
+        Each entry is indexed using interface ifIndex 
+        though which neighbor is reachable and InetAddress
+        that is used for communicating with this neighbor"
+    AUGMENTS           { cPimNbrEntry  } 
+    ::= { cpimExtNbrTable 1 }
+
+CpimExtNbrEntry ::= SEQUENCE {
+        cpimExtNbrLANPruneDelay    Unsigned32,
+        cpimExtNbrOverrideInterval Unsigned32,
+        cpimExtNbrTBit             BITS,
+        cpimExtNbrSRCapable        TruthValue,
+        cpimExtNbrGenId            Unsigned32,
+        cpimExtNbrBidirCapable     TruthValue,
+        cpimExtNbrDRPresent        TruthValue,
+        cpimExtNbrDRPriority       Unsigned32
+}
+
+cpimExtNbrLANPruneDelay OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of LAN Prune Delay field of the LAN Prune
+        Delay Option received from this neighbor.  A value of 
+        0 indicates that no LAN Prune Delay Option was 
+        received from this neigbor." 
+    ::= { cpimExtNbrEntry 1 }
+
+cpimExtNbrOverrideInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of Override Interval field of the LAN Prune
+        Delay Option received from this neighbor.  A value of 
+        0 indicates that no LAN Prune Delay Option was
+        received from this neighbor." 
+    ::= { cpimExtNbrEntry 2 }
+
+cpimExtNbrTBit OBJECT-TYPE
+    SYNTAX          BITS {
+                        disabled(0),
+                        enabled(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of the T bit field of the LAN Prune
+        Delay Option received from this neighbor.  The T bit
+        specifies the ability of the neighbor to disable
+        join suppression." 
+    ::= { cpimExtNbrEntry 3 }
+
+cpimExtNbrSRCapable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Evaluates to 'true' if this neighbor is using the State
+        Refresh Capable Option." 
+    ::= { cpimExtNbrEntry 4 }
+
+cpimExtNbrGenId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of the GenerationID received in the Hello
+        from the neighbor." 
+    ::= { cpimExtNbrEntry 5 }
+
+cpimExtNbrBidirCapable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Evaluates to 'true' if this neighbor is using the
+        Bidirectional-PIM Capable Option." 
+    ::= { cpimExtNbrEntry 6 }
+
+cpimExtNbrDRPresent OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Evaluates to 'true' if this neighbor is using the
+        Designated Router Option." 
+    ::= { cpimExtNbrEntry 7 }
+
+cpimExtNbrDRPriority OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of the Designated Router Priority received in
+        the Hello from the neighbor, if the cpimExtNbrDRPresent
+        is 'true'." 
+    ::= { cpimExtNbrEntry 8 }
+ 
+
+-- The PIM Neighbor Secondary Address Table
+
+cpimExtNbrSecAddressTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpimExtNbrSecAddressEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The (conceptual) table listing the Secondary InetAddresses
+        advertised by each PIM neighbor (on a subset of the rows
+        of the cPimNbrTable defined in CISCO-IETF-PIM-MIB)."
+    ::= { ciscoPimExt 3 }
+
+cpimExtNbrSecAddressEntry OBJECT-TYPE
+    SYNTAX          CpimExtNbrSecAddressEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cPimNbrSecAddressTable.
+        Each entry represents secondary InetAddresses that can
+        be used to reach the corresponding neighbor."
+    INDEX           {
+                        cPimNbrIfIndex,
+                        cPimNbrAddressType,
+                        cPimNbrAddress,
+                        cpimExtNbrSecAddress
+                    } 
+    ::= { cpimExtNbrSecAddressTable 1 }
+
+CpimExtNbrSecAddressEntry ::= SEQUENCE {
+        cpimExtNbrSecAddress InetAddress,
+        cpimExtNbrSecMask    InetAddressPrefixLength
+}
+
+cpimExtNbrSecAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16 | 20))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Secondary Inetddress of the PIM Neighbor.
+
+        Type of InetAddress presented in this object
+        is same as that of cPimNbrAddressType in
+        INDEX clause" 
+    ::= { cpimExtNbrSecAddressEntry 1 }
+
+cpimExtNbrSecMask OBJECT-TYPE
+    SYNTAX          InetAddressPrefixLength
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The network mask for the Inet address presented
+        in cpimExtNbrSecAddress" 
+    ::= { cpimExtNbrSecAddressEntry 2 }
+ 
+
+-- PIM multicast routing table
+
+cpimExtMRouteTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpimExtMRouteEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The (conceptual) table listing PIM-specific information on
+        a subset of the rows of the cIpMRouteTable defined in the IP
+        Multicast MIB. This table is augmented to cPimInetMRouteTable"
+    ::= { ciscoPimExt 4 }
+
+cpimExtMRouteEntry OBJECT-TYPE
+    SYNTAX          CpimExtMRouteEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cpimExtIPMRouteTable. There
+        is one entry per entry in the cIpMRouteTable whose incoming
+        interface is running PIM."
+    AUGMENTS           { cPimInetMRouteEntry  } 
+    ::= { cpimExtMRouteTable 1 }
+
+CpimExtMRouteEntry ::= SEQUENCE {
+        cpimExtMRouteRPFNeighbor     InetAddress,
+        cpimExtMRouteSourceTimer     TimeTicks,
+        cpimExtMRouteOriginatorSRTTL Unsigned32,
+        cpimExtMRouteBidirGroup      TruthValue
+}
+
+cpimExtMRouteRPFNeighbor OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16 | 20))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Inetaddress of the current RPF neighbor.  If there
+        is an upstream Assert Winner, it will be the RPF
+        neighbor.  Otherwise, the RPF neighbor will be
+        the next hop indicated by unicast routing.
+
+        Type of InetAddress presented in this object
+        is same as that of cIpMRouteAddrType in
+        INDEX" 
+    ::= { cpimExtMRouteEntry 1 }
+
+cpimExtMRouteSourceTimer OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time before this router ceases originating State
+        Refresh messages for this route." 
+    ::= { cpimExtMRouteEntry 2 }
+
+cpimExtMRouteOriginatorSRTTL OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..255)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The TTL used in State Refresh messages originated by
+        this router for this route." 
+    ::= { cpimExtMRouteEntry 3 }
+
+cpimExtMRouteBidirGroup OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Evaluates to 'true' if this entry represents a
+        Bidir-PIM route." 
+    ::= { cpimExtMRouteEntry 4 }
+ 
+
+-- Next hop table
+
+cpimExtMRouteNextHopTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpimExtMRouteNextHopEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The (conceptual) table listing PIM-specific information on
+        a subset of the rows of the cIpMRouteNextHopTable defined
+        in the IP Multicast Routing Table MIB - IPMROUTE-MIB.
+        This table is augmented to cPimInetMRouteNextHopTable"
+    ::= { ciscoPimExt 5 }
+
+cpimExtMRouteNextHopEntry OBJECT-TYPE
+    SYNTAX          CpimExtMRouteNextHopEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cpimExtMRouteNextHopTable.
+        There is one entry per entry in the cPimInetMRouteNextHopTable
+        whose interface is running PIM and whose 
+        cIpMRouteNextHopState is pruned(1)."
+    AUGMENTS           { cPimInetMRouteNextHopEntry  } 
+    ::= { cpimExtMRouteNextHopTable 1 }
+
+CpimExtMRouteNextHopEntry ::= SEQUENCE {
+        cpimExtMRouteNextHopAssertWinner InetAddress,
+        cpimExtMRouteNextHopAssertTimer  TimeTicks,
+        cpimExtMRouteNextHopAssertMetric Unsigned32,
+        cpimExtMRouteNextHopAsrtMtrcPref Unsigned32,
+        cpimExtMRouteNextHopJoinPruneTmr TimeTicks
+}
+
+cpimExtMRouteNextHopAssertWinner OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16 | 20))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Inetaddress of the Assert Winner.
+
+        Type of InetAddress presented in this object
+        is same as that of cIpMRouteNextHopAddrType in
+        INDEX" 
+    ::= { cpimExtMRouteNextHopEntry 1 }
+
+cpimExtMRouteNextHopAssertTimer OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time remaining before the PIM router leaves the
+        current Assert state.  A value of 0 indicates that the
+        router is in the No Info state." 
+    ::= { cpimExtMRouteNextHopEntry 2 }
+
+cpimExtMRouteNextHopAssertMetric OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The metric advertised by the Assert Winner." 
+    ::= { cpimExtMRouteNextHopEntry 3 }
+
+cpimExtMRouteNextHopAsrtMtrcPref OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The metric preference advertised by the Assert Winner." 
+    ::= { cpimExtMRouteNextHopEntry 4 }
+
+cpimExtMRouteNextHopJoinPruneTmr OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time remaining before the PIM router reverts to
+        default operation on this interface.  PIM-SM will 
+        cease forwarding, PIM-DM will resume forwarding." 
+    ::= { cpimExtMRouteNextHopEntry 5 }
+ 
+
+-- BIDIR table
+
+cpimExtBidirDFTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpimExtBidirDFEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The (conceptual) table listing the Per-RP DF
+        (Designated Forwarder) Election state for each 
+        interface for all the RPs in Bidir mode."
+    ::= { ciscoPimExt 6 }
+
+cpimExtBidirDFEntry OBJECT-TYPE
+    SYNTAX          CpimExtBidirDFEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cpimExtBidirDFTable.
+        Each entry represents details about DF winner for each
+        RP per interface."
+    INDEX           {
+                        cpimExtBidirDFRPAddressType,
+                        cpimExtBidirDFRPAddress,
+                        cpimExtBidirDFIfIndex
+                    } 
+    ::= { cpimExtBidirDFTable 1 }
+
+CpimExtBidirDFEntry ::= SEQUENCE {
+        cpimExtBidirDFIfIndex       InterfaceIndex,
+        cpimExtBidirDFRPAddressType InetAddressType,
+        cpimExtBidirDFRPAddress     InetAddress,
+        cpimExtBidirDFWinnerAddress InetAddress,
+        cpimExtBidirDFWinnerUptime  TimeTicks,
+        cpimExtBidirDFWnrMtrcPref   Unsigned32,
+        cpimExtBidirDFWinnerMetric  Unsigned32,
+        cpimExtBidirDFState         INTEGER,
+        cpimExtBidirDFStateTimer    TimeTicks
+}
+
+cpimExtBidirDFIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The value of ifIndex for the interface for which the
+        DF state is being maintained." 
+    ::= { cpimExtBidirDFEntry 1 }
+
+cpimExtBidirDFRPAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Inetaddress of the RP for which the DF state
+        is being maintained." 
+    ::= { cpimExtBidirDFEntry 2 }
+
+cpimExtBidirDFRPAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16 | 20))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Inetaddress of the RP for which the DF state is being
+        maintained.
+
+        Type of InetAddress presented in this object
+        is same as that of cpimExtBidirDFRPAddressType in
+        INDEX clause" 
+    ::= { cpimExtBidirDFEntry 3 }
+
+cpimExtBidirDFWinnerAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16 | 20))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Inetaddress of the winner of the DF Election process.
+
+        Type of InetAddress presented in this object
+        is same as that of cpimExtBidirDFRPAddressType in
+        INDEX clause" 
+    ::= { cpimExtBidirDFEntry 4 }
+
+cpimExtBidirDFWinnerUptime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time interval for which this DF is being used." 
+    ::= { cpimExtBidirDFEntry 5 }
+
+cpimExtBidirDFWnrMtrcPref OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The metric preference advertised by the DF Winner." 
+    ::= { cpimExtBidirDFEntry 6 }
+
+cpimExtBidirDFWinnerMetric OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The metric advertised by the DF Winner." 
+    ::= { cpimExtBidirDFEntry 7 }
+
+cpimExtBidirDFState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(0),
+                        dfOffer(1),
+                        dfLose(2),
+                        dfWinner(3),
+                        dfBackoff(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The state of this interface wrt DF-Election wrt this RP.
+
+        unknown   (0) indicates that there is no election state
+        on the interface.
+
+        dfOffer   (1) indicates the initial election state in 
+        which the winner offers its metrics thinking it might 
+        eventually become winner.
+
+        dfLose    (2) indicates the state in which the router 
+        knows that there either is a different election winner 
+        or that no router on the link has a path to the RP.
+
+        dfWinner  (3) indicates the router is the acting DF 
+        without any contest.
+
+        dfBackoff (4) indicates the router is the acting DF but 
+        another router has made a bid to take over." 
+    ::= { cpimExtBidirDFEntry 8 }
+
+cpimExtBidirDFStateTimer OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time remaining before for which the router expires the
+        current DF state represented by cpimExtBidirDFState." 
+    ::= { cpimExtBidirDFEntry 9 }
+ 
+
+-- RP set table
+
+cpimExtRPSetTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpimExtRPSetEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The (conceptual) table listing PIM information for
+        available Rendezvous Points (RPs) for IP multicast groups.
+        An entry is learnt from one of {static, bsr, embedded}
+        methods, as defined by the cpimExtRPSetType object. When the
+        cpimExtRPSetType object has a value  {static},  the entry is
+        a mapping provided by user-configuration. A value of
+        {embedded} indicates that the RP-address is embedded in
+        the Group-address. When the value is {bsr}, this entry
+        is obtained from received Candidate-RP-Advertisements when
+        the local router is the BSR, and is obtained from received
+        RP-Set messages when the local router is not the BSR."
+    ::= { ciscoPimExt 7 }
+
+cpimExtRPSetEntry OBJECT-TYPE
+    SYNTAX          CpimExtRPSetEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cpimExtRPSetTable.
+        Each entry represents details about RP per 
+        multicast group and how it is learned"
+    INDEX           {
+                        cpimExtRPSetComponent,
+                        cpimExtRPSetAddrType,
+                        cpimExtRPSetGroupAddress,
+                        cpimExtRPSetGroupMask,
+                        cpimExtRPSetType,
+                        cpimExtRPSetProtocol,
+                        cpimExtRPSetAddress
+                    } 
+    ::= { cpimExtRPSetTable 1 }
+
+CpimExtRPSetEntry ::= SEQUENCE {
+        cpimExtRPSetComponent    Unsigned32,
+        cpimExtRPSetAddrType     InetAddressType,
+        cpimExtRPSetGroupAddress InetAddress,
+        cpimExtRPSetGroupMask    InetAddressPrefixLength,
+        cpimExtRPSetType         INTEGER,
+        cpimExtRPSetProtocol     IANAipMRouteProtocol,
+        cpimExtRPSetAddress      InetAddress,
+        cpimExtRPSetHoldTime     Unsigned32,
+        cpimExtRPSetExpiryTime   Unsigned32,
+        cpimExtRPSetPriority     Integer32,
+        cpimExtRPSetRPActive     TruthValue
+}
+
+cpimExtRPSetComponent OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..255)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A number uniquely identifying the component.  Each
+        protocol instance connected to a separate domain should have
+        a different index value." 
+    ::= { cpimExtRPSetEntry 1 }
+
+cpimExtRPSetAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Inetaddress of the IP multicast group." 
+    ::= { cpimExtRPSetEntry 2 }
+
+cpimExtRPSetGroupAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16 | 20))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The IP multicast group address which, when combined with
+        cpimExtRPSetGroupMask, gives the group prefix for which this
+        entry contains information about the RP.
+
+        Type of InetAddress presented in this object
+        is same as that of cpimExtRPSetAddrType in
+        INDEX clause" 
+    ::= { cpimExtRPSetEntry 3 }
+
+cpimExtRPSetGroupMask OBJECT-TYPE
+    SYNTAX          InetAddressPrefixLength
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The multicast group address mask which, when combined with
+        cpimExtRPSetGroupAddress, gives the group prefix for which this
+        entry contains information about the RP." 
+    ::= { cpimExtRPSetEntry 4 }
+
+cpimExtRPSetType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        static(2),
+                        bsr(3),
+                        embedded(4),
+                        autorp(5)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates how the RP was learnt, 'static' means
+
+        static   (2) indicates entry was learnt from local 
+        configuration.
+
+        bsr      (3) indicates entry was learnt from BSR RP discovery 
+        protocol. 
+
+        embedded (4) indicates  entry was learnt from Embedded-RP
+        mechanism where the RP-Address is embedded in the Multicast
+        Group address.
+
+        autorp   (5) indicates entry was learnt from 
+        Auto-Rendezvous-Point protocol, a Cisco proprietary protocol
+        to dynamically distribute Group to RP mappings within an 
+        autonomous system." 
+    ::= { cpimExtRPSetEntry 5 }
+
+cpimExtRPSetProtocol OBJECT-TYPE
+    SYNTAX          IANAipMRouteProtocol
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The multicast routing protocol" 
+    ::= { cpimExtRPSetEntry 6 }
+
+cpimExtRPSetAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4 | 16 | 20))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Inet Address of the RP.
+
+        Type of InetAddress presented in this object
+        is same as that of cpimExtRPSetAddrType in
+        INDEX clause" 
+    ::= { cpimExtRPSetEntry 7 }
+
+cpimExtRPSetHoldTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The holdtime of the RP entry.  In case of 'bsr'
+        cpimExtRPSetType, if the local router is not the BSR, this
+        value is 0." 
+    ::= { cpimExtRPSetEntry 8 }
+
+cpimExtRPSetExpiryTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The minimum time remaining before the RP denoted by this
+        entry will be declared down.  In case of 'bsr' 
+        cpimExtRPSetType, if the local router is not the BSR, 
+        this value is 0." 
+    ::= { cpimExtRPSetEntry 9 }
+
+cpimExtRPSetPriority OBJECT-TYPE
+    SYNTAX          Integer32 (-1..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The RP-priority in the C-RP Advertisements or the
+        RP-Set messages from the BSR (with value 0
+        denoting the highest priority, default 192).
+        Note that this field is valid only when cPimRPSetType
+        is 'bsr', and for other types, this value will be -1." 
+    ::= { cpimExtRPSetEntry 10 }
+
+cpimExtRPSetRPActive OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Evaluates to 'true' if the RP in this entry is the
+        currently active RP for the group-range." 
+    ::= { cpimExtRPSetEntry 11 }
+ 
+
+-- Candidate RP
+
+cpimExtCRPTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpimExtCRPEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The (conceptual) table listing the IP multicast groups
+        for which the local router is to advertise itself as a
+        Candidate-RP when the value of cPimComponentCRPHoldTime is
+        non-zero.  If this table is empty, then the local router
+        will advertise itself as a Candidate-RP for all groups
+        (providing the value of cPimComponentCRPHoldTime is non-
+        zero)."
+    ::= { ciscoPimExt 8 }
+
+cpimExtCRPEntry OBJECT-TYPE
+    SYNTAX          CpimExtCRPEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cpimExtCandidateRPTable.
+        Each entry represents Bidir state of Candidate-RP"
+    AUGMENTS           { cPimCRPEntry  } 
+    ::= { cpimExtCRPTable 1 }
+
+CpimExtCRPEntry ::= SEQUENCE {
+        cpimExtCRPBidir TruthValue
+}
+
+cpimExtCRPBidir OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The Group for which this RP is advertised is a
+        PIM-Bidir group or not."
+    DEFVAL          { false } 
+    ::= { cpimExtCRPEntry 1 }
+ 
+
+
+cpimExtSourceLifetime OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum time this router will continue to
+        originate State Refresh messages in the absence of
+        traffic from the source itself."
+    DEFVAL          { 210 } 
+    ::= { ciscoPimExt 9 }
+
+cpimExtStateRefreshInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..255)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The interval between successive State Refresh
+        messages originated by this router."
+    DEFVAL          { 60 } 
+    ::= { ciscoPimExt 10 }
+
+cpimExtStateRefreshLimitInterval OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This router will not forward successive State Refresh
+        messages received at less than this interval."
+    DEFVAL          { 0 } 
+    ::= { ciscoPimExt 11 }
+
+cpimExtStateRefreshTimeToLive OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..255)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The TTL to be used by this router's originated State
+        Refresh messages if the data packet's TTL is not
+        recorded."
+    DEFVAL          { 16 } 
+    ::= { ciscoPimExt 12 }
+
+cpimExtInterfaceStateChangeNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "An indication of whether ciscoIetfPimExtInterfaceUp and
+        ciscoIetfPimExtInterfaceDown notifications are enabled."
+    DEFVAL          { false } 
+    ::= { ciscoPimExt 13 }
+
+cpimExtRPMappingChangeNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "An indication of whether the
+        ciscoIetfPimExtRPMappingChange
+        notification is enabled."
+    DEFVAL          { false } 
+    ::= { ciscoPimExt 14 }
+
+-- PIM Notifications
+
+ciscoIetfPimExtInterfaceUp NOTIFICATION-TYPE
+    OBJECTS         { cPimIfStatus }
+    STATUS          current
+    DESCRIPTION
+        "A ciscoIetfPimExtInterfaceUp notification signifies the
+        restoration of a PIM interface. This notification
+        should be generated whenever cPimIfStatus
+        transitions into the 'active' state.
+        cPimIfStatus identifies the interface which 
+        was involved in the generation of this notification."
+   ::= { ciscoIetfPimExtNotifs 1 }
+
+ciscoIetfPimExtInterfaceDown NOTIFICATION-TYPE
+    OBJECTS         { cPimIfStatus }
+    STATUS          current
+    DESCRIPTION
+        "A ciscoIetfPimExtInterfaceDown notification signifies the
+        loss of a PIM interface. This notification should be
+        generated whenever an entry is about to be deleted from
+        the
+        cPimIfTable.
+        cPimIfStatus identifies the interface which 
+        was involved in the generation of this notification."
+   ::= { ciscoIetfPimExtNotifs 2 }
+
+ciscoIetfPimExtRPMappingChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        cpimExtRPSetHoldTime,
+                        cpimRPMappingChangeType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A ciscoIetfPimExtRPMappingChange notification signifies a
+        change in the RP Mapping on the device in question. A
+        change in RP Mapping could be because of addition of new
+        entries to the RP Mapping cache, deletion of existing
+        entries, or a modification to an existing mapping. The
+        type of change is indicated by cpimRPMappingChangeType.
+        cpimExtRPSetHoldTime is used to identify the row in the
+        cpimExtRPSetTable that is responsible for the generation
+        of this notification.
+
+        In case of modification to existing entries, a
+        notification should be generated once before the
+        modification (with cpimRPMappingChangeType set to
+        'modifiedOldMapping') and once after modification (with 
+        cpimRPMappingChangeType set to 'modifiedNewMapping').
+
+        NOTE: A high frequency of RP Mapping change could result
+        in a large number of ciscoIetfPimExtRPMappingChange
+        notifications being generated. Hence, in environments
+        where the possibility of a high frequency of RP Mapping
+        change exists, enable this notification with utmost care."
+   ::= { ciscoIetfPimExtNotifs 3 }
+-- conformance information
+
+ciscoIetfPimExtMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoIetfPimExtMIB 2 }
+
+ciscoIetfPimExtMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoIetfPimExtMIBConformance 1 }
+
+ciscoIetfPimExtMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoIetfPimExtMIBConformance 2 }
+
+
+-- compliance statements
+
+ciscoIetfPimExtMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for routers running PIM
+        and implementing the PIM MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoIetfPimExtGeneralGroup }
+
+    GROUP           ciscoIetfPimExtNbrGroup
+    DESCRIPTION
+        "This group is mandatory for systems that tracks
+        PIM neighbors"
+
+    GROUP           ciscoIetfPimExtNextHopGroup
+    DESCRIPTION
+        "This group is mandatory for system that maintains
+        next hop informations"
+
+    GROUP           ciscoIetfPimExtBidirGroup
+    DESCRIPTION
+        "This group is mandatory for system that support
+        PIM Bidir mode"
+    ::= { ciscoIetfPimExtMIBCompliances 1 }
+
+ciscoIetfPimExtMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for routers running PIM
+        and implementing the PIM MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoIetfPimExtGeneralGroup }
+
+    GROUP           ciscoIetfPimExtNbrGroup
+    DESCRIPTION
+        "This group is mandatory for systems that tracks
+        PIM neighbors"
+
+    GROUP           ciscoIetfPimExtNextHopGroup
+    DESCRIPTION
+        "This group is mandatory for system that maintains
+        next hop informations"
+
+    GROUP           ciscoIetfPimExtBidirGroup
+    DESCRIPTION
+        "This group is mandatory for system that support
+        PIM Bidir mode"
+
+    GROUP           ciscoIetfPimExtNotificationGroup
+    DESCRIPTION
+        "This group is mandatory for systems that generate
+        events for PIM interface up, PIM interface down, 
+        PIM RP mapping change."
+
+    GROUP           ciscoIetfPimExtNotifEnabledGroup
+    DESCRIPTION
+        "This group is mandatory for systems that generate
+        notifications for PIM interface up, PIM interface down,
+        PIM RP mapping change."
+    ::= { ciscoIetfPimExtMIBCompliances 2 }
+
+-- units of conformance
+
+ciscoIetfPimExtGeneralGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpimExtIfTrigHelloInterval,
+                        cpimExtIfHelloHoldtime,
+                        cpimExtIfLanPruneDelay,
+                        cpimExtIfPropagationDelay,
+                        cpimExtIfOverrideInterval,
+                        cpimExtIfGenerationID,
+                        cpimExtIfJoinPruneHoldtime,
+                        cpimExtIfGraftRetryInterval,
+                        cpimExtIfMaxGraftRetries,
+                        cpimExtIfSRTTLThreshold,
+                        cpimExtIfLanDelayEnabled,
+                        cpimExtIfSRCapable,
+                        cpimExtIfDRPriority,
+                        cpimExtIfBSRBorder,
+                        cpimExtMRouteRPFNeighbor,
+                        cpimExtMRouteSourceTimer,
+                        cpimExtMRouteOriginatorSRTTL,
+                        cpimExtRPSetHoldTime,
+                        cpimExtRPSetExpiryTime,
+                        cpimExtRPSetPriority,
+                        cpimExtRPSetRPActive,
+                        cpimExtSourceLifetime,
+                        cpimExtStateRefreshInterval,
+                        cpimExtStateRefreshLimitInterval,
+                        cpimExtStateRefreshTimeToLive
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to support management of
+        PIM routers"
+    ::= { ciscoIetfPimExtMIBGroups 1 }
+
+ciscoIetfPimExtNbrGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpimExtNbrLANPruneDelay,
+                        cpimExtNbrOverrideInterval,
+                        cpimExtNbrTBit,
+                        cpimExtNbrSRCapable,
+                        cpimExtNbrGenId,
+                        cpimExtNbrDRPresent,
+                        cpimExtNbrDRPriority,
+                        cpimExtNbrSecAddress,
+                        cpimExtNbrSecMask
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to support management of
+        PIM neighbors"
+    ::= { ciscoIetfPimExtMIBGroups 2 }
+
+ciscoIetfPimExtNextHopGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpimExtMRouteNextHopAssertWinner,
+                        cpimExtMRouteNextHopAssertTimer,
+                        cpimExtMRouteNextHopAssertMetric,
+                        cpimExtMRouteNextHopAsrtMtrcPref,
+                        cpimExtMRouteNextHopJoinPruneTmr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of optional objects to provide per-next hop
+        information for diagnostic purposes."
+    ::= { ciscoIetfPimExtMIBGroups 3 }
+
+ciscoIetfPimExtBidirGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpimExtBidirDFWinnerAddress,
+                        cpimExtBidirDFWinnerUptime,
+                        cpimExtBidirDFWnrMtrcPref,
+                        cpimExtBidirDFWinnerMetric,
+                        cpimExtBidirDFState,
+                        cpimExtBidirDFStateTimer,
+                        cpimExtIfBidirCapable,
+                        cpimExtNbrBidirCapable,
+                        cpimExtMRouteBidirGroup,
+                        cpimExtCRPBidir
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to support management of
+        RPs in Bidir mode"
+    ::= { ciscoIetfPimExtMIBGroups 4 }
+
+ciscoIetfPimExtNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoIetfPimExtInterfaceUp,
+                        ciscoIetfPimExtInterfaceDown,
+                        ciscoIetfPimExtRPMappingChange
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notification objects to support
+        PIM interface up, PIM interface down, PIM RP 
+        mapping change events."
+    ::= { ciscoIetfPimExtMIBGroups 5 }
+
+ciscoIetfPimExtNotifEnabledGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpimExtInterfaceStateChangeNotifEnabled,
+                        cpimExtRPMappingChangeNotifEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects to indicate whether PIM interface
+        up, PIM interface down, PIM RP mapping change
+        notifications are enabled."
+    ::= { ciscoIetfPimExtMIBGroups 6 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

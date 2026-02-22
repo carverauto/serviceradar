@@ -1,0 +1,1534 @@
+-- *****************************************************************
+-- ciscoWanSONET MIB
+--
+-- May 2002, Subra Hegde 
+--
+-- Copyright (c) 1999,2000,2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+                
+
+CISCO-WAN-SONET-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,Unsigned32      FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP                FROM SNMPv2-CONF
+    ifIndex                     FROM IF-MIB 
+    PerfIntervalCount           FROM PerfHist-TC-MIB
+    ciscoWan                    FROM CISCOWAN-SMI;
+
+ciscoWANSonetMIB MODULE-IDENTITY
+        LAST-UPDATED        "200205200000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+        DESCRIPTION
+                "The MIB module to describe SONET/SDH interfaces objects. 
+                 This is an extension to the standard SONET MIB(RFC 2558)."
+
+        REVISION        "200205200000Z"
+        DESCRIPTION     "Importing Unsigned32 from SNMPv2-SMI."
+
+        REVISION "200003060000Z"
+        DESCRIPTION
+            "Initial version of the MIB Module."
+        ::= { ciscoWan 3 }
+
+
+
+ciscoWANSonetMIBObjects      OBJECT IDENTIFIER ::= { ciscoWANSonetMIB 1}
+
+ 
+-- sonet section 
+cwsSection         OBJECT IDENTIFIER ::= { ciscoWANSonetMIBObjects 1}
+-- sonet line 
+cwsLine            OBJECT IDENTIFIER ::= { ciscoWANSonetMIBObjects 2}
+-- sonet path
+cwsPath            OBJECT IDENTIFIER ::= { ciscoWANSonetMIBObjects 3}
+
+-- ----------------------------------------------------------------
+--
+-- Sonet Section Alarm table
+--
+-- ----------------------------------------------------------------
+ 
+
+cwsSectionAlarmTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CwsSectionAlarmEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+                "The SONET/SDH Section Alarm table. This table contains objects
+                for setting alarm thresholds and reading alarm severity.  "
+        ::= { cwsSection 1 }
+
+cwsSectionAlarmEntry OBJECT-TYPE
+    SYNTAX  CwsSectionAlarmEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "An entry in the alarm table. The entries exist for active sonet
+         lines, with default threshold values. Thresholds may be configured for
+         errored seconds(ES), severely errored seconds(SES), severely 
+         errored  framing seconds(SEFS) and coding violations(CV) for
+         section layer sonet lines.
+         Once these thresholds are exceeded, minor or major alarm is
+         raised.
+         Please refer RFC1595 for descriptions  of ES,SES,SEFS,CV"
+    INDEX   { ifIndex }
+    ::=     { cwsSectionAlarmTable 1 }
+
+
+CwsSectionAlarmEntry ::=
+        SEQUENCE {
+                cwsSectionStatisticalAlarmSeverity     INTEGER,
+                cwsSectionCurrentESsThreshold           Unsigned32,
+                cwsSectionTotalESsThreshold             Unsigned32,
+                cwsSectionCurrentSESsThreshold          Unsigned32,
+                cwsSectionTotalSESsThreshold            Unsigned32,
+                cwsSectionCurrentSEFSsThreshold         Unsigned32,
+                cwsSectionTotalSEFSsThreshold           Unsigned32,
+                cwsSectionCurrentCVsThreshold           Unsigned32,
+                cwsSectionTotalCVsThreshold             Unsigned32,
+                cwsSectionStatAlarmStatus               Unsigned32 
+        }
+
+cwsSectionStatisticalAlarmSeverity OBJECT-TYPE
+        SYNTAX  INTEGER {
+                minor(1),
+                major(2),
+                none(3)
+               }
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+         "By setting this object to major or minor, a minor or major 
+          severity alarm is raised when any statistical threshold
+          is exceeded. By default TCA crossing does not raise any alarm." 
+    DEFVAL { none }
+        ::= { cwsSectionAlarmEntry 1 }
+
+cwsSectionCurrentESsThreshold OBJECT-TYPE
+        SYNTAX  Unsigned32 (0..2147483647)
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+            "This object indicates the threshold for errored seconds(ES), 
+             for the current 15-min interval, above which alarm is generated. "
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        DEFVAL {20}
+        ::= { cwsSectionAlarmEntry 2 }
+
+cwsSectionTotalESsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+            "This object indicates the threshold for errored seconds(ES),
+         for the 24 hour interval, above which alarm is generated. "
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        DEFVAL {20}
+        ::= { cwsSectionAlarmEntry 3 }
+
+cwsSectionCurrentSESsThreshold OBJECT-TYPE
+        SYNTAX  Unsigned32 (0..2147483647)            
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+            "This object indicates the threshold for severely errored
+             seconds(SES) for the current 15-min interval,
+         above which alarm is generated."
+    REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        DEFVAL {3}
+        ::= { cwsSectionAlarmEntry 4 }
+
+cwsSectionTotalSESsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    UNITS "severely errored seconds"
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+        "This object indicates the threshold for severely errored
+         seconds(SES) for the 24 hour interval,
+         above which alarm is generated."
+    REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {3}
+    ::= { cwsSectionAlarmEntry 5 }
+
+cwsSectionCurrentSEFSsThreshold OBJECT-TYPE
+        SYNTAX  Unsigned32 (0..2147483647)
+        UNITS "severely errored framing seconds"
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+                "This object indicates the threshold for severely errored
+                 framing seconds(SEFS), above which alarm is generated."
+        REFERENCE
+                " RFC2558 Section 3.5, GR-253-CORE "
+        DEFVAL {3}
+        ::= { cwsSectionAlarmEntry 6 }
+
+cwsSectionTotalSEFSsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    UNITS "severely errored framing seconds"
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+            "This object indicates the threshold for severely errored
+         framing seconds(SEFS) for the 24 hour interval,
+         above which alarm is generated."
+        REFERENCE
+            " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {3}
+    ::= { cwsSectionAlarmEntry 7 }
+
+cwsSectionCurrentCVsThreshold OBJECT-TYPE
+        SYNTAX  Unsigned32 (0..2147483647)
+        UNITS "coding violations"
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+           "This object indicates the threshold for coding violations(CV),
+        above which alarm is generated."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        DEFVAL {25}
+    ::= { cwsSectionAlarmEntry 8 }
+ 
+cwsSectionTotalCVsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    UNITS "coding violations"
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This object indicates the threshold for coding violations(CV)
+        for 24 hour interval, above which alarm is generated."
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {25}
+    ::= { cwsSectionAlarmEntry 9 }
+ 
+cwsSectionStatAlarmStatus OBJECT-TYPE
+        SYNTAX  Unsigned32 (1..511)    
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+         "This variable indicates the status of the interface.
+         When an alarm is raised, this would indicate which threshold 
+         was exceeded. This object is updated every 15-minutes.
+         Once the current 15-min window has passed, 
+         and there are no errors in the current 15-min window, the 
+         object is cleared from the lower level sonet task.
+         The cwsSectionStatAlarmStatus is a bit map represented
+         as a sum, therefore, it can represent multiple defects
+         simultaneously.
+         If none of the bits are set, it indicates no defect.
+         The various bit positions are:
+                  1     sonetSectionTotalESs
+                  2     sonetSectionTotalSESs
+                  3     sonetSectionTotalSEFSs
+                  4     sonetSectionTotalCVs
+                  5     sonetSectionCurrentESs
+                  6     sonetSectionCurrentSESs
+                  7     sonetSectionCurrentSEFSs
+                  8     sonetSectionCurrentCVs"
+        ::= { cwsSectionAlarmEntry 10 }
+
+--
+--
+-- Sonet Section Current 24 hour period table
+--
+--
+
+cwsSectionCurrent24HrTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CwsSectionCurrent24HrEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "Contains sonet section related current 24 hour counters.
+         A 24 hour interval starts at twelve midnight with 
+         reference to node time. In case of a manual change 
+         in node time all the counters in cwsSectionCurrent24HrTable 
+         table get reset to 0."
+    ::= { cwsSection 2 }
+
+cwsSectionCurrent24HrEntry OBJECT-TYPE
+    SYNTAX  CwsSectionCurrent24HrEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "An entry in the current 24 hour table. The entries exist for
+         active sonet lines."
+    INDEX   { ifIndex }
+    ::=     { cwsSectionCurrent24HrTable 1 }
+
+CwsSectionCurrent24HrEntry ::=
+    SEQUENCE {
+          cwsSectionCurrent24HrESs        PerfIntervalCount,
+          cwsSectionCurrent24HrSESs       PerfIntervalCount,
+          cwsSectionCurrent24HrSEFSs      PerfIntervalCount,
+          cwsSectionCurrent24HrCVs        PerfIntervalCount
+    }
+
+cwsSectionCurrent24HrESs OBJECT-TYPE
+    SYNTAX  PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+        "Number of errored seconds encountered in current 24 hour interval."
+    REFERENCE
+        " RFC2558 Section 3.5, GR-253-CORE"
+    ::= { cwsSectionCurrent24HrEntry 1 }
+
+cwsSectionCurrent24HrSESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of SESs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsSectionCurrent24HrEntry 2 }
+
+cwsSectionCurrent24HrSEFSs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "severely errored framing seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of SEFSs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsSectionCurrent24HrEntry 3 }
+
+cwsSectionCurrent24HrCVs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of CVs encountered in current 24 hour interval."
+        REFERENCE
+           "RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsSectionCurrent24HrEntry 4 }
+
+--
+--
+-- Sonet Section Previous 24 hour period table
+--
+--
+
+cwsSectionPrevious24HrTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CwsSectionPrevious24HrEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+           "Contains sonet section previous 24 hour counters.
+            A 24 hour interval starts at twelve midnight with 
+            reference to node time. In case of a manual change 
+            in node time all the counters in cwsSectionPrevious24HrTable 
+            table get reset to 0."
+        ::= { cwsSection 3 }
+
+cwsSectionPrevious24HrEntry OBJECT-TYPE
+    SYNTAX  CwsSectionPrevious24HrEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "An entry in the current 24 hour table. The entries exist for
+         active sonet lines."
+    INDEX   { ifIndex }
+    ::=     { cwsSectionPrevious24HrTable 1 }
+
+CwsSectionPrevious24HrEntry ::=
+        SEQUENCE {
+                cwsSectionPrevious24HrESs               PerfIntervalCount,
+                cwsSectionPrevious24HrSESs              PerfIntervalCount,
+                cwsSectionPrevious24HrSEFSs             PerfIntervalCount,
+                cwsSectionPrevious24HrCVs               PerfIntervalCount
+        }
+
+cwsSectionPrevious24HrESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of errored seconds encountered in previous 24 hour interval."
+        REFERENCE
+           "RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsSectionPrevious24HrEntry 1 }
+
+cwsSectionPrevious24HrSESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of SESs encountered in previous 24 hour interval."
+        REFERENCE
+           "RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsSectionPrevious24HrEntry 2 }
+
+cwsSectionPrevious24HrSEFSs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "severely errored framing seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of SEFSs encountered in previous 24 hour interval."
+        REFERENCE
+           "RFC2558 Section 3.5,GR-253-CORE"
+        ::= { cwsSectionPrevious24HrEntry 3 }
+
+cwsSectionPrevious24HrCVs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of CVs encountered in previous 24 hour interval."
+        REFERENCE
+           "RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsSectionPrevious24HrEntry 4 }
+
+-- ----------------------------------------------------------------
+--
+-- Line Alarm Table 
+--
+-- ----------------------------------------------------------------
+ 
+-- SONET/SDH Line Alarm  Table.
+-- Changing any threshold will effect both the Near End and
+-- Far End threshold.
+ 
+cwsLineAlarmTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CwsLineAlarmEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+      "The SONET/SDH Line Alarm table. This table contains objects which are
+       thresholds that the user can set. Once the threshold is exceeded,
+       an alarm is flagged.Changing any threshold will affect  both 
+       the Near End and Far End(remote end of the line) threshold."
+    ::= { cwsLine 1 }
+
+cwsLineAlarmEntry OBJECT-TYPE
+    SYNTAX  CwsLineAlarmEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "An entry in the SONET/SDH Line Alarm table.
+         The entries may be created for an
+         ifType value of sonet(39). Thresholds maybe specified for
+         errored seconds(ES), severely errored seconds(SES), severely
+         errored  framing seconds(SEFS),coding violations(CV) and
+         unavailable seconds (UAS) for line layer of sonet lines.
+         Once these thresholds are exceeded, minor or major alarm is
+         raised.
+         Please refer RFC1595 for descriptions  of ES,SES,CV,UAS"
+    INDEX   { ifIndex }
+    ::= { cwsLineAlarmTable 1 }
+
+CwsLineAlarmEntry ::=
+    SEQUENCE {
+                     cwsLineStatisticalAlarmSeverity     INTEGER,
+                     cwsLineCurrentESsThreshold          Unsigned32,
+                     cwsLineTotalESsThreshold            Unsigned32,
+                     cwsLineCurrentSESsThreshold         Unsigned32,
+                     cwsLineTotalSESsThreshold           Unsigned32,
+                     cwsLineCurrentCVsThreshold          Unsigned32,
+                     cwsLineTotalCVsThreshold            Unsigned32,
+                     cwsLineCurrentUASsThreshold         Unsigned32,
+                     cwsLineTotalUASsThreshold           Unsigned32,
+                     cwsLineStatAlarmStatus              Unsigned32 
+             }
+
+cwsLineStatisticalAlarmSeverity OBJECT-TYPE
+    SYNTAX  INTEGER {
+                      minor(1),
+                      major(2),
+                      none(3)
+                    }
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+         "By setting this object to major or minor, a minor or major 
+          severity alarm is raised when any statistical threshold
+          is exceeded. By default TCA crossing does not raise any alarm." 
+    DEFVAL { none }
+    ::= { cwsLineAlarmEntry 1 }
+
+cwsLineCurrentESsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+         "This object indicates the threshold for errored seconds(ES)
+          for the current 15-min interval, above which alarm is 
+          generated.
+          This threshold is the same for Far End and Near End. "
+    REFERENCE
+         " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {20}
+    ::= { cwsLineAlarmEntry 2 }
+
+cwsLineTotalESsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+         "This object indicates the threshold for errored seconds(ES)
+          for the 24 hour interval, above which alarm is generated.  
+          This threshold is the same for Far End and Near End. "
+    REFERENCE
+         " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {20}
+    ::= { cwsLineAlarmEntry 3 }
+ 
+cwsLineCurrentSESsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This is the severely errored seconds(SES) threshold
+        for the current 15-min interval, 
+        above which alarm is generated.
+            This threshold is the same for Far End and Near End."
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {3}
+    ::= { cwsLineAlarmEntry 4 }
+
+cwsLineTotalSESsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This is the severely errored seconds(SES) threshold
+        for the 24 hour interval, above which alarm is generated.
+        This threshold is the same for Far End and Near End."
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {3}
+    ::= { cwsLineAlarmEntry 5 }
+
+cwsLineCurrentCVsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This is the Coding violations(CV) threshold for the current
+        15-min interval, above which alarm is generated.
+        This threshold is the same for Far End and Near End."
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {3}
+    ::= { cwsLineAlarmEntry 6 }
+
+cwsLineTotalCVsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This is the Coding violations(CV) threshold for the
+        24 hour interval, above which alarm is generated.
+        This threshold is the same for Far End and Near End."
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {3}
+    ::= { cwsLineAlarmEntry 7 }
+
+cwsLineCurrentUASsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This is the Unavailable Seconds(UAS) threshold for the current 
+        15-min, above which alarm is generated.
+        This threshold is the same for Far End and Near End. "
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    ::= { cwsLineAlarmEntry 8 }
+
+cwsLineTotalUASsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This is the Unavailable Seconds(UAS) threshold for the
+        24 hour interval above which alarm is generated.
+        This threshold is the same for Far End and Near End. "
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    ::= { cwsLineAlarmEntry 9 }
+
+cwsLineStatAlarmStatus OBJECT-TYPE
+    SYNTAX Unsigned32  
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+      "This variable indicates the  status of the sonet line.
+       This object is updated every 15-minutes.
+       Once the current 15-min window has passed,
+       and there are no errors in the current 15-min window, the
+       object is cleared from the lower level sonet task.
+       The cwsLineStatAlarmStatus
+       is a bit map represented as a sum, therefore,
+       it can represent multiple defects simultaneously.
+       If none of the bits are set, it indicates no defect.  
+       The various bit-positions are:
+                  1  sonetLineTotalESs
+                  2  sonetLineTotalSESs
+                  3  sonetLineTotalCVs
+                  4  sonetLineTotalUASs
+                  5  sonetLineCurrentESs
+                  6  sonetLineCurrentSESs
+                  7  sonetLineCurrentCVs
+                  8  sonetLineCurrentUASs
+                  9  sonetFarEndLineTotalESs
+                  10 sonetFarEndLineTotalSESs
+                  11 sonetFarEndLineTotalCVs
+                  12 sonetFarEndLineTotalUASs
+                  13 sonetFarEndLineCurrentESs
+                  14 sonetFarEndLineCurrentSESs
+                  15 sonetFarEndLineCurrentCVs
+                  16 sonetFarEndLineCurrentUASs"
+     ::= { cwsLineAlarmEntry 10 }
+
+--
+--
+-- Sonet line Current 24 hour period table
+--
+--
+
+cwsLineCurrent24HrTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CwsLineCurrent24HrEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+           "Contains sonet line related current 24 hour counters. 
+            A 24 hour interval starts at twelve midnight with 
+            reference to node time. In case of a manual change 
+            in node time all the counters in cwsLineCurrent24HrTable 
+            table get reset to 0."
+        ::= { cwsLine 2 }
+
+cwsLineCurrent24HrEntry OBJECT-TYPE
+    SYNTAX  CwsLineCurrent24HrEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "An entry in the current 24 hour table. The entries exist for
+         active sonet lines."
+    INDEX   { ifIndex }
+    ::=     { cwsLineCurrent24HrTable 1 }
+
+CwsLineCurrent24HrEntry ::=
+        SEQUENCE {
+                cwsLineCurrent24HrESs           PerfIntervalCount,
+                cwsLineCurrent24HrSESs          PerfIntervalCount,
+                cwsLineCurrent24HrCVs           PerfIntervalCount,
+                cwsLineCurrent24HrUASs          PerfIntervalCount,
+                cwsFELineCurrent24HrESs         PerfIntervalCount,
+                cwsFELineCurrent24HrSESs        PerfIntervalCount,
+                cwsFELineCurrent24HrCVs         PerfIntervalCount,
+                cwsFELineCurrent24HrUASs        PerfIntervalCount
+        }
+
+cwsLineCurrent24HrESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of errored seconds encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLineCurrent24HrEntry 1 }
+
+cwsLineCurrent24HrSESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of SESs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLineCurrent24HrEntry 2 }
+
+cwsLineCurrent24HrCVs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of CVs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLineCurrent24HrEntry 3 }
+
+cwsLineCurrent24HrUASs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "Unavailable seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of UASs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLineCurrent24HrEntry 4 }
+
+
+cwsFELineCurrent24HrESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end errored seconds encountered in current
+            24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLineCurrent24HrEntry 5 }
+
+cwsFELineCurrent24HrSESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end SESs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLineCurrent24HrEntry 6 }
+
+cwsFELineCurrent24HrCVs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end CVs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLineCurrent24HrEntry 7 }
+
+cwsFELineCurrent24HrUASs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "Unavailable seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end UASs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLineCurrent24HrEntry 8 }
+
+--
+--
+-- Sonet Line Previous 24 hour period table
+--
+--
+
+cwsLinePrevious24HrTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF CwsLinePrevious24HrEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+           "Contains sonet line previous 24 hour counters.
+            A 24 hour interval starts at twelve midnight with 
+            reference to node time. In case of a manual change 
+            in node time all the counters in cwsLinePrevious24HrTable
+            table get reset to 0."
+        ::= { cwsLine 3 }
+
+cwsLinePrevious24HrEntry OBJECT-TYPE
+    SYNTAX  CwsLinePrevious24HrEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "An entry in the current 24 hour table. The entries exist for
+         active sonet lines."
+    INDEX   { ifIndex }
+        ::= { cwsLinePrevious24HrTable 1 }
+
+CwsLinePrevious24HrEntry ::=
+        SEQUENCE {
+                cwsLinePrevious24HrESs           PerfIntervalCount,
+                cwsLinePrevious24HrSESs          PerfIntervalCount,
+                cwsLinePrevious24HrCVs           PerfIntervalCount,
+                cwsLinePrevious24HrUASs          PerfIntervalCount,
+                cwsFELinePrevious24HrESs         PerfIntervalCount,
+                cwsFELinePrevious24HrSESs        PerfIntervalCount,
+                cwsFELinePrevious24HrCVs         PerfIntervalCount,
+                cwsFELinePrevious24HrUASs        PerfIntervalCount
+        }
+
+cwsLinePrevious24HrESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of errored seconds encountered in previous 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLinePrevious24HrEntry 1 }
+
+cwsLinePrevious24HrSESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of SESs encountered in previous 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLinePrevious24HrEntry 2 }
+
+cwsLinePrevious24HrCVs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of CVs encountered in previous 24 hour interval."
+        REFERENCE
+           "RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLinePrevious24HrEntry 3 }
+
+cwsLinePrevious24HrUASs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "Unavailable seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of UASs encountered in previous 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLinePrevious24HrEntry 4 }
+
+
+cwsFELinePrevious24HrESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end errored seconds encountered in previous
+            24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLinePrevious24HrEntry 5 }
+
+cwsFELinePrevious24HrSESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end SESs encountered in previous 24 hour interval."
+        REFERENCE
+           "RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLinePrevious24HrEntry 6 }
+
+cwsFELinePrevious24HrCVs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end CVs encountered in previous 24 hour interval."
+        REFERENCE
+           "RFC2558 Section 3.5,GR-253-CORE"
+        ::= { cwsLinePrevious24HrEntry 7 }
+
+cwsFELinePrevious24HrUASs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "Unavailable seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end UASs encountered in previous 24 hour interval."
+        REFERENCE
+           "RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsLinePrevious24HrEntry 8 }
+
+-- ----------------------------------------------------------------
+--
+-- Path Alarm Table
+--
+-- ----------------------------------------------------------------
+ 
+cwsPathAlarmTable OBJECT-TYPE
+     SYNTAX  SEQUENCE OF CwsPathAlarmEntry
+     MAX-ACCESS  not-accessible
+     STATUS  current
+     DESCRIPTION
+       "The SONET/SDH Path Alarm table. This table contains objects 
+        for thresholds which a user can set. When any threshold is 
+        exceeded, an alarm is set.
+        Changing any threshold will affect  both the Near End and
+        Far End(remote end of the line) threshold."
+     ::= { cwsPath 1 }
+     
+cwsPathAlarmEntry OBJECT-TYPE
+     SYNTAX  CwsPathAlarmEntry
+     MAX-ACCESS  not-accessible
+     STATUS  current
+     DESCRIPTION
+       "An entry in the SONET/SDH Path Alarm table.
+        Thresholds maybe specified for
+        errored seconds(ES), severely errored seconds(SES), severely
+        errored  framing seconds(SEFS),coding violations(CV) and
+        unavailable seconds (UAS) for path layer of sonet lines.
+        Once these thresholds are exceeded, minor or major alarm is
+        raised.
+        Please refer RFC1595 for descriptions  of ES,SES,SEFS,CV,UAS."
+     INDEX   { ifIndex }
+     ::= { cwsPathAlarmTable 1 }
+
+
+CwsPathAlarmEntry ::=
+     SEQUENCE {
+         cwsPathStatisticalAlarmSeverity     INTEGER,
+         cwsPathCurrentESsThreshold          Unsigned32,
+         cwsPathTotalESsThreshold            Unsigned32,
+         cwsPathCurrentSESsThreshold         Unsigned32,
+         cwsPathTotalSESsThreshold           Unsigned32,
+         cwsPathCurrentCVsThreshold          Unsigned32,
+         cwsPathTotalCVsThreshold            Unsigned32,
+         cwsPathCurrentUASsThreshold         Unsigned32,
+         cwsPathTotalUASsThreshold           Unsigned32,
+         cwsPathStatAlarmStatus              Unsigned32 
+     }
+
+cwsPathStatisticalAlarmSeverity OBJECT-TYPE
+     SYNTAX  INTEGER {
+             minor(1),
+             major(2),
+             none(3)
+             }
+     MAX-ACCESS  read-write
+     STATUS  current
+     DESCRIPTION
+         "By setting this object to major or minor, a minor or major
+          severity alarm is raised when any statistical threshold
+          is exceeded. By default TCA crossing does not raise any alarm."
+     DEFVAL { none }
+     ::= { cwsPathAlarmEntry 1 }
+
+cwsPathCurrentESsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This object indicates the threshold for errored seconds(ES)
+        for the current 15-min interval, above which alarm is generated.  
+        This threshold is the same for Far End (remote end
+        of the line) and Near End(this end of the line)."
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {20}
+    ::= { cwsPathAlarmEntry 2 }
+
+cwsPathTotalESsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This object indicates the threshold for errored seconds(ES)
+        for the 24-hour interval, above which alarm is generated.
+        This threshold is the same for Far End (remote end
+        of the line) and Near End(this end of the line)."
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {20}
+    ::= { cwsPathAlarmEntry 3 }
+
+cwsPathCurrentSESsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This object indicates the threshold for severely errored
+        seconds(SES) for the current 15-min interval,
+        above which alarm is generated.  
+        This threshold is the same for Far End and Near End."
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {3}
+    ::= { cwsPathAlarmEntry 4 }
+
+cwsPathTotalSESsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This object indicates the threshold for severely errored
+        seconds(SES) for the 24 hour interval,
+        above which alarm is generated.
+        This threshold is the same for Far End and Near End."
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {3}
+    ::= { cwsPathAlarmEntry 5 }
+
+cwsPathCurrentCVsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This is the coding violations threshold for the current
+        15-min interval, above which alarm is generated.
+        This threshold is the same for Far End and Near End. "
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {25}
+    ::= { cwsPathAlarmEntry 6 }
+
+cwsPathTotalCVsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This is the coding violations threshold for the
+        24 hour interval, above which alarm is generated.
+        This threshold is the same for Far End and Near End. "
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {25}
+    ::= { cwsPathAlarmEntry 7 }
+
+
+  cwsPathCurrentUASsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This is the unavailable seconds threshold for the current
+        15-min interval, above which alarm is generated.
+        This threshold is the same for Far End and Near End. "
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {10}
+    ::= { cwsPathAlarmEntry 8 }
+ 
+  cwsPathTotalUASsThreshold OBJECT-TYPE
+    SYNTAX  Unsigned32 (0..2147483647)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "This is the unavailable seconds threshold for the 
+        24 hour interval, above which alarm is generated.
+        This threshold is the same for Far End and Near End. "
+    REFERENCE
+       " RFC2558 Section 3.5, GR-253-CORE "
+    DEFVAL {10}
+    ::= { cwsPathAlarmEntry 9 }
+ 
+cwsPathStatAlarmStatus OBJECT-TYPE
+    SYNTAX Unsigned32  
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+       "This variable indicates the status of the interface.
+       The cwsPathStatAlarmStatus is a bit map represented
+       as a sum, therefore, it can represent multiple defects
+       simultaneously.
+       If none of the bits are set, it indicates no defect. 
+       The following ar the bit positions:
+                  1    sonetPathTotalESs
+                  2    sonetPathTotalSESs
+                  3    sonetPathTotalCVs
+                  4    sonetPathTotalUASs
+                  5     sonetPathCurrentESs
+                  6     sonetPathCurrentSESs
+                  7     sonetPathCurrentCVs
+                  8     sonetPathCurrentUASs
+                  9    sonetFarEndPathTotalESs
+                  10    sonetFarEndPathTotalSESs
+                  11    sonetFarEndPathTotalCVs
+                  12    sonetFarEndPathTotalUASs
+                  13     sonetFarEndPathCurrentESs
+                  14     sonetFarEndPathCurrentSESs
+                  15     sonetFarEndPathCurrentCVs
+                  16     sonetFarEndPathCurrentUASs"
+     ::= { cwsPathAlarmEntry 10 }
+ 
+-- ----------------------------------------------------------------
+--
+-- Path Current Table
+--
+-- ----------------------------------------------------------------
+ 
+cwsPathCurrent24HrTable OBJECT-TYPE
+     SYNTAX  SEQUENCE OF CwsPathCurrent24HrEntry
+     MAX-ACCESS  not-accessible
+     STATUS  current
+     DESCRIPTION
+       "Contains sonet path related current 24 hour interval counter.
+        A 24 hour interval starts at twelve midnight with 
+        reference to node time. In case of a manual change 
+        in node time all the counters in cwsPathCurrent24HrTable
+        table get reset to 0."
+     ::= { cwsPath 2 }
+     
+cwsPathCurrent24HrEntry OBJECT-TYPE
+     SYNTAX  CwsPathCurrent24HrEntry
+     MAX-ACCESS  not-accessible
+     STATUS  current
+     DESCRIPTION
+       "An entry in path current table."
+     INDEX   { ifIndex }
+     ::= { cwsPathCurrent24HrTable 1 }
+
+CwsPathCurrent24HrEntry ::=
+     SEQUENCE {
+         cwsPathCurrent24HrESs            PerfIntervalCount,
+         cwsPathCurrent24HrSESs           PerfIntervalCount,
+         cwsPathCurrent24HrCVs            PerfIntervalCount,
+         cwsPathCurrent24HrUASs           PerfIntervalCount,
+         cwsFEPathCurrent24HrESs          PerfIntervalCount,
+         cwsFEPathCurrent24HrSESs         PerfIntervalCount,
+         cwsFEPathCurrent24HrCVs          PerfIntervalCount,
+         cwsFEPathCurrent24HrUASs         PerfIntervalCount
+     }
+
+cwsPathCurrent24HrESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of errored seconds encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        ::= { cwsPathCurrent24HrEntry 1 }
+
+cwsPathCurrent24HrSESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of SESs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5,GR-253-CORE "
+        ::= { cwsPathCurrent24HrEntry 2 }
+
+cwsPathCurrent24HrCVs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of CVs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        ::= { cwsPathCurrent24HrEntry 3 }
+
+cwsPathCurrent24HrUASs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "Unavailable seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of UASs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        ::= { cwsPathCurrent24HrEntry 4 }
+
+cwsFEPathCurrent24HrESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end errored seconds encountered 
+            in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        ::= { cwsPathCurrent24HrEntry 5 }
+
+cwsFEPathCurrent24HrSESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end SESs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        ::= { cwsPathCurrent24HrEntry 6 }
+
+cwsFEPathCurrent24HrCVs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end CVs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        ::= { cwsPathCurrent24HrEntry 7 }
+
+cwsFEPathCurrent24HrUASs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "Unavailable seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end UASs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5,GR-253-CORE "
+        ::= { cwsPathCurrent24HrEntry 8 }
+
+-- ----------------------------------------------------------------
+--
+-- Path Previous 24 hour Table
+--
+-- ----------------------------------------------------------------
+ 
+cwsPathPrevious24HrTable OBJECT-TYPE
+     SYNTAX  SEQUENCE OF CwsPathPrevious24HrEntry
+     MAX-ACCESS  not-accessible
+     STATUS  current
+     DESCRIPTION
+       "Contains sonet path previous 24 hour interval counter.
+        A 24 hour interval starts at twelve midnight with 
+        reference to node time. In case of a manual change 
+        in node time all the counters in cwsPathPrevious24HrTable
+        table get reset to 0."
+     ::= { cwsPath 3 }
+     
+cwsPathPrevious24HrEntry OBJECT-TYPE
+     SYNTAX  CwsPathPrevious24HrEntry
+     MAX-ACCESS  not-accessible
+     STATUS  current
+     DESCRIPTION
+       "An entry in path current table."
+     INDEX   { ifIndex }
+     ::= { cwsPathPrevious24HrTable 1 }
+
+CwsPathPrevious24HrEntry ::=
+     SEQUENCE {
+         cwsPathPrevious24HrESs            PerfIntervalCount,
+         cwsPathPrevious24HrSESs           PerfIntervalCount,
+         cwsPathPrevious24HrCVs            PerfIntervalCount,
+         cwsPathPrevious24HrUASs           PerfIntervalCount,
+         cwsFEPathPrevious24HrESs          PerfIntervalCount,
+         cwsFEPathPrevious24HrSESs         PerfIntervalCount,
+         cwsFEPathPrevious24HrCVs          PerfIntervalCount,
+         cwsFEPathPrevious24HrUASs         PerfIntervalCount
+     }
+
+cwsPathPrevious24HrESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of errored seconds encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        ::= { cwsPathPrevious24HrEntry 1 }
+
+cwsPathPrevious24HrSESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of SESs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        ::= { cwsPathPrevious24HrEntry 2 }
+
+cwsPathPrevious24HrCVs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of CVs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        ::= { cwsPathPrevious24HrEntry 3 }
+
+cwsPathPrevious24HrUASs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "Unavailable seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of UASs encountered in current 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5,GR-253-CORE "
+        ::= { cwsPathPrevious24HrEntry 4 }
+
+cwsFEPathPrevious24HrESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end errored seconds encountered 
+            in previous 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5,GR-253-CORE "
+        ::= { cwsPathPrevious24HrEntry 5 }
+
+cwsFEPathPrevious24HrSESs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "severely errored seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end SESs encountered in previous 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5,GR-253-CORE "
+        ::= { cwsPathPrevious24HrEntry 6 }
+
+cwsFEPathPrevious24HrCVs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "coding violations"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end CVs encountered in previous 24 hour interval."
+        REFERENCE
+           " RFC2558 Section 3.5, GR-253-CORE "
+        ::= { cwsPathPrevious24HrEntry 7 }
+
+cwsFEPathPrevious24HrUASs OBJECT-TYPE
+        SYNTAX  PerfIntervalCount
+        UNITS "Unavailable seconds"
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "Number of far end UASs encountered in previous 24 hour interval."
+        REFERENCE
+           "RFC2558 Section 3.5, GR-253-CORE"
+        ::= { cwsPathPrevious24HrEntry 8 }
+
+-- conformance information
+
+ciscoWANSonetMIBConformance OBJECT IDENTIFIER ::= { ciscoWANSonetMIB 2 }
+ciscoWANSonetMIBCompliances OBJECT IDENTIFIER ::= {ciscoWANSonetMIBConformance 1}
+ciscoWANSonetMIBGroups      OBJECT IDENTIFIER ::= {ciscoWANSonetMIBConformance 2}
+
+ciscoWANSonetMIBCompliance MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+        "The Compliance statement for ciscoSonet management group."
+        MODULE -- this module
+        MANDATORY-GROUPS { ciscoWANSonetSectAlarmMIBGroup, 
+                           ciscoWANSonetLineAlarmMIBGroup,
+                           ciscoWANSonetPathAlarmMIBGroup }
+
+        GROUP ciscoWANSonetLinePrev24HrMIBGroup
+        DESCRIPTION
+           "Implementation of this group is optional."
+
+        GROUP ciscoWANSonetFELineAlarmMIBGroup
+        DESCRIPTION
+           "Implementation of this group is optional. To be supported
+            if far end line tables in standard sonet MIB are supported."
+
+        GROUP ciscoWANSonetFELinePrev24HrMIBGroup
+        DESCRIPTION
+           "Implementation of this group is optional."
+
+        GROUP ciscoWANSonetPathPrev24HrMIBGroup
+        DESCRIPTION
+           "Implementation of this group is optional."
+
+        GROUP ciscoWANSonetFEPathAlarmMIBGroup
+        DESCRIPTION
+           "Implementation of this group is optional. To be supported
+            if far end path tables in standard sonet MIB are supported."
+
+        GROUP    ciscoWANSonetFEPathPrev24HrMIBGroup
+        DESCRIPTION
+           "Implementation of this group is optional."
+        ::= {ciscoWANSonetMIBCompliances 1}
+
+-- units of conformance
+ciscoWANSonetSectAlarmMIBGroup OBJECT-GROUP
+        OBJECTS {
+        cwsSectionStatisticalAlarmSeverity,    
+        cwsSectionCurrentESsThreshold,    
+        cwsSectionTotalESsThreshold,    
+        cwsSectionCurrentSESsThreshold,  
+        cwsSectionTotalSESsThreshold,  
+        cwsSectionCurrentSEFSsThreshold,
+        cwsSectionTotalSEFSsThreshold,
+        cwsSectionCurrentCVsThreshold,
+        cwsSectionTotalCVsThreshold,
+        cwsSectionStatAlarmStatus,         
+        cwsSectionCurrent24HrESs,
+        cwsSectionCurrent24HrSESs,
+        cwsSectionCurrent24HrSEFSs,
+        cwsSectionCurrent24HrCVs
+        }
+       STATUS current
+       DESCRIPTION
+         " These are objects related to ciscoSonet alarm group "
+       ::= { ciscoWANSonetMIBGroups 1}
+
+ciscoWANSonetSectPrev24HrMIBGroup OBJECT-GROUP
+        OBJECTS {
+        cwsSectionPrevious24HrESs,
+        cwsSectionPrevious24HrSESs,
+        cwsSectionPrevious24HrSEFSs,
+        cwsSectionPrevious24HrCVs
+        }
+       STATUS current
+       DESCRIPTION
+         "Sonet section previous 24 hour counter objects."
+       ::= { ciscoWANSonetMIBGroups 2}
+
+ciscoWANSonetLineAlarmMIBGroup OBJECT-GROUP
+        OBJECTS {
+        cwsLineStatisticalAlarmSeverity,
+        cwsLineCurrentESsThreshold,   
+        cwsLineTotalESsThreshold,   
+        cwsLineCurrentSESsThreshold, 
+        cwsLineTotalSESsThreshold, 
+        cwsLineCurrentCVsThreshold,       
+        cwsLineTotalCVsThreshold,       
+        cwsLineCurrentUASsThreshold,     
+        cwsLineTotalUASsThreshold,     
+        cwsLineStatAlarmStatus,
+        cwsLineCurrent24HrESs,
+        cwsLineCurrent24HrSESs,
+        cwsLineCurrent24HrCVs,
+        cwsLineCurrent24HrUASs
+        }
+       STATUS current
+       DESCRIPTION
+         "These are objects related to ciscoSonet line alarm group."
+       ::= { ciscoWANSonetMIBGroups 3}
+
+ciscoWANSonetFELineAlarmMIBGroup OBJECT-GROUP
+        OBJECTS {
+        cwsFELineCurrent24HrESs,
+        cwsFELineCurrent24HrSESs,
+        cwsFELineCurrent24HrCVs,
+        cwsFELineCurrent24HrUASs
+        }
+       STATUS current
+       DESCRIPTION
+         "These are sonet far end line current 24 hour counter 
+          objects."
+       ::= { ciscoWANSonetMIBGroups 4}
+
+ciscoWANSonetLinePrev24HrMIBGroup OBJECT-GROUP
+        OBJECTS {
+        cwsLinePrevious24HrESs,
+        cwsLinePrevious24HrSESs,
+        cwsLinePrevious24HrCVs,
+        cwsLinePrevious24HrUASs
+        }
+       STATUS current
+       DESCRIPTION
+         "Sonet line previous 24 hour counter objects."
+       ::= { ciscoWANSonetMIBGroups 5}
+
+ciscoWANSonetFELinePrev24HrMIBGroup OBJECT-GROUP
+        OBJECTS {
+        cwsFELinePrevious24HrESs,
+        cwsFELinePrevious24HrSESs,
+        cwsFELinePrevious24HrCVs,
+        cwsFELinePrevious24HrUASs
+        }
+       STATUS current
+       DESCRIPTION
+         "Far end sonet line previous 24 hour counter objects."
+       ::= { ciscoWANSonetMIBGroups 6}
+
+ciscoWANSonetPathAlarmMIBGroup OBJECT-GROUP
+        OBJECTS { 
+        cwsPathStatisticalAlarmSeverity,    
+        cwsPathCurrentESsThreshold,   
+        cwsPathTotalESsThreshold,
+        cwsPathCurrentSESsThreshold, 
+        cwsPathTotalSESsThreshold,
+        cwsPathCurrentCVsThreshold, 
+        cwsPathTotalCVsThreshold,
+        cwsPathCurrentUASsThreshold,
+        cwsPathTotalUASsThreshold,
+        cwsPathStatAlarmStatus,
+        cwsPathCurrent24HrESs,
+        cwsPathCurrent24HrSESs,
+        cwsPathCurrent24HrCVs,
+        cwsPathCurrent24HrUASs
+        }
+       STATUS current
+       DESCRIPTION
+         " These are objects related to ciscoSonet path alarm group "
+       ::= { ciscoWANSonetMIBGroups 7}
+
+
+ciscoWANSonetFEPathAlarmMIBGroup OBJECT-GROUP
+        OBJECTS { 
+        cwsFEPathCurrent24HrESs,
+        cwsFEPathCurrent24HrSESs,
+        cwsFEPathCurrent24HrCVs,
+        cwsFEPathCurrent24HrUASs
+        }
+       STATUS current
+       DESCRIPTION
+         "These are far end sonet path current 24 hour counter
+          objects."
+       ::= { ciscoWANSonetMIBGroups 8}
+
+ciscoWANSonetPathPrev24HrMIBGroup OBJECT-GROUP
+        OBJECTS {
+        cwsPathPrevious24HrESs,
+        cwsPathPrevious24HrSESs,
+        cwsPathPrevious24HrCVs,
+        cwsPathPrevious24HrUASs
+        }
+       STATUS current
+       DESCRIPTION
+         "Sonet path previous 24 hour counters."
+       ::= { ciscoWANSonetMIBGroups 9}
+
+ciscoWANSonetFEPathPrev24HrMIBGroup OBJECT-GROUP
+        OBJECTS {
+        cwsFEPathPrevious24HrESs,
+        cwsFEPathPrevious24HrSESs,
+        cwsFEPathPrevious24HrCVs,
+        cwsFEPathPrevious24HrUASs 
+        }
+       STATUS current
+       DESCRIPTION
+         "Theses are far end sonet path previous 24 hour counter
+          objects."
+       ::= { ciscoWANSonetMIBGroups 10}
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,337 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-DHCP-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- DHCP management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-DHCP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB;
+
+cucsDhcpObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        DHCP management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 11 }
+
+cucsDhcpAcquiredTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsDhcpAcquiredEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS dhcp:Acquired managed object table"
+    ::= { cucsDhcpObjects 1 }
+
+cucsDhcpAcquiredEntry OBJECT-TYPE
+    SYNTAX           CucsDhcpAcquiredEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsDhcpAcquiredTable table."
+    INDEX { cucsDhcpAcquiredInstanceId }
+    ::= { cucsDhcpAcquiredTable 1 }
+
+CucsDhcpAcquiredEntry ::= SEQUENCE {
+    cucsDhcpAcquiredInstanceId                                       CucsManagedObjectId,
+    cucsDhcpAcquiredDn                                               CucsManagedObjectDn,
+    cucsDhcpAcquiredRn                                               SnmpAdminString,
+    cucsDhcpAcquiredAcqts                                            DateAndTime,
+    cucsDhcpAcquiredCookie                                           SnmpAdminString,
+    cucsDhcpAcquiredEnds                                             DateAndTime,
+    cucsDhcpAcquiredIp                                               InetAddressIPv4,
+    cucsDhcpAcquiredSysId                                            SnmpAdminString,
+    cucsDhcpAcquiredMac                                              MacAddress
+}
+
+cucsDhcpAcquiredInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsDhcpAcquiredEntry 1 }
+
+cucsDhcpAcquiredDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Acquired:dn managed object property"
+    ::= { cucsDhcpAcquiredEntry 2 }
+
+cucsDhcpAcquiredRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Acquired:rn managed object property"
+    ::= { cucsDhcpAcquiredEntry 3 }
+
+cucsDhcpAcquiredAcqts OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Acquired:acqts managed object property"
+    ::= { cucsDhcpAcquiredEntry 4 }
+
+cucsDhcpAcquiredCookie OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Acquired:cookie managed object property"
+    ::= { cucsDhcpAcquiredEntry 5 }
+
+cucsDhcpAcquiredEnds OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Acquired:ends managed object property"
+    ::= { cucsDhcpAcquiredEntry 6 }
+
+cucsDhcpAcquiredIp OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Acquired:ip managed object property"
+    ::= { cucsDhcpAcquiredEntry 7 }
+
+cucsDhcpAcquiredSysId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Acquired:sysId managed object property"
+    ::= { cucsDhcpAcquiredEntry 8 }
+
+cucsDhcpAcquiredMac OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Acquired:mac managed object property"
+    ::= { cucsDhcpAcquiredEntry 9 }
+
+cucsDhcpInstTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsDhcpInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS dhcp:Inst managed object table"
+    ::= { cucsDhcpObjects 2 }
+
+cucsDhcpInstEntry OBJECT-TYPE
+    SYNTAX           CucsDhcpInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsDhcpInstTable table."
+    INDEX { cucsDhcpInstInstanceId }
+    ::= { cucsDhcpInstTable 1 }
+
+CucsDhcpInstEntry ::= SEQUENCE {
+    cucsDhcpInstInstanceId                                           CucsManagedObjectId,
+    cucsDhcpInstDn                                                   CucsManagedObjectDn,
+    cucsDhcpInstRn                                                   SnmpAdminString
+}
+
+cucsDhcpInstInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsDhcpInstEntry 1 }
+
+cucsDhcpInstDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Inst:dn managed object property"
+    ::= { cucsDhcpInstEntry 2 }
+
+cucsDhcpInstRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Inst:rn managed object property"
+    ::= { cucsDhcpInstEntry 3 }
+
+cucsDhcpLeaseTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsDhcpLeaseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS dhcp:Lease managed object table"
+    ::= { cucsDhcpObjects 3 }
+
+cucsDhcpLeaseEntry OBJECT-TYPE
+    SYNTAX           CucsDhcpLeaseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsDhcpLeaseTable table."
+    INDEX { cucsDhcpLeaseInstanceId }
+    ::= { cucsDhcpLeaseTable 1 }
+
+CucsDhcpLeaseEntry ::= SEQUENCE {
+    cucsDhcpLeaseInstanceId                                          CucsManagedObjectId,
+    cucsDhcpLeaseDn                                                  CucsManagedObjectDn,
+    cucsDhcpLeaseRn                                                  SnmpAdminString,
+    cucsDhcpLeaseCliId                                               SnmpAdminString,
+    cucsDhcpLeaseCookie                                              SnmpAdminString,
+    cucsDhcpLeaseEnds                                                DateAndTime,
+    cucsDhcpLeaseHostname                                            SnmpAdminString,
+    cucsDhcpLeaseIntf                                                SnmpAdminString,
+    cucsDhcpLeaseIp                                                  InetAddressIPv4,
+    cucsDhcpLeaseMac                                                 MacAddress,
+    cucsDhcpLeaseStarts                                              DateAndTime
+}
+
+cucsDhcpLeaseInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsDhcpLeaseEntry 1 }
+
+cucsDhcpLeaseDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Lease:dn managed object property"
+    ::= { cucsDhcpLeaseEntry 2 }
+
+cucsDhcpLeaseRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Lease:rn managed object property"
+    ::= { cucsDhcpLeaseEntry 3 }
+
+cucsDhcpLeaseCliId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Lease:cliId managed object property"
+    ::= { cucsDhcpLeaseEntry 4 }
+
+cucsDhcpLeaseCookie OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Lease:cookie managed object property"
+    ::= { cucsDhcpLeaseEntry 5 }
+
+cucsDhcpLeaseEnds OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Lease:ends managed object property"
+    ::= { cucsDhcpLeaseEntry 6 }
+
+cucsDhcpLeaseHostname OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Lease:hostname managed object property"
+    ::= { cucsDhcpLeaseEntry 7 }
+
+cucsDhcpLeaseIntf OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Lease:intf managed object property"
+    ::= { cucsDhcpLeaseEntry 8 }
+
+cucsDhcpLeaseIp OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Lease:ip managed object property"
+    ::= { cucsDhcpLeaseEntry 9 }
+
+cucsDhcpLeaseMac OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Lease:mac managed object property"
+    ::= { cucsDhcpLeaseEntry 10 }
+
+cucsDhcpLeaseStarts OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS dhcp:Lease:starts managed object property"
+    ::= { cucsDhcpLeaseEntry 11 }
+
+END

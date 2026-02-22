@@ -1,0 +1,108 @@
+-- *****************************************************************
+-- ciscoAtmCapabilities MIB
+--
+-- AGENT-CAPABILITIES mib for ATM-MIB 
+--
+-- June 2002, Subra Hegde
+--
+-- Copyright(c) 2002 by Cisco Systems, Inc.
+--
+-- *****************************************************************
+
+CISCO-ATM-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;   
+
+ciscoAtmCapability MODULE-IDENTITY
+        LAST-UPDATED    "200206120000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+        DESCRIPTION
+                "The Agent Capabilities for ATM-MIB."
+        REVISION "200206120000Z"
+        DESCRIPTION
+                "Initial Version of the MIB module."
+        ::= { ciscoAgentCapability 9999 }
+
+ciscoAtmCapabilityV2R00 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "MGX8850 Release 2.00,
+                BPX SES Release 1.00."
+STATUS          current
+DESCRIPTION     "ATM MIB Capabilities"
+
+SUPPORTS ATM-MIB
+INCLUDES { atmInterfaceConfGroup2 }
+
+VARIATION   atmInterfaceMaxVpcs
+ACCESS      not-implemented
+DESCRIPTION "Not supported."
+
+VARIATION   atmInterfaceMaxVccs
+ACCESS      not-implemented
+DESCRIPTION "Not supported."
+
+VARIATION   atmInterfaceConfVpcs
+ACCESS      not-implemented
+DESCRIPTION "Not supported."
+
+VARIATION   atmInterfaceConfVccs
+ACCESS      not-implemented
+DESCRIPTION "Not supported."
+
+VARIATION   atmInterfaceMaxActiveVpiBits
+ACCESS      not-implemented
+DESCRIPTION "Not supported."
+
+VARIATION   atmInterfaceMaxActiveVciBits
+ACCESS      not-implemented
+DESCRIPTION "Not supported."
+
+VARIATION   atmInterfaceIlmiVpi
+ACCESS      not-implemented
+DESCRIPTION "Not supported."
+
+VARIATION   atmInterfaceIlmiVci
+ACCESS      not-implemented
+DESCRIPTION "Not supported."
+
+VARIATION   atmInterfaceMyNeighborIpAddress
+ACCESS      read-only
+DESCRIPTION "Write access is not supported."
+
+VARIATION   atmInterfaceMyNeighborIfName
+ACCESS      read-only
+DESCRIPTION "Write access is not supported."
+
+VARIATION   atmInterfaceCurrentMaxVpiBits
+ACCESS      not-implemented
+DESCRIPTION "Not supported."
+
+VARIATION   atmInterfaceCurrentMaxVciBits
+ACCESS      not-implemented
+DESCRIPTION "Not supported."
+
+VARIATION   atmInterfaceSubscrAddress
+ACCESS      not-implemented
+DESCRIPTION "Not supported."
+
+    ::= { ciscoAtmCapability 1 }
+
+END
+

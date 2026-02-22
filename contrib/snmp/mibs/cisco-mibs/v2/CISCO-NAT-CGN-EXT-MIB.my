@@ -1,0 +1,1129 @@
+-- *****************************************************************
+-- CISCO-NAT-CGN-EXT-MIB
+-- Definitions of managed objects describing Carrier Grade NAT
+--   
+-- March 2014, Jagadish Shivamurthy
+--   
+-- Copyright (c) 2014 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-NAT-CGN-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Unsigned32,
+    Counter64,
+    Gauge32,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    NatBehaviorType,
+    NatPoolingType,
+    natInstanceIndex,
+    natInstanceEntry,
+    natCountersEntry
+        FROM NAT-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoNatCgnExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "201404030000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module extends the IETF draft NAT MIB available at
+        http://tools.ietf.org/html/draft-ietf-behave-nat-mib-11 
+        The extensions are intended to address the needs of the Carrier
+        Grade NAT (CGN), also known as Large Scale NAT (LSN).
+
+        GLOSSARY
+        ==========
+        Address mapping - is used to refer to association between
+        a private IP to public IP (in case of NAT44 and DS Lite)
+        or source IPv6 address to IPv4 address in case of NAT64 
+        stateful application.
+
+        Mapping - A mapping used to refer to a NAT translation record.
+        It is a record held in memory that maps a private IP address
+        and port to a public IP address and port.
+
+        Subscriber - A subscriber is a record held in memory that
+        provides IP address and other details of an end user device
+        which has one or more mappings.
+
+        Session - A session is a record maintained in memory that
+        identifies a flow. The flow is uniquely identified by the
+        source IPv4/IPv6 address, source port, translated IP address,
+        translated source port, destination IPv4/IPv6 address and
+        destination port.
+
+        In to Out packet - A packet originating from a subscriber,
+        with a private source address (or with an IPv6 address in
+        case of NAT64), destined to a host with a public IP address.
+        This packet needs NAT (or NAPT) service.
+
+        Out to In packet - A packet originating from a host on the
+        public Internet (or any host with a routable/public) source
+        address, whose destination address is a mapped (translated)
+        IP address. This packet needs reverse-NAT.
+
+        Bulk port allocation - A NAT instance can be configured
+        pre-allocate a range of contiguous ports instead of a single
+        port. A mapping log record is created indicating the range of
+        ports allocated to this subscriber. This is done in anticipation
+        that the subscriber is likely to send packets that require more
+        mappings to be created. For the subsequent mapping requests, one
+        of the pre-allocated port is used and no additional log entries
+        need to be created. This is a technique used to reduce the
+        volume of translation record data."
+    REVISION        "201404030000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 818 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+ciscoNatCgnExtMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoNatCgnExtMIB 0 }
+
+ciscoNatCgnExtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoNatCgnExtMIB 1 }
+
+ciscoNatCgnExtMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoNatCgnExtMIB 2 }
+
+
+-- textual conventions
+
+NatCgnInstanceType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "A value that represents a type of NAT instance.
+
+        nat44(1): This is the traditional Network Address Translation
+        from IPv4 to IPv4, explained in RFC 4787.
+
+        nat64Stateful(2): This is the IPv6 to IPv4 translation (that
+        is, Address Family translation), explained in RFC 6146.
+
+        dsLite(3): This is the Dual Stack Lite, explained in RFC 6333."
+    SYNTAX          INTEGER  {
+                        nat44(1),
+                        nat64Stateful(2),
+                        dsLite(3)
+                    }
+
+NatCgnALGType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "A value that represents ALG (Application Level Gateway)
+        protocol type."
+    SYNTAX          INTEGER  {
+                        algActiveFTP(1),
+                        algDNS(2),
+                        algH323(3),
+                        algHTTP(4),
+                        algLDAP(5),
+                        algMSRPC(6),
+                        algNetBIOS(7),
+                        algPCP(8),
+                        algPPTP(9),
+                        algRCMD(10),
+                        algRTSP(11),
+                        algSCCP(12),
+                        algSIP(13),
+                        algSunRPC(14)
+                    }
+-- MIB Objects
+
+cNatCgnInstanceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CNatCgnInstanceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the NAT instances configured on the device."
+    ::= { ciscoNatCgnExtMIBObjects 1 }
+
+cNatCgnInstanceEntry OBJECT-TYPE
+    SYNTAX          CNatCgnInstanceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes a NAT instance configured on the device.
+        The parameters include the type of the NAT instance and the
+        important configuration elements."
+    AUGMENTS           { natInstanceEntry  } 
+    ::= { cNatCgnInstanceTable 1 }
+
+CNatCgnInstanceEntry ::= SEQUENCE {
+        cNatCgnInstanceType                         NatCgnInstanceType,
+        cNatCgnInstanceServiceName                  SnmpAdminString,
+        cNatCgnInstanceVrf                          SnmpAdminString,
+        cNatCgnInstanceInterface                    SnmpAdminString,
+        cNatCgnInstanceBehaviorType                 NatBehaviorType,
+        cNatCgnInstancePoolingType                  NatPoolingType,
+        cNatCgnInstanceProtocolPortLimit            Unsigned32,
+        cNatCgnInstanceProtocolPortBulkAllocControl Unsigned32
+}
+
+cNatCgnInstanceType OBJECT-TYPE
+    SYNTAX          NatCgnInstanceType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of the NAT instance.
+        If the instance type is changed, the service-type attribute of
+        the corresponding interfaces will also need to be changed." 
+    ::= { cNatCgnInstanceEntry 1 }
+
+cNatCgnInstanceServiceName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the CGN service name of this instance." 
+    ::= { cNatCgnInstanceEntry 2 }
+
+cNatCgnInstanceVrf OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name the VRF that is bringing in
+        subscriber's traffic that needs to undergo NAT." 
+    ::= { cNatCgnInstanceEntry 3 }
+
+cNatCgnInstanceInterface OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name the interface that is bringing
+        in subscriber's traffic that needs to undergo NAT. Typically
+        either the cNatCgnInstanceVrf or cNatCgnInstanceInterface is
+        needed to be configured, but not both." 
+    ::= { cNatCgnInstanceEntry 4 }
+
+cNatCgnInstanceBehaviorType OBJECT-TYPE
+    SYNTAX          NatBehaviorType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the configured NAT mapping behavior
+        for this instance." 
+    ::= { cNatCgnInstanceEntry 5 }
+
+cNatCgnInstancePoolingType OBJECT-TYPE
+    SYNTAX          NatPoolingType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the configured NAT address pooling type
+        for this instance." 
+    ::= { cNatCgnInstanceEntry 6 }
+
+cNatCgnInstanceProtocolPortLimit OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the configured protocol port limit. This
+        is the maximum number of active mappings each subscriber can
+        have at any given time.
+        Value of zero means, it is unlimited." 
+    ::= { cNatCgnInstanceEntry 7 }
+
+cNatCgnInstanceProtocolPortBulkAllocControl OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the configured bulk port allocation size.
+        Value of 0 means, bulk allocation is not applicable (or not
+        supported). Value of 1 means, it is not enabled, that
+        is, ports are allocated individually and not in bulk." 
+    ::= { cNatCgnInstanceEntry 8 }
+ 
+
+-- counters and statistics
+
+cNatCgnCounters  OBJECT IDENTIFIER
+    ::= { ciscoNatCgnExtMIBObjects 2 }
+
+
+cNatCgnCounterTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CNatCgnCounterEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the counters of NAT instances in the device."
+    ::= { cNatCgnCounters 1 }
+
+cNatCgnCounterEntry OBJECT-TYPE
+    SYNTAX          CNatCgnCounterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry contains the additional statistics of a NAT
+        instance."
+    AUGMENTS           { natCountersEntry  } 
+    ::= { cNatCgnCounterTable 1 }
+
+CNatCgnCounterEntry ::= SEQUENCE {
+        cNatCgnCounterSessionCreations            Counter64,
+        cNatCgnCounterSessionRemovals             Counter64,
+        cNatCgnCounterOutOfSessionDrops           Counter64,
+        cNatCgnCounterSessionLimitDrops           Counter64,
+        cNatCgnCounterNoMappingEntryDrops         Counter64,
+        cNatCgnCounterSourceIPOutOfRangeDrops     Counter64,
+        cNatCgnCounterEndPointFilteringDrops      Counter64,
+        cNatCgnCounterTCPSequenceDrops            Counter64,
+        cNatCgnCounterTCPMappingDrops             Counter64,
+        cNatCgnCounterFragmentPktsInToOutDrops    Counter64,
+        cNatCgnCounterFragmentPktsOutToInDrops    Counter64,
+        cNatCgnCounterCurrentPortAllocation       Integer32,
+        cNatCgnCounterPortUsageLowThreshold       Integer32,
+        cNatCgnCounterPortUsageClearLowThreshold  Integer32,
+        cNatCgnCounterPortUsageHighThreshold      Integer32,
+        cNatCgnCounterPortUsageClearHighThreshold Integer32,
+        cNatCgnCounterAverageBulkPortUsage        Gauge32
+}
+
+cNatCgnCounterSessionCreations OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of sessions created since
+        the instance is up." 
+    ::= { cNatCgnCounterEntry 1 }
+
+cNatCgnCounterSessionRemovals OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of sessions removed since
+        the instance is up. The number of active sessions is equal to
+        cNatCgnCounterSessionCreations - 
+        cNatCgnCounterSessionRemovals." 
+    ::= { cNatCgnCounterEntry 2 }
+
+cNatCgnCounterOutOfSessionDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets dropped because
+        they required a new session entry to be created, however,
+        there is no space to create new sessions." 
+    ::= { cNatCgnCounterEntry 3 }
+
+cNatCgnCounterSessionLimitDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets in either in to
+        out or out to in direction dropped because of exceeding limit
+        on session entries." 
+    ::= { cNatCgnCounterEntry 4 }
+
+cNatCgnCounterNoMappingEntryDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets in the out to in
+        direction not translated because there was no mapping found." 
+    ::= { cNatCgnCounterEntry 5 }
+
+cNatCgnCounterSourceIPOutOfRangeDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets in the in to out
+        direction not translated because source address was out of
+        configured prefix or range. For NAT44 configured in predefined
+        mode, NAT64 stateful or DS Lite, it could be drops due to 
+        source IP address not matching the configured prefix bits." 
+    ::= { cNatCgnCounterEntry 6 }
+
+cNatCgnCounterEndPointFilteringDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets in the out to in
+        direction dropped because of end point dependent filtering
+        policy. Note, the value of this object should be interpreted in
+        conjunction with the value of cNatCgnInstanceBehaviorType.
+        If the NAT instance is configured with endpointIndependent
+        behavior, the instance is not supposed to filter or 
+        drop any packets based on the destination. In such case
+        this counter could either be zero or could be the number
+        of packets passed which would have otherwise be filtered
+        and dropped if cNatCgnInstanceBehaviorType is set to 
+        addressDependent or addressAndPortDependent." 
+    ::= { cNatCgnCounterEntry 7 }
+
+cNatCgnCounterTCPSequenceDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets in the out to in
+        direction dropped because TCP sequence check failed." 
+    ::= { cNatCgnCounterEntry 8 }
+
+cNatCgnCounterTCPMappingDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of TCP packets in the in to
+        out direction dropped because a new mapping was required to
+        be created, however TCP SYN flag was not set." 
+    ::= { cNatCgnCounterEntry 9 }
+
+cNatCgnCounterFragmentPktsInToOutDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of fragmented packets in the
+        in to out direction dropped due to errors such as timed out
+        waiting for first fragment or no space to hold the fragment." 
+    ::= { cNatCgnCounterEntry 10 }
+
+cNatCgnCounterFragmentPktsOutToInDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of fragmented packets in the
+        out to in direction dropped due to errors such as timed out
+        waiting for first fragment or no space to hold the fragment." 
+    ::= { cNatCgnCounterEntry 11 }
+
+cNatCgnCounterCurrentPortAllocation OBJECT-TYPE
+    SYNTAX          Integer32 (0..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current average port allocation
+        across all available public IP addresses applied to this NAT
+        instance.
+        When bulk allocation is enabled (that is, the value of
+        cNatCgnInstanceProtocolPortBulkAllocControl is more than 1),
+        this value will include all the ports pre-allocated in bulk
+        (whether they are in use or not)." 
+    ::= { cNatCgnCounterEntry 12 }
+
+cNatCgnCounterPortUsageLowThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the low threshold in percentage of
+        available public ports that are used up. The notification
+        cNatCgnNotifPortUsageWatermarkLow is sent once the value of
+        cNatCgnCounterAveragePortAllocation becomes less than or equal
+        to this value. If this object is set to zero, the notification
+        is not generated."
+    DEFVAL          { 0 } 
+    ::= { cNatCgnCounterEntry 13 }
+
+cNatCgnCounterPortUsageClearLowThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the clear low threshold in percentage
+        of available public ports that are used up. The notification
+        cNatCgnNotifPortUsageWatermarkLowClear is sent once the value
+        of cNatCgnCounterAveragePortAllocation becomes more than or
+        equal to this value. If this object is set to zero, the
+        notification is not generated.
+
+        Implementations must ensure that values of objects 
+        cNatCgnCounterPortUsageClearLowThreshold and 
+        cNatCgnCounterPortUsageLowThreshold remain consistent. For
+        example, an implementation must respond with an 
+        inconsistentValue error if an attempt is made to set the the 
+        value of cNatCgnCounterPortUsageClearLowThreshold to be less
+        than or equal to that of cNatCgnCounterPortUsageLowThreshold
+        and vice versa."
+    DEFVAL          { 0 } 
+    ::= { cNatCgnCounterEntry 14 }
+
+cNatCgnCounterPortUsageHighThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the high threshold in percentage of
+        available public ports that are used up. The notification
+        cNatCgnNotifPortUsageWatermarkHigh is sent once the value of
+        cNatCgnCounterAveragePortAllocation becomes higher than or equal
+        to this value. If this field is set to zero, the notification
+        is not generated."
+    DEFVAL          { 0 } 
+    ::= { cNatCgnCounterEntry 15 }
+
+cNatCgnCounterPortUsageClearHighThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the clear high threshold in percentage
+        of available public ports that are used up. The notification
+        cNatCgnNotifPortUsageWatermarkHighClear is sent once the value
+        of cNatCgnCounterAveragePortAllocation becomes less than or
+        equal to this value. If this object is set to zero, the
+        notification is not generated.
+
+        Implementations must ensure that values of objects 
+        cNatCgnCounterPortUsageClearHighThreshold and 
+        cNatCgnCounterPortUsageHighThreshold remain consistent. For
+        example, an implementation must respond with an 
+        inconsistentValue error if an attempt is made to set the the 
+        value of cNatCgnCounterPortUsageClearHighThreshold to be more
+        than or equal to that of cNatCgnCounterPortUsageHighThreshold
+        and vice versa."
+    DEFVAL          { 0 } 
+    ::= { cNatCgnCounterEntry 16 }
+
+cNatCgnCounterAverageBulkPortUsage OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average percentage usage of ports
+        pre-allocated in bulk. This value is valid only if the bulk
+        allocation is configured. That is the value specified by the
+        cNatCgnInstanceProtocolPortBulkAllocControl is more than 1.
+
+        This value gives hints about effectiveness of bulk port
+        allocation technique. A very low percentage of bulk port usage
+        may suggest that, bulk allocation size be reduced. On the other
+        hand, a value close to 100 may hint at increasing the bulk size
+        to further reduce log data volume." 
+    ::= { cNatCgnCounterEntry 17 }
+ 
+
+-- Translation logging
+
+cNatCgnLogStatTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CNatCgnLogStatEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the logging statistics of each NAT instance
+        in the device."
+    ::= { cNatCgnCounters 2 }
+
+cNatCgnLogStatEntry OBJECT-TYPE
+    SYNTAX          CNatCgnLogStatEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes the logging related statistics of a NAT
+        instance."
+    INDEX           { natInstanceIndex } 
+    ::= { cNatCgnLogStatTable 1 }
+
+CNatCgnLogStatEntry ::= SEQUENCE {
+        cNatCgnLogStatMappingCreateRecords Counter64,
+        cNatCgnLogStatMappingDeleteRecords Counter64,
+        cNatCgnLogStatSessionCreateRecords Counter64,
+        cNatCgnLogStatSessionDeleteRecords Counter64,
+        cNatCgnLogStatNetflowPackets       Counter64,
+        cNatCgnLogStatNetflowPacketDrops   Counter64,
+        cNatCgnLogStatSyslogPackets        Counter64,
+        cNatCgnLogStatSyslogPacketDrops    Counter64
+}
+
+cNatCgnLogStatMappingCreateRecords OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of translation create records
+        generated. It could be Netflow or Syslog records. It may not
+        always necessarily be equal to number of mappings created
+        (natMappingCreations of the NAT-MIB). If bulk allocation is
+        enabled, this number could be much smaller than
+        natMappingCreations. If the NAT mode is configured to be
+        pre-defined or if logging is not configured, this could be
+        zero." 
+    ::= { cNatCgnLogStatEntry 1 }
+
+cNatCgnLogStatMappingDeleteRecords OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of translation delete records
+        generated. It could be Netflow or Syslog records. It may not
+        always necessarily be equal to number of mappings deleted
+        (natMappingRemovals of the NAT-MIB). If bulk allocation is
+        enabled, this number could be much smaller than
+        natMappingRemovals. If the NAT mode is configured to be
+        pre-defined or if logging is not configured, this could be
+        zero." 
+    ::= { cNatCgnLogStatEntry 2 }
+
+cNatCgnLogStatSessionCreateRecords OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of session create records
+        generated. It could be Netflow or Syslog records. It may not
+        always necessarily be equal to number of sessions created
+        (cNatCgnCounterSessionCreations).
+        If logging is not configured or if session logging
+        is not configured, this could be zero." 
+    ::= { cNatCgnLogStatEntry 3 }
+
+cNatCgnLogStatSessionDeleteRecords OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of session delete records
+        generated. It could be Netflow or Syslog records. It may not
+        always necessarily be equal to number of sessions deleted
+        (cNatCgnCounterSessionRemovals).
+        If the logging is not configured or if session logging 
+        is not configured, this could be zero." 
+    ::= { cNatCgnLogStatEntry 4 }
+
+cNatCgnLogStatNetflowPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of Netflow packets generated.
+        This includes the packet which could not be sent out due to
+        congestion or other reasons." 
+    ::= { cNatCgnLogStatEntry 5 }
+
+cNatCgnLogStatNetflowPacketDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of Netflow packets which
+        could not be sent out due to congestion or other errors within
+        the CGN device. This does not include any drops along the way
+        to the collector." 
+    ::= { cNatCgnLogStatEntry 6 }
+
+cNatCgnLogStatSyslogPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of Syslog packets generated.
+        This includes the packet which could not be sent out due to
+        congestion or other reasons." 
+    ::= { cNatCgnLogStatEntry 7 }
+
+cNatCgnLogStatSyslogPacketDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of Syslog packets which could
+        not be sent out due to congestion or other errors within the CGN
+        device. This does not include any drops along the way to the 
+        collector." 
+    ::= { cNatCgnLogStatEntry 8 }
+ 
+
+-- ALG specific counters
+
+cNatCgnALGCountersTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CNatCgnALGCountersEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the application level gateway status and
+        counters for each ALG type and for each NAT instance
+        in the device."
+    ::= { cNatCgnCounters 3 }
+
+cNatCgnALGCountersEntry OBJECT-TYPE
+    SYNTAX          CNatCgnALGCountersEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes status and counters of a specific ALG type
+        for a specific NAT instance."
+    INDEX           {
+                        natInstanceIndex,
+                        cNatCgnALGType
+                    } 
+    ::= { cNatCgnALGCountersTable 1 }
+
+CNatCgnALGCountersEntry ::= SEQUENCE {
+        cNatCgnALGType              NatCgnALGType,
+        cNatCgnALGStatus            INTEGER,
+        cNatCgnALGMappingCreations  Counter64,
+        cNatCgnALGMappingRemovals   Counter64,
+        cNatCgnALGUnsupportedErrors Counter64,
+        cNatCgnALGProtocolErrors    Counter64
+}
+
+cNatCgnALGType OBJECT-TYPE
+    SYNTAX          NatCgnALGType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ALG type which together with
+        natInstanceIndex uniquely identifies the set of counters being
+        reported." 
+    ::= { cNatCgnALGCountersEntry 1 }
+
+cNatCgnALGStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        notApplicable(1),
+                        unSupported(2),
+                        notEnabled(3),
+                        enabled(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of this ALG type for this
+        NAT instance.
+
+        notApplicable:
+            This ALG type is not relevant to this NAT instance.
+
+        unSupported:
+            This ALG type is relevant to this NAT instance, however 
+            it is not supported.
+
+        notEnabled:
+            This ALG is supported on this NAT instance, however it is
+            not enabled in the configuration.
+
+        enabled:
+            This ALG is enabled on this NAT instance. 
+
+        The rest of the objects of this entry are valid only if the
+        cNatCgnALGStatus is set to enabled." 
+    ::= { cNatCgnALGCountersEntry 2 }
+
+cNatCgnALGMappingCreations OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of mappings created for this
+        ALG." 
+    ::= { cNatCgnALGCountersEntry 3 }
+
+cNatCgnALGMappingRemovals OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of mappings removed which
+        were created for this ALG. The number of active mappings for
+        this ALG is equal to 
+        cNatCgnALGMappingCreations - cNatCgnALGMappingRemovals." 
+    ::= { cNatCgnALGCountersEntry 4 }
+
+cNatCgnALGUnsupportedErrors OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of application level
+        messages/packets which could not be processed as they used
+        options which are not yet supported. This does not include
+        messages/packets that did not conform to the protocol." 
+    ::= { cNatCgnALGCountersEntry 5 }
+
+cNatCgnALGProtocolErrors OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of application level
+        messages/packets which could not be processed as they did
+        not conform to the protocol." 
+    ::= { cNatCgnALGCountersEntry 6 }
+ 
+
+
+-- notifications
+
+cNatCgnNotifPortUsageWatermarkLow NOTIFICATION-TYPE
+    OBJECTS         {
+                        cNatCgnCounterCurrentPortAllocation,
+                        cNatCgnCounterPortUsageLowThreshold
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the value of
+        cNatCgnCounterCurrentPortAllocation becomes lower than or equal 
+        to the value of cNatCgnCounterPortUsageLowThreshold.
+        The device will not generate notification if 
+        cNatCgnCounterPortUsageLowThreshold is set to zero."
+   ::= { ciscoNatCgnExtMIBNotifs 1 }
+
+cNatCgnNotifPortUsageWatermarkLowClear NOTIFICATION-TYPE
+    OBJECTS         {
+                        cNatCgnCounterCurrentPortAllocation,
+                        cNatCgnCounterPortUsageClearLowThreshold
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the value of
+        cNatCgnCounterCurrentPortAllocation becomes higher than or
+        equal to the value of cNatCgnCounterPortUsageClearLowThreshold
+        and if cNatCgnNotifPortUsageWatermarkLow is already generated.
+        The device will not generate notification if 
+        cNatCgnCounterPortUsageClearLowThreshold is set to zero."
+   ::= { ciscoNatCgnExtMIBNotifs 2 }
+
+cNatCgnNotifPortUsageWatermarkHigh NOTIFICATION-TYPE
+    OBJECTS         {
+                        cNatCgnCounterCurrentPortAllocation,
+                        cNatCgnCounterPortUsageHighThreshold
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the value of
+        cNatCgnCounterCurrentPortAllocation becomes higher than or
+        equal to the cNatCgnCounterPortUsageHighThreshold.
+        The device will not generate notification if 
+        cNatCgnCounterPortUsageHighThreshold is set to zero."
+   ::= { ciscoNatCgnExtMIBNotifs 3 }
+
+cNatCgnNotifPortUsageWatermarkHighClear NOTIFICATION-TYPE
+    OBJECTS         {
+                        cNatCgnCounterCurrentPortAllocation,
+                        cNatCgnCounterPortUsageClearHighThreshold
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when the value of
+        cNatCgnCounterCurrentPortAllocation becomes lower than or
+        equal to the value of cNatCgnCounterPortUsageClearLowThreshold
+        and if cNatCgnNotifPortUsageWatermarkHigh is already generated.
+        The device will not generate notification if 
+        cNatCgnCounterPortUsageClearHighThreshold is set to zero."
+   ::= { ciscoNatCgnExtMIBNotifs 4 }
+-- conformance and grouping
+
+cNatCgnMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoNatCgnExtMIBConform 1 }
+
+cNatCgnMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoNatCgnExtMIBConform 2 }
+
+
+-- compliance statements
+
+cNatCgnModuleCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This compliance statement specifies the minimal requirements an
+        implementation must meet in order to claim full compliance with
+        the definition of the CISCO-NAT-CGN-EXT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cNatCgnConfigGroup,
+                        cNatCgnCountersGroup,
+                        cNatCgnNotificationsGroup
+                    }
+
+    GROUP           cNatCgnOptionConfigGroup
+    DESCRIPTION
+        "This group is to be supported if the device supports
+        configuration of NAT pooling and behavior types."
+
+    GROUP           cNatCgnBulkAllocGroup
+    DESCRIPTION
+        "This group is to be supported if the device supports bulk port
+        allocation."
+
+    GROUP           cNatCgnSessionGroup
+    DESCRIPTION
+        "This group is to be supported if the device supports session
+        level tracking."
+
+    GROUP           cNatCgnNetflowLoggingGroup
+    DESCRIPTION
+        "This group is to be supported if the device supports Netflow
+        format of translation logging."
+
+    GROUP           cNatCgnSyslogLoggingGroup
+    DESCRIPTION
+        "This group is to be supported if the device supports Syslog
+        format of translation logging."
+
+    GROUP           cNatCgnFragmentsGroup
+    DESCRIPTION
+        "This group is to be supported if the device supports
+        fragmented packet processing."
+
+    GROUP           cNatCgnALGCountersGroup
+    DESCRIPTION
+        "This group is to be supported if the device supports one or
+        more ALGs in the NAT."
+
+    GROUP           cNatCgnServiceNameGroup
+    DESCRIPTION
+        "This group is to be supported if the device supports service
+        configuration."
+
+    OBJECT          cNatCgnInstanceBehaviorType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is optional."
+
+    OBJECT          cNatCgnInstancePoolingType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is optional."
+
+    OBJECT          cNatCgnInstanceProtocolPortLimit
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is optional."
+
+    OBJECT          cNatCgnInstanceProtocolPortBulkAllocControl
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is optional."
+
+    OBJECT          cNatCgnInstanceType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is optional."
+
+    OBJECT          cNatCgnInstanceVrf
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is optional."
+
+    OBJECT          cNatCgnInstanceInterface
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is optional."
+
+    OBJECT          cNatCgnInstanceServiceName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is optional."
+    ::= { cNatCgnMIBCompliances 1 }
+
+-- object groups
+
+cNatCgnConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cNatCgnInstanceType,
+                        cNatCgnInstanceInterface,
+                        cNatCgnInstanceVrf
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing basic configuration
+        elements of NAT instances."
+    ::= { cNatCgnMIBGroups 1 }
+
+cNatCgnOptionConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cNatCgnInstanceBehaviorType,
+                        cNatCgnInstancePoolingType,
+                        cNatCgnInstanceProtocolPortLimit
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing optional configuration
+        elements of NAT instances."
+    ::= { cNatCgnMIBGroups 2 }
+
+cNatCgnCountersGroup OBJECT-GROUP
+    OBJECTS         {
+                        cNatCgnCounterNoMappingEntryDrops,
+                        cNatCgnCounterSourceIPOutOfRangeDrops,
+                        cNatCgnCounterEndPointFilteringDrops,
+                        cNatCgnCounterTCPSequenceDrops,
+                        cNatCgnCounterTCPMappingDrops,
+                        cNatCgnCounterCurrentPortAllocation,
+                        cNatCgnCounterPortUsageLowThreshold,
+                        cNatCgnCounterPortUsageClearLowThreshold,
+                        cNatCgnCounterPortUsageHighThreshold,
+                        cNatCgnCounterPortUsageClearHighThreshold
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing counters and
+        thresholds."
+    ::= { cNatCgnMIBGroups 3 }
+
+cNatCgnSessionGroup OBJECT-GROUP
+    OBJECTS         {
+                        cNatCgnCounterSessionCreations,
+                        cNatCgnCounterSessionRemovals,
+                        cNatCgnCounterOutOfSessionDrops,
+                        cNatCgnCounterEndPointFilteringDrops,
+                        cNatCgnCounterSessionLimitDrops
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing counters specific to
+        session level tracking."
+    ::= { cNatCgnMIBGroups 4 }
+
+cNatCgnBulkAllocGroup OBJECT-GROUP
+    OBJECTS         {
+                        cNatCgnInstanceProtocolPortBulkAllocControl,
+                        cNatCgnCounterAverageBulkPortUsage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing configuration and
+        statistics specific to bulk port allocation."
+    ::= { cNatCgnMIBGroups 5 }
+
+cNatCgnNetflowLoggingGroup OBJECT-GROUP
+    OBJECTS         {
+                        cNatCgnLogStatMappingCreateRecords,
+                        cNatCgnLogStatMappingDeleteRecords,
+                        cNatCgnLogStatSessionCreateRecords,
+                        cNatCgnLogStatSessionDeleteRecords,
+                        cNatCgnLogStatNetflowPackets,
+                        cNatCgnLogStatNetflowPacketDrops
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing counters of
+        Netflow based logging."
+    ::= { cNatCgnMIBGroups 6 }
+
+cNatCgnSyslogLoggingGroup OBJECT-GROUP
+    OBJECTS         {
+                        cNatCgnLogStatMappingCreateRecords,
+                        cNatCgnLogStatMappingDeleteRecords,
+                        cNatCgnLogStatSessionCreateRecords,
+                        cNatCgnLogStatSessionDeleteRecords,
+                        cNatCgnLogStatSyslogPackets,
+                        cNatCgnLogStatSyslogPacketDrops
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing counters of
+        syslog based logging."
+    ::= { cNatCgnMIBGroups 7 }
+
+cNatCgnFragmentsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cNatCgnCounterFragmentPktsInToOutDrops,
+                        cNatCgnCounterFragmentPktsOutToInDrops
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing fragment related
+        counters."
+    ::= { cNatCgnMIBGroups 8 }
+
+cNatCgnALGCountersGroup OBJECT-GROUP
+    OBJECTS         {
+                        cNatCgnALGStatus,
+                        cNatCgnALGMappingCreations,
+                        cNatCgnALGMappingRemovals,
+                        cNatCgnALGUnsupportedErrors,
+                        cNatCgnALGProtocolErrors
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing counters related
+        to ALG processing."
+    ::= { cNatCgnMIBGroups 9 }
+
+cNatCgnNotificationsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cNatCgnNotifPortUsageWatermarkLow,
+                        cNatCgnNotifPortUsageWatermarkLowClear,
+                        cNatCgnNotifPortUsageWatermarkHigh,
+                        cNatCgnNotifPortUsageWatermarkHighClear
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains notifications supporting NAT instances."
+    ::= { cNatCgnMIBGroups 15 }
+
+cNatCgnServiceNameGroup OBJECT-GROUP
+    OBJECTS         { cNatCgnInstanceServiceName }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects describing service related
+        configuration elements"
+    ::= { cNatCgnMIBGroups 11 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

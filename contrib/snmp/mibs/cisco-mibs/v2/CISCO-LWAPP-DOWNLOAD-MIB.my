@@ -1,0 +1,717 @@
+-- *******************************************************************
+-- CISCO-LWAPP-DOWNLOAD-MIB.my
+-- May 2008, Koteswara Rao Vemulapati
+-- Copyright (c) 2008-2015, 2017 by Cisco Systems Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-DOWNLOAD-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    RowStatus,
+    DateAndTime,
+    TimeInterval
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoLwappApMIB,
+    cLApSysMacAddress
+        FROM CISCO-LWAPP-AP-MIB;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappDownloadMIB MODULE-IDENTITY
+    LAST-UPDATED    "201705230000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553-NETS
+
+            Email: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central controllers, that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Cisco Light-weight LWAPP Access Points.
+
+        The relationship between the controller and the LWAPP
+        APs is depicted as follows: 
+
+        +......+     +......+     +......+           +......+
+        +      +     +      +     +      +           +      +
+        +  CC  +     +  CC  +     +  CC  +           +  CC  +
+        +      +     +      +     +      +           +      +
+        +......+     +......+     +......+           +......+
+        ..            .             .                 .
+        ..            .             .                 .
+        .  .            .             .                 .
+        .    .            .             .                 .
+        .      .            .             .                 .
+        .        .            .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+        .              .             .                 .
+        .  .              .             .                 .
+        .    .              .             .                 .
+        .      .              .             .                 .
+        .        .              .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+
+
+                           GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.  
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends it to the controller to which
+        it is logically connected.                 
+
+        Wireless LAN Controller (WLC)
+
+        Wireless LAN Controller are legacy mobility device which
+        can participate in the new mobility architecture.
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity also referred to as 'controller'.
+
+        Light Weight Access Point Protocol ( LWAPP )
+
+        This is a generic protocol that defines the
+        communication between the Access Points and the
+        controllers.
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point.
+
+
+
+        REFERENCE
+
+        [1] Wireless LAN Medium Access Control ( MAC ) and
+        Physical Layer ( PHY ) Specifications.
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+        Weight Access Point Protocol"
+    REVISION        "201705230000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoLwappApMIB 4 }
+
+
+ciscoLwappDownloadMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappDownloadMIB 0 }
+
+ciscoLwappDownloadMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappDownloadMIB 1 }
+
+ciscoLwappDownloadMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappDownloadMIB 2 }
+
+ciscoLwappDLApBoot  OBJECT IDENTIFIER
+    ::= { ciscoLwappDownloadMIBObjects 1 }
+
+ciscoLwappDLReset  OBJECT IDENTIFIER
+    ::= { ciscoLwappDownloadMIBObjects 2 }
+
+ciscoLwappDLRestart  OBJECT IDENTIFIER
+    ::= { ciscoLwappDownloadMIBObjects 3 }
+
+-- ********************************************************************
+-- *    AP Boot Information.
+-- ********************************************************************
+
+clDLApBootTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLDLApBootEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the primary and backup software
+        image loaded on an AP.
+        An entry in this table gets added when a AP associates 
+        to the controller and entry gets removed when AP 
+        disassociates from the controller."
+    ::= { ciscoLwappDLApBoot 1 }
+
+cldlApBootEntry OBJECT-TYPE
+    SYNTAX          CLDLApBootEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each (conceptual) entry in this table represents version
+        information for a AP."
+    INDEX           { cLApSysMacAddress } 
+    ::= { clDLApBootTable 1 }
+
+CLDLApBootEntry ::= SEQUENCE {
+        cldlAPName                      SnmpAdminString,
+        cldlAPPrimaryVersion            SnmpAdminString,
+        cldlAPBackupVersion             SnmpAdminString,
+        cldlAPSwapImage                 TruthValue,
+        cldlAPDownloadImage             INTEGER,
+        cldlPreDownloadVersion          SnmpAdminString,
+        cldlPreDownloadStatus           INTEGER,
+        cldlPreDownloadNextRetryTime    TimeInterval,
+        cldlPreDownloadRetryCount       Unsigned32,
+        cldlPredownloadImageUpgradeRole INTEGER,
+        cldlAPSoftwareName              SnmpAdminString
+}
+
+cldlAPName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the name of the AP." 
+    ::= { cldlApBootEntry 1 }
+
+cldlAPPrimaryVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the AP primary image version." 
+    ::= { cldlApBootEntry 2 }
+
+cldlAPBackupVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the AP backup image version." 
+    ::= { cldlApBootEntry 3 }
+
+cldlAPSwapImage OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the action to swap the primary and
+        backup images of the Access Point (AP). 
+        The value of 'true' indicates that, primary and backup 
+        images will be swapped. 
+        The value of 'false' indicates that, no action is taken."
+    DEFVAL          { false } 
+    ::= { cldlApBootEntry 4 }
+
+cldlAPDownloadImage OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        primary(1),
+                        backup(2),
+                        abort(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies configuration of the image
+        type while downloading from WLC to Access Point(AP). 
+        A value of primary indicates that, primary image 
+        is downloaded from the controller.
+        A value of backup indicates that, backup image 
+        is downloaded from the controller.    
+        A value of abort indicates that, active predownload 
+        of the image aborts on the controller."
+    DEFVAL          { backup } 
+    ::= { cldlApBootEntry 5 }
+
+cldlPreDownloadVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the AP predownloaded version." 
+    ::= { cldlApBootEntry 6 }
+
+cldlPreDownloadStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        intiated(2),
+                        preDownloading(3),
+                        completed(4),
+                        failed(5),
+                        notSupported(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the status of the
+        predownloaded image of the AP.
+        A value of none(1) indicates that, nothing is 
+        predownloading.
+        A value of intiated(2) indicates that, predownload 
+        initiated.
+        A value of preDownloading(3) indicates that,
+        predownload started.
+        A value of completed(4) indicates that, 
+        predownload completed.
+        A value of failed(5) indicates that, 
+        predownload failed.
+        A value of notSupported(6) indicates that, 
+        predownload not supported."
+    DEFVAL          { none } 
+    ::= { cldlApBootEntry 7 }
+
+cldlPreDownloadNextRetryTime OBJECT-TYPE
+    SYNTAX          TimeInterval
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the next retry time for
+        downloading the AP image from the WLC." 
+    ::= { cldlApBootEntry 8 }
+
+cldlPreDownloadRetryCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of retry count
+        before the AP image downloaded from the WLC." 
+    ::= { cldlApBootEntry 9 }
+
+cldlPredownloadImageUpgradeRole OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        masterCentral(1),
+                        masterLocal(2),
+                        slaveCentral(3),
+                        slaveLocal(4),
+                        unknown(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the efficient AP image upgrade role
+        for the AP.To save time during AP pre-image downloading, 
+        one AP of same AP type can be configured as master which 
+        will first download image from controller and then slaves 
+        in that group will start downloading image from master.
+        A value of masterCentral indicates that, master AP 
+        downloading image from controller.
+        A value of masterLocal indicates that, master AP 
+        downloading image from another master.
+        A value of slaveCentral indicates that, slave AP 
+        downloading image from controller.
+        A value of slaveLocal indicates that, slave AP 
+        downloading image from master.
+        A value of unknown indicates that, nothing is 
+        getting downloaded."
+    DEFVAL          { unknown } 
+    ::= { cldlApBootEntry 10 }
+
+cldlAPSoftwareName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the software name of the AP." 
+    ::= { cldlApBootEntry 11 }
+ 
+
+-- ********************************************************************
+-- *    Controller Restart Options.
+-- ********************************************************************
+
+clDLRestartTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLDLRestartEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the restart schedule of the WLC.
+        Restart is a quick reset method. User restarts WLC by 
+        adding a row to this table through explicit management 
+        action from the network manager."
+    ::= { ciscoLwappDLRestart 1 }
+
+cldlRestartEntry OBJECT-TYPE
+    SYNTAX          CLDLRestartEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each (conceptual) entry in this table represents
+        the information about WLC restart."
+    INDEX           { cldlRestartIndex } 
+    ::= { clDLRestartTable 1 }
+
+CLDLRestartEntry ::= SEQUENCE {
+        cldlRestartIndex       Unsigned32,
+        cldlRestartDateAndTime DateAndTime,
+        cldlRestartAP          TruthValue,
+        cldlRestartRowStatus   RowStatus,
+        cldlRestartSaveConfig  TruthValue,
+        cldlRestartAlertTime   Unsigned32
+}
+
+cldlRestartIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents unique instance of
+        scheduled restart vector of the controller." 
+    ::= { cldlRestartEntry 1 }
+
+cldlRestartDateAndTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies future restart schedule
+        time of the controller.
+        Format: MM/DD/YY:HH/MM/SS." 
+    ::= { cldlRestartEntry 2 }
+
+cldlRestartAP OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies to reset all the APs
+        associated to the controller..
+        The value of 'true' indicates that, all APs 
+        will be reset.
+        The value of 'false' indicates that, all APs 
+        will not be reset."
+    DEFVAL          { false } 
+    ::= { cldlRestartEntry 3 }
+
+cldlRestartRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to create
+        and delete specific instances of rows in this table." 
+    ::= { cldlRestartEntry 4 }
+
+cldlRestartSaveConfig OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies  whether to save the
+        configuration before rebooting the controller.
+        The value of 'true' indicates that, configuration 
+        is saved and controller will be restarted.
+        The value of 'false' indicates that, controller 
+        is restarted without saving the configuration."
+    DEFVAL          { true } 
+    ::= { cldlRestartEntry 5 }
+
+cldlRestartAlertTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of seconds before
+        the scheduled restart at which the trap message will 
+        be generated.
+        Trap will not be generated if schedule restart time is
+        less than the ResetAlert time." 
+    ::= { cldlRestartEntry 6 }
+ 
+
+-- ********************************************************************
+-- *    Controller Reset Options.
+-- ********************************************************************
+
+clDLResetTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLDLResetEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the resetting schedule
+        of the WLC. User resets WLC by adding a 
+        row to this table through explicit management 
+        action from the network manager."
+    ::= { ciscoLwappDLReset 1 }
+
+cldlResetEntry OBJECT-TYPE
+    SYNTAX          CLDLResetEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each(conceptual) entry in this table represents
+        the information about WLC reset."
+    INDEX           { cldlResetIndex } 
+    ::= { clDLResetTable 1 }
+
+CLDLResetEntry ::= SEQUENCE {
+        cldlResetIndex       Unsigned32,
+        cldlResetDateAndTime DateAndTime,
+        cldlResetSwapImage   TruthValue,
+        cldlResetAP          TruthValue,
+        cldlResetRowStatus   RowStatus,
+        cldlResetSaveConfig  TruthValue,
+        cldlResetAlertTime   Unsigned32
+}
+
+cldlResetIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents unique instance of
+        scheduled reset vector of the controller." 
+    ::= { cldlResetEntry 1 }
+
+cldlResetDateAndTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies to schedule the future
+        reset time of the controller.
+        Format: MM/DD/YY:HH/MM/SS." 
+    ::= { cldlResetEntry 2 }
+
+cldlResetSwapImage OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether swapping of
+        the primary and backup images needs to be 
+        done after the WLC reset. On controller, 
+        there are primary and backup images, by 
+        default it will reboot with primary.
+        A value of 'true' indicates that, primary and backup 
+        images need to be interchaged after the reset.
+        A value of 'false' indicates that, primary and backup 
+        images are not interchanged after the reset."
+    DEFVAL          { false } 
+    ::= { cldlResetEntry 3 }
+
+cldlResetAP OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether to reset all the APs
+        associated to the controller during scheduled reset 
+        of the controller.
+        The value of 'true' indicates that, resets all the APs.
+        The value of 'false'indicates that, do not resets 
+        the APs."
+    DEFVAL          { false } 
+    ::= { cldlResetEntry 4 }
+
+cldlResetRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used
+        to create and delete specific instances of rows in 
+        this table." 
+    ::= { cldlResetEntry 5 }
+
+cldlResetSaveConfig OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether to save the configuration
+        before rebooting the controller or not.
+        The value of 'true' indicates that, save the configuration 
+        and resets the controller.
+        The value of 'false' indicates that, resets the controller 
+        without saving configuration."
+    DEFVAL          { true } 
+    ::= { cldlResetEntry 6 }
+
+cldlResetAlertTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of seconds before
+        the scheduled reset at which the trap message will 
+        be generated. if cldlResetDateAndTime is less than 
+        cldlResetAlertTime, then the ciscoLwappScheduledResetNotif 
+        notification will not be generated."
+    DEFVAL          { 0 } 
+    ::= { cldlResetEntry 7 }
+ 
+
+
+cldlResetBootImage OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        primary(1),
+                        backup(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies image to be loaded
+        after reset. 
+        A value of primary(1) indicates that, image 
+        selected is primary.
+        A value of backup(2) indicates that, image 
+        selected is secondary."
+    DEFVAL          { primary } 
+    ::= { ciscoLwappDLReset 2 }
+
+-- ********************************************************************
+-- *  Notifications
+-- ********************************************************************
+
+cldlScheduledResetNotif NOTIFICATION-TYPE
+    OBJECTS         { cldlResetAlertTime }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated before the Wireless
+        LAN Controller (WLC) reset at time specified by the 
+        variable, cldlResetAlertTime."
+   ::= { ciscoLwappDownloadMIBNotifs 1 }
+
+cldlResetFailedNotif NOTIFICATION-TYPE
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated if controller failed to
+        scheduled reset."
+   ::= { ciscoLwappDownloadMIBNotifs 2 }
+
+cldlClearResetNotif NOTIFICATION-TYPE
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated, when the reset entry is
+        deleted from the table cldlReasetTable."
+   ::= { ciscoLwappDownloadMIBNotifs 3 }
+-- ********************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+cldlMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappDownloadMIBConform 1 }
+
+cldlMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappDownloadMIBConform 2 }
+
+
+cldlMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappDownloadMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cldlApGroup,
+                        cldlResetGroup,
+                        cldlNotifsGroup,
+                        cldlRestartGroup
+                    }
+    ::= { cldlMIBCompliances 1 }
+
+-- *******************************************************************
+-- *    Units of conformance
+-- *******************************************************************
+
+cldlApGroup OBJECT-GROUP
+    OBJECTS         {
+                        cldlAPName,
+                        cldlAPPrimaryVersion,
+                        cldlAPBackupVersion,
+                        cldlAPSwapImage,
+                        cldlAPDownloadImage,
+                        cldlPreDownloadVersion,
+                        cldlPreDownloadStatus,
+                        cldlPreDownloadNextRetryTime,
+                        cldlPreDownloadRetryCount,
+                        cldlPredownloadImageUpgradeRole,
+                        cldlAPSoftwareName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the information
+        about the general attributes and functional 
+        parameters of those APs that have joined the
+        controller."
+    ::= { cldlMIBGroups 1 }
+
+cldlResetGroup OBJECT-GROUP
+    OBJECTS         {
+                        cldlResetDateAndTime,
+                        cldlResetSwapImage,
+                        cldlResetAP,
+                        cldlResetRowStatus,
+                        cldlResetSaveConfig,
+                        cldlResetAlertTime,
+                        cldlResetDateAndTime,
+                        cldlResetSwapImage,
+                        cldlResetAP,
+                        cldlResetRowStatus,
+                        cldlResetSaveConfig,
+                        cldlResetBootImage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the information
+        about scheduled reset date and time of the controller."
+    ::= { cldlMIBGroups 2 }
+
+cldlRestartGroup OBJECT-GROUP
+    OBJECTS         {
+                        cldlRestartDateAndTime,
+                        cldlRestartAP,
+                        cldlRestartRowStatus,
+                        cldlRestartSaveConfig,
+                        cldlRestartAlertTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the information
+        about restart date and time of the controller."
+    ::= { cldlMIBGroups 3 }
+
+cldlNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cldlScheduledResetNotif,
+                        cldlResetFailedNotif,
+                        cldlClearResetNotif
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This supplemental collection of objects represents the
+        shecduled reset related notifications sent by the agent 
+        to a network management station."
+    ::= { cldlMIBGroups 4 }
+
+END
+
+

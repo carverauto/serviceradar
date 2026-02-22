@@ -1,0 +1,2007 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-CAPABILITY-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- CAPABILITY management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-CAPABILITY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsCapabilityAdminState,
+    CucsCapabilityCatalogueFsmCurrentFsm,
+    CucsCapabilityCatalogueFsmStageName,
+    CucsCapabilityCatalogueFsmTaskItem,
+    CucsCapabilityFeatureStatus,
+    CucsCapabilityMgmtExtensionFsmCurrentFsm,
+    CucsCapabilityMgmtExtensionFsmStageName,
+    CucsCapabilityMgmtExtensionFsmTaskItem,
+    CucsCapabilityOperStatus,
+    CucsCapabilityPlatform,
+    CucsCapabilityUpdaterFsmCurrentFsm,
+    CucsCapabilityUpdaterFsmStageName,
+    CucsCapabilityUpdaterFsmTaskItem,
+    CucsConditionRemoteInvRslt,
+    CucsFirmwareTransport,
+    CucsFsmCompletion,
+    CucsFsmFlags,
+    CucsFsmFsmStageStatus
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsCapabilityObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        CAPABILITY management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 7 }
+
+cucsCapabilityCatalogueTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityCatalogueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue managed object table"
+    ::= { cucsCapabilityObjects 1 }
+
+cucsCapabilityCatalogueEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityCatalogueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityCatalogueTable table."
+    INDEX { cucsCapabilityCatalogueInstanceId }
+    ::= { cucsCapabilityCatalogueTable 1 }
+
+CucsCapabilityCatalogueEntry ::= SEQUENCE {
+    cucsCapabilityCatalogueInstanceId                                CucsManagedObjectId,
+    cucsCapabilityCatalogueDn                                        CucsManagedObjectDn,
+    cucsCapabilityCatalogueRn                                        SnmpAdminString,
+    cucsCapabilityCatalogueFsmDescr                                  SnmpAdminString,
+    cucsCapabilityCatalogueFsmPrev                                   SnmpAdminString,
+    cucsCapabilityCatalogueFsmProgr                                  Gauge32,
+    cucsCapabilityCatalogueFsmRmtInvErrCode                          Gauge32,
+    cucsCapabilityCatalogueFsmRmtInvErrDescr                         SnmpAdminString,
+    cucsCapabilityCatalogueFsmRmtInvRslt                             CucsConditionRemoteInvRslt,
+    cucsCapabilityCatalogueFsmStageDescr                             SnmpAdminString,
+    cucsCapabilityCatalogueFsmStamp                                  DateAndTime,
+    cucsCapabilityCatalogueFsmStatus                                 SnmpAdminString,
+    cucsCapabilityCatalogueFsmTry                                    Gauge32,
+    cucsCapabilityCatalogueVersion                                   SnmpAdminString,
+    cucsCapabilityCatalogueFileParseFailures                         Gauge32,
+    cucsCapabilityCatalogueFilesParsed                               Gauge32,
+    cucsCapabilityCatalogueLoadErrors                                Gauge32,
+    cucsCapabilityCatalogueLoadWarnings                              Gauge32,
+    cucsCapabilityCatalogueProviderLoadFailures                      Gauge32,
+    cucsCapabilityCatalogueProvidersLoaded                           Gauge32
+}
+
+cucsCapabilityCatalogueInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityCatalogueEntry 1 }
+
+cucsCapabilityCatalogueDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:dn managed object property"
+    ::= { cucsCapabilityCatalogueEntry 2 }
+
+cucsCapabilityCatalogueRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:rn managed object property"
+    ::= { cucsCapabilityCatalogueEntry 3 }
+
+cucsCapabilityCatalogueFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:fsmDescr managed object property"
+    ::= { cucsCapabilityCatalogueEntry 4 }
+
+cucsCapabilityCatalogueFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:fsmPrev managed object property"
+    ::= { cucsCapabilityCatalogueEntry 5 }
+
+cucsCapabilityCatalogueFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:fsmProgr managed object property"
+    ::= { cucsCapabilityCatalogueEntry 6 }
+
+cucsCapabilityCatalogueFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:fsmRmtInvErrCode
+        managed object property"
+    ::= { cucsCapabilityCatalogueEntry 7 }
+
+cucsCapabilityCatalogueFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cucsCapabilityCatalogueEntry 8 }
+
+cucsCapabilityCatalogueFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:fsmRmtInvRslt managed
+        object property"
+    ::= { cucsCapabilityCatalogueEntry 9 }
+
+cucsCapabilityCatalogueFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:fsmStageDescr managed
+        object property"
+    ::= { cucsCapabilityCatalogueEntry 10 }
+
+cucsCapabilityCatalogueFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:fsmStamp managed object property"
+    ::= { cucsCapabilityCatalogueEntry 11 }
+
+cucsCapabilityCatalogueFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:fsmStatus managed object property"
+    ::= { cucsCapabilityCatalogueEntry 12 }
+
+cucsCapabilityCatalogueFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:fsmTry managed object property"
+    ::= { cucsCapabilityCatalogueEntry 13 }
+
+cucsCapabilityCatalogueVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:version managed object property"
+    ::= { cucsCapabilityCatalogueEntry 14 }
+
+cucsCapabilityCatalogueFileParseFailures OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:fileParseFailures
+        managed object property"
+    ::= { cucsCapabilityCatalogueEntry 15 }
+
+cucsCapabilityCatalogueFilesParsed OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:filesParsed managed
+        object property"
+    ::= { cucsCapabilityCatalogueEntry 16 }
+
+cucsCapabilityCatalogueLoadErrors OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:loadErrors managed
+        object property"
+    ::= { cucsCapabilityCatalogueEntry 17 }
+
+cucsCapabilityCatalogueLoadWarnings OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:loadWarnings managed
+        object property"
+    ::= { cucsCapabilityCatalogueEntry 18 }
+
+cucsCapabilityCatalogueProviderLoadFailures OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:providerLoadFailures
+        managed object property"
+    ::= { cucsCapabilityCatalogueEntry 19 }
+
+cucsCapabilityCatalogueProvidersLoaded OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Catalogue:providersLoaded
+        managed object property"
+    ::= { cucsCapabilityCatalogueEntry 20 }
+
+cucsCapabilityCatalogueFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityCatalogueFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsm managed object table"
+    ::= { cucsCapabilityObjects 9 }
+
+cucsCapabilityCatalogueFsmEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityCatalogueFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityCatalogueFsmTable table."
+    INDEX { cucsCapabilityCatalogueFsmInstanceId }
+    ::= { cucsCapabilityCatalogueFsmTable 1 }
+
+CucsCapabilityCatalogueFsmEntry ::= SEQUENCE {
+    cucsCapabilityCatalogueFsmInstanceId                             CucsManagedObjectId,
+    cucsCapabilityCatalogueFsmDn                                     CucsManagedObjectDn,
+    cucsCapabilityCatalogueFsmRn                                     SnmpAdminString,
+    cucsCapabilityCatalogueFsmCompletionTime                         DateAndTime,
+    cucsCapabilityCatalogueFsmCurrentFsm                             CucsCapabilityCatalogueFsmCurrentFsm,
+    cucsCapabilityCatalogueFsmDescrData                              SnmpAdminString,
+    cucsCapabilityCatalogueFsmFsmStatus                              CucsFsmFsmStageStatus,
+    cucsCapabilityCatalogueFsmProgress                               Gauge32,
+    cucsCapabilityCatalogueFsmRmtErrCode                             Gauge32,
+    cucsCapabilityCatalogueFsmRmtErrDescr                            SnmpAdminString,
+    cucsCapabilityCatalogueFsmRmtRslt                                CucsConditionRemoteInvRslt
+}
+
+cucsCapabilityCatalogueFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityCatalogueFsmEntry 1 }
+
+cucsCapabilityCatalogueFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsm:dn managed object property"
+    ::= { cucsCapabilityCatalogueFsmEntry 2 }
+
+cucsCapabilityCatalogueFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsm:rn managed object property"
+    ::= { cucsCapabilityCatalogueFsmEntry 3 }
+
+cucsCapabilityCatalogueFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsm:completionTime
+        managed object property"
+    ::= { cucsCapabilityCatalogueFsmEntry 4 }
+
+cucsCapabilityCatalogueFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsCapabilityCatalogueFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsm:currentFsm managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmEntry 5 }
+
+cucsCapabilityCatalogueFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsm:descr managed object property"
+    ::= { cucsCapabilityCatalogueFsmEntry 6 }
+
+cucsCapabilityCatalogueFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsm:fsmStatus managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmEntry 7 }
+
+cucsCapabilityCatalogueFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsm:progress managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmEntry 8 }
+
+cucsCapabilityCatalogueFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsm:rmtErrCode managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmEntry 9 }
+
+cucsCapabilityCatalogueFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsm:rmtErrDescr
+        managed object property"
+    ::= { cucsCapabilityCatalogueFsmEntry 10 }
+
+cucsCapabilityCatalogueFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsm:rmtRslt managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmEntry 11 }
+
+cucsCapabilityCatalogueFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityCatalogueFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmStage managed object table"
+    ::= { cucsCapabilityObjects 10 }
+
+cucsCapabilityCatalogueFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityCatalogueFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityCatalogueFsmStageTable table."
+    INDEX { cucsCapabilityCatalogueFsmStageInstanceId }
+    ::= { cucsCapabilityCatalogueFsmStageTable 1 }
+
+CucsCapabilityCatalogueFsmStageEntry ::= SEQUENCE {
+    cucsCapabilityCatalogueFsmStageInstanceId                        CucsManagedObjectId,
+    cucsCapabilityCatalogueFsmStageDn                                CucsManagedObjectDn,
+    cucsCapabilityCatalogueFsmStageRn                                SnmpAdminString,
+    cucsCapabilityCatalogueFsmStageDescrData                         SnmpAdminString,
+    cucsCapabilityCatalogueFsmStageLastUpdateTime                    DateAndTime,
+    cucsCapabilityCatalogueFsmStageName                              CucsCapabilityCatalogueFsmStageName,
+    cucsCapabilityCatalogueFsmStageOrder                             Gauge32,
+    cucsCapabilityCatalogueFsmStageRetry                             Gauge32,
+    cucsCapabilityCatalogueFsmStageStageStatus                       CucsFsmFsmStageStatus
+}
+
+cucsCapabilityCatalogueFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityCatalogueFsmStageEntry 1 }
+
+cucsCapabilityCatalogueFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmStage:dn managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmStageEntry 2 }
+
+cucsCapabilityCatalogueFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmStage:rn managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmStageEntry 3 }
+
+cucsCapabilityCatalogueFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmStage:descr managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmStageEntry 4 }
+
+cucsCapabilityCatalogueFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsCapabilityCatalogueFsmStageEntry 5 }
+
+cucsCapabilityCatalogueFsmStageName OBJECT-TYPE
+    SYNTAX       CucsCapabilityCatalogueFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmStage:name managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmStageEntry 6 }
+
+cucsCapabilityCatalogueFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmStage:order managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmStageEntry 7 }
+
+cucsCapabilityCatalogueFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmStage:retry managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmStageEntry 8 }
+
+cucsCapabilityCatalogueFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmStage:stageStatus
+        managed object property"
+    ::= { cucsCapabilityCatalogueFsmStageEntry 9 }
+
+cucsCapabilityCatalogueFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityCatalogueFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmTask managed object table"
+    ::= { cucsCapabilityObjects 2 }
+
+cucsCapabilityCatalogueFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityCatalogueFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityCatalogueFsmTaskTable table."
+    INDEX { cucsCapabilityCatalogueFsmTaskInstanceId }
+    ::= { cucsCapabilityCatalogueFsmTaskTable 1 }
+
+CucsCapabilityCatalogueFsmTaskEntry ::= SEQUENCE {
+    cucsCapabilityCatalogueFsmTaskInstanceId                         CucsManagedObjectId,
+    cucsCapabilityCatalogueFsmTaskDn                                 CucsManagedObjectDn,
+    cucsCapabilityCatalogueFsmTaskRn                                 SnmpAdminString,
+    cucsCapabilityCatalogueFsmTaskCompletion                         CucsFsmCompletion,
+    cucsCapabilityCatalogueFsmTaskFlags                              CucsFsmFlags,
+    cucsCapabilityCatalogueFsmTaskItem                               CucsCapabilityCatalogueFsmTaskItem,
+    cucsCapabilityCatalogueFsmTaskSeqId                              Gauge32
+}
+
+cucsCapabilityCatalogueFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityCatalogueFsmTaskEntry 1 }
+
+cucsCapabilityCatalogueFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmTask:dn managed object property"
+    ::= { cucsCapabilityCatalogueFsmTaskEntry 2 }
+
+cucsCapabilityCatalogueFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmTask:rn managed object property"
+    ::= { cucsCapabilityCatalogueFsmTaskEntry 3 }
+
+cucsCapabilityCatalogueFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmTask:completion
+        managed object property"
+    ::= { cucsCapabilityCatalogueFsmTaskEntry 4 }
+
+cucsCapabilityCatalogueFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmTask:flags managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmTaskEntry 5 }
+
+cucsCapabilityCatalogueFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsCapabilityCatalogueFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmTask:item managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmTaskEntry 6 }
+
+cucsCapabilityCatalogueFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:CatalogueFsmTask:seqId managed
+        object property"
+    ::= { cucsCapabilityCatalogueFsmTaskEntry 7 }
+
+cucsCapabilityEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:Ep managed object table"
+    ::= { cucsCapabilityObjects 3 }
+
+cucsCapabilityEpEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityEpTable table."
+    INDEX { cucsCapabilityEpInstanceId }
+    ::= { cucsCapabilityEpTable 1 }
+
+CucsCapabilityEpEntry ::= SEQUENCE {
+    cucsCapabilityEpInstanceId                                       CucsManagedObjectId,
+    cucsCapabilityEpDn                                               CucsManagedObjectDn,
+    cucsCapabilityEpRn                                               SnmpAdminString
+}
+
+cucsCapabilityEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityEpEntry 1 }
+
+cucsCapabilityEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Ep:dn managed object property"
+    ::= { cucsCapabilityEpEntry 2 }
+
+cucsCapabilityEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Ep:rn managed object property"
+    ::= { cucsCapabilityEpEntry 3 }
+
+cucsCapabilityFeatureLimitsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityFeatureLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:FeatureLimits managed object table"
+    ::= { cucsCapabilityObjects 11 }
+
+cucsCapabilityFeatureLimitsEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityFeatureLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityFeatureLimitsTable table."
+    INDEX { cucsCapabilityFeatureLimitsInstanceId }
+    ::= { cucsCapabilityFeatureLimitsTable 1 }
+
+CucsCapabilityFeatureLimitsEntry ::= SEQUENCE {
+    cucsCapabilityFeatureLimitsInstanceId                            CucsManagedObjectId,
+    cucsCapabilityFeatureLimitsDn                                    CucsManagedObjectDn,
+    cucsCapabilityFeatureLimitsRn                                    SnmpAdminString,
+    cucsCapabilityFeatureLimitsDescr                                 SnmpAdminString,
+    cucsCapabilityFeatureLimitsFeatureStatus                         CucsCapabilityFeatureStatus,
+    cucsCapabilityFeatureLimitsLimit                                 Gauge32,
+    cucsCapabilityFeatureLimitsName                                  SnmpAdminString,
+    cucsCapabilityFeatureLimitsPlatform                              CucsCapabilityPlatform,
+    cucsCapabilityFeatureLimitsMinUCSMVersion                        SnmpAdminString
+}
+
+cucsCapabilityFeatureLimitsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityFeatureLimitsEntry 1 }
+
+cucsCapabilityFeatureLimitsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:FeatureLimits:dn managed object property"
+    ::= { cucsCapabilityFeatureLimitsEntry 2 }
+
+cucsCapabilityFeatureLimitsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:FeatureLimits:rn managed object property"
+    ::= { cucsCapabilityFeatureLimitsEntry 3 }
+
+cucsCapabilityFeatureLimitsDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:FeatureLimits:descr managed object property"
+    ::= { cucsCapabilityFeatureLimitsEntry 4 }
+
+cucsCapabilityFeatureLimitsFeatureStatus OBJECT-TYPE
+    SYNTAX       CucsCapabilityFeatureStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:FeatureLimits:featureStatus
+        managed object property"
+    ::= { cucsCapabilityFeatureLimitsEntry 5 }
+
+cucsCapabilityFeatureLimitsLimit OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:FeatureLimits:limit managed object property"
+    ::= { cucsCapabilityFeatureLimitsEntry 6 }
+
+cucsCapabilityFeatureLimitsName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:FeatureLimits:name managed object property"
+    ::= { cucsCapabilityFeatureLimitsEntry 7 }
+
+cucsCapabilityFeatureLimitsPlatform OBJECT-TYPE
+    SYNTAX       CucsCapabilityPlatform
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:FeatureLimits:platform managed
+        object property"
+    ::= { cucsCapabilityFeatureLimitsEntry 8 }
+
+cucsCapabilityFeatureLimitsMinUCSMVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:FeatureLimits:minUCSMVersion
+        managed object property"
+    ::= { cucsCapabilityFeatureLimitsEntry 9 }
+
+cucsCapabilityMgmtExtensionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityMgmtExtensionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtension managed object table"
+    ::= { cucsCapabilityObjects 4 }
+
+cucsCapabilityMgmtExtensionEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityMgmtExtensionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityMgmtExtensionTable table."
+    INDEX { cucsCapabilityMgmtExtensionInstanceId }
+    ::= { cucsCapabilityMgmtExtensionTable 1 }
+
+CucsCapabilityMgmtExtensionEntry ::= SEQUENCE {
+    cucsCapabilityMgmtExtensionInstanceId                            CucsManagedObjectId,
+    cucsCapabilityMgmtExtensionDn                                    CucsManagedObjectDn,
+    cucsCapabilityMgmtExtensionRn                                    SnmpAdminString,
+    cucsCapabilityMgmtExtensionFsmDescr                              SnmpAdminString,
+    cucsCapabilityMgmtExtensionFsmPrev                               SnmpAdminString,
+    cucsCapabilityMgmtExtensionFsmProgr                              Gauge32,
+    cucsCapabilityMgmtExtensionFsmRmtInvErrCode                      Gauge32,
+    cucsCapabilityMgmtExtensionFsmRmtInvErrDescr                     SnmpAdminString,
+    cucsCapabilityMgmtExtensionFsmRmtInvRslt                         CucsConditionRemoteInvRslt,
+    cucsCapabilityMgmtExtensionFsmStageDescr                         SnmpAdminString,
+    cucsCapabilityMgmtExtensionFsmStamp                              DateAndTime,
+    cucsCapabilityMgmtExtensionFsmStatus                             SnmpAdminString,
+    cucsCapabilityMgmtExtensionFsmTry                                Gauge32
+}
+
+cucsCapabilityMgmtExtensionInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityMgmtExtensionEntry 1 }
+
+cucsCapabilityMgmtExtensionDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtension:dn managed object property"
+    ::= { cucsCapabilityMgmtExtensionEntry 2 }
+
+cucsCapabilityMgmtExtensionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtension:rn managed object property"
+    ::= { cucsCapabilityMgmtExtensionEntry 3 }
+
+cucsCapabilityMgmtExtensionFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtension:fsmDescr managed
+        object property"
+    ::= { cucsCapabilityMgmtExtensionEntry 4 }
+
+cucsCapabilityMgmtExtensionFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtension:fsmPrev managed
+        object property"
+    ::= { cucsCapabilityMgmtExtensionEntry 5 }
+
+cucsCapabilityMgmtExtensionFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtension:fsmProgr managed
+        object property"
+    ::= { cucsCapabilityMgmtExtensionEntry 6 }
+
+cucsCapabilityMgmtExtensionFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtension:fsmRmtInvErrCode
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionEntry 7 }
+
+cucsCapabilityMgmtExtensionFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtension:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionEntry 8 }
+
+cucsCapabilityMgmtExtensionFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtension:fsmRmtInvRslt
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionEntry 9 }
+
+cucsCapabilityMgmtExtensionFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtension:fsmStageDescr
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionEntry 10 }
+
+cucsCapabilityMgmtExtensionFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtension:fsmStamp managed
+        object property"
+    ::= { cucsCapabilityMgmtExtensionEntry 11 }
+
+cucsCapabilityMgmtExtensionFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtension:fsmStatus managed
+        object property"
+    ::= { cucsCapabilityMgmtExtensionEntry 12 }
+
+cucsCapabilityMgmtExtensionFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtension:fsmTry managed
+        object property"
+    ::= { cucsCapabilityMgmtExtensionEntry 13 }
+
+cucsCapabilityMgmtExtensionFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityMgmtExtensionFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsm managed object table"
+    ::= { cucsCapabilityObjects 12 }
+
+cucsCapabilityMgmtExtensionFsmEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityMgmtExtensionFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityMgmtExtensionFsmTable table."
+    INDEX { cucsCapabilityMgmtExtensionFsmInstanceId }
+    ::= { cucsCapabilityMgmtExtensionFsmTable 1 }
+
+CucsCapabilityMgmtExtensionFsmEntry ::= SEQUENCE {
+    cucsCapabilityMgmtExtensionFsmInstanceId                         CucsManagedObjectId,
+    cucsCapabilityMgmtExtensionFsmDn                                 CucsManagedObjectDn,
+    cucsCapabilityMgmtExtensionFsmRn                                 SnmpAdminString,
+    cucsCapabilityMgmtExtensionFsmCompletionTime                     DateAndTime,
+    cucsCapabilityMgmtExtensionFsmCurrentFsm                         CucsCapabilityMgmtExtensionFsmCurrentFsm,
+    cucsCapabilityMgmtExtensionFsmDescrData                          SnmpAdminString,
+    cucsCapabilityMgmtExtensionFsmFsmStatus                          CucsFsmFsmStageStatus,
+    cucsCapabilityMgmtExtensionFsmProgress                           Gauge32,
+    cucsCapabilityMgmtExtensionFsmRmtErrCode                         Gauge32,
+    cucsCapabilityMgmtExtensionFsmRmtErrDescr                        SnmpAdminString,
+    cucsCapabilityMgmtExtensionFsmRmtRslt                            CucsConditionRemoteInvRslt
+}
+
+cucsCapabilityMgmtExtensionFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityMgmtExtensionFsmEntry 1 }
+
+cucsCapabilityMgmtExtensionFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsm:dn managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmEntry 2 }
+
+cucsCapabilityMgmtExtensionFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsm:rn managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmEntry 3 }
+
+cucsCapabilityMgmtExtensionFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsm:completionTime
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmEntry 4 }
+
+cucsCapabilityMgmtExtensionFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsCapabilityMgmtExtensionFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsm:currentFsm
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmEntry 5 }
+
+cucsCapabilityMgmtExtensionFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsm:descr managed
+        object property"
+    ::= { cucsCapabilityMgmtExtensionFsmEntry 6 }
+
+cucsCapabilityMgmtExtensionFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsm:fsmStatus
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmEntry 7 }
+
+cucsCapabilityMgmtExtensionFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsm:progress
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmEntry 8 }
+
+cucsCapabilityMgmtExtensionFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsm:rmtErrCode
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmEntry 9 }
+
+cucsCapabilityMgmtExtensionFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsm:rmtErrDescr
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmEntry 10 }
+
+cucsCapabilityMgmtExtensionFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsm:rmtRslt
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmEntry 11 }
+
+cucsCapabilityMgmtExtensionFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityMgmtExtensionFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmStage managed object table"
+    ::= { cucsCapabilityObjects 13 }
+
+cucsCapabilityMgmtExtensionFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityMgmtExtensionFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityMgmtExtensionFsmStageTable table."
+    INDEX { cucsCapabilityMgmtExtensionFsmStageInstanceId }
+    ::= { cucsCapabilityMgmtExtensionFsmStageTable 1 }
+
+CucsCapabilityMgmtExtensionFsmStageEntry ::= SEQUENCE {
+    cucsCapabilityMgmtExtensionFsmStageInstanceId                    CucsManagedObjectId,
+    cucsCapabilityMgmtExtensionFsmStageDn                            CucsManagedObjectDn,
+    cucsCapabilityMgmtExtensionFsmStageRn                            SnmpAdminString,
+    cucsCapabilityMgmtExtensionFsmStageDescrData                     SnmpAdminString,
+    cucsCapabilityMgmtExtensionFsmStageLastUpdateTime                DateAndTime,
+    cucsCapabilityMgmtExtensionFsmStageName                          CucsCapabilityMgmtExtensionFsmStageName,
+    cucsCapabilityMgmtExtensionFsmStageOrder                         Gauge32,
+    cucsCapabilityMgmtExtensionFsmStageRetry                         Gauge32,
+    cucsCapabilityMgmtExtensionFsmStageStageStatus                   CucsFsmFsmStageStatus
+}
+
+cucsCapabilityMgmtExtensionFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityMgmtExtensionFsmStageEntry 1 }
+
+cucsCapabilityMgmtExtensionFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmStage:dn
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmStageEntry 2 }
+
+cucsCapabilityMgmtExtensionFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmStage:rn
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmStageEntry 3 }
+
+cucsCapabilityMgmtExtensionFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmStage:descr
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmStageEntry 4 }
+
+cucsCapabilityMgmtExtensionFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmStageEntry 5 }
+
+cucsCapabilityMgmtExtensionFsmStageName OBJECT-TYPE
+    SYNTAX       CucsCapabilityMgmtExtensionFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmStage:name
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmStageEntry 6 }
+
+cucsCapabilityMgmtExtensionFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmStage:order
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmStageEntry 7 }
+
+cucsCapabilityMgmtExtensionFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmStage:retry
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmStageEntry 8 }
+
+cucsCapabilityMgmtExtensionFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmStage:stageStatus
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmStageEntry 9 }
+
+cucsCapabilityMgmtExtensionFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityMgmtExtensionFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmTask managed object table"
+    ::= { cucsCapabilityObjects 5 }
+
+cucsCapabilityMgmtExtensionFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityMgmtExtensionFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityMgmtExtensionFsmTaskTable table."
+    INDEX { cucsCapabilityMgmtExtensionFsmTaskInstanceId }
+    ::= { cucsCapabilityMgmtExtensionFsmTaskTable 1 }
+
+CucsCapabilityMgmtExtensionFsmTaskEntry ::= SEQUENCE {
+    cucsCapabilityMgmtExtensionFsmTaskInstanceId                     CucsManagedObjectId,
+    cucsCapabilityMgmtExtensionFsmTaskDn                             CucsManagedObjectDn,
+    cucsCapabilityMgmtExtensionFsmTaskRn                             SnmpAdminString,
+    cucsCapabilityMgmtExtensionFsmTaskCompletion                     CucsFsmCompletion,
+    cucsCapabilityMgmtExtensionFsmTaskFlags                          CucsFsmFlags,
+    cucsCapabilityMgmtExtensionFsmTaskItem                           CucsCapabilityMgmtExtensionFsmTaskItem,
+    cucsCapabilityMgmtExtensionFsmTaskSeqId                          Gauge32
+}
+
+cucsCapabilityMgmtExtensionFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityMgmtExtensionFsmTaskEntry 1 }
+
+cucsCapabilityMgmtExtensionFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmTask:dn managed
+        object property"
+    ::= { cucsCapabilityMgmtExtensionFsmTaskEntry 2 }
+
+cucsCapabilityMgmtExtensionFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmTask:rn managed
+        object property"
+    ::= { cucsCapabilityMgmtExtensionFsmTaskEntry 3 }
+
+cucsCapabilityMgmtExtensionFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmTask:completion
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmTaskEntry 4 }
+
+cucsCapabilityMgmtExtensionFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmTask:flags
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmTaskEntry 5 }
+
+cucsCapabilityMgmtExtensionFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsCapabilityMgmtExtensionFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmTask:item
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmTaskEntry 6 }
+
+cucsCapabilityMgmtExtensionFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:MgmtExtensionFsmTask:seqId
+        managed object property"
+    ::= { cucsCapabilityMgmtExtensionFsmTaskEntry 7 }
+
+cucsCapabilityNetworkLimitsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityNetworkLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:NetworkLimits managed object table"
+    ::= { cucsCapabilityObjects 14 }
+
+cucsCapabilityNetworkLimitsEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityNetworkLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityNetworkLimitsTable table."
+    INDEX { cucsCapabilityNetworkLimitsInstanceId }
+    ::= { cucsCapabilityNetworkLimitsTable 1 }
+
+CucsCapabilityNetworkLimitsEntry ::= SEQUENCE {
+    cucsCapabilityNetworkLimitsInstanceId                            CucsManagedObjectId,
+    cucsCapabilityNetworkLimitsDn                                    CucsManagedObjectDn,
+    cucsCapabilityNetworkLimitsRn                                    SnmpAdminString
+}
+
+cucsCapabilityNetworkLimitsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityNetworkLimitsEntry 1 }
+
+cucsCapabilityNetworkLimitsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:NetworkLimits:dn managed object property"
+    ::= { cucsCapabilityNetworkLimitsEntry 2 }
+
+cucsCapabilityNetworkLimitsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:NetworkLimits:rn managed object property"
+    ::= { cucsCapabilityNetworkLimitsEntry 3 }
+
+cucsCapabilityStorageLimitsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityStorageLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:StorageLimits managed object table"
+    ::= { cucsCapabilityObjects 15 }
+
+cucsCapabilityStorageLimitsEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityStorageLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityStorageLimitsTable table."
+    INDEX { cucsCapabilityStorageLimitsInstanceId }
+    ::= { cucsCapabilityStorageLimitsTable 1 }
+
+CucsCapabilityStorageLimitsEntry ::= SEQUENCE {
+    cucsCapabilityStorageLimitsInstanceId                            CucsManagedObjectId,
+    cucsCapabilityStorageLimitsDn                                    CucsManagedObjectDn,
+    cucsCapabilityStorageLimitsRn                                    SnmpAdminString
+}
+
+cucsCapabilityStorageLimitsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityStorageLimitsEntry 1 }
+
+cucsCapabilityStorageLimitsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:StorageLimits:dn managed object property"
+    ::= { cucsCapabilityStorageLimitsEntry 2 }
+
+cucsCapabilityStorageLimitsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:StorageLimits:rn managed object property"
+    ::= { cucsCapabilityStorageLimitsEntry 3 }
+
+cucsCapabilitySystemLimitsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilitySystemLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:SystemLimits managed object table"
+    ::= { cucsCapabilityObjects 16 }
+
+cucsCapabilitySystemLimitsEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilitySystemLimitsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilitySystemLimitsTable table."
+    INDEX { cucsCapabilitySystemLimitsInstanceId }
+    ::= { cucsCapabilitySystemLimitsTable 1 }
+
+CucsCapabilitySystemLimitsEntry ::= SEQUENCE {
+    cucsCapabilitySystemLimitsInstanceId                             CucsManagedObjectId,
+    cucsCapabilitySystemLimitsDn                                     CucsManagedObjectDn,
+    cucsCapabilitySystemLimitsRn                                     SnmpAdminString
+}
+
+cucsCapabilitySystemLimitsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilitySystemLimitsEntry 1 }
+
+cucsCapabilitySystemLimitsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:SystemLimits:dn managed object property"
+    ::= { cucsCapabilitySystemLimitsEntry 2 }
+
+cucsCapabilitySystemLimitsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:SystemLimits:rn managed object property"
+    ::= { cucsCapabilitySystemLimitsEntry 3 }
+
+cucsCapabilityUpdateTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityUpdateEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:Update managed object table"
+    ::= { cucsCapabilityObjects 6 }
+
+cucsCapabilityUpdateEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityUpdateEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityUpdateTable table."
+    INDEX { cucsCapabilityUpdateInstanceId }
+    ::= { cucsCapabilityUpdateTable 1 }
+
+CucsCapabilityUpdateEntry ::= SEQUENCE {
+    cucsCapabilityUpdateInstanceId                                   CucsManagedObjectId,
+    cucsCapabilityUpdateDn                                           CucsManagedObjectDn,
+    cucsCapabilityUpdateRn                                           SnmpAdminString,
+    cucsCapabilityUpdateImageName                                    SnmpAdminString,
+    cucsCapabilityUpdateUpdateTs                                     DateAndTime,
+    cucsCapabilityUpdateVersion                                      SnmpAdminString
+}
+
+cucsCapabilityUpdateInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityUpdateEntry 1 }
+
+cucsCapabilityUpdateDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Update:dn managed object property"
+    ::= { cucsCapabilityUpdateEntry 2 }
+
+cucsCapabilityUpdateRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Update:rn managed object property"
+    ::= { cucsCapabilityUpdateEntry 3 }
+
+cucsCapabilityUpdateImageName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Update:imageName managed object property"
+    ::= { cucsCapabilityUpdateEntry 4 }
+
+cucsCapabilityUpdateUpdateTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Update:updateTs managed object property"
+    ::= { cucsCapabilityUpdateEntry 5 }
+
+cucsCapabilityUpdateVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Update:version managed object property"
+    ::= { cucsCapabilityUpdateEntry 6 }
+
+cucsCapabilityUpdaterTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityUpdaterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:Updater managed object table"
+    ::= { cucsCapabilityObjects 7 }
+
+cucsCapabilityUpdaterEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityUpdaterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityUpdaterTable table."
+    INDEX { cucsCapabilityUpdaterInstanceId }
+    ::= { cucsCapabilityUpdaterTable 1 }
+
+CucsCapabilityUpdaterEntry ::= SEQUENCE {
+    cucsCapabilityUpdaterInstanceId                                  CucsManagedObjectId,
+    cucsCapabilityUpdaterDn                                          CucsManagedObjectDn,
+    cucsCapabilityUpdaterRn                                          SnmpAdminString,
+    cucsCapabilityUpdaterAdminState                                  CucsCapabilityAdminState,
+    cucsCapabilityUpdaterFileName                                    SnmpAdminString,
+    cucsCapabilityUpdaterFsmDescr                                    SnmpAdminString,
+    cucsCapabilityUpdaterFsmPrev                                     SnmpAdminString,
+    cucsCapabilityUpdaterFsmProgr                                    Gauge32,
+    cucsCapabilityUpdaterFsmRmtInvErrCode                            Gauge32,
+    cucsCapabilityUpdaterFsmRmtInvErrDescr                           SnmpAdminString,
+    cucsCapabilityUpdaterFsmRmtInvRslt                               CucsConditionRemoteInvRslt,
+    cucsCapabilityUpdaterFsmStageDescr                               SnmpAdminString,
+    cucsCapabilityUpdaterFsmStamp                                    DateAndTime,
+    cucsCapabilityUpdaterFsmStatus                                   SnmpAdminString,
+    cucsCapabilityUpdaterFsmTry                                      Gauge32,
+    cucsCapabilityUpdaterImageName                                   SnmpAdminString,
+    cucsCapabilityUpdaterOperState                                   CucsCapabilityOperStatus,
+    cucsCapabilityUpdaterProtocol                                    CucsFirmwareTransport,
+    cucsCapabilityUpdaterPwd                                         SnmpAdminString,
+    cucsCapabilityUpdaterRemotePath                                  SnmpAdminString,
+    cucsCapabilityUpdaterServer                                      SnmpAdminString,
+    cucsCapabilityUpdaterUser                                        SnmpAdminString,
+    cucsCapabilityUpdaterVersion                                     SnmpAdminString
+}
+
+cucsCapabilityUpdaterInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityUpdaterEntry 1 }
+
+cucsCapabilityUpdaterDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:dn managed object property"
+    ::= { cucsCapabilityUpdaterEntry 2 }
+
+cucsCapabilityUpdaterRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:rn managed object property"
+    ::= { cucsCapabilityUpdaterEntry 3 }
+
+cucsCapabilityUpdaterAdminState OBJECT-TYPE
+    SYNTAX       CucsCapabilityAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:adminState managed object property"
+    ::= { cucsCapabilityUpdaterEntry 4 }
+
+cucsCapabilityUpdaterFileName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:fileName managed object property"
+    ::= { cucsCapabilityUpdaterEntry 5 }
+
+cucsCapabilityUpdaterFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:fsmDescr managed object property"
+    ::= { cucsCapabilityUpdaterEntry 6 }
+
+cucsCapabilityUpdaterFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:fsmPrev managed object property"
+    ::= { cucsCapabilityUpdaterEntry 7 }
+
+cucsCapabilityUpdaterFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:fsmProgr managed object property"
+    ::= { cucsCapabilityUpdaterEntry 8 }
+
+cucsCapabilityUpdaterFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:fsmRmtInvErrCode
+        managed object property"
+    ::= { cucsCapabilityUpdaterEntry 9 }
+
+cucsCapabilityUpdaterFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cucsCapabilityUpdaterEntry 10 }
+
+cucsCapabilityUpdaterFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:fsmRmtInvRslt managed
+        object property"
+    ::= { cucsCapabilityUpdaterEntry 11 }
+
+cucsCapabilityUpdaterFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:fsmStageDescr managed
+        object property"
+    ::= { cucsCapabilityUpdaterEntry 12 }
+
+cucsCapabilityUpdaterFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:fsmStamp managed object property"
+    ::= { cucsCapabilityUpdaterEntry 13 }
+
+cucsCapabilityUpdaterFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:fsmStatus managed object property"
+    ::= { cucsCapabilityUpdaterEntry 14 }
+
+cucsCapabilityUpdaterFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:fsmTry managed object property"
+    ::= { cucsCapabilityUpdaterEntry 15 }
+
+cucsCapabilityUpdaterImageName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:imageName managed object property"
+    ::= { cucsCapabilityUpdaterEntry 16 }
+
+cucsCapabilityUpdaterOperState OBJECT-TYPE
+    SYNTAX       CucsCapabilityOperStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:operState managed object property"
+    ::= { cucsCapabilityUpdaterEntry 17 }
+
+cucsCapabilityUpdaterProtocol OBJECT-TYPE
+    SYNTAX       CucsFirmwareTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:protocol managed object property"
+    ::= { cucsCapabilityUpdaterEntry 18 }
+
+cucsCapabilityUpdaterPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:pwd managed object property"
+    ::= { cucsCapabilityUpdaterEntry 19 }
+
+cucsCapabilityUpdaterRemotePath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:remotePath managed object property"
+    ::= { cucsCapabilityUpdaterEntry 20 }
+
+cucsCapabilityUpdaterServer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:server managed object property"
+    ::= { cucsCapabilityUpdaterEntry 21 }
+
+cucsCapabilityUpdaterUser OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:user managed object property"
+    ::= { cucsCapabilityUpdaterEntry 22 }
+
+cucsCapabilityUpdaterVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:Updater:version managed object property"
+    ::= { cucsCapabilityUpdaterEntry 23 }
+
+cucsCapabilityUpdaterFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityUpdaterFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsm managed object table"
+    ::= { cucsCapabilityObjects 17 }
+
+cucsCapabilityUpdaterFsmEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityUpdaterFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityUpdaterFsmTable table."
+    INDEX { cucsCapabilityUpdaterFsmInstanceId }
+    ::= { cucsCapabilityUpdaterFsmTable 1 }
+
+CucsCapabilityUpdaterFsmEntry ::= SEQUENCE {
+    cucsCapabilityUpdaterFsmInstanceId                               CucsManagedObjectId,
+    cucsCapabilityUpdaterFsmDn                                       CucsManagedObjectDn,
+    cucsCapabilityUpdaterFsmRn                                       SnmpAdminString,
+    cucsCapabilityUpdaterFsmCompletionTime                           DateAndTime,
+    cucsCapabilityUpdaterFsmCurrentFsm                               CucsCapabilityUpdaterFsmCurrentFsm,
+    cucsCapabilityUpdaterFsmDescrData                                SnmpAdminString,
+    cucsCapabilityUpdaterFsmFsmStatus                                CucsFsmFsmStageStatus,
+    cucsCapabilityUpdaterFsmProgress                                 Gauge32,
+    cucsCapabilityUpdaterFsmRmtErrCode                               Gauge32,
+    cucsCapabilityUpdaterFsmRmtErrDescr                              SnmpAdminString,
+    cucsCapabilityUpdaterFsmRmtRslt                                  CucsConditionRemoteInvRslt
+}
+
+cucsCapabilityUpdaterFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityUpdaterFsmEntry 1 }
+
+cucsCapabilityUpdaterFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsm:dn managed object property"
+    ::= { cucsCapabilityUpdaterFsmEntry 2 }
+
+cucsCapabilityUpdaterFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsm:rn managed object property"
+    ::= { cucsCapabilityUpdaterFsmEntry 3 }
+
+cucsCapabilityUpdaterFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsm:completionTime
+        managed object property"
+    ::= { cucsCapabilityUpdaterFsmEntry 4 }
+
+cucsCapabilityUpdaterFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsCapabilityUpdaterFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsm:currentFsm managed
+        object property"
+    ::= { cucsCapabilityUpdaterFsmEntry 5 }
+
+cucsCapabilityUpdaterFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsm:descr managed object property"
+    ::= { cucsCapabilityUpdaterFsmEntry 6 }
+
+cucsCapabilityUpdaterFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsm:fsmStatus managed
+        object property"
+    ::= { cucsCapabilityUpdaterFsmEntry 7 }
+
+cucsCapabilityUpdaterFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsm:progress managed object property"
+    ::= { cucsCapabilityUpdaterFsmEntry 8 }
+
+cucsCapabilityUpdaterFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsm:rmtErrCode managed
+        object property"
+    ::= { cucsCapabilityUpdaterFsmEntry 9 }
+
+cucsCapabilityUpdaterFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsm:rmtErrDescr managed
+        object property"
+    ::= { cucsCapabilityUpdaterFsmEntry 10 }
+
+cucsCapabilityUpdaterFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsm:rmtRslt managed object property"
+    ::= { cucsCapabilityUpdaterFsmEntry 11 }
+
+cucsCapabilityUpdaterFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityUpdaterFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmStage managed object table"
+    ::= { cucsCapabilityObjects 18 }
+
+cucsCapabilityUpdaterFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityUpdaterFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityUpdaterFsmStageTable table."
+    INDEX { cucsCapabilityUpdaterFsmStageInstanceId }
+    ::= { cucsCapabilityUpdaterFsmStageTable 1 }
+
+CucsCapabilityUpdaterFsmStageEntry ::= SEQUENCE {
+    cucsCapabilityUpdaterFsmStageInstanceId                          CucsManagedObjectId,
+    cucsCapabilityUpdaterFsmStageDn                                  CucsManagedObjectDn,
+    cucsCapabilityUpdaterFsmStageRn                                  SnmpAdminString,
+    cucsCapabilityUpdaterFsmStageDescrData                           SnmpAdminString,
+    cucsCapabilityUpdaterFsmStageLastUpdateTime                      DateAndTime,
+    cucsCapabilityUpdaterFsmStageName                                CucsCapabilityUpdaterFsmStageName,
+    cucsCapabilityUpdaterFsmStageOrder                               Gauge32,
+    cucsCapabilityUpdaterFsmStageRetry                               Gauge32,
+    cucsCapabilityUpdaterFsmStageStageStatus                         CucsFsmFsmStageStatus
+}
+
+cucsCapabilityUpdaterFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityUpdaterFsmStageEntry 1 }
+
+cucsCapabilityUpdaterFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmStage:dn managed object property"
+    ::= { cucsCapabilityUpdaterFsmStageEntry 2 }
+
+cucsCapabilityUpdaterFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmStage:rn managed object property"
+    ::= { cucsCapabilityUpdaterFsmStageEntry 3 }
+
+cucsCapabilityUpdaterFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmStage:descr managed
+        object property"
+    ::= { cucsCapabilityUpdaterFsmStageEntry 4 }
+
+cucsCapabilityUpdaterFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsCapabilityUpdaterFsmStageEntry 5 }
+
+cucsCapabilityUpdaterFsmStageName OBJECT-TYPE
+    SYNTAX       CucsCapabilityUpdaterFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmStage:name managed
+        object property"
+    ::= { cucsCapabilityUpdaterFsmStageEntry 6 }
+
+cucsCapabilityUpdaterFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmStage:order managed
+        object property"
+    ::= { cucsCapabilityUpdaterFsmStageEntry 7 }
+
+cucsCapabilityUpdaterFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmStage:retry managed
+        object property"
+    ::= { cucsCapabilityUpdaterFsmStageEntry 8 }
+
+cucsCapabilityUpdaterFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmStage:stageStatus
+        managed object property"
+    ::= { cucsCapabilityUpdaterFsmStageEntry 9 }
+
+cucsCapabilityUpdaterFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCapabilityUpdaterFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmTask managed object table"
+    ::= { cucsCapabilityObjects 8 }
+
+cucsCapabilityUpdaterFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsCapabilityUpdaterFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCapabilityUpdaterFsmTaskTable table."
+    INDEX { cucsCapabilityUpdaterFsmTaskInstanceId }
+    ::= { cucsCapabilityUpdaterFsmTaskTable 1 }
+
+CucsCapabilityUpdaterFsmTaskEntry ::= SEQUENCE {
+    cucsCapabilityUpdaterFsmTaskInstanceId                           CucsManagedObjectId,
+    cucsCapabilityUpdaterFsmTaskDn                                   CucsManagedObjectDn,
+    cucsCapabilityUpdaterFsmTaskRn                                   SnmpAdminString,
+    cucsCapabilityUpdaterFsmTaskCompletion                           CucsFsmCompletion,
+    cucsCapabilityUpdaterFsmTaskFlags                                CucsFsmFlags,
+    cucsCapabilityUpdaterFsmTaskItem                                 CucsCapabilityUpdaterFsmTaskItem,
+    cucsCapabilityUpdaterFsmTaskSeqId                                Gauge32
+}
+
+cucsCapabilityUpdaterFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCapabilityUpdaterFsmTaskEntry 1 }
+
+cucsCapabilityUpdaterFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmTask:dn managed object property"
+    ::= { cucsCapabilityUpdaterFsmTaskEntry 2 }
+
+cucsCapabilityUpdaterFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmTask:rn managed object property"
+    ::= { cucsCapabilityUpdaterFsmTaskEntry 3 }
+
+cucsCapabilityUpdaterFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmTask:completion
+        managed object property"
+    ::= { cucsCapabilityUpdaterFsmTaskEntry 4 }
+
+cucsCapabilityUpdaterFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmTask:flags managed
+        object property"
+    ::= { cucsCapabilityUpdaterFsmTaskEntry 5 }
+
+cucsCapabilityUpdaterFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsCapabilityUpdaterFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmTask:item managed object property"
+    ::= { cucsCapabilityUpdaterFsmTaskEntry 6 }
+
+cucsCapabilityUpdaterFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS capability:UpdaterFsmTask:seqId managed
+        object property"
+    ::= { cucsCapabilityUpdaterFsmTaskEntry 7 }
+
+END

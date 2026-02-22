@@ -1,0 +1,348 @@
+-- *****************************************************************
+-- CISCO-BOOT-HWDIAGS-MIB.my
+--   
+-- Copyright (c) 2009 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-BOOT-HWDIAGS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DisplayString,
+    TruthValue
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoBootHwDiagsMIB MODULE-IDENTITY
+    LAST-UPDATED    "200905120000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: tac@cisco.com"
+    DESCRIPTION
+        "This MIB is used to configure those devices that support
+        boot-time hardware diagnostics.  It provides the reports 
+        about the respective diagnostic tests executed by the 
+        devices as well. 
+
+        Boot-time diagnostics are run after the ROMMON has 
+        transferred control to the start code of IOS and before 
+        any IOS subsystem has started. 
+
+        Such diagnostics may or may not include those that are 
+        destructive to the operation of IOS or communications
+        links that are serviced by IOS and, as such, must be run
+        before IOS has completed booting and before any subsystem
+        has started. 
+
+        During boot-up from either power-on or a reload, and
+        before IOS starts, a loop of all such diagnostics is executed
+        according to the following flow: 
+
+             bank = current_bank 
+             for index = 1 to number of diagnostics { 
+                if diag[index] is configured AND armed for bank { 
+                  call diagnostic_function[index]; 
+                  store results in memory = structure.bank.index; 
+                } 
+
+        After all the IOS subsystems have started, one can
+        use either the CLI or this MIB to query the status of the 
+        diagnostic tests for each bank. 
+
+        The diagnostic tests are tabulated on the CLI as
+        follows. 
+
+               Information for Hardware Diagnostics Bank 0 
+               (Current bank = 0) 
+
+                                Last Boot         Next Boot 
+                                - 
+             Diagnostic         Ran? Pass/Failed? Configured? Armed?
+
+             EDAC test          YES  PASSED       YES         NO 
+             EEPROM test        YES  PASSED       YES         NO 
+             FPGA(s) test       YES  FAILED       YES         NO 
+
+             FPGA Diags: FPGA1:F, FPGA2-REG:P, FPGA2-SRAM:P, FPGA3:F
+
+
+        In the table above, there are 3 diagnostic_function 
+        categories: 
+
+        EDAC, EEPROM, and FPGA(s).   The FPGA category has 4
+        subtests one associated with FPGA1, two with FPGA2, and one
+        with FPGA3. 
+
+        The MIB shall be used to configure the diagnostic tests
+        to be run on each bank and read the results of the same.  The
+        selection of a particular bank to run the tests is hardware-
+        dependent.
+
+                            GLOSSARY
+        CLI    - Command Line Interface
+        diags  - abbreviation for diagnostics
+        EDAC   - Error Detection and Correction
+        EEPROM - Electrically Eraseable Programmable Read-Only Memory
+        FPGA   - Field Programmable Gate Array
+        IOS    - Internet Operating System
+        MIB    - Management Information Base
+        NVRAM  - Non-volatile Random Access Memory
+        SRAM   - Static Random Access Memory"
+    REVISION        "200905120000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 696 }
+
+
+ciscoBootHwDiagsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoBootHwDiagsMIB 0 }
+
+ciscoBootHwDiagsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoBootHwDiagsMIB 1 }
+
+ciscoBootHwDiagsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoBootHwDiagsMIB 2 }
+
+
+ciscoBootHwDiagsMIBCurrentBank OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..1000)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the current bank the device has booted
+        with and executed the diagnostic tests." 
+    ::= { ciscoBootHwDiagsMIBObjects 1 }
+
+ciscoBootHwDiagsMIBTestTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoBootHwDiagsMIBTestEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table gives the list of possible diagnostic test
+        'categories' that may be configured, armed, and run for
+        each bank.  The categories are the same for all banks.
+        In the CLI example given above, the categories are:
+        EDAC test, EEPROM test, and FGPA(s) test."
+    ::= { ciscoBootHwDiagsMIBObjects 2 }
+
+ciscoBootHwDiagsMIBTestEntry OBJECT-TYPE
+    SYNTAX          CiscoBootHwDiagsMIBTestEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a  row in ciscoBootHwDiagsMIBTestTable
+        and corresponds to the information about the various 
+        categories of diagnostic tests."
+    INDEX           { ciscoBootHwDiagsMIBTestIndex } 
+    ::= { ciscoBootHwDiagsMIBTestTable 1 }
+
+CiscoBootHwDiagsMIBTestEntry ::= SEQUENCE {
+        ciscoBootHwDiagsMIBTestIndex Unsigned32,
+        ciscoBootHwDiagsMIBTestName  DisplayString
+}
+
+ciscoBootHwDiagsMIBTestIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the information about a
+        particular category of test." 
+    ::= { ciscoBootHwDiagsMIBTestEntry 1 }
+
+ciscoBootHwDiagsMIBTestName OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE  (3..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the name of the diagnostic test." 
+    ::= { ciscoBootHwDiagsMIBTestEntry 2 }
+ 
+
+
+ciscoBootHwDiagsMIBTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoBootHwDiagsMIBEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table lists the configuration and results of the tests run
+        on the banks. The results correspond to the execution of the 
+        respective tests run at the most recent boot of the device."
+    ::= { ciscoBootHwDiagsMIBObjects 3 }
+
+ciscoBootHwDiagsMIBEntry OBJECT-TYPE
+    SYNTAX          CiscoBootHwDiagsMIBEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a  row in ciscoBootHwDiagsMIBTable and
+        corresponds to the information about the diagnostic tests for a
+        particular
+        bank."
+    INDEX           {
+                        ciscoBootHwDiagsMIBBankIndex,
+                        ciscoBootHwDiagsMIBTestIndex
+                    } 
+    ::= { ciscoBootHwDiagsMIBTable 1 }
+
+CiscoBootHwDiagsMIBEntry ::= SEQUENCE {
+        ciscoBootHwDiagsMIBBankIndex          Unsigned32,
+        ciscoBootHwDiagsMIBLastBootExecuted   TruthValue,
+        ciscoBootHwDiagsMIBLastBootPassed     TruthValue,
+        ciscoBootHwDiagsMIBNextBootConfigured TruthValue,
+        ciscoBootHwDiagsMIBNextBootArmed      TruthValue,
+        ciscoBootHwDiagsMIBConfigCode         Unsigned32,
+        ciscoBootHwDiagsMIBResultCode         Unsigned32
+}
+
+ciscoBootHwDiagsMIBBankIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object, together with ciscoBootHwDiagsMIBTestIndex,
+        uniquely  identifies the information about a particular 
+        diagnostic test." 
+    ::= { ciscoBootHwDiagsMIBEntry 1 }
+
+ciscoBootHwDiagsMIBLastBootExecuted OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the execution status of the test.  A
+        value of 'true' indicates that the test has been executed on
+        the most recent boot of the device.  A value of 'false' 
+        indicates that the test has not been executed."
+    DEFVAL          { false } 
+    ::= { ciscoBootHwDiagsMIBEntry 2 }
+
+ciscoBootHwDiagsMIBLastBootPassed OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the result of the test on the most
+        recent boot of the device. A value of 'true' indicates that the 
+        test passed.  A  value of 'false' indicates that the test 
+        failed." 
+    ::= { ciscoBootHwDiagsMIBEntry 3 }
+
+ciscoBootHwDiagsMIBNextBootConfigured OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the action to be taken on this bank at
+        the next boot.  A value of 'true' indicates that the test
+        identified by ciscoBootHwDiagsMIBTestName will be executed at
+        the next boot, provided  the device chooses this bank for 
+        diagnosis."
+    DEFVAL          { false } 
+    ::= { ciscoBootHwDiagsMIBEntry 4 }
+
+ciscoBootHwDiagsMIBNextBootArmed OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A value of 'true' indicates that, for a particular numbered
+        bank, all the configured tests for that same numbered bank are
+        run."
+    DEFVAL          { false } 
+    ::= { ciscoBootHwDiagsMIBEntry 5 }
+
+ciscoBootHwDiagsMIBConfigCode OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object provides additional optional detailed configuration
+        options (sub-tests configurations) for a diagnostics test
+        category. The decoding of this unsigned 32-bit integer is 
+        platform-specific and allows for many platform-specific
+        configurations.  For the CLI example above, a
+        ciscoBootHwDiagsMIBConfigCode for the FPGA(s) test category
+        will cause all FPGA tests to be disabled, whereas, 
+        a ciscoBootHwDiagsMIBConfigCode of 1 will enable FPGA1 test.
+        A ciscoBootHwDiagsMIBConfigCode of 3 will enable FPGA1 AND
+        FPGA2-subtest1, and so forth (since there is only one test
+        for FPGA1, but two tests for FPGA2). Hence the encoding is
+        platform dependent and flexible."
+    DEFVAL          { 0 } 
+    ::= { ciscoBootHwDiagsMIBEntry 6 }
+
+ciscoBootHwDiagsMIBResultCode OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents a return code that may be mapped to
+        detailed testresults in an analogous way to how the 
+        ciscoBootHwDiagsMIBConfigCode  is mapped to configurations.  
+        That is, for the CLI example above, a 
+        ciscoBootHwDiagsMIBResultCode of F (hex) indicates that all
+        FPGA tests passed. A ciscoBootHwDiagsMIBResultCode of 
+        1 (hex), indicates that ONLY FPGA1 test passed. A 
+        ciscoBootHwDiagsMIBResultCode of 3 (hex) indicates that only
+        FPGA1 AND FPGA2-subtest1 passed, and so forth (since there is
+        only one test for FPGA1, but two tests for FPGA2).  Hence the
+        encoding is platform dependent and flexible." 
+    ::= { ciscoBootHwDiagsMIBEntry 7 }
+ 
+
+ciscoBootHwDiagsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoBootHwDiagsMIBConform 1 }
+
+ciscoBootHwDiagsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoBootHwDiagsMIBConform 2 }
+
+
+ciscoBootHwDiagsMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the entities that implement the
+        ciscoBootHwDiagsMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoBootHwDiagsMIBMainObjectGroup }
+    ::= { ciscoBootHwDiagsMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoBootHwDiagsMIBMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciscoBootHwDiagsMIBCurrentBank,
+                        ciscoBootHwDiagsMIBTestName,
+                        ciscoBootHwDiagsMIBLastBootExecuted,
+                        ciscoBootHwDiagsMIBLastBootPassed,
+                        ciscoBootHwDiagsMIBNextBootConfigured,
+                        ciscoBootHwDiagsMIBNextBootArmed,
+                        ciscoBootHwDiagsMIBConfigCode,
+                        ciscoBootHwDiagsMIBResultCode
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group represents the information about the banks and the
+        diagnostic tests run on them."
+    ::= { ciscoBootHwDiagsMIBGroups 1 }
+
+END

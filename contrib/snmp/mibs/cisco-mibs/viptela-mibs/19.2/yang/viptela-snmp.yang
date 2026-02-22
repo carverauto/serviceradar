@@ -1,0 +1,486 @@
+module viptela-snmp {
+  namespace "http://viptela.com/snmp";
+  prefix viptela-snmp;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+    prefix tailf;
+  }
+  import viptela-common {
+    prefix viptela;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:support@viptela.com";
+  description
+    "This module defines data model for Viptela SNMP management";
+
+  revision 2019-08-15 {
+    description
+      "Release version: 19.2";
+  }
+  revision 2018-11-01 {
+    description
+      "Release version: 18.4";
+  }
+  revision 2018-08-20 {
+    description
+      "Release version: 18.3.1";
+  }
+  revision 2018-06-25 {
+    description
+      "Release version: 18.3";
+  }
+  revision 2018-04-25 {
+    description
+      "Release version: 18.2";
+  }
+  revision 2018-03-15 {
+    description
+      "Release version: 18.1.1";
+  }
+  revision 2018-01-16 {
+    description
+      "Release version: 17.2.3";
+  }
+  revision 2017-11-01 {
+    description
+      "Release version: 17.2.1";
+  }
+  revision 2017-08-01 {
+    description
+      "Release version: 17.2";
+  }
+  revision 2017-05-25 {
+    description
+      "Release version: 17.1.1";
+  }
+  revision 2017-04-06 {
+    description
+      "Release version: 17.1";
+  }
+  revision 2017-02-15 {
+    description
+      "Release version: 16.3.2";
+  }
+  revision 2017-02-06 {
+    description
+      "Release version: 16.3.1";
+  }
+  revision 2016-11-16 {
+    description
+      "Release version: 16.3";
+  }
+  revision 2016-10-25 {
+    description
+      "Release version: 16.2.10";
+  }
+  revision 2016-10-24 {
+    description
+      "Release version: 16.2.4";
+  }
+  revision 2016-08-10 {
+    description
+      "Release version: 16.2.2";
+  }
+  revision 2016-08-01 {
+    description
+      "Release version: 16.2.1";
+  }
+  revision 2016-06-09 {
+    description
+      "Release version: 16.2";
+  }
+  revision 2016-04-22 {
+    description
+      "Release version: 16.1.1";
+  }
+  revision 2016-03-15 {
+    description
+      "Release version: 16.1";
+  }
+  revision 2016-01-30 {
+    description
+      "Release version: 15.4.3";
+  }
+  revision 2015-12-28 {
+    description
+      "Release version: 15.4.1";
+  }
+  revision 2015-12-01 {
+    description
+      "Release version: 15.4.0";
+  }
+  revision 2015-10-31 {
+    description
+      "Release version: 15.3.5";
+  }
+  revision 2015-09-27 {
+    description
+      "Release version: 15.3.3";
+  }
+  revision 2015-09-01 {
+    description
+      "Release version: 15.3.1";
+  }
+  revision 2015-07-01 {
+    description
+      "Release version: 15.3";
+  }
+  revision 2015-06-01 {
+    description
+      "Release version: 15.2.8";
+  }
+  revision 2015-05-01 {
+    description
+      "Release version: 15.2";
+  }
+  revision 2015-02-01 {
+    description
+      "Release version: 15.1";
+  }
+  revision 2014-12-01 {
+    description
+      "Release version: 14.3";
+  }
+  revision 2014-07-01 {
+    description
+      "Release version: 14.2";
+  }
+  revision 2013-02-12 {
+    description
+      "Initial revision";
+  }
+
+  typedef snmp-named-type {
+    description "1..255 characters";
+    type string {
+      length "1..255";
+    }
+  }
+
+  typedef snmp-community-named-type {
+    description "1..32 characters";
+    type string {
+      length "1..32";
+    }
+  }
+
+  typedef snmp-trap-level {
+    description "SNMP trap categories";
+    type enumeration {
+      enum "critical";
+      enum "major";
+      enum "minor";
+    }
+  }
+
+  typedef snmp-security-level-enum {
+    description
+      "SNMP security level";
+    default "no-auth-no-priv";
+    type enumeration {
+      enum "no-auth-no-priv" {
+        value 1;
+      }
+      enum "auth-no-priv" {
+        value 2;
+      }
+      enum "auth-priv" {
+        value 3;
+      }
+    }
+  }
+
+  typedef snmp-auth-protocol-enum {
+    description
+      "SNMP authentication protocol";
+    type enumeration {
+      enum "md5" {
+        value 1;
+      }
+      enum "sha" {
+        value 2;
+      }
+    }
+  }
+
+  typedef snmp-priv-protocol-enum {
+    description
+      "SNMP privacy protocol";
+    type enumeration {
+      enum "aes-cfb-128" {
+        value 2;
+      }
+    }
+  }
+
+  typedef snmp-trap-module {
+    description "SNMP trap categories";
+    type enumeration {
+      enum "all" {
+        value 0;
+      }
+      enum "app-route";
+      enum "bfd";
+      enum "control";
+      enum "dhcp";
+      enum "hardware";
+      enum "omp";
+      enum "routing";
+      enum "security";
+      enum "system";
+      enum "vpn";
+      enum "bridge";
+      enum "policy";
+      enum "wwan";
+    }
+  }
+
+  grouping snmp-trap-group {
+    leaf module {
+      description "Module";
+      type snmp-trap-module;
+    }
+    leaf-list level {
+      description "Trap level";
+      min-elements 1;
+      type snmp-trap-level;
+    }
+  }
+
+  container snmp {
+    description "SNMP information";
+    leaf shutdown {
+      description "Enable/disable SNMP";
+      type boolean;
+      default "true";
+    }
+    leaf contact {
+      description "Contact for this managed node";
+      type snmp-named-type;
+    }
+    leaf name {
+      description "Assigned name for this managed node";
+      type snmp-named-type;
+    }
+    leaf location {
+      description "Physical location of this managed node";
+      type snmp-named-type;
+    }
+    list view {
+      description "Configure an SNMP view";
+      key "name";
+      leaf name {
+        description "Name of the SNMP view";
+        type viptela:named-type;
+      }
+      list oid {
+        description "Configure an SNMP object identifier";
+        key "id";
+        leaf id {
+          description "Object identifier";
+          type viptela:object-identifier;
+        }
+        leaf exclude {
+          description "Exclude the OID";
+          type empty;
+        }
+      }
+    }
+    list community {
+      description "Configure an SNMP community";
+      key "name";
+      leaf name {
+        description "Name of the SNMP community";
+        type snmp-community-named-type;
+      }
+      leaf view {
+        description "Name of the SNMP view";
+        mandatory true;
+        type leafref {
+          path "/snmp/view/name";
+        }
+      }
+      leaf authorization {
+        description "Configure access permissions";
+        mandatory true;
+        type enumeration {
+          enum "read-only";
+          enum "read-write" {
+            status deprecated;
+            description "DEPRECATED: RW access is not functionally supported on viptela devices";
+          }
+        }
+      }
+    }
+    list group {
+      description "Configure an SNMP group";
+      key "name security-level";
+      leaf name {
+        description "Name of the SNMP group";
+        type viptela:named-type;
+      }
+      leaf security-level {
+        description "Configure security level";
+        type snmp-security-level-enum;
+      }
+      leaf view {
+        description "Name of the SNMP view";
+        mandatory true;
+        type leafref {
+          path "/snmp/view/name";
+        }
+      }
+    }
+    list user {
+      description "Configure an SNMP user";
+      must "(auth and priv) or (auth and (not(priv))) or ((not(auth)) and (not(priv)))" {
+        error-message "Privacy protocol must be configured along with authentication protocol";
+      }
+      key "name";
+      leaf name {
+        description "Name of the SNMP user";
+        type viptela:named-type;
+      }
+      leaf auth {
+        must "../auth-password" {
+          error-message "Authentication protocol password must be configured";
+        }
+        description "Configure authentication protocol";
+        type snmp-auth-protocol-enum;
+      }
+      leaf auth-password {
+        must "../auth" {
+          error-message "Authentication protocol must be configured";
+        }
+        description "Specify authentication protocol password";
+        type aes-cfb-128-encrypted-string {
+          description "Cleartext or AES-encrypted key";
+        }
+      }
+      leaf priv {
+        must "../priv-password" {
+          error-message "Privacy protocol password must be configured";
+        }
+        description "Configure privacy protocol";
+        type snmp-priv-protocol-enum;
+      }
+      leaf priv-password {
+        must "../priv" {
+          error-message "Privacy protocol must be configured";
+        }
+        description "Specify privacy protocol password";
+        type aes-cfb-128-encrypted-string {
+          description "Cleartext or AES-encrypted key";
+        }
+      }
+      leaf group {
+        description "Name of the SNMP group";
+        mandatory true;
+        type leafref {
+          path "/snmp/group/name";
+        }
+      }
+    }
+    container trap {
+      description "Configure SNMP traps";
+      list target {
+        description "Configure an SNMP trap target";
+        key "vpn-id ip port";
+        max-elements "16";
+        leaf vpn-id {
+          description "Target VPN ID";
+          type viptela:vpn-id;
+        }
+        leaf ip {
+          description "Target IP address";
+          type inet:ip-address;
+        }
+        leaf port {
+          description "Target UDP port";
+          type inet:port-number {
+            description "<1..65535>";
+            range "1..65535";
+          }
+        }
+        leaf timeout {
+          description "Target connection timeout in seconds";
+          type int32 {
+            description "<0..2147483647>";
+            range "0..2147483647";
+          }
+          default "1500";
+        }
+        leaf retry {
+          description "Target connection retry";
+          type int32 {
+            description "<0..255>";
+            range "0..255";
+          }
+          default "3";
+        }
+        leaf group-name {
+          description "Trap group name";
+          mandatory true;
+          type leafref {
+            path "../../group/group-name";
+          }
+        }
+        choice security-name {
+          mandatory true;
+          case community {
+            leaf community-name {
+              description "Name of the SNMP community";
+              type leafref {
+                path "/snmp/community/name";
+              }
+            }
+          }
+          case user-name {
+            leaf user {
+              description "Name of the SNMP User";
+              type leafref {
+                path "/snmp/user/name";
+              }
+            }
+          }
+        }
+        leaf source-interface {
+          description "Source interface for outgoing SNMP traps";
+          type string {
+            length "0..32";
+            description
+              "Interface name. On vEdge, e.g. ge0/0 or ge0/3.1 or loopback0
+               On vSmart, e.g. eth0 or eth2.1 or loopback0";
+          }
+        }
+      }
+      list group {
+        key "group-name";
+        max-elements "8";
+        description "Configure an SNMP trap group";
+        leaf group-name {
+          description "Trap group name";
+          type viptela:named-type;
+        }
+        list enable {
+          min-elements 1;
+          key "module";
+          uses snmp-trap-group;
+        }
+      }
+    }
+  }
+
+  typedef aes-cfb-128-encrypted-string {
+    type string;
+    description
+      "The aes-cfb-128-encrypted-string works exactly like
+       des3-cbc-encrypted-string but AES/128bits in CFB mode is used to
+       encrypt the string.  The prefix for encrypted values is '$8$'.";
+  }
+}

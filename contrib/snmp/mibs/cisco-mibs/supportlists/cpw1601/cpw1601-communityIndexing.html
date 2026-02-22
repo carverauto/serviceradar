@@ -1,0 +1,24 @@
+<TITLE>Community String Indexing</TITLE>
+
+<h1>Community String Indexing</h1>
+<hr>
+
+Some standard MIBs assume that a particular SNMP entity only contains one
+instance of the MIB.  Thus the standard MIB does not have any index which
+would allow one to directly access a particular instance of the MIB.  In 
+these cases we provide community string indexing to access each instance 
+of the standard MIB.  The syntax is [community string]@[instance number].
+<p>
+
+For example, the Catalyst switch includes one instance of the standard
+BRIDGE-MIB for each Virtual LAN in the switch. If the read-only community
+string is "public" and the read-write community string is "private", one 
+could use "public@25" to read the BRIDGE-MIB for VLAN 25 and use
+"private@33" to read and write the BRIDGE-MIB for VLAN 33.  If just 
+"public" or "private" is used, the BRIDGE-MIB for VLAN 1 is accessed.
+<p>
+
+Also note that community string indexing does not affect access to MIBs
+which have only one instance.  Thus "public@25" can be used to access
+RFC1213-MIB at the same time BRIDGE-MIB for VLAN 25 is being accessed.
+<p>

@@ -1,0 +1,2099 @@
+-- *******************************************************************
+-- AIRESPACE-WIRELESS MIB CAPABILITY
+--
+-- November 18, 2020
+--
+-- Copyright (c) 2020-2022 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+AIRESPACE-WIRELESS-CAPABILITY DEFINITIONS ::= BEGIN
+
+
+IMPORTS
+       MODULE-IDENTITY
+           FROM SNMPv2-SMI
+       AGENT-CAPABILITIES
+           FROM SNMPv2-CONF
+       ciscoAgentCapability
+           FROM CISCO-SMI;
+
+
+airespaceWirelessCapability  MODULE-IDENTITY
+
+       LAST-UPDATED         "202011180000Z"
+       ORGANIZATION         "Cisco Systems, Inc."
+       CONTACT-INFO
+               "Cisco Systems
+               Customer Service
+
+               Postal: 170 W Tasman Drive
+               San Jose, CA  95134
+               USA
+
+               Tel: +1 800 553-NETS
+
+               E-mail: cs-wnbu-snmp@cisco.com"
+
+       DESCRIPTION
+               "Agent capabilities for
+               AIRESPACE-WIRELESS-MIB "
+       REVISION      "202011180000Z"
+       DESCRIPTION
+               "Initial version of this MIB module. "
+
+   ::= { ciscoAgentCapability 1174 }
+
+airespaceWirelessCapabilityCEV1R0 AGENT-CAPABILITIES
+
+       PRODUCT-RELEASE "Cisco EWLC 1.0"
+       STATUS          current
+       DESCRIPTION     "AIRESPACE-WIRELESS--MIB capabilities."
+
+       SUPPORTS        AIRESPACE-WIRELESS-MIB
+       INCLUDES        {
+                           bsnDot11EssTable,
+                           bsnAuthenticationFailure,
+                           bsnAPCoverageProfileUpdatedToPass,
+                           bsnAclTable,
+                           bsnAPIfRadarChannelStatisticsTable,
+                           bsnAPIfProfileThresholdConfigTable,
+                           bsnDot11StationAssociate,
+                           bsnMacFilterTable,
+                           bsnTagTable,
+                           bsnTrustedApIsMissing,
+                           bsnAPIfRecommendedRFParametersTable,
+                           bsnAPIfDown,
+                           bsnCustomSignatureTable,
+                           bsnCustomSignaturePatternTable,
+                           bsnLocalManagementUserTable,
+                           bsnPingTestTable,
+                           bsnMeshNeighsTable,
+                           bsnWrasDot11aGroupTable,
+                           bsnMobileStationPerRadioPerVapTable,
+                           bsnDot11QosProfileTable,
+                           bsnRxMulticastQueueFull,
+                           bsnBlackListClientTable,
+                           bsnRadiusAuthServerStatsTable,
+                           bsnDot11EssDeleted,
+                           bsnLinkTestTable,
+                           bsnRadiusAuthServerTable,
+                           bsnAPIfSmtParamTable,
+                           bsnExternalPolicyServerTable,
+                           bsnMobilityAnchorsTable,
+                           bsnLocalNetUserTable,
+                           bsnWrasDot11bGroupTable,
+                           bsnAPIfWlanOverrideTable,
+                           bsnAPIfLoadParametersTable,
+                           bsnMeshNodeTable,
+                           bsnStandardSignatureTable,
+                           bsnIpsecInvalidCookieTrap,
+                           bsnRrmDot11bGroupingDone,
+                           bsnAclRuleTable,
+                           bsnRadiusAccServerStatsTable,
+                           bsnAPGroupsVlanMappingTable,
+                           bsnWatchListClientTable,
+                           bsnWrasIpsecCertTable,
+                           bsnUsersTable,
+                           bsnThirdPartyAPTable,
+                           bsnAPGroupsVlanTable,
+                           bsnAPFunctionalityDisabled,
+                           bsnMobilityGroupMembersTable,
+                           bsnRadiusAccServerTable,
+                           bsnMobileStationByIpTable,
+                           bsnAPAuthorizationTable,
+                           bsnStandardSignaturePatternTable,
+                           bsnAPIfDot11PhyChannelTable,
+                           bsnAPTable,
+                           bsnAPIfTable,
+                           bsnMobilityGroupDirectoryTable,
+                           bsnTrustedApHasInvalidPreamble
+                       }
+
+       VARIATION       bsnDot11EssSsid
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssSessionTimeout
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11Ess8021xEncryptionType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssWPASecurity
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssWPAEncryptionType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssIpsecSecurity
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssVpnEncrTransform
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssVpnAuthTransform
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssVpnIkeAuthMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssVpnSharedKey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssVpnSharedKeySize
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssVpnIkePhase1Mode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssVpnIkeLifetime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssVpnIkeDHGroup
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssIpsecPassthruSecurity
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssVpnPassthruGateway
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssQualityOfService
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssDhcpRequired
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssDhcpServerIpAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssVpnContivityMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssVpnQotdServerAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssBlacklistTimeout
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssWebPassthru
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssCraniteSecurity
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssBlacklistingCapability
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssInterfaceName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssWPAAuthKeyMgmtMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssWPAAuthPresharedKey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssFortressSecurity
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssL2tpSecurity
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssWPAAuthPresharedKeyHex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssExternalPolicyValidation
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssRSNSecurity
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssRSNWPACompatibilityMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssRSNAllowTKIPClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssRSNAuthKeyMgmtMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssRSNAuthPresharedKey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssRSNAuthPresharedKeyHex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssIPv6Bridging
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11Ess80211ePolicySetting
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssWebPassthroughEmail
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssRadiusAuthPrimaryServer
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssRadiusAuthSecondaryServer
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssRadiusAuthTertiaryServer
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssRadiusAcctPrimaryServer
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssRadiusAcctSecondaryServer
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11EssRadiusAcctTertiaryServer
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRemoteIPv4Address
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnIpsecErrorCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnIpsecSPI
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRemoteUdpPort
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnIkeAuthMethod
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnIkeTotalInitFailures
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnIkeTotalInitNoResponses
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnIkeTotalRespFailures
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnNotifiesSent
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnNotifiesReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnSuiteInitFailures
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnSuiteRespondFailures
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnInitiatorCookie
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnResponderCookie
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnIsakmpInvalidCookies
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnIpsecTrapsMask
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPParamUpdateTrapControlMask
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclApplyMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfRadarChannelStatisticsEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfRadarDetectedChannelNumber
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfRadarSignalLastHeard
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfProfileThresholdConfigEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfProfileParamAssignment
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfForeignInterferenceThreshold
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfForeignNoiseThreshold
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfRFUtilizationThreshold
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfThroughputThreshold
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfMobilesThreshold
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfCoverageThreshold
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfMobileMinExceptionLevel
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfCoverageExceptionLevel
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPTrapControlMask
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMacFilterEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMacFilterAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMacFilterWlanId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMacFilterInterfaceName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMacFilterDescription
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMacFilterRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTagBatteryStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnSyslogEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnSyslogRemoteAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnGlobalDot11AuthenticationResponseTimeOut
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnPrimaryMwarForAPs
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRtpProtocolPriority
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnSystemCurrentTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnUpdateSystemTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnOperatingTemperatureEnvironment
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnSensorTemperature
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTemperatureAlarmLowLimit
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTemperatureAlarmHighLimit
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnVirtualGatewayAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnSystemTimezoneDelta
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnSystemTimezoneDeltaMinutes
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnSystemTimezoneDaylightSavings
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAllowAuthorizeApAgainstAAA
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAppleTalkEnabled
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnPolicyForMisconfiguredAps
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnEncryptionPolicyEnforced
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnPreamblePolicyEnforced
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11ModePolicyEnforced
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadioTypePolicyEnforced
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnValidateSsidForTrustedAp
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAlertIfTrustedApMissing
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTrustedApEntryExpirationTimeout
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnExcessive80211AuthFailures
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnExternalPolicyServerFailures
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPProfileTrapControlMask
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignaturePrecedence
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureDescription
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureFrameType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureAction
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureState
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureFrequency
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureQuietTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureVersion
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureConfigType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureMacInfo
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureMacFreq
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignatureInterval
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignaturePatternEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignaturePatternIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignaturePatternOffset
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignaturePatternString
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignaturePatternMask
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignaturePatternOffSetStart
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCustomSignaturePatternRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnSignatureCheckState
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRfIdTagAutoTimeoutStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnBridgingZeroTouchConfig
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnBridgingSharedSecretKey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnGlobalDot11bPicoCellMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnGlobalDot11aPicoCellMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRrmDot11aGlobalAutomaticGrouping
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRrmIsDot11aGroupLeader
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRrmDot11aGroupLastUpdateTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRrmDot11aGlobalGroupInterval
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalManagementUserEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalManagementUserName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalManagementUserPassword
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalManagementUserAccessMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalManagementUserRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnPingTestEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnPingTestId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnPingTestIPAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnPingTestSendCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnPingTestReceivedCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnPingTestStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnPingTestMaxTimeInterval
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnPingTestMinTimeInterval
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnPingTestAvgTimeInterval
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnPingTestRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighsEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighState
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighSnr
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighSnrUp
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighSnrDown
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighLinkSnr
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighAdjustedEase
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighUnadjustedEase
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighRapEase
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighTxParent
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighRxParent
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighPoorSnr
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighLastUpdate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNeighParentChange
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasDot11aGroupEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasDot11aPeerMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasDot11aPeerIpAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRrmDot11aSetFactoryDefault
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRrmDot11bGlobalAutomaticGrouping
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRrmIsDot11bGroupLeader
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRrmDot11bGroupLastUpdateTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRrmDot11bGlobalGroupInterval
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobileStationPerRadioPerVapEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobileStationPerRadioPerVapIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11QosProfileEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11QosProfileName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11QosProfileDesc
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11QosAverageDataRate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11QosBurstDataRate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11QosAvgRealTimeDataRate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11QosBurstRealTimeDataRate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11QosMaxRFUsagePerAP
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11QosProfileQueueDepth
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11WiredQosProtocol
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11802Dot1PTag
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11ResetProfileToDefault
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfUpDownCause
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       locationNotifyContent
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnBlackListClientEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnBlackListClientMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnBlackListClientDescription
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnBlackListClientRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerStatsEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthClientRoundTripTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthClientAccessRequests
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthClientAccessRetransmissions
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthClientAccessAccepts
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthClientAccessRejects
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthClientAccessChallenges
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthClientMalformedAccessResponses
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthClientBadAuthenticators
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthClientPendingRequests
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthClientTimeouts
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthClientUnknownTypes
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthClientPacketsDropped
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRADIUSServerTrapEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAuthenticationFailureTrapEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsn80211SecurityTrapControlMask
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWpsTrapControlEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLinkTestEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLinkTestId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLinkTestMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLinkTestSendPktCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLinkTestSendPktLength
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLinkTestReceivedPktCount
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLinkTestClientRSSI
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLinkTestLocalSNR
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLinkTestLocalRSSI
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLinkTestStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLinkTestRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobilityProtocolPortNum
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobilityDynamicDiscovery
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobilityStatsReset
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthClientServerPortNumber
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerKey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerKeyFormat
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerRFC3576
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerIPSec
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerIPSecAuth
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerIPSecEncryption
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerIPSecIKEPhase1
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerIPSecIKELifetime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerIPSecDHGroup
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerNetworkUserConfig
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerMgmtUserConfig
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerRetransmitTimeout
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerKeyWrapKEKkey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerKeyWrapMACKkey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerKeyWrapFormat
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthServerRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfDot11OperationalRateSet
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnExternalPolicyServerEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnExternalPolicyServerIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnExternalPolicyServerAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnExternalPolicyServerPortNumber
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnExternalPolicyServerKey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnExternalPolicyServerAdminStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnExternalPolicyServerConnectionStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnExternalPolicyServerRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnExternalPolicyServerAclName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAcceptSelfSignedCertificate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnSystemClockTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobilityAnchorsEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobilityAnchorWlanSsid
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobilityAnchorSwitchIPAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobilityAnchorRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalHandoffs
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCurrentExportedClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalExportedClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnCurrentImportedClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalImportedClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalHandoffErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalCommunicationErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalReceiveErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalTransmitErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalResponsesRetransmitted
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalHandoffEndRequestsReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalStateTransitionsDisallowed
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalResourceErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalHandoffRequestsSent
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalHandoffRepliesReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalAnchorTransferReceived
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalHandoffRequestsIgnored
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalPingPongHandoffRequestsDropped
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalHandoffRequestsDropped
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalHandoffRequestsDenied
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalClientHandoffAsLocal
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTotalAnchorTransferred
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalNetUserEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalNetUserName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalNetUserWlanId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalNetUserPassword
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalNetUserDescription
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalNetUserLifetime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalNetUserStartTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalNetUserRemainingTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLocalNetUserRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasDot11bGroupEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasDot11bPeerMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasDot11bPeerIpAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRrmDot11bSetFactoryDefault
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfWlanOverrideEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfWlanOverrideId
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfWlanOverrideSsid
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfWlanOverrideRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfPoorSNRClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeRole
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeGroup
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeBackhaul
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeBackhaulPAP
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeBackhaulRAP
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeDataRate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeChannel
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeRoutingState
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeMalformedNeighPackets
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodePoorNeighSnr
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeBlacklistPackets
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeInsufficientMemory
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeRxNeighReq
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeRxNeighRsp
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeTxNeighReq
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeTxNeighRsp
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeParentChanges
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeNeighTimeout
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeParentMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeAPType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeEthernetBridge
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMeshNodeHops
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignaturePrecedence
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureDescription
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureFrameType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureAction
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureState
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureFrequency
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureQuietTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureVersion
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureConfigType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureMacInfo
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureMacFreq
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignatureInterval
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRogueAPTrapEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnConfigSaveTrapEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleAction
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleDirection
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleSourceIpAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleSourceIpNetmask
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleDestinationIpAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleDestinationIpNetmask
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleProtocol
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleStartSourcePort
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleEndSourcePort
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleStartDestinationPort
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleEndDestinationPort
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleDscp
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclNewRuleIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAclRuleRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthKeyWrapEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAuthCacheCredentialsLocally
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAAAMacDelimiter
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAAARadiusCompatibilityMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAAARadiusCallStationIdType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAAALocalDatabaseSize
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAAACurrentLocalDatabaseSize
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerStatsEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccClientRoundTripTime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccClientRequests
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccClientRetransmissions
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccClientResponses
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccClientMalformedResponses
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccClientBadAuthenticators
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccClientPendingRequests
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccClientTimeouts
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccClientUnknownTypes
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccClientPacketsDropped
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPGroupsVlanMappingEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPGroupsVlanMappingSsid
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPGroupsVlanMappingInterfaceName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPGroupsVlanMappingRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWatchListClientEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWatchListClientKey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWatchListClientType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWatchListClientRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasIpsecCertEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasIpsecCertName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasIpsecCertificateUpdate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasIpsecCertificate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasIpsecCertPassword
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasIpsecCertStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDot11StationTrapControlMask
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnUsersEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnUserName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnUserPassword
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnUserEssIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnUserAccessMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnUserType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnUserInterfaceName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnUserRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnThirdPartyAPEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnThirdPartyAPMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnThirdPartyAPInterface
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnThirdPartyAPIpAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnThirdPartyAP802Dot1XRequired
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnThirdPartyAPMirrorMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnThirdPartyAPRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPGroupsVlanEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPGroupsVlanName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPGroupsVlanDescription
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPGroupsVlanRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLicenseKeyTrapVariable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnApFunctionalityDisableReasonCode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnLicenseKeyFeatureSetTrapVariable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobilityGroupMembersEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobilityGroupMemberMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobilityGroupMemberIPAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobilityGroupMemberGroupName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobilityGroupMemberRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccClientServerPortNumber
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerKey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerKeyFormat
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerIPSec
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerIPSecAuth
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerIPSecEncryption
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerIPSecIKEPhase1
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerIPSecIKELifetime
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerIPSecDHGroup
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerNetworkUserConfig
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerRetransmitTimeout
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRadiusAccServerRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobileStationByIpEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobileStationByIpAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobileStationByIpMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPAuthorizationEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPAuthHashKey
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPAuthRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasIpsecCACertificate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnWrasIpsecCACertificateUpdate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignaturePatternEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignaturePatternIndex
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignaturePatternOffset
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignaturePatternString
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignaturePatternMask
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignaturePatternOffSetStart
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnStandardSignaturePatternRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfDot11CurrentCCAMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPMirrorMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPBridgingSupport
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPGroupVlanName
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPIfWlanOverride
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMobilityGroupDirectoryEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnGroupDirectoryMemberIPAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnGroupDirectoryMemberMacAddress
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnGroupDirectoryDicoveryType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMemberCurrentAnchoredClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMemberTotalAnchoredClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMemberCurrentExportedClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMemberTotalExportedClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMemberCurrentImportedClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMemberTotalImportedClients
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMemberTotalHandoffErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnMemberTotalCommunicationErrors
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnAPGroupsVlanFeature
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnNavDosAttackSourceMacAddr
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnRogueAdhocMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDuplicateIpTrapVariable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDuplicateIpTrapClear
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnDuplicateIpReportedByAP
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTrustedApRadioPolicyRequired
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTrustedApEncryptionUsed
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTrustedApEncryptionRequired
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTrustedApRadioPolicyUsed
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTrustedApPreambleUsed
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnTrustedApPreambleRequired
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       bsnApRegulatoryDomain
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION  bsnDot11EssRadioPolicy
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+   ::= { airespaceWirelessCapability 1 }
+
+END

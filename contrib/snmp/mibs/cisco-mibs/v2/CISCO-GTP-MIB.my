@@ -1,0 +1,3612 @@
+-- $ID$
+-- ********************************************************************
+-- CISCO-GTP-MIB.my: MIB file for GPRS Tunnelling Protocol(GTP)
+--   
+-- Feb 8 2000, Huiyang Yang.
+-- June 2001, Rajesh M. L.
+-- September 2001, Jeyachitra Alagar
+-- October 2007, 2008 Annie Mishalini Devasahayam
+--   
+-- Copyright (c) 2000-2013 by Cisco Systems Inc.
+-- All rights reserved.
+-- ********************************************************************
+-- $Endlog$
+
+CISCO-GTP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    OBJECT-TYPE,
+    Integer32,
+    Counter32,
+    Counter64,
+    Gauge32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    RowStatus,
+    StorageType,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+cGtpMIB MODULE-IDENTITY
+    LAST-UPDATED    "201306180000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-gprs@cisco.com"
+    DESCRIPTION
+        "This MIB module manages the GPRS Tunnelling Protocol
+        (GTP) on GGSN and SGSN.
+
+        GPRS provides wireless access to packet data network on
+        the GSM infrastructure.
+
+        The following diagram illustrates a simplified GPRS
+        logical architecture with the name of inter-node
+        interface:
+
+        +---------------------------------------------+         
+        |  a PLMN                 +======+   +======+ |
+        |                         | SGSN |   | AAA  | |
+        |                         +======+   +======+ |
+        |                            |           |    |
+        |                            Gn         SGi   |
+        |                            |           |    |
+        |+====+   +====+ +=====+ +======+    +======+ |    +===+
+        || TE |-R-| MT |-| BSS |-| SGSN |-Gn-| GGSN |-|-Gi-|PDN|
+        |+====+   +====+ +=====+ +======+    +======+ |    +===+
+        |                                        |    |  
+        |                                        |    | 
+        +----------------------------------------|----+ 
+                                                 Gp
+                                                 |
+                        +-----------------------------+
+                        | +====+   +=====+   +======+ |   
+                        | | MS |---| BSS |---| SGSN | |
+                        | +====+   +=====+   +======+ |  
+                        |                             | 
+                        |                other PLMN   |
+                        +-----------------------------+
+
+        GTP is the protocol between GSN nodes (GSN peers) in
+        the GPRS backbone network. It includes both the GTP
+        signalling and data transfer procedures.
+
+        GTP is used both on the Gn interface, i.e. the interface
+        between GSN peers with in a PLMN, and the Gp
+        interface between GSN peers in different PLMNs.
+
+        SGSN is the serving GPRS support node, it responsible 
+        for the delivery of data packets from and to the MS 
+        within its service area.
+
+        GGSN is the gateway GPRS support node, it provides 
+        interworking with external PDN and is connected with 
+        SGSNs via an IP-based GPRS backbone network.
+
+        The GTP protocol is implemented only by SGSNs and GGSN.
+
+        A PDP Context is an information set maintained by MS 
+        and GSNs which describes the mobile wireless service
+        call or session.
+
+        A Qos Profile is associated with each PDP context which
+        defines multiple attributes like precedence, delay, 
+        reliability, peak throughput and mean throughput.
+        Based on the precedence, delay and mean throughput an
+        user is classified into one of the three Qos classes:
+        Best Effort, Normal and Premium.
+
+        Mean throughput is measured at the Gi and R reference 
+        points in units of octets per second. It specifies the 
+        average rate at which data is expected to be 
+        transferred across the GPRS network during the 
+        remaining lifetime of an activated PDP context.
+
+        A MAP converting GSN is responsible for converting GTP
+        messages to and from MAP messages.  This helps in the
+        communication with HLR.
+
+        Acronyms and terms:
+
+         APN    Access Point Name
+         BSS    Base Station Subsystem
+         CG     Charging Gateway
+         COA    Change of Authorization
+         ETSI   European Telecommunications Standards Institute
+         GDM    GTP Director Module
+         Gi     Reference point between GPRS and an external 
+                packet data network.
+         Gn     the interface between GSNs within a PLMN 
+         Gp     the interface between GSNs in different PLMNs 
+         GGSN   Gateway GPRS Support Node
+         GPRS   General Packet Radio Service
+         GSM    Global System for Mobile communication
+         GSN    GPRS Support Node
+         G-PDU  GTP PDU 
+         HLR    Home Location Register
+         MAP    Mobile Application Protocol
+         MME    Mobility Management Entity
+         MS     Mobile Station = TE + MT
+         MT     Mobile Termination
+         NMS    Network Management System
+         PDN    Public Data Network
+         PDP    Packet Data Protocol
+         PDU    Protocol Data Unit
+         PGW    PDN Gateway
+         PLMN   Public Land Mobile Network
+         R      Reference point between a non-ISDN compatible 
+                TE and MT. 
+         SAE    System Architecture Evolution
+         SGSN   Serving GPRS Support Node
+         SGW    Serving Gateway
+         TE     Terminal Equipment
+         T-PDU  the payload of G-PDU
+         VRF    Virtual routing and forwarding
+         AAA    Authentication, Authorization and Accounting
+         eNodeB Evolved Node B
+         RNC    Radio Network Controller"
+    REVISION        "201306180000Z"
+    DESCRIPTION
+        "The following changes have been made.
+
+        [1] The following objects have been added to cGtpStatistics,
+             1. cGtpTotalDownlinkQosFailures
+             2. cGtpTotalUplinkQosFailures
+
+        [2] New group cGtpStatisticsGroupSup6 has been added.
+
+        [3] The compliance cGtpMIBComplianceRev10 has been deprecated
+        and superceded by the compliance cGtpMIBComplianceRev11."
+    REVISION        "201303110000Z"
+    DESCRIPTION
+        "The following changes have been made.
+
+        [1] The following objects have been added to cGtpStatus,
+             1. cGtpTotalActivePaths
+             2. cGtpTotalActiveGtpv1DataPaths
+
+        [2] The following objects have been added to cGtpStatistics,
+             1. cGtpTotalv0v1SigMsgDropped
+             2. cGtpTotalDataMsgDropped
+             3. cGtpv0PathCreated
+             4. cGtpv0PathDeleted
+             5. cGtpv0PathRestarted
+             6. cGtpv1SigPathCreated
+             7. cGtpv1SigPathDeleted
+             8. cGtpv1SigPathRestarted
+             9. cGtpv1DataPathCreated
+            10. cGtpv1DataPathDeleted
+            11. cGtpv1DataPathRestarted
+
+        [3] The following new groups were added,
+             1. cGtpStatusGroupSup2
+             2. cGtpStatisticsGroupSup5 
+
+        [4] The compliance cGtpMIBComplianceRev9 has been deprecated and
+            superceded by the compliance cGtpMIBComplianceRev10."
+    REVISION        "201205210000Z"
+    DESCRIPTION
+        "Object Description has been changed for the following objects,
+
+        cGtpDroppedDataMsgs,
+        cGtpRcvdPDUMsgs,
+        cGtpSentPDUMsgs,
+        cGtpRcvdPDUOctets,
+        cGtpSentPDUOctets,
+        cGtpRcvdSigMsgs,
+        cGtpSentSigMsgs,
+        cGtpTotalCreatedPDPs,
+        cGtpTotalDeletedPDPs,
+        cGtpIpv6CreatedPDPs,
+        cGtpIpv6DeletedPDPs,
+        cGtpIpv4v6CreatedPDPs,
+        cGtpIpv4v6DeletedPDPs,
+        cGtpIpv6RcvdPDUs,
+        cGtpIpv6SentPDUs,
+        cGtpIpv6SentOctets,
+        cGtpIpv6RcvdOctets."
+    REVISION        "201203050000Z"
+    DESCRIPTION
+        "The following enumerations were added to TEXTUAL-CONVENTION
+        CGtpEntities.
+        1. rnc
+        2. eNodeB"
+    REVISION        "201103150000Z"
+    DESCRIPTION
+        "The following changes have been made.
+
+        [1] The following objects have been added to
+            cGtpStatistics.
+
+            cGtpNetworkBehindMsApns,
+            cGtpTotalDownldFramedRout,
+            cGtpTotalDownldFramedRoutSavedFail,
+            cGtpTotalDownldFramedRoutInsFail,
+            cGtpTotalDownldFramedRoutIns,
+            cGtpTotalDownldFramedRoutDeleted
+
+        [2] Added enumeration spgw to cGtpGSNService.
+
+        [3] Added the Acronym AAA, to the description.
+
+        [4] Have added the groups cGtpStatisticsGroupSup4.
+
+        [5] The compliance statement cGtpMIBComplianceRev8 has
+            been superceded by cGtpMIBComplianceRev9."
+    REVISION        "201004270000Z"
+    DESCRIPTION
+        "The following changes have been made.
+
+        [1] Have added the TEXTUAL-CONVENTION CGtpEntities.
+
+        [2] Updated TEXTUAL-CONVENTION CGtpVersion.
+
+        [3] The following objects have been added to
+            cGtpPathTable.
+
+            cGtpPathRemoteNode
+            cGtpPathVrfName
+
+        [4] The objects cGtpIpv4v6CreatedPDPs and
+            cGtpIpv4v6DeletedPDPs to cGtpPathStatisticsTable.
+
+        [5] The object cGtpHistRemoteNode,
+            cGtpHistIpv4v6CreatedPDPs and
+            cGtpHistIpv4v6DeletedPDPs has been added
+            to cGtpHistPathStatisticsTable.
+
+        [6] The definitions 'sgw' and 'pgw' have been added 
+            to the object cGtpGSNService.
+
+        [7] Have added the groups cGtpStatusGroupSup1 and 
+            cGtpStatisticsGroupSup3. 
+
+        [8] The compliance statement cGtpMIBComplianceRev7 has
+            been superceded by cGtpMIBComplianceRev8."
+    REVISION        "200902130000Z"
+    DESCRIPTION
+        "Added cGtpSgsnProfileTable to
+        cGtpConfigurations."
+    REVISION        "200710111800Z"
+    DESCRIPTION
+        "Added cGtpUpdateFailDelete to
+        cGtpConfigurations.
+
+        Added cGtpNoWaitSgsnLocalDelPDPs,
+        cGtpNoReqSgsnLocalDelPDPs,
+        cGtpRoamingTrustedPDPs,
+        cGtpRoamingNonTrustedPDPs,
+        cGtpNonRoamingPDPs,
+        cGtpSentPdpUpdateReqs,
+        cGtpRcvdPdpUpdateResponses,
+        cGtpTotalDtEnabled to
+        cGtpPathStatisticsTable.
+
+        Added cGtpHistNoWaitSgsnLocalDelPDPs,
+        cGtpHistNoReqSgsnLocalDelPDPs,
+        cGtpHistRoamingTrustedPDPs,
+        cGtpHistRoamingNonTrustedPDPs,
+        cGtpHistNonRoamingPDPs,
+        cGtpHistSentPdpUpdateReqs,
+        cGtpHistRcvdPdpUpdateResponses,
+        cGtpHistTotalDtEnabled to
+        cGtpPathStatisticsHistoryTable.
+
+        Modified the description of all objects in
+        cGtpPathStatisticsHistoryTable.
+
+        Deprecated cGtpRoamingPDUs,
+             cGtpHistRoamingPDUs,
+             cGtpIpv6RcvdSigMsgs,
+             cGtpIPv6SentSigMsgs,
+             cGtpHistIpv6RcvdSigMsgs,
+             cGtpHistIpv6SentSigMsgs."
+    REVISION        "200608070000Z"
+    DESCRIPTION
+        "Added cGtpPathHistoryLimit to cGtpConfigurations.
+
+        Added the cGtpPathStatisticsTable,
+        cGtpPathStatisticsHistoryTable
+        to cGtpStatistics."
+    REVISION        "200211091600Z"
+    DESCRIPTION
+        "Modified the description of
+        cGtpDynamicEchoTimerMinTime and
+        cGtpDynamicEchoTimerSmoothFactor.
+
+        Added the cGtpPathTable. 
+
+        The following have been deprecated cGtpGSNTable, 
+        cGtpMIBComplianceRev3, cGtpStatusGroupRev2.
+
+        The following have been obsoleted cGtpT3TunnelTimer,
+        cGtpMIBComplianceRev2, cGtpConfigurationsGroupRev1,
+        cGtpStatusGroupRev1."
+    REVISION        "200203081600Z"
+    DESCRIPTION
+        "Added the object cGtpGSNVersion to the cGtpGSNTable.
+        Deprecated the object cGtpT3TunnelTimer."
+    REVISION        "200109131535Z"
+    DESCRIPTION
+        "Modified the default value for cGtpMaximumPdps from
+        1000 to 10000.
+
+        Added 'gtpdirector' to the enumeration of cGtpService.
+
+        The APN identifies whether the network is corporate 
+        or service provider network.  
+
+        The Single Access point feature enables the
+        service provider to add new access-points to the GGSN
+        without having to provision the HLR. The requests are
+        sent by the SGSN to the same virtual APN. A virtual
+        APN is not associated with any actual physical
+        network.  The GGSN processes the request and forwards
+        the packet to the appropriate access-point that is
+        specified in the PCO. This feature is supported only
+        in Cisco GGSNs.
+
+        The purpose of the GTP-Director is to provide a
+        mechanism for service providers using non-Cisco GGSN
+        to use the Single APN feature. 
+
+        +==+  +===+  +====+   ====   +===+  +====+     +===+
+        |MS|--|BSS|--|SGSN|--|PLMN|--|GDM|--|GGSN|--Gi-|PDN|
+        +==+  +===+  +====+   ====   +===+  +====+     +===+
+                                     | |
+                                     | |   +====+
+                                     | |___|GGSN|------Gi
+                                     |     +====+       |
+                                     |                  |
+                                     |     +====+     +===+
+                                     |_____|GGSN|--Gi-|PDN|
+                                           +====+     +===+
+
+        The GTP-Director also provides load balancing, using 
+        round robin mechanism, across GGSNs.  The
+        Cisco GGSNs may use the GTP-Director, but is not
+        necessary as they can use IOS-SLB ( Server Load
+        Balancing )."
+    REVISION        "200106111600Z"
+    DESCRIPTION
+        "* Added cGtpDynamicEchoTimerEnable,
+        cGtpDynamicEchoTimerMinTime, 
+        cGtpDynamicEchoTimerSmoothFactor.
+        * Deprecated cGtpGSNTotalBandwidthResrc,
+        cGtpPremiumQosMeanThroughput, 
+        cGtpNormalQosMeanThroughput,
+        cGtpBestEffortQosMeanThroughput, 
+        cGtpCurrentUsedBandwidth."
+    REVISION        "200102071300Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 188 }
+
+
+
+CGtpMaxHistNumber ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This indicates the maximum number of entries allowed for PDP
+        path and History statistics table."
+    SYNTAX          Integer32 (0..1000)
+
+CGtpVersion ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This identifies the version of GTP."
+    SYNTAX          INTEGER  {
+                        version0(1),
+                        version1(2),
+                        version2(3)
+                    }
+
+CGtpEntities ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention enumerates the
+        various GTP-aware remote nodes.
+
+        semantics are as follows.
+        'sgsn' - this indicates that GTP entity is a SGSN.
+        'pgw' - this indicates that GTP entity is a PGW in the
+                SAE architecture. 
+        'sgw' - this indicates that GTP entity is a SGW in the
+                SAE architecture.
+        'mme' - this indicates that GTP entity is a MME in the
+                SAE architecture.
+        'cg'  - this indicates that GTP entity is a CG in the
+                SAE architecture.
+        'rnc' - this indicates that GTP entity is a RNC in the
+                SAE architecture.
+        'eNodeB' - this indicates that GTP entity is a eNodeB in the
+                    SAE architecture."
+    SYNTAX          INTEGER  {
+                        undefined(0),
+                        sgsn(1),
+                        pgw(2),
+                        sgw(3),
+                        mme(4),
+                        cg(5),
+                        rnc(6),
+                        eNodeB(7)
+                    }
+-- Object definitions
+
+cGtpMIBObjects  OBJECT IDENTIFIER
+    ::= { cGtpMIB 1 }
+
+cGtpConfigurations  OBJECT IDENTIFIER
+    ::= { cGtpMIBObjects 1 }
+
+cGtpStatus  OBJECT IDENTIFIER
+    ::= { cGtpMIBObjects 2 }
+
+cGtpStatistics  OBJECT IDENTIFIER
+    ::= { cGtpMIBObjects 3 }
+
+
+-- Configuration
+
+cGtpGSNService OBJECT-TYPE
+    SYNTAX          BITS {
+                        undefined(0),
+                        sgsn(1),
+                        ggsn(2),
+                        gtpdirector(3),
+                        sgw(4),
+                        pgw(5),
+                        spgw(6)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of GPRS service that will be
+        enabled on the device:
+           undefined - the GPRS service functionality is turned off.
+           ggsn - the device will function as a GGSN.
+           sgsn - the device will function as SGSN.
+           gtpdirector - the device will function as GDM.
+           sgw - the device will function as a SGW in the
+                 SAE architecture.
+           pgw - the device will function as a PGW in the
+                 SAE architecture.
+           spgw - the device will function as a combined PGW and 
+                  SGW in the SAE architecture.
+
+        When the device is configured to function as GDM, all the other
+        objects in this MIB will not be accessible and the 
+        CISCO-GTP-DIRECTOR-MIB should be used for managing the device."
+    DEFVAL          { { undefined } } 
+    ::= { cGtpConfigurations 1 }
+
+cGtpVersion OBJECT-TYPE
+    SYNTAX          CGtpVersion
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The highest gtp version supported by the GSN.
+
+        When the value is,
+            version0 - GTP v0 is supported,
+            version1 - GTP v1 and GTP v0 are supported,
+            version2 - GTP v0, GTP v1 and GTP v2 are supported." 
+    ::= { cGtpConfigurations 2 }
+
+cGtpT3TunnelTimer OBJECT-TYPE
+    SYNTAX          Integer32 (1..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          obsolete
+    DESCRIPTION
+        "When the GSN behaves as SGSN, the T3-TUNNEL timer is used
+        for mobility management. When a roaming MS moves from one 
+        SGSN(Old SGSN) to a another SGSN(New SGSN), this timer is 
+        started by the 'Old SGSN'. While the timer is running, the 
+        T-PDUs received by the 'Old SGSN' (from the GGSN), and any 
+        buffered T-PDUs are forwarded to the 'New SGSN'. 
+
+        When the GSN behaves as GGSN, the GGSN starts this timer
+        after receiving a Update PDP Context request message from 
+        'New SGSN'. An Update PDP context request shall be sent by 
+        SGSN as part of mobility management intimating that MS has 
+        moved to this SGSN. While the timer is running, the GGSN will 
+        not be forwarding any PDUs to the requesting 'New SGSN'."
+    DEFVAL          { 20 } 
+    ::= { cGtpConfigurations 3 }
+
+cGtpT3ResponseTimer OBJECT-TYPE
+    SYNTAX          Integer32 (1..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The T3-RESPONSE timer for retransmission. This timer
+        is started by a GSN, upon the transmission of a signalling 
+        request message; it is used for message retransmission 
+        purposes, in the event that no response is received by 
+        the time the timer expires."
+    DEFVAL          { 1 } 
+    ::= { cGtpConfigurations 4 }
+
+cGtpN3Request OBJECT-TYPE
+    SYNTAX          Integer32 (1..65535)
+    UNITS           "retransmissions"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Maximum number of retransmissions for a signalling
+        request message if no corresponding response message 
+        is received for a request in cGtpT3ResponseTimer time."
+    DEFVAL          { 5 } 
+    ::= { cGtpConfigurations 5 }
+
+cGtpN3BufferSize OBJECT-TYPE
+    SYNTAX          Integer32 (2048..65535)
+    UNITS           "bytes"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Maximum size of the receive buffer for G-PDUs and
+        signalling request messages. If a packet arrives with 
+        more data bytes than the receive buffer can contain, 
+        the packet will be discarded."
+    DEFVAL          { 8192 } 
+    ::= { cGtpConfigurations 6 }
+
+cGtpEchoRequestTimerEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether Echo Request timer
+        is used by the GGSN.
+        - true  : will enable the Echo Request timer.
+        - false : will disable the Echo Request timer."
+    DEFVAL          { false } 
+    ::= { cGtpConfigurations 7 }
+
+cGtpEchoRequestTimer OBJECT-TYPE
+    SYNTAX          Integer32 (60..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The time interval to transmit 'Echo Request' message.
+        'Echo Response' message is normally received in response
+        to 'Echo Request' message. In the event of no response to 
+        the 'Echo Request' message, a notification is generated 
+        identifying the peer GSN (i.e. cGtpGSN Address), which 
+        fails to respond. 
+
+        This object can be retrieved only if 
+        cGtpEchoRequestTimerEnable is set to 'true'."
+    DEFVAL          { 60 } 
+    ::= { cGtpConfigurations 8 }
+
+cGtpGSNTotalBandwidthResrc OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    UNITS           "bits/sec"
+    MAX-ACCESS      read-write
+    STATUS          obsolete
+    DESCRIPTION
+        "The total amount of bandwidth resource on the GSN,
+        this total depends on various factors like system 
+        throughput, memory size, maximum number of PDP contexts 
+        supported.  A portion of the total resources will be 
+        allocated to a user at the PDP context activation time 
+        based on the Qos class the user is assigned to."
+    DEFVAL          { 1048576 } 
+    ::= { cGtpConfigurations 9 }
+
+cGtpMaximumPdps OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    UNITS           "PDP contexts"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of PDP contexts that can be activated
+        on the GSN."
+    DEFVAL          { 10000 } 
+    ::= { cGtpConfigurations 10 }
+
+cGtpNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether cGtpNotifications notification will
+        be sent when a notification is generated by the device.
+          - 'true',  it will enable the device to send a notification.
+          - 'false', it will prevent the device from sending out a
+                     notification."
+    DEFVAL          { false } 
+    ::= { cGtpConfigurations 11 }
+
+cGtpDynamicEchoTimerEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether dynamic echo timer is used
+        by the GGSN.
+        - true  : will enable the dynamic echo timer.
+        - false : will disable the dynamic echo timer."
+    DEFVAL          { false } 
+    ::= { cGtpConfigurations 12 }
+
+cGtpDynamicEchoTimerMinTime OBJECT-TYPE
+    SYNTAX          Integer32 (1..60)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum time used by the
+        dynamic echo timer. This object should be ignored
+        if cGtpDynamicEchoTimerEnable is set to 'false'."
+    DEFVAL          { 5 } 
+    ::= { cGtpConfigurations 13 }
+
+cGtpDynamicEchoTimerSmoothFactor OBJECT-TYPE
+    SYNTAX          Integer32 (1..100)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the smooth factor by which dynamic
+        echo timer can be adjusted. This object should be ignored
+        if cGtpDynamicEchoTimerEnable is set to 'false'."
+    DEFVAL          { 2 } 
+    ::= { cGtpConfigurations 14 }
+
+cGtpPathHistoryLimit OBJECT-TYPE
+    SYNTAX          CGtpMaxHistNumber
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum number of entries in the
+        cGtpPathStatisticsHistoryTable."
+    DEFVAL          { 100 } 
+    ::= { cGtpConfigurations 15 }
+
+cGtpUpdateFailDelete OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the delete action will
+        be taken when a COA initiated update request for QOS
+        change fails for a PDP context. If the object is set
+        to 'true' and the update response from SGSN (for a
+        update request) is not got after the retries or the
+        received response indicates a cause value other than
+        'request accepted', then the PDP context will be
+        deleted by GGSN."
+    DEFVAL          { false } 
+    ::= { cGtpConfigurations 16 }
+
+cGtpSgsnProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGtpSgsnProfileEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the configuration on SGSN profiles
+        identified by addresses and port numbers configured in 
+        GGSN and the associated profile actions to be applied.
+        When an SGSN path identified by cGtpPathAddress and
+        cGtpPathPort in cGtpPathEntry matches the profile 
+        matching criteria represented by cGtpSgsnProfileIpAddressType
+        cGtpSgsnProfileStartIpAddress, cGtpSgsnProfileEndIpAddress     
+        and cGtpSgsnProfilePortNumber, the actions associated with
+        the profile entry (such as disable echo) will be applied on 
+        the corresponding SGSN path."
+    ::= { cGtpConfigurations 18 }
+
+cGtpSgsnProfileEntry OBJECT-TYPE
+    SYNTAX          CGtpSgsnProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table. Entries in the
+        cGtpSgsnProfileTable are created and deleted using
+        the cGtpSgsnProfileRowStatus object."
+    INDEX           { cGtpSgsnProfileIndex } 
+    ::= { cGtpSgsnProfileTable 1 }
+
+CGtpSgsnProfileEntry ::= SEQUENCE {
+        cGtpSgsnProfileIndex          Unsigned32,
+        cGtpSgsnProfileIpAddressType  InetAddressType,
+        cGtpSgsnProfileStartIpAddress InetAddress,
+        cGtpSgsnProfileEndIpAddress   InetAddress,
+        cGtpSgsnProfilePortNumber     InetPortNumber,
+        cGtpSgsnProfileEchoDisable    TruthValue,
+        cGtpSgsnProfileStorageType    StorageType,
+        cGtpSgsnProfileRowStatus      RowStatus
+}
+
+cGtpSgsnProfileIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary integer-value to uniquely identify a row in
+        in the cGtpSgsnProfileTable." 
+    ::= { cGtpSgsnProfileEntry 1 }
+
+cGtpSgsnProfileIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of Internet address of the
+        objects cGtpSgsnStartIpAddress and cGtpSgsnEndIpAddress
+        in the same row." 
+    ::= { cGtpSgsnProfileEntry 2 }
+
+cGtpSgsnProfileStartIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the start address of the SGSN node
+        in the address range associated with this SGSN profile." 
+    ::= { cGtpSgsnProfileEntry 3 }
+
+cGtpSgsnProfileEndIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (1..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the end address of the SGSN node in
+        the address range associated with this SGSN profile." 
+    ::= { cGtpSgsnProfileEntry 4 }
+
+cGtpSgsnProfilePortNumber OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the port number of the SGSN node
+        associated with this SGSN profile." 
+    ::= { cGtpSgsnProfileEntry 5 }
+
+cGtpSgsnProfileEchoDisable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the GTP echo status is
+        disabled or not for the addresses and port associated
+        with this SGSN profile. The value 'true' indicates that
+        echo is disabled for this profile, while the value 'false'
+        indicates that echo is enabled for this profile."
+    DEFVAL          { true } 
+    ::= { cGtpSgsnProfileEntry 6 }
+
+cGtpSgsnProfileStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row. Conceptual rows
+        having the value 'permanent' need not allow write-access 
+        to any columnar objects in the row."
+    DEFVAL          { volatile } 
+    ::= { cGtpSgsnProfileEntry 7 }
+
+cGtpSgsnProfileRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to manage creation and deletion of
+        rows in this table. Objects in this row cannot be 
+        modified when this entry is 'active'." 
+    ::= { cGtpSgsnProfileEntry 8 }
+ 
+
+
+-- Status
+
+cGtpLastNoRespToEchoGSNIpAddrTyp OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of Internet address
+        by which cGtpLastNoRespToEchoGSNIpAddr is reachable." 
+    ::= { cGtpStatus 1 }
+
+cGtpLastNoRespToEchoGSNIpAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The IP address of the last peer GSN device that did not
+        reply to an GTP 'Echo Request' message from the local GSN
+        device." 
+    ::= { cGtpStatus 2 }
+
+cGtpPremiumQosMeanThroughput OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "bytes/sec"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The sum of the mean throughput for premium class QOS
+        users on the GSN." 
+    ::= { cGtpStatus 3 }
+
+cGtpNormalQosMeanThroughput OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "bytes/sec"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The sum of the mean throughput for normal class QOS
+        users on the GSN." 
+    ::= { cGtpStatus 4 }
+
+cGtpBestEffortQosMeanThroughput OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "bytes/sec"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The sum of the mean throughput for best-effort class
+        QOS users on the GSN." 
+    ::= { cGtpStatus 5 }
+
+cGtpGSNTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGtpGSNEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "GSN peer table. The SGSN-GGSN peer relationship is established
+        as given in the following series of steps:
+        1. When Mobile System (MS) wants service, it sends packets 
+           to a SGSN  with specific APN.
+        2. SGSN uses the DNS to resolve this APN to the IP address 
+           of the GGSN which is the designated as the gateway to 
+           this APN. 
+        3. SGSN establishes a path to the GGSN using GTP protocol.
+        4. The SGSN and GGSN peer maintains path by sending echo 
+           request message to each other. If one side fails in echo 
+           reply for certain times, the other side will send a 
+           notification to NMS. A SGSN can have multiple GGSN as 
+           peers, while a GGSN can have multiple SGSN peers, 
+           depending on routing path."
+    ::= { cGtpStatus 6 }
+
+cGtpGSNEntry OBJECT-TYPE
+    SYNTAX          CGtpGSNEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "GSN entry. The entry is created when a path between a GGSN
+        and SGSN is setup and the corresponding peer is not yet listed 
+        in the GSN peer table. The entry is deleted when the path 
+        is released, or echo test message on the path times out 
+        after certain retry number defined as cGtpN3Request."
+    INDEX           {
+                        cGtpGSNAddressType,
+                        cGtpGSNAddress
+                    } 
+    ::= { cGtpGSNTable 1 }
+
+CGtpGSNEntry ::= SEQUENCE {
+        cGtpGSNAddressType InetAddressType,
+        cGtpGSNAddress     InetAddress,
+        cGtpGSNVersion     CGtpVersion
+}
+
+cGtpGSNAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "The type of Internet address by which cGtpGSNAddress
+        is reachable." 
+    ::= { cGtpGSNEntry 1 }
+
+cGtpGSNAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "Ip address that uniquely identify a GSN node." 
+    ::= { cGtpGSNEntry 2 }
+
+cGtpGSNVersion OBJECT-TYPE
+    SYNTAX          CGtpVersion
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the GTP version supported by the
+        GSN node, identified by cGtpGSNAddressType and cGtpGSNAddress.
+
+        The value:
+            version0 - represents GTP version0 and
+            version1 - represents GTP version1." 
+    ::= { cGtpGSNEntry 3 }
+ 
+
+
+cGtpPathTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGtpPathEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table identifies the paths established on a GSN. The
+        path may be established between a GGSN and SGSN or GGSN 
+        and charging gateway or GGSN and MAP converting GSN.
+
+        The path between GGSN and charging gateway is established
+        when the charging gateway is configured on the GGSN.
+
+        The path between GGSN and MAP converting GSN is established
+        when the MAP converting GSN is configured on the GGSN.
+
+        The path between a GGSN and SGSN is established in the 
+        following series of steps:
+
+        1. When Mobile System (MS) wants service, it sends packets
+           to a SGSN with specific APN.
+
+        2. SGSN uses the DNS to resolve this APN to the IP address
+           of the GGSN which is the designated as the gateway to
+           this APN.
+
+        3. SGSN establishes a path to the GGSN using GTP protocol.
+
+        4. The SGSN and GGSN peer maintains path by sending echo
+           request message to each other. If one side fails in echo
+           reply for certain times, the other side will send a
+           trap to NMS. A SGSN can have multiple GGSN as peers,
+           while a GGSN can have multiple SGSN peers, depending
+           on routing path. Moreover, a GSN can have more than one 
+           path to a peer, each of which will have a unique port."
+    ::= { cGtpStatus 7 }
+
+cGtpPathEntry OBJECT-TYPE
+    SYNTAX          CGtpPathEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The entry is created:
+        1. When a path between a GGSN and SGSN is setup.
+
+        2. Or, when a path between the GGSN and the charging
+           gateway is setup.
+
+        3. Or, when a path between GGSN and the MAP converting GSN 
+           is setup. 
+
+        The entry is deleted when the path is released, or echo 
+        test message on the path times out after certain retry number
+        defined as cGtpN3Request."
+    INDEX           {
+                        cGtpPathAddressType,
+                        cGtpPathAddress,
+                        cGtpPathPort
+                    } 
+    ::= { cGtpPathTable 1 }
+
+CGtpPathEntry ::= SEQUENCE {
+        cGtpPathAddressType InetAddressType,
+        cGtpPathAddress     InetAddress,
+        cGtpPathPort        InetPortNumber,
+        cGtpPathVersion     CGtpVersion,
+        cGtpPathRemoteNode  CGtpEntities,
+        cGtpPathVrfName     SnmpAdminString
+}
+
+cGtpPathAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address by which cGtpPathAddress
+        is reachable." 
+    ::= { cGtpPathEntry 1 }
+
+cGtpPathAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An address that uniquely identifies a remote node to which
+        this path is established." 
+    ::= { cGtpPathEntry 2 }
+
+cGtpPathPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the port on the remote node.
+        The value of zero is invalid." 
+    ::= { cGtpPathEntry 3 }
+
+cGtpPathVersion OBJECT-TYPE
+    SYNTAX          CGtpVersion
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the GTP version of the path
+        identified by cGtpPathEntry.
+
+        The value:
+            version0 - represents GTP version0 and
+            version1 - represents GTP version1." 
+    ::= { cGtpPathEntry 4 }
+
+cGtpPathRemoteNode OBJECT-TYPE
+    SYNTAX          CGtpEntities
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the remote node associated
+        to the path identified by this entry." 
+    ::= { cGtpPathEntry 5 }
+
+cGtpPathVrfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the VRF name on the inter-node
+        interface through which this GTP path is established." 
+    ::= { cGtpPathEntry 6 }
+ 
+
+
+cGtpTotalActivePaths OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of paths
+        currently active on the gateway." 
+    ::= { cGtpStatus 8 }
+
+cGtpTotalActiveGtpv1DataPaths OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of GTPv1-U data
+        paths currently active on the gateway." 
+    ::= { cGtpStatus 9 }
+
+-- Statistics
+
+cGtpPathFailureOccurrences OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "times"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of times that any one of this GSN's peers
+        failed to respond to an GTP 'Echo Request' messages
+        during the waiting intervals." 
+    ::= { cGtpStatistics 1 }
+
+cGtpCurrentUsedBandwidth OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "bits/sec"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The current amount of bandwith resource used on the GSN." 
+    ::= { cGtpStatistics 2 }
+
+cGtpTotalDroppedPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of received GTP packets that could not
+        be processed and are dropped since system started." 
+    ::= { cGtpStatistics 3 }
+
+cGtpPathStatisticsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGtpPathStatisticsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table has the statistics for each SGSN path established."
+    ::= { cGtpStatistics 4 }
+
+cGtpPathStatisticsEntry OBJECT-TYPE
+    SYNTAX          CGtpPathStatisticsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table.
+
+        Creation of row(s) will happen when a PATH is established.
+
+        Deletion of row(s) will happen when the PATH gets removed."
+    INDEX           {
+                        cGtpPathAddressType,
+                        cGtpPathAddress,
+                        cGtpPathPort
+                    } 
+    ::= { cGtpPathStatisticsTable 1 }
+
+CGtpPathStatisticsEntry ::= SEQUENCE {
+        cGtpUnexpectedMsgs          Counter32,
+        cGtpDroppedDataMsgs         Counter32,
+        cGtpRcvdPDUMsgs             Counter32,
+        cGtpSentPDUMsgs             Counter32,
+        cGtpRcvdPDUOctets           Counter64,
+        cGtpSentPDUOctets           Counter64,
+        cGtpMsgTooShort             Counter32,
+        cGtpUnknownMsgs             Counter32,
+        cGtpUnexpectedSigMsgs       Counter32,
+        cGtpRoamingPDUs             Counter32,
+        cGtpSecurityViolations      Counter32,
+        cGtpUnsupportedExtHdr       Counter32,
+        cGtpPathFailures            Counter32,
+        cGtpTotalDropped            Counter32,
+        cGtpDroppedSigMsgs          Counter32,
+        cGtpRcvdSigMsgs             Counter32,
+        cGtpSentSigMsgs             Counter32,
+        cGtpTotalCreatedPDPs        Counter32,
+        cGtpTotalDeletedPDPs        Counter32,
+        cGtpTotalCreatedPppPDPs     Counter32,
+        cGtpTotalDeletedPppPDPs     Counter32,
+        cGtpSinglePDPSessCleared    Counter32,
+        cGtpPathFailLocalDelPDPs    Counter32,
+        cGtpVerUpgradeLocalDelPDPs  Counter32,
+        cGtpNoSgsnLocalDelPDPs      Counter32,
+        cGtpVerFallbackLocalDelPDPs Counter32,
+        cGtpCreateCollideWithDel    Counter32,
+        cGtpVersionChanges          Counter32,
+        cGtpRetransCreatePDPReqs    Counter32,
+        cGtpCreateAsUpdate          Counter32,
+        cGtpIpv6PdpActRejects       Counter32,
+        cGtpIpv6CreatedPDPs         Counter32,
+        cGtpIpv6DeletedPDPs         Counter32,
+        cGtpIpv6RcvdSigMsgs         Counter32,
+        cGtpIpv6SentSigMsgs         Counter32,
+        cGtpIpv6RcvdPDUs            Counter32,
+        cGtpIpv6SentPDUs            Counter32,
+        cGtpIpv6RcvdOctets          Counter64,
+        cGtpIpv6SentOctets          Counter64,
+        cGtpNoWaitSgsnLocalDelPDPs  Counter32,
+        cGtpNoReqSgsnLocalDelPDPs   Counter32,
+        cGtpRoamingTrustedPDPs      Counter32,
+        cGtpRoamingNonTrustedPDPs   Counter32,
+        cGtpNonRoamingPDPs          Counter32,
+        cGtpSentPdpUpdateReqs       Counter32,
+        cGtpRcvdPdpUpdateResponses  Counter32,
+        cGtpTotalDtEnabled          Counter32,
+        cGtpIpv4v6CreatedPDPs       Counter32,
+        cGtpIpv4v6DeletedPDPs       Counter32
+}
+
+cGtpUnexpectedMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of unexpected PDUs
+        received. 
+
+        Trigger Condition: The counter is incremented when GGSN
+        receives a GTP PDU for nonexistent PDP context." 
+    ::= { cGtpPathStatisticsEntry 1 }
+
+cGtpDroppedDataMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of GTP PDUs dropped
+        on a GTP-U data path." 
+    ::= { cGtpPathStatisticsEntry 2 }
+
+cGtpRcvdPDUMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of PDU messages received
+        on a GTP-U data path." 
+    ::= { cGtpPathStatisticsEntry 3 }
+
+cGtpSentPDUMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of PDU messages sent
+        on a GTP-U data path." 
+    ::= { cGtpPathStatisticsEntry 4 }
+
+cGtpRcvdPDUOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of bytes received in PDU
+        message on a GTP-U data path." 
+    ::= { cGtpPathStatisticsEntry 5 }
+
+cGtpSentPDUOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of bytes sent in PDU message
+        on a GTP-U data path." 
+    ::= { cGtpPathStatisticsEntry 6 }
+
+cGtpMsgTooShort OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of GTP-PDU messages
+        which are too short.
+
+        Trigger Condition: The counter is incremented when a
+        GTP message received that is too short to hold the 
+        GTP header for the supported GTP version." 
+    ::= { cGtpPathStatisticsEntry 7 }
+
+cGtpUnknownMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of unknown GTP messages
+        received.
+
+        Trigger Condition: The counter is incremented when a message
+        using a Message Type value defining an unknown GTP
+        signalling message is received." 
+    ::= { cGtpPathStatisticsEntry 8 }
+
+cGtpUnexpectedSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of unexpected
+        GTP signaling messages received.
+
+        Trigger Condition: The counter is incremented when a message 
+        received on the wrong end of the tunnel or a response 
+        message received for a request that was not sent by the 
+        GGSN." 
+    ::= { cGtpPathStatisticsEntry 9 }
+
+cGtpRoamingPDUs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdus"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the number of PDUs received from a
+        roaming MS on a SGSN path. This object is deprecated and
+        replaced with more specific objects cGtpRoamingTrustedPDPs and
+        cGtpRoamingNonTrustedPDPs." 
+    ::= { cGtpPathStatisticsEntry 10 }
+
+cGtpSecurityViolations OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This objects represents the number of security violations
+        happened on each SGSN path.
+
+        Trigger Condition: The counter is incremented when a 
+        GGSN receives the packet from MS with source or destination 
+        address violation." 
+    ::= { cGtpPathStatisticsEntry 11 }
+
+cGtpUnsupportedExtHdr OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of create PDP context
+        requests received with unsupported extension headers." 
+    ::= { cGtpPathStatisticsEntry 12 }
+
+cGtpPathFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of path failures on the
+        GGSN.
+
+        Trigger Condition: The counter is incremented when the
+        transmit response timer expires for any message sent on 
+        the path." 
+    ::= { cGtpPathStatisticsEntry 13 }
+
+cGtpTotalDropped OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of dropped packets by GGSN." 
+    ::= { cGtpPathStatisticsEntry 14 }
+
+cGtpDroppedSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of signalling packets
+        dropped by GGSN." 
+    ::= { cGtpPathStatisticsEntry 15 }
+
+cGtpRcvdSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of signaling messages
+        received on a GTP-C signaling path." 
+    ::= { cGtpPathStatisticsEntry 16 }
+
+cGtpSentSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of signaling messages sent
+        on a GTP-C signaling path." 
+    ::= { cGtpPathStatisticsEntry 17 }
+
+cGtpTotalCreatedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of created PDPs on this path
+        since the path was created. This includes static, dynamic, IP
+        PDPs." 
+    ::= { cGtpPathStatisticsEntry 18 }
+
+cGtpTotalDeletedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of PDPs deleted on this path
+        since the path was created." 
+    ::= { cGtpPathStatisticsEntry 19 }
+
+cGtpTotalCreatedPppPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of PPP PDPs created since
+        the system is up." 
+    ::= { cGtpPathStatisticsEntry 20 }
+
+cGtpTotalDeletedPppPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of PPP PDPs deleted since
+        the system is up." 
+    ::= { cGtpPathStatisticsEntry 21 }
+
+cGtpSinglePDPSessCleared OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of hanging single PDP
+        contexts cleared on the GGSN." 
+    ::= { cGtpPathStatisticsEntry 22 }
+
+cGtpPathFailLocalDelPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of PDPs deleted locally
+        because of path failure." 
+    ::= { cGtpPathStatisticsEntry 23 }
+
+cGtpVerUpgradeLocalDelPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of PDPs, which are
+        deleted locally, due to version upgrade." 
+    ::= { cGtpPathStatisticsEntry 24 }
+
+cGtpNoSgsnLocalDelPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PDPs, which are
+        deleted locally without sending delete PDP request.
+
+        If GPRS service is turned off, or GGSN is in standby mode, the
+        PDPs are deleted locally." 
+    ::= { cGtpPathStatisticsEntry 25 }
+
+cGtpVerFallbackLocalDelPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PDPs, which are
+        deleted locally, due to fallback in GTP version.
+
+        Trigger condition: The counter is incremented when GGSN 
+        receives create request of version0 PDP which exists on GTP 
+        version1 path." 
+    ::= { cGtpPathStatisticsEntry 26 }
+
+cGtpCreateCollideWithDel OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of collisions
+        happened when a PDP is locally deleted and recreated." 
+    ::= { cGtpPathStatisticsEntry 27 }
+
+cGtpVersionChanges OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of GTP version changes
+        occurred on a SGSN path.
+
+        Trigger condition: The counter is incremented when GGSN 
+        receives create request for version1 PDP, which exists on GTP
+        version0 path." 
+    ::= { cGtpPathStatisticsEntry 28 }
+
+cGtpRetransCreatePDPReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of retransmitted create PDP
+        requests received. 
+
+        Trigger condition: The counter is incremented when GGSN 
+        receives create PDP request with same sequence number as
+        before." 
+    ::= { cGtpPathStatisticsEntry 29 }
+
+cGtpCreateAsUpdate OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of create requests
+        received, which are treated as update request on GGSN.
+
+        Trigger condition: The counter is incremented when GGSN 
+        receives create request for an existing PDP." 
+    ::= { cGtpPathStatisticsEntry 30 }
+
+cGtpIpv6PdpActRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of IPv6 PDP activation
+        rejected by the GGSN." 
+    ::= { cGtpPathStatisticsEntry 31 }
+
+cGtpIpv6CreatedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of IPv6 PDPs
+        successfully created on a GTP-C signaling or a GTP-U data path.
+        This includes static,dynamic, IP PDPs." 
+    ::= { cGtpPathStatisticsEntry 32 }
+
+cGtpIpv6DeletedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of IPv6 PDPs deleted on
+        a GTP-C signaling or a GTP-U data path." 
+    ::= { cGtpPathStatisticsEntry 33 }
+
+cGtpIpv6RcvdSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the total number of IPv6 signaling
+        messages received on SGSN path. This object is deprecated
+        as there is no corresponding counter in GGSN. All signaling
+        messages received are indicated by cGtpRcvdSigMsgs." 
+    ::= { cGtpPathStatisticsEntry 34 }
+
+cGtpIpv6SentSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the number of IPv6 signaling
+        messages sent on SGSN path. This object is deprecated
+        as there is no corresponding counter in GGSN. All
+        signaling messages sent are indicated by cGtpSentSigMsgs." 
+    ::= { cGtpPathStatisticsEntry 35 }
+
+cGtpIpv6RcvdPDUs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of IPv6 PDU messages
+        received on a GTP-U data path." 
+    ::= { cGtpPathStatisticsEntry 36 }
+
+cGtpIpv6SentPDUs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of IPv6 PDU messages
+        sent on a GTP-U data path." 
+    ::= { cGtpPathStatisticsEntry 37 }
+
+cGtpIpv6RcvdOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of bytes received in IPv6 PDU
+        message on a GTP-U data path." 
+    ::= { cGtpPathStatisticsEntry 38 }
+
+cGtpIpv6SentOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of bytes sent in IPv6 PDU
+        message on a GTP-U data path." 
+    ::= { cGtpPathStatisticsEntry 39 }
+
+cGtpNoWaitSgsnLocalDelPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PDPs deleted
+        for a given SGSN path in GGSN without waiting for
+        a delete PDP context response from the SGSN." 
+    ::= { cGtpPathStatisticsEntry 40 }
+
+cGtpNoReqSgsnLocalDelPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of PDPs deleted
+        locally in GGSN on a SGSN path without sending a
+        delete PDP request to the SGSN." 
+    ::= { cGtpPathStatisticsEntry 41 }
+
+cGtpRoamingTrustedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of roaming PDP
+        contexts in a trusted PLMN." 
+    ::= { cGtpPathStatisticsEntry 42 }
+
+cGtpRoamingNonTrustedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of roaming PDP
+        contexts that are not in a trusted PLMN." 
+    ::= { cGtpPathStatisticsEntry 43 }
+
+cGtpNonRoamingPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of non-roaming PDPs
+        on a SGSN path." 
+    ::= { cGtpPathStatisticsEntry 44 }
+
+cGtpSentPdpUpdateReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of GGSN
+        initiated update PDP requests sent on a SGSN path." 
+    ::= { cGtpPathStatisticsEntry 45 }
+
+cGtpRcvdPdpUpdateResponses OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of update
+        PDP responses received from the SGSN for the GGSN
+        initiated update PDP requests." 
+    ::= { cGtpPathStatisticsEntry 46 }
+
+cGtpTotalDtEnabled OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of times
+        Direct tunnel is enabled for the PDP contexts in
+        GGSN." 
+    ::= { cGtpPathStatisticsEntry 47 }
+
+cGtpIpv4v6CreatedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of IPv4v6 PDPs
+        successfully created on a GTP-C signaling or a GTP-U data path." 
+    ::= { cGtpPathStatisticsEntry 48 }
+
+cGtpIpv4v6DeletedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of IPv4v6 PDPs deleted
+        on a GTP-C signaling or a GTP-U data path." 
+    ::= { cGtpPathStatisticsEntry 49 }
+ 
+
+
+cGtpPathStatisticsHistoryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGtpPathStatisticsHistEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table indicates historical information for GTP paths
+        which have been deleted."
+    ::= { cGtpStatistics 5 }
+
+cGtpPathStatisticsHistEntry OBJECT-TYPE
+    SYNTAX          CGtpPathStatisticsHistEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table.
+
+        Creation of row(s) will happen when a PATH is removed.
+
+        Deletion of row(s) will happen when the PATH entry limit,
+        given by the object cGtpPathHistoryLimit, is reached.
+        The oldest paths will be removed once the limit is
+        reached."
+    INDEX           {
+                        cGtpHistIndex,
+                        cGtpHistRemoteAddrType,
+                        cGtpHistRemoteAddress,
+                        cGtpHistRemotePort
+                    } 
+    ::= { cGtpPathStatisticsHistoryTable 1 }
+
+CGtpPathStatisticsHistEntry ::= SEQUENCE {
+        cGtpHistIndex                  CGtpMaxHistNumber,
+        cGtpHistRemoteAddrType         InetAddressType,
+        cGtpHistRemoteAddress          InetAddress,
+        cGtpHistRemotePort             InetPortNumber,
+        cGtpHistUnexpectedMsgs         Counter32,
+        cGtpHistDroppedDataMsgs        Counter32,
+        cGtpHistRcvdPDUMsgs            Counter32,
+        cGtpHistSentPDUMsgs            Counter32,
+        cGtpHistRcvdPDUOctets          Counter64,
+        cGtpHistSentPDUOctets          Counter64,
+        cGtpHistMsgTooShort            Counter32,
+        cGtpHistUnknownMsgs            Counter32,
+        cGtpHistUnexpectedSigMsgs      Counter32,
+        cGtpHistRoamingPDUs            Counter32,
+        cGtpHistSecurityViolations     Counter32,
+        cGtpHistUnsupportedExtHdr      Counter32,
+        cGtpHistPathFailures           Counter32,
+        cGtpHistTotalDropped           Counter32,
+        cGtpHistDroppedSigMsgs         Counter32,
+        cGtpHistRcvdSigMsgs            Counter32,
+        cGtpHistSentSigMsgs            Counter32,
+        cGtpHistTotalCreatedPDPs       Counter32,
+        cGtpHistTotalDeletedPDPs       Counter32,
+        cGtpHistTotalCreatedPppPDPs    Counter32,
+        cGtpHistTotalDeletedPppPDPs    Counter32,
+        cGtpHistSinglePDPSessCleared   Counter32,
+        cGtpHistPathFailLocalDelPDPs   Counter32,
+        cGtpHistVerUpgradeLocalDel     Counter32,
+        cGtpHistNoSgsnLocalDelPDPs     Counter32,
+        cGtpHistVerFallbackLocalDel    Counter32,
+        cGtpHistCreateCollideWithDel   Counter32,
+        cGtpHistVersionChanges         Counter32,
+        cGtpHistRetransCreatePDPReqs   Counter32,
+        cGtpHistCreateAsUpdate         Counter32,
+        cGtpHistIpv6PdpActRejects      Counter32,
+        cGtpHistIpv6CreatedPDPs        Counter32,
+        cGtpHistIpv6DeletedPDPs        Counter32,
+        cGtpHistIpv6RcvdSigMsgs        Counter32,
+        cGtpHistIpv6SentSigMsgs        Counter32,
+        cGtpHistIpv6RcvdPDUs           Counter32,
+        cGtpHistIpv6SentPDUs           Counter32,
+        cGtpHistIpv6RcvdOctets         Counter64,
+        cGtpHistIpv6SentOctets         Counter64,
+        cGtpHistNoWaitSgsnLocalDelPDPs Counter32,
+        cGtpHistNoReqSgsnLocalDelPDPs  Counter32,
+        cGtpHistRoamingTrustedPDPs     Counter32,
+        cGtpHistRoamingNonTrustedPDPs  Counter32,
+        cGtpHistNonRoamingPDPs         Counter32,
+        cGtpHistSentPdpUpdateReqs      Counter32,
+        cGtpHistRcvdPdpUpdateResponses Counter32,
+        cGtpHistTotalDtEnabled         Counter32,
+        cGtpHistRemoteNode             CGtpEntities,
+        cGtpHistIpv4v6CreatedPDPs      Counter32,
+        cGtpHistIpv4v6DeletedPDPs      Counter32
+}
+
+cGtpHistIndex OBJECT-TYPE
+    SYNTAX          CGtpMaxHistNumber
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the history number of an entry." 
+    ::= { cGtpPathStatisticsHistEntry 1 }
+
+cGtpHistRemoteAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of the Internet address
+        of the object cGtpHistRemoteAddress." 
+    ::= { cGtpPathStatisticsHistEntry 2 }
+
+cGtpHistRemoteAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Internet address for the remote end
+        of the GTP path, such as the address of the SGSN." 
+    ::= { cGtpPathStatisticsHistEntry 3 }
+
+cGtpHistRemotePort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the port number for the remote end of
+        the GTP path." 
+    ::= { cGtpPathStatisticsHistEntry 4 }
+
+cGtpHistUnexpectedMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of
+        unexpected PDUs received.
+
+        Trigger Condition: The counter is incremented when GGSN
+        receives a GTP PDU for nonexistent PDP context." 
+    ::= { cGtpPathStatisticsHistEntry 5 }
+
+cGtpHistDroppedDataMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of GTP
+        PDUs dropped for a specific SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 6 }
+
+cGtpHistRcvdPDUMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of PDU
+        messages received on a SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 7 }
+
+cGtpHistSentPDUMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of PDU
+        messages sent on a SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 8 }
+
+cGtpHistRcvdPDUOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of bytes
+        received in PDU message on a SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 9 }
+
+cGtpHistSentPDUOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of bytes
+        sent in PDU message on a SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 10 }
+
+cGtpHistMsgTooShort OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of
+        GTP-PDU messages which are too short.
+
+        Trigger Condition: The counter is incremented when a
+        GTP message received that is too short to hold the
+        GTP header for the supported GTP version." 
+    ::= { cGtpPathStatisticsHistEntry 11 }
+
+cGtpHistUnknownMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of unknown
+        GTP messages received.
+
+        Trigger Condition: The counter is incremented when a message
+        using a Message Type value defining an unknown GTP
+        signalling message is received." 
+    ::= { cGtpPathStatisticsHistEntry 12 }
+
+cGtpHistUnexpectedSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of unexpected
+        GTP signaling messages received.
+
+        Trigger Condition: The counter is incremented when a message 
+        received on the wrong end of the tunnel or a response 
+        message received for a request that was not sent by the 
+        GGSN." 
+    ::= { cGtpPathStatisticsHistEntry 13 }
+
+cGtpHistRoamingPDUs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdus"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the historical number of PDUs
+        received from a roaming MS on a SGSN path. This object
+        is deprecated and replaced with more specific objects
+        cGtpHistRoamingTrustedPDPs, cGtpHistRoamingNonTrustedPDPs." 
+    ::= { cGtpPathStatisticsHistEntry 14 }
+
+cGtpHistSecurityViolations OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of security
+        violations happened on each SGSN path.
+
+        Trigger Condition: The counter is incremented when a 
+        GGSN receives the packet from MS with source or destination 
+        address violation." 
+    ::= { cGtpPathStatisticsHistEntry 15 }
+
+cGtpHistUnsupportedExtHdr OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of create
+        PDP context requests received with unsupported extension
+        headers." 
+    ::= { cGtpPathStatisticsHistEntry 16 }
+
+cGtpHistPathFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of path
+        failures on the GGSN.
+
+        Trigger Condition: The counter is incremented when the
+        transmit response timer expires for any message sent on 
+        the path." 
+    ::= { cGtpPathStatisticsHistEntry 17 }
+
+cGtpHistTotalDropped OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of
+        dropped packets by GTP." 
+    ::= { cGtpPathStatisticsHistEntry 18 }
+
+cGtpHistDroppedSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of
+        signalling packets dropped by GGSN." 
+    ::= { cGtpPathStatisticsHistEntry 19 }
+
+cGtpHistRcvdSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of
+        signaling messages received on a GTP-C signaling path." 
+    ::= { cGtpPathStatisticsHistEntry 20 }
+
+cGtpHistSentSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of
+        signaling messages sent on a GTP-C signaling path." 
+    ::= { cGtpPathStatisticsHistEntry 21 }
+
+cGtpHistTotalCreatedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of
+        created PDPs since system is up. This includes
+        static, dynamic, IP PDPs." 
+    ::= { cGtpPathStatisticsHistEntry 22 }
+
+cGtpHistTotalDeletedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of PDPs
+        deleted since system is up." 
+    ::= { cGtpPathStatisticsHistEntry 23 }
+
+cGtpHistTotalCreatedPppPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of PPP
+        PDPs created since the system is up." 
+    ::= { cGtpPathStatisticsHistEntry 24 }
+
+cGtpHistTotalDeletedPppPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of PPP
+        PDPs deleted since the system is up." 
+    ::= { cGtpPathStatisticsHistEntry 25 }
+
+cGtpHistSinglePDPSessCleared OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of hanging
+        single PDP contexts cleared on the GGSN." 
+    ::= { cGtpPathStatisticsHistEntry 26 }
+
+cGtpHistPathFailLocalDelPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of PDPs
+        deleted locally because of path failure." 
+    ::= { cGtpPathStatisticsHistEntry 27 }
+
+cGtpHistVerUpgradeLocalDel OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of PDPs,
+        which are deleted locally, due to version upgrade." 
+    ::= { cGtpPathStatisticsHistEntry 28 }
+
+cGtpHistNoSgsnLocalDelPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of PDPs,
+        which are deleted locally without sending delete PDP
+        request.
+
+        If GPRS service is turned off, or GGSN is in standby mode, the
+        PDPs are deleted locally." 
+    ::= { cGtpPathStatisticsHistEntry 29 }
+
+cGtpHistVerFallbackLocalDel OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of PDPs,
+        which are deleted locally, due to fallback in GTP
+        version.
+
+        Trigger condition: The counter is incremented when GGSN
+        receives create request for version0 PDP which exists on GTP
+        version1 path." 
+    ::= { cGtpPathStatisticsHistEntry 30 }
+
+cGtpHistCreateCollideWithDel OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of
+        collisions happened when a PDP is locally deleted
+        and recreated." 
+    ::= { cGtpPathStatisticsHistEntry 31 }
+
+cGtpHistVersionChanges OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of GTP
+        version changes occured on a SGSN path.
+
+        Trigger condition: The counter is incremented when GGSN
+        receives create request for version1 PDP, which exists on GTP
+        version0 path." 
+    ::= { cGtpPathStatisticsHistEntry 32 }
+
+cGtpHistRetransCreatePDPReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of
+        retransmitted create PDP requests received.
+
+        Trigger condition: The counter is incremented when GGSN
+        receives create PDP request with same sequence number as
+        before." 
+    ::= { cGtpPathStatisticsHistEntry 33 }
+
+cGtpHistCreateAsUpdate OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of
+        create requests received, which are treated as
+        update request on GGSN.
+
+        Trigger condition: The counter is incremented when GGSN
+        receives create request for an existing PDP." 
+    ::= { cGtpPathStatisticsHistEntry 34 }
+
+cGtpHistIpv6PdpActRejects OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of IPv6
+        PDP activation rejected by the GGSN." 
+    ::= { cGtpPathStatisticsHistEntry 35 }
+
+cGtpHistIpv6CreatedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of IPv6
+        PDPs successfully created on SGSN path. This includes
+        static, dynamic IP PDPs." 
+    ::= { cGtpPathStatisticsHistEntry 36 }
+
+cGtpHistIpv6DeletedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of IPv6
+        PDPs deleted on SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 37 }
+
+cGtpHistIpv6RcvdSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the historical number of IPv6
+        signaling messages received on SGSN path. This object
+        is deprecated as there is no corresponding counter in
+        GGSN. The historical number of all the signaling messages
+        received is denoted by cGtpHistRcvdSigMsgs." 
+    ::= { cGtpPathStatisticsHistEntry 38 }
+
+cGtpHistIpv6SentSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the historical number of IPv6
+        signaling messages sent on SGSN path. This object is
+        deprecated as there is no corresponding counter in
+        GGSN. The historical number of all signaling messages
+        sent is denoted by cGtpHistSentSigMsgs." 
+    ::= { cGtpPathStatisticsHistEntry 39 }
+
+cGtpHistIpv6RcvdPDUs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of IPv6
+        PDU messages received on SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 40 }
+
+cGtpHistIpv6SentPDUs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of IPv6
+        PDU messages sent on SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 41 }
+
+cGtpHistIpv6RcvdOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of bytes
+        received in IPV6 PDU message on SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 42 }
+
+cGtpHistIpv6SentOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of bytes
+        sent in IPv6 PDU message on SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 43 }
+
+cGtpHistNoWaitSgsnLocalDelPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of PDPs
+        deleted in GGSN without waiting for a delete PDP
+        response from the SGSN." 
+    ::= { cGtpPathStatisticsHistEntry 44 }
+
+cGtpHistNoReqSgsnLocalDelPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of PDPs
+        deleted in GGSN without sending a delete PDP request
+        to the SGSN." 
+    ::= { cGtpPathStatisticsHistEntry 45 }
+
+cGtpHistRoamingTrustedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of roaming
+        PDP contexts in a trusted PLMN on a SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 46 }
+
+cGtpHistRoamingNonTrustedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of roaming
+        PDP contexts that are not in a trusted PLMN on a SGSN
+        path." 
+    ::= { cGtpPathStatisticsHistEntry 47 }
+
+cGtpHistNonRoamingPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "pdps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of
+        non-roaming PDPs on a SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 48 }
+
+cGtpHistSentPdpUpdateReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of GGSN
+        initiated update PDP requests sent on a SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 49 }
+
+cGtpHistRcvdPdpUpdateResponses OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of update
+        PDP responses received from the SGSN for the GGSN
+        initiated update PDP requests." 
+    ::= { cGtpPathStatisticsHistEntry 50 }
+
+cGtpHistTotalDtEnabled OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of
+        times Direct tunnel is enabled for the PDP contexts
+        in GGSN on a SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 51 }
+
+cGtpHistRemoteNode OBJECT-TYPE
+    SYNTAX          CGtpEntities
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the remote node to which
+        the GTP path was associated." 
+    ::= { cGtpPathStatisticsHistEntry 52 }
+
+cGtpHistIpv4v6CreatedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of IPv4v6
+        PDPs successfully created on SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 53 }
+
+cGtpHistIpv4v6DeletedPDPs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the historical number of IPv4v6
+        PDPs deleted on SGSN path." 
+    ::= { cGtpPathStatisticsHistEntry 54 }
+ 
+
+
+cGtpNetworkBehindMsApns OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "APN"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        APNs configured to support routing 
+        behind the MS in the gateway.
+
+        Network-behind-mobile access-point is configured 
+        to enable an access point to support routing behind 
+        the MS. The routing behind the MS feature enables 
+        the routing of packets to IP addresses that do not 
+        belong to the PDP context (the MS), but exist behind
+        it." 
+    ::= { cGtpStatistics 6 }
+
+cGtpTotalDownldFramedRout OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        routes downloaded from the AAA server." 
+    ::= { cGtpStatistics 7 }
+
+cGtpTotalDownldFramedRoutSavedFail OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        downloaded routes that could not be saved due to 
+        no memory." 
+    ::= { cGtpStatistics 8 }
+
+cGtpTotalDownldFramedRoutInsFail OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        downloaded routes that cannot be inserted into 
+        the routing table because it is conflicting with 
+        other routes." 
+    ::= { cGtpStatistics 9 }
+
+cGtpTotalDownldFramedRoutIns OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        routes downloaded from the AAA server that 
+        have been inserted into the routing table." 
+    ::= { cGtpStatistics 10 }
+
+cGtpTotalDownldFramedRoutDeleted OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        routes downloaded from the AAA server that
+        have been deleted from the routing table." 
+    ::= { cGtpStatistics 11 }
+
+cGtpTotalv0v1SigMsgDropped OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of GTPv0 and GTPv1
+        signalling messages that could not be processed and are
+        dropped since system started." 
+    ::= { cGtpStatistics 12 }
+
+cGtpTotalDataMsgDropped OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of data messages that
+        could not be processed and are dropped since system started." 
+    ::= { cGtpStatistics 13 }
+
+cGtpv0PathCreated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of GTPv0 paths created
+        since system started." 
+    ::= { cGtpStatistics 14 }
+
+cGtpv0PathDeleted OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of GTPv0 paths deleted
+        since system started." 
+    ::= { cGtpStatistics 15 }
+
+cGtpv0PathRestarted OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of GTPv0 paths
+        restarted since system started." 
+    ::= { cGtpStatistics 16 }
+
+cGtpv1SigPathCreated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of GTPv1 signalling
+        paths created since system started." 
+    ::= { cGtpStatistics 17 }
+
+cGtpv1SigPathDeleted OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of GTPv1 signalling
+        paths deleted since system started." 
+    ::= { cGtpStatistics 18 }
+
+cGtpv1SigPathRestarted OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of GTPv1 signalling
+        paths restarted since system started." 
+    ::= { cGtpStatistics 19 }
+
+cGtpv1DataPathCreated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of GTPv1 data paths
+        created since system started." 
+    ::= { cGtpStatistics 20 }
+
+cGtpv1DataPathDeleted OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of GTPv1 data paths
+        deleted since system started." 
+    ::= { cGtpStatistics 21 }
+
+cGtpv1DataPathRestarted OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of GTPv1 data paths
+        restarted since system started." 
+    ::= { cGtpStatistics 22 }
+
+cGtpTotalDownlinkQosFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of downlink packet
+        drops due to Qos failure on the gateway." 
+    ::= { cGtpStatistics 23 }
+
+cGtpTotalUplinkQosFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of uplink packet 
+        drops due to Qos failure on the gateway." 
+    ::= { cGtpStatistics 24 }
+-- Notification Definitions
+
+cGtpNotifPrefix  OBJECT IDENTIFIER
+    ::= { cGtpMIB 2 }
+
+cGtpNotifications  OBJECT IDENTIFIER
+    ::= { cGtpNotifPrefix 0 }
+
+
+-- notifications
+
+cGtpPathFailedNotification NOTIFICATION-TYPE
+    OBJECTS         {
+                        cGtpLastNoRespToEchoGSNIpAddrTyp,
+                        cGtpLastNoRespToEchoGSNIpAddr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when one of this GSN's peers
+        failed to respond to the GTP 'Echo Request' message for 
+        the waiting interval."
+   ::= { cGtpNotifications 1 }
+-- Conformances definitions
+
+cGtpMIBConformances  OBJECT IDENTIFIER
+    ::= { cGtpMIB 3 }
+
+cGtpMIBCompliances  OBJECT IDENTIFIER
+    ::= { cGtpMIBConformances 1 }
+
+cGtpMIBGroups  OBJECT IDENTIFIER
+    ::= { cGtpMIBConformances 2 }
+
+
+-- Compliances statements
+
+cGtpMIBCompliance MODULE-COMPLIANCE
+    STATUS          obsolete
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GTP-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpConfigurationsGroup,
+                        cGtpStatusGroup,
+                        cGtpStatisticsGroup
+                    }
+
+    OBJECT          cGtpVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpGSNAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "Support of IPv6 address and DNS is not mandatory."
+    ::= { cGtpMIBCompliances 1 }
+
+cGtpMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          obsolete
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GTP-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpConfigurationsGroupRev1,
+                        cGtpStatusGroupRev1,
+                        cGtpStatisticsGroupRev1
+                    }
+
+    OBJECT          cGtpVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpGSNAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "Support of IPv6 address and DNS is not mandatory."
+    ::= { cGtpMIBCompliances 2 }
+
+cGtpMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          obsolete
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GTP-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpConfigurationsGroupRev1,
+                        cGtpStatusGroupRev1,
+                        cGtpStatisticsGroupRev1,
+                        cGtpNotifGroup
+                    }
+
+    OBJECT          cGtpVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpGSNAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "Support of IPv6 address and DNS is not mandatory."
+    ::= { cGtpMIBCompliances 3 }
+
+cGtpMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GTP-MIB.  This is deprecated
+        by cGtpMIBComplianceRev4."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpConfigurationsGroupRev2,
+                        cGtpStatusGroupRev2,
+                        cGtpStatisticsGroupRev1,
+                        cGtpNotifGroup
+                    }
+
+    OBJECT          cGtpVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpGSNAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "Support of IPv6 address and DNS is not mandatory."
+    ::= { cGtpMIBCompliances 4 }
+
+cGtpMIBComplianceRev4 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GTP-MIB. This is deprecated by
+        cGtpMIBComplianceRev5."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpConfigurationsGroupRev2,
+                        cGtpStatusGroupRev3,
+                        cGtpStatisticsGroupRev1,
+                        cGtpNotifGroup
+                    }
+
+    OBJECT          cGtpVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { cGtpMIBCompliances 5 }
+
+cGtpMIBComplianceRev5 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GTP-MIB. This is deprecated
+        by cGtpMIBComplianceRev6."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpConfigurationsGroupRev2,
+                        cGtpConfigurationsGroupSup1,
+                        cGtpStatusGroupRev3,
+                        cGtpStatisticsGroupRev1,
+                        cGtpStatisticsGroupSup1,
+                        cGtpNotifGroup
+                    }
+
+    OBJECT          cGtpVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { cGtpMIBCompliances 6 }
+
+cGtpMIBComplianceRev6 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GTP-MIB. This is deprecated
+        by cGtpMIBComplianceRev7."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpConfigurationsGroupRev2,
+                        cGtpConfigurationsGroupSup2,
+                        cGtpStatusGroupRev3,
+                        cGtpStatisticsGroupRev1,
+                        cGtpStatisticsGroupSup2,
+                        cGtpNotifGroup
+                    }
+
+    OBJECT          cGtpVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { cGtpMIBCompliances 7 }
+
+cGtpMIBComplianceRev7 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GTP-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpConfigurationsGroupRev2,
+                        cGtpConfigurationsGroupSup2,
+                        cGtpConfigurationsGroupSup3,
+                        cGtpStatusGroupRev3,
+                        cGtpStatisticsGroupRev1,
+                        cGtpStatisticsGroupSup2,
+                        cGtpNotifGroup
+                    }
+
+    OBJECT          cGtpVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpSgsnProfileEchoDisable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpSgsnProfileStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-create access is not required."
+
+    OBJECT          cGtpSgsnProfileIpAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileStartIpAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileEndIpAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only 'createAndGo', 'destroy' and 'active' need
+        to be supported."
+    ::= { cGtpMIBCompliances 8 }
+
+cGtpMIBComplianceRev8 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GTP-MIB. This compliance is deprecated by
+        cGtpMIBComplianceRev9."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpConfigurationsGroupRev2,
+                        cGtpConfigurationsGroupSup2,
+                        cGtpConfigurationsGroupSup3,
+                        cGtpStatusGroupRev3,
+                        cGtpStatusGroupSup1,
+                        cGtpStatisticsGroupRev1,
+                        cGtpStatisticsGroupSup2,
+                        cGtpStatisticsGroupSup3,
+                        cGtpNotifGroup
+                    }
+
+    OBJECT          cGtpVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpSgsnProfileEchoDisable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpSgsnProfileStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-create access is not required."
+
+    OBJECT          cGtpSgsnProfileIpAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileStartIpAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileEndIpAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only 'createAndGo', 'destroy' and 'active' need
+        to be supported."
+    ::= { cGtpMIBCompliances 9 }
+
+cGtpMIBComplianceRev9 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GTP-MIB.This compliance has 
+        been superceded by cGtpMIBComplianceRev10."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpConfigurationsGroupRev2,
+                        cGtpConfigurationsGroupSup2,
+                        cGtpConfigurationsGroupSup3,
+                        cGtpStatusGroupRev3,
+                        cGtpStatusGroupSup1,
+                        cGtpStatisticsGroupRev1,
+                        cGtpStatisticsGroupSup2,
+                        cGtpStatisticsGroupSup3,
+                        cGtpNotifGroup,
+                        cGtpStatisticsGroupSup4
+                    }
+
+    OBJECT          cGtpVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpSgsnProfileEchoDisable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpSgsnProfileStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-create access is not required."
+
+    OBJECT          cGtpSgsnProfileIpAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileStartIpAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileEndIpAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only 'createAndGo', 'destroy' and 'active' need
+        to be supported."
+    ::= { cGtpMIBCompliances 10 }
+
+cGtpMIBComplianceRev10 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for entities which
+        implement the CISCO-GTP-MIB.This compliance has 
+        been superceded by cGtpMIBComplianceRev11."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpStatisticsGroupRev1,
+                        cGtpNotifGroup,
+                        cGtpConfigurationsGroupRev2,
+                        cGtpStatusGroupRev3,
+                        cGtpConfigurationsGroupSup2,
+                        cGtpStatisticsGroupSup2,
+                        cGtpConfigurationsGroupSup3,
+                        cGtpStatusGroupSup1,
+                        cGtpStatisticsGroupSup3,
+                        cGtpStatisticsGroupSup4,
+                        cGtpStatusGroupSup2,
+                        cGtpStatisticsGroupSup5
+                    }
+
+    OBJECT          cGtpVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpSgsnProfileEchoDisable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpSgsnProfileStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-create access is not required."
+
+    OBJECT          cGtpSgsnProfileIpAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileStartIpAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileEndIpAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only 'createAndGo', 'destroy' and 'active' need
+        to be supported."
+    ::= { cGtpMIBCompliances 11 }
+
+cGtpMIBComplianceRev11 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statements for entities which implement the
+        CISCO-GTP-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpStatisticsGroupRev1,
+                        cGtpNotifGroup,
+                        cGtpConfigurationsGroupRev2,
+                        cGtpStatusGroupRev3,
+                        cGtpConfigurationsGroupSup2,
+                        cGtpStatisticsGroupSup2,
+                        cGtpConfigurationsGroupSup3,
+                        cGtpStatusGroupSup1,
+                        cGtpStatisticsGroupSup3,
+                        cGtpStatisticsGroupSup4,
+                        cGtpStatusGroupSup2,
+                        cGtpStatisticsGroupSup5,
+                        cGtpStatisticsGroupSup6
+                    }
+
+    OBJECT          cGtpVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpSgsnProfileEchoDisable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cGtpSgsnProfileStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-create access is not required."
+
+    OBJECT          cGtpSgsnProfileIpAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileStartIpAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileEndIpAddress
+    SYNTAX          InetAddress (SIZE (4))
+    DESCRIPTION
+        "An implementation is only required to support IPv4
+        addresses."
+
+    OBJECT          cGtpSgsnProfileRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only 'createAndGo', 'destroy' and 'active' need
+        to be supported."
+    ::= { cGtpMIBCompliances 12 }
+
+-- units of conformance
+
+cGtpConfigurationsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGtpGSNService,
+                        cGtpVersion,
+                        cGtpT3TunnelTimer,
+                        cGtpT3ResponseTimer,
+                        cGtpN3Request,
+                        cGtpN3BufferSize,
+                        cGtpEchoRequestTimer,
+                        cGtpGSNTotalBandwidthResrc,
+                        cGtpMaximumPdps,
+                        cGtpNotifEnable
+                    }
+    STATUS          obsolete
+    DESCRIPTION
+        "A collection of GTP configurations."
+    ::= { cGtpMIBGroups 1 }
+
+cGtpStatusGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGtpLastNoRespToEchoGSNIpAddrTyp,
+                        cGtpLastNoRespToEchoGSNIpAddr,
+                        cGtpPremiumQosMeanThroughput,
+                        cGtpNormalQosMeanThroughput,
+                        cGtpBestEffortQosMeanThroughput,
+                        cGtpGSNAddress
+                    }
+    STATUS          obsolete
+    DESCRIPTION
+        "A collection of GTP Status."
+    ::= { cGtpMIBGroups 2 }
+
+cGtpStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGtpPathFailureOccurrences,
+                        cGtpCurrentUsedBandwidth,
+                        cGtpTotalDroppedPackets
+                    }
+    STATUS          obsolete
+    DESCRIPTION
+        "A collection of GTP statistics ."
+    ::= { cGtpMIBGroups 3 }
+
+cGtpConfigurationsGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpGSNService,
+                        cGtpVersion,
+                        cGtpT3TunnelTimer,
+                        cGtpT3ResponseTimer,
+                        cGtpN3Request,
+                        cGtpN3BufferSize,
+                        cGtpEchoRequestTimerEnable,
+                        cGtpEchoRequestTimer,
+                        cGtpMaximumPdps,
+                        cGtpNotifEnable,
+                        cGtpDynamicEchoTimerEnable,
+                        cGtpDynamicEchoTimerMinTime,
+                        cGtpDynamicEchoTimerSmoothFactor
+                    }
+    STATUS          obsolete
+    DESCRIPTION
+        "A collection of GTP configurations."
+    ::= { cGtpMIBGroups 4 }
+
+cGtpStatusGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpLastNoRespToEchoGSNIpAddrTyp,
+                        cGtpLastNoRespToEchoGSNIpAddr,
+                        cGtpGSNAddress
+                    }
+    STATUS          obsolete
+    DESCRIPTION
+        "A collection of GTP Status."
+    ::= { cGtpMIBGroups 5 }
+
+cGtpStatisticsGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpPathFailureOccurrences,
+                        cGtpTotalDroppedPackets
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of GTP statistics."
+    ::= { cGtpMIBGroups 6 }
+
+cGtpNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cGtpPathFailedNotification }
+    STATUS          current
+    DESCRIPTION
+        "A collection of GTP notifications."
+    ::= { cGtpMIBGroups 7 }
+
+cGtpConfigurationsGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpGSNService,
+                        cGtpVersion,
+                        cGtpT3ResponseTimer,
+                        cGtpN3Request,
+                        cGtpN3BufferSize,
+                        cGtpEchoRequestTimerEnable,
+                        cGtpEchoRequestTimer,
+                        cGtpMaximumPdps,
+                        cGtpNotifEnable,
+                        cGtpDynamicEchoTimerEnable,
+                        cGtpDynamicEchoTimerMinTime,
+                        cGtpDynamicEchoTimerSmoothFactor
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of GTP configurations."
+    ::= { cGtpMIBGroups 8 }
+
+cGtpStatusGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpLastNoRespToEchoGSNIpAddrTyp,
+                        cGtpLastNoRespToEchoGSNIpAddr,
+                        cGtpGSNAddress,
+                        cGtpGSNVersion
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of GTP status.  This is deprecated by
+        cGtpStatusGroupRev3."
+    ::= { cGtpMIBGroups 9 }
+
+cGtpStatusGroupRev3 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpLastNoRespToEchoGSNIpAddrTyp,
+                        cGtpLastNoRespToEchoGSNIpAddr,
+                        cGtpPathVersion
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of GTP status."
+    ::= { cGtpMIBGroups 11 }
+
+cGtpStatisticsGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpUnexpectedMsgs,
+                        cGtpDroppedDataMsgs,
+                        cGtpRcvdPDUMsgs,
+                        cGtpSentPDUMsgs,
+                        cGtpRcvdPDUOctets,
+                        cGtpSentPDUOctets,
+                        cGtpMsgTooShort,
+                        cGtpUnknownMsgs,
+                        cGtpUnexpectedSigMsgs,
+                        cGtpRoamingPDUs,
+                        cGtpSecurityViolations,
+                        cGtpUnsupportedExtHdr,
+                        cGtpPathFailures,
+                        cGtpTotalDropped,
+                        cGtpDroppedSigMsgs,
+                        cGtpRcvdSigMsgs,
+                        cGtpSentSigMsgs,
+                        cGtpTotalCreatedPDPs,
+                        cGtpTotalDeletedPDPs,
+                        cGtpTotalCreatedPppPDPs,
+                        cGtpTotalDeletedPppPDPs,
+                        cGtpSinglePDPSessCleared,
+                        cGtpPathFailLocalDelPDPs,
+                        cGtpVerUpgradeLocalDelPDPs,
+                        cGtpNoSgsnLocalDelPDPs,
+                        cGtpVerFallbackLocalDelPDPs,
+                        cGtpCreateCollideWithDel,
+                        cGtpVersionChanges,
+                        cGtpRetransCreatePDPReqs,
+                        cGtpCreateAsUpdate,
+                        cGtpIpv6PdpActRejects,
+                        cGtpIpv6CreatedPDPs,
+                        cGtpIpv6DeletedPDPs,
+                        cGtpIpv6RcvdSigMsgs,
+                        cGtpIpv6SentSigMsgs,
+                        cGtpIpv6RcvdPDUs,
+                        cGtpIpv6SentPDUs,
+                        cGtpIpv6RcvdOctets,
+                        cGtpIpv6SentOctets,
+                        cGtpHistUnexpectedMsgs,
+                        cGtpHistDroppedDataMsgs,
+                        cGtpHistRcvdPDUMsgs,
+                        cGtpHistSentPDUMsgs,
+                        cGtpHistRcvdPDUOctets,
+                        cGtpHistSentPDUOctets,
+                        cGtpHistMsgTooShort,
+                        cGtpHistUnknownMsgs,
+                        cGtpHistUnexpectedSigMsgs,
+                        cGtpHistRoamingPDUs,
+                        cGtpHistSecurityViolations,
+                        cGtpHistUnsupportedExtHdr,
+                        cGtpHistPathFailures,
+                        cGtpHistTotalDropped,
+                        cGtpHistDroppedSigMsgs,
+                        cGtpHistRcvdSigMsgs,
+                        cGtpHistSentSigMsgs,
+                        cGtpHistTotalCreatedPDPs,
+                        cGtpHistTotalDeletedPDPs,
+                        cGtpHistTotalCreatedPppPDPs,
+                        cGtpHistTotalDeletedPppPDPs,
+                        cGtpHistSinglePDPSessCleared,
+                        cGtpHistPathFailLocalDelPDPs,
+                        cGtpHistVerUpgradeLocalDel,
+                        cGtpHistNoSgsnLocalDelPDPs,
+                        cGtpHistVerFallbackLocalDel,
+                        cGtpHistCreateCollideWithDel,
+                        cGtpHistVersionChanges,
+                        cGtpHistRetransCreatePDPReqs,
+                        cGtpHistCreateAsUpdate,
+                        cGtpHistIpv6PdpActRejects,
+                        cGtpHistIpv6CreatedPDPs,
+                        cGtpHistIpv6DeletedPDPs,
+                        cGtpHistIpv6RcvdSigMsgs,
+                        cGtpHistIpv6SentSigMsgs,
+                        cGtpHistIpv6RcvdPDUs,
+                        cGtpHistIpv6SentPDUs,
+                        cGtpHistIpv6RcvdOctets,
+                        cGtpHistIpv6SentOctets
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of GTP status. This is deprecated by
+        cGtpStatisticsGroupSup2."
+    ::= { cGtpMIBGroups 12 }
+
+cGtpConfigurationsGroupSup1 OBJECT-GROUP
+    OBJECTS         { cGtpPathHistoryLimit }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of GTP configurations. This is deprecated
+        by cGtpConfigurationsGroupSup2."
+    ::= { cGtpMIBGroups 13 }
+
+cGtpConfigurationsGroupSup2 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpPathHistoryLimit,
+                        cGtpUpdateFailDelete
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of GTP configurations."
+    ::= { cGtpMIBGroups 14 }
+
+cGtpStatisticsGroupSup2 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpUnexpectedMsgs,
+                        cGtpDroppedDataMsgs,
+                        cGtpRcvdPDUMsgs,
+                        cGtpSentPDUMsgs,
+                        cGtpRcvdPDUOctets,
+                        cGtpSentPDUOctets,
+                        cGtpMsgTooShort,
+                        cGtpUnknownMsgs,
+                        cGtpUnexpectedSigMsgs,
+                        cGtpSecurityViolations,
+                        cGtpUnsupportedExtHdr,
+                        cGtpPathFailures,
+                        cGtpTotalDropped,
+                        cGtpDroppedSigMsgs,
+                        cGtpRcvdSigMsgs,
+                        cGtpSentSigMsgs,
+                        cGtpTotalCreatedPDPs,
+                        cGtpTotalDeletedPDPs,
+                        cGtpTotalCreatedPppPDPs,
+                        cGtpTotalDeletedPppPDPs,
+                        cGtpSinglePDPSessCleared,
+                        cGtpPathFailLocalDelPDPs,
+                        cGtpVerUpgradeLocalDelPDPs,
+                        cGtpNoSgsnLocalDelPDPs,
+                        cGtpVerFallbackLocalDelPDPs,
+                        cGtpCreateCollideWithDel,
+                        cGtpVersionChanges,
+                        cGtpRetransCreatePDPReqs,
+                        cGtpCreateAsUpdate,
+                        cGtpIpv6PdpActRejects,
+                        cGtpIpv6CreatedPDPs,
+                        cGtpIpv6DeletedPDPs,
+                        cGtpIpv6RcvdPDUs,
+                        cGtpIpv6SentPDUs,
+                        cGtpIpv6RcvdOctets,
+                        cGtpIpv6SentOctets,
+                        cGtpNoWaitSgsnLocalDelPDPs,
+                        cGtpNoReqSgsnLocalDelPDPs,
+                        cGtpRoamingTrustedPDPs,
+                        cGtpRoamingNonTrustedPDPs,
+                        cGtpNonRoamingPDPs,
+                        cGtpSentPdpUpdateReqs,
+                        cGtpRcvdPdpUpdateResponses,
+                        cGtpTotalDtEnabled,
+                        cGtpHistUnexpectedMsgs,
+                        cGtpHistDroppedDataMsgs,
+                        cGtpHistRcvdPDUMsgs,
+                        cGtpHistSentPDUMsgs,
+                        cGtpHistRcvdPDUOctets,
+                        cGtpHistSentPDUOctets,
+                        cGtpHistMsgTooShort,
+                        cGtpHistUnknownMsgs,
+                        cGtpHistUnexpectedSigMsgs,
+                        cGtpHistSecurityViolations,
+                        cGtpHistUnsupportedExtHdr,
+                        cGtpHistPathFailures,
+                        cGtpHistTotalDropped,
+                        cGtpHistDroppedSigMsgs,
+                        cGtpHistRcvdSigMsgs,
+                        cGtpHistSentSigMsgs,
+                        cGtpHistTotalCreatedPDPs,
+                        cGtpHistTotalDeletedPDPs,
+                        cGtpHistTotalCreatedPppPDPs,
+                        cGtpHistTotalDeletedPppPDPs,
+                        cGtpHistSinglePDPSessCleared,
+                        cGtpHistPathFailLocalDelPDPs,
+                        cGtpHistVerUpgradeLocalDel,
+                        cGtpHistNoSgsnLocalDelPDPs,
+                        cGtpHistVerFallbackLocalDel,
+                        cGtpHistCreateCollideWithDel,
+                        cGtpHistVersionChanges,
+                        cGtpHistRetransCreatePDPReqs,
+                        cGtpHistCreateAsUpdate,
+                        cGtpHistIpv6PdpActRejects,
+                        cGtpHistIpv6CreatedPDPs,
+                        cGtpHistIpv6DeletedPDPs,
+                        cGtpHistIpv6RcvdPDUs,
+                        cGtpHistIpv6SentPDUs,
+                        cGtpHistIpv6RcvdOctets,
+                        cGtpHistIpv6SentOctets,
+                        cGtpHistNoWaitSgsnLocalDelPDPs,
+                        cGtpHistNoReqSgsnLocalDelPDPs,
+                        cGtpHistRoamingTrustedPDPs,
+                        cGtpHistRoamingNonTrustedPDPs,
+                        cGtpHistNonRoamingPDPs,
+                        cGtpHistSentPdpUpdateReqs,
+                        cGtpHistRcvdPdpUpdateResponses,
+                        cGtpHistTotalDtEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of GTP statistics."
+    ::= { cGtpMIBGroups 15 }
+
+cGtpConfigurationsGroupSup3 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpSgsnProfileIpAddressType,
+                        cGtpSgsnProfileStartIpAddress,
+                        cGtpSgsnProfileEndIpAddress,
+                        cGtpSgsnProfilePortNumber,
+                        cGtpSgsnProfileEchoDisable,
+                        cGtpSgsnProfileStorageType,
+                        cGtpSgsnProfileRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for SGSN profile configurations."
+    ::= { cGtpMIBGroups 16 }
+
+cGtpStatusGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpPathRemoteNode,
+                        cGtpPathVrfName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects provides the GTP path information."
+    ::= { cGtpMIBGroups 17 }
+
+cGtpStatisticsGroupSup3 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpHistRemoteNode,
+                        cGtpIpv4v6CreatedPDPs,
+                        cGtpIpv4v6DeletedPDPs,
+                        cGtpHistIpv4v6CreatedPDPs,
+                        cGtpHistIpv4v6DeletedPDPs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This supplements cGtpStatisticsGroupRev1 to provide
+        the information about the remote node in the GTP path
+        history."
+    ::= { cGtpMIBGroups 18 }
+
+cGtpStatisticsGroupSup4 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpNetworkBehindMsApns,
+                        cGtpTotalDownldFramedRout,
+                        cGtpTotalDownldFramedRoutSavedFail,
+                        cGtpTotalDownldFramedRoutInsFail,
+                        cGtpTotalDownldFramedRoutIns,
+                        cGtpTotalDownldFramedRoutDeleted
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This supplements cGtpStatisticsGroupSup3 to provide
+        the information about the networks behind Ms Statistics."
+    ::= { cGtpMIBGroups 19 }
+
+cGtpStatusGroupSup2 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpTotalActivePaths,
+                        cGtpTotalActiveGtpv1DataPaths
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects provides the GTP path status
+        information."
+    ::= { cGtpMIBGroups 20 }
+
+cGtpStatisticsGroupSup5 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpTotalv0v1SigMsgDropped,
+                        cGtpTotalDataMsgDropped,
+                        cGtpv0PathCreated,
+                        cGtpv0PathDeleted,
+                        cGtpv0PathRestarted,
+                        cGtpv1SigPathCreated,
+                        cGtpv1SigPathDeleted,
+                        cGtpv1SigPathRestarted,
+                        cGtpv1DataPathCreated,
+                        cGtpv1DataPathDeleted,
+                        cGtpv1DataPathRestarted
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects provides the GTP path statistics
+        information."
+    ::= { cGtpMIBGroups 21 }
+
+cGtpStatisticsGroupSup6 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpTotalDownlinkQosFailures,
+                        cGtpTotalUplinkQosFailures
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects provides the GTP QoS statistics
+        information."
+    ::= { cGtpMIBGroups 22 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

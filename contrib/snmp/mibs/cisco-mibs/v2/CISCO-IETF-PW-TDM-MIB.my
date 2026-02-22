@@ -1,0 +1,1461 @@
+-- *****************************************************************
+-- CISCO-IETF-PW-TDM-MIB.my: Pseudo Wire TDM MIB file
+--   
+-- June 2006, Prashant Gaur
+--   
+-- Copyright (c) 2006, 2010 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+--   
+-- This mib is based on draft-ietf-pwe3-tdm-mib-05.txt.
+-- In the future, this mib may be removed entirely, or re-implemented
+-- on short notice, in favor of more standard or generic MIBs.
+-- Application developers should not depend on long-term access
+-- to this MIB.
+-- Eventually PW-TDM-MIB would be used,
+-- untill the final approved version of
+-- draft-ietf-pwe3-tdm-mib-XX.txt is available,
+-- and remove this CISCO-IETF-PW-TDM-MIB in its entirety.
+
+CISCO-IETF-PW-TDM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Counter32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    RowStatus,
+    StorageType,
+    TimeStamp
+        FROM SNMPv2-TC
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    PerfCurrentCount,
+    PerfIntervalCount
+        FROM PerfHist-TC-MIB
+    cpwVcIndex
+        FROM CISCO-IETF-PW-MIB
+    ciscoExperiment
+        FROM CISCO-SMI;
+
+
+-- The TDM MIB
+
+cpwCTDMMIB MODULE-IDENTITY
+    LAST-UPDATED    "200607210000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W. Tasman Drive
+                  San Jose, CA  95134
+                  SA
+
+            Tel: +1 800 553-NETS
+
+            Email: cs-atm@cisco.com"
+    DESCRIPTION
+        "This MIB contains managed object definitions for
+        encapsulating TDM (T1,E1, T3, E3, NxDS0) as
+        pseudo-wires over packet-switching networks (PSN).
+
+        This MIB supplements the CISCO-IETF-PW-MIB.
+        The CISCO-IETF-PW-MIB contains structures and MIB
+        associations generic to Pseudo-Wire (PW) emulation.
+        PW-specific MIBs (such as this) contain config and stats for
+        specific PW types."
+    REVISION        "200607210000Z"
+    DESCRIPTION
+        "Cisco'ized the IETF draft: draft-ietf-pwe3-tdm-mib-05.txt
+        1-Align object names with CISCO-IETF-PW-MIB and
+        CISCO-IETF-PW-TC-MIB
+        2-Used cpwVcType instead of pwType
+        3-Used cpwVcTable instead of pwTable"
+    REVISION        "200603010000Z"
+    DESCRIPTION
+        "Changes since last draft:
+        1-Remove Vc from all objects
+        2-Move MIB root to transmission
+        3-Change default of pwCTDMCfgSetUp2SynchTimeOut
+          to 5000ms
+        4-Change PM running counters to daily intervals
+        5-Enhance description of pwCTDMCfgPktReplacePolicy
+        6-Enhance description of ES, SES, and UAS
+        7-Aligned objects with other PW MIBs"
+    REVISION        "200510230000Z"
+    DESCRIPTION
+        "Changes since last draft:
+        1-Align object names with CISCO-IETF-PW-MIB and
+        PW-TC-STD-MIB 
+        2-clean up some text
+        3-pwCTDMCfgIndexNext SYNTAX was changed to TestAndIncr
+        4-Add explanation to descriptions of few objects
+        5-Performance objecs were modified to better represent
+          their counts and type"
+    REVISION        "200507120000Z"
+    DESCRIPTION
+        "Changes since last draft:
+        1-Merged all configurable objects from Satop MIB with
+        objects of pwCTDMCfgTable in this MIB module.
+        2-pwCTDMCfgJtrBfrDepth-changed units to microsec.
+        3-pwCTDMAvePktLossTimeWindow moved to the
+          pwCTDMCfgTable.
+        4-In pwCTDMCfgConfErr, the enum(1)was renamed to
+        PayloadSize.
+        5-Renamed pwCSatopCfgConsecPktsLoss2Normal and
+        pwCSatopCfgConsecMissPktNorma2Loss to
+        pwCTDMCfgConsecPktsInSynch and to
+        pwCTDMCfgConsecMissPktsOutSynch respectively."
+    REVISION        "200404200000Z"
+    DESCRIPTION
+        "Initial version, published as
+        draft-ietf-pwe3-TDM-mib-00.txt"
+    ::= { ciscoExperiment 131 }
+
+
+
+-- Beginning  Textual convention Definitions
+
+CpwTDMCfgIndex ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Index into any of the relevant pwCXXXCfgTable."
+    SYNTAX          Unsigned32
+-- Ending Textual convention Definitions
+--   
+
+--   
+-- Notifications
+
+cpwCTDMNotifications  OBJECT IDENTIFIER
+    ::= { cpwCTDMMIB 0 }
+
+-- Tables, Scalars
+
+cpwCTDMObjects  OBJECT IDENTIFIER
+    ::= { cpwCTDMMIB 1 }
+
+-- Conformance
+
+cpwCTDMConformance  OBJECT IDENTIFIER
+    ::= { cpwCTDMMIB 2 }
+
+-- TDM PW table
+
+cpwCTDMTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpwCTDMEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains basic information including ifIndex,
+        and pointers to entries in the relevant TDM config
+        tables for this TDM PW."
+    ::= { cpwCTDMObjects 1 }
+
+cpwCTDMEntry OBJECT-TYPE
+    SYNTAX          CpwCTDMEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is indexed by the same index that was
+        created for the associated entry in the VC Table
+        (in the CISCO-IETF-PW-MIB).
+
+          - The CpwVcIndex.
+
+        An entry is created in this table by the agent for every
+        entry in the cpwVcTable with a cpwVcType equal to one of the
+        following:
+        e1Satop(12), t1Satop(13), e3Satop(14), t3Satop(15),
+        basicCesPsn(16), basicTdmIp(17),  tdmCasCesPsn(18),
+        tdmCasTdmIp(19)."
+    INDEX           { cpwVcIndex } 
+    ::= { cpwCTDMTable 1 }
+
+CpwCTDMEntry ::= SEQUENCE {
+        cpwCTDMRate               Integer32,
+        cpwCTDMIfIndex            InterfaceIndexOrZero,
+        cpwCGenTDMCfgIndex        CpwTDMCfgIndex,
+        cpwCRelTDMCfgIndex        CpwTDMCfgIndex,
+        cpwCTDMConfigError        BITS,
+        cpwCTDMTimeElapsed        Integer32,
+        cpwCTDMValidIntervals     Integer32,
+        cpwCTDMValidDayIntervals  Integer32,
+        cpwCTDMCurrentIndications BITS,
+        cpwCTDMLatchedIndications BITS,
+        cpwCTDMLastEsTimeStamp    TimeStamp
+}
+
+cpwCTDMRate OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The parameter represents the bit-rate of the TDM service
+        in multiples of the 'basic' 64 Kbit/s rate. It complements
+        the definition of cpwVcType used in CISCO-IETF-PW-MIB.
+        For structure-agnostic the following should be used:
+        a) Satop E1 - 32
+        b) Satop T1 emulation:
+           i)   MUST be set to 24 in the basic emulation mode
+           ii)  MUST be set to 25 for the 'Octet-aligned T1'
+                emulation mode
+        c) Satop E3 - 535
+        d) Satop T3 - 699
+        For all kinds of structure-aware emulation, this parameter
+        MUST be set to N where N is the number of DS0 channels
+        in the corresponding attachment circuit."
+    REFERENCE
+        "Control Protocol Extensions for Setup of TDM
+            Pseudowires [TDMCP-EXT], describes extension to the PWE3
+            control protocol and PWE3 IANA allocations required for
+            setup of TDM pseudo wires."
+    DEFVAL          { 32 } 
+    ::= { cpwCTDMEntry 1 }
+
+cpwCTDMIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This is a unique index within the ifTable. It represents
+        the interface index of the full link or the interface
+        index for the bundle holding the group of
+        time slots to be transmitted via this PW connection.
+
+        A value of zero indicates an interface index that has yet
+        to be determined.
+        Once set, if the TDM ifIndex is (for some reason) later
+        removed, the agent SHOULD delete the associated PW rows
+        (e.g., this cpwCTDMTable entry). If the agent does not
+        delete the rows,  the agent MUST set this object to
+        zero." 
+    ::= { cpwCTDMEntry 2 }
+
+cpwCGenTDMCfgIndex OBJECT-TYPE
+    SYNTAX          CpwTDMCfgIndex
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Index to the generic parameters in the TDM configuration
+        table that appears in this MIB module. It is likely that
+        multiple TDM PWs of the same characteristic will share
+        a single TDM Cfg entry." 
+    ::= { cpwCTDMEntry 3 }
+
+cpwCRelTDMCfgIndex OBJECT-TYPE
+    SYNTAX          CpwTDMCfgIndex
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Index to the relevant TDM configuration table entry
+        that appears in one of the related MIB modules
+        such as TDMoIP or CESoPSN. It is likely that
+        multiple TDM PWs of the same characteristic will share
+        a single configuration entry of the relevant type.
+        The value 0 implies no entry in other related MIB" 
+    ::= { cpwCTDMEntry 4 }
+
+cpwCTDMConfigError OBJECT-TYPE
+    SYNTAX          BITS {
+                        other(0),
+                        tdmTypeIncompatible(1),
+                        peerRtpIncompatible(2),
+                        peerPayloadSizeIncompatible(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Any of the bits are set if the local configuration is
+        not compatible with the peer configuration as available
+        from the various parameters options.
+
+        -tdmTypeIncompatible bit is set if the local configuration
+        is not carrying the same TDM type as the peer configuration.
+
+        -peerRtpIncompatible bit is set if the local configuration
+        is configured to send RTP packets for this PW, and the
+        remote is not capable of accepting RTP packets.
+
+        -peerPayloadSizeIncompatible bit is set if the local
+        configuration is not carrying the same Payload Size as the
+        peer configuration." 
+    ::= { cpwCTDMEntry 5 }
+
+cpwCTDMTimeElapsed OBJECT-TYPE
+    SYNTAX          Integer32 (1..900)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of seconds, including partial seconds,
+        that have elapsed since the beginning of the current
+        measurement period. If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the
+        current interval exceeds the maximum value, the
+        agent will return the maximum value." 
+    ::= { cpwCTDMEntry 6 }
+
+cpwCTDMValidIntervals OBJECT-TYPE
+    SYNTAX          Integer32 (0..96)
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of previous 15-minute intervals for which data
+        was collected.
+        An agent with TDM capability must be capable of supporting
+        at least n intervals. The minimum value of n is 4, The
+        default of n is 32 and the maximum value of n is 96.
+        The value will be <n> unless the measurement was (re-)
+        started within the last (<n>*15) minutes, in which case
+        the value will be the number of complete 15 minute
+        intervals for which the agent has at least some data.
+        In certain cases(e.g., in the case where the agent is
+        a proxy) it is possible that some intervals are unavailable.
+        In this case, this interval is the maximum interval number
+        for which data is available." 
+    ::= { cpwCTDMEntry 7 }
+
+cpwCTDMValidDayIntervals OBJECT-TYPE
+    SYNTAX          Integer32 (0..30)
+    UNITS           "days"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of previous days for which data
+        was collected.
+        An agent with TDM capability must be capable of supporting
+        at least n intervals. The minimum value of n is 1, The
+        default of n is 1 and the maximum value of n is 30." 
+    ::= { cpwCTDMEntry 8 }
+
+cpwCTDMCurrentIndications OBJECT-TYPE
+    SYNTAX          BITS {
+                        other(0),
+                        strayPacket(1),
+                        malformedPacket(2),
+                        excessivePktLossRate(3),
+                        bufferOverrun(4),
+                        bufferUnderrun(5),
+                        remotePktLoss(6),
+                        pktMisOrder(7),
+                        packetLoss(8),
+                        tdmFault(9)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The following defects should be detected and reported
+        upon request:
+
+        -Stray packets MAY be detected by the PSN and multiplexing
+        layers. Stray packets MUST be discarded by the CE-bound IWF
+        and their detection MUST NOT affect mechanisms for
+        detection of packet loss.
+
+        -Malformed packets are detected by mismatch between the
+        expected packet size (taking the value of the L bit into
+        account) and the actual packet size inferred from the PSN
+        and multiplexing layers. Malformed in-order packets MUST be
+        discarded by the CE-bound IWF and replacement data
+        generated as for lost packets.
+
+        -Excessive packet loss rate is detected by computing the
+        average packet loss rate over the value of
+        cpwCTDMAvePktLossTimeWindow and comparing it with a
+        preconfigured threshold [SATOP].
+
+        -Buffer overrun is detected in the normal operation state
+        when the CE bound IWF's jitter buffer cannot accommodate
+        newly arrived packets.
+
+        -Remote packet loss is indicated by reception of packets 
+        with their R bit set.
+
+        -Packet misorder is detected by looking at the Sequence
+        number provided by the control word.
+
+        -TDM Fault, if L bit in the control word is set, it
+        indicates that TDM data carried in the payload is invalid
+        due an attachment circuit fault.  When the L bit is set the
+        payload MAY be omitted in order to conserve bandwidth.
+
+        Note: the algorithm used to capture these indications
+        is implementation specific." 
+    ::= { cpwCTDMEntry 9 }
+
+cpwCTDMLatchedIndications OBJECT-TYPE
+    SYNTAX          BITS {
+                        other(0),
+                        staryPacket(1),
+                        malformedPacket(2),
+                        excessivePktLossRate(3),
+                        bufferOverrun(4),
+                        bufferUnderrun(5),
+                        remotePktLoss(6),
+                        pktMisOrder(7),
+                        packetLoss(8),
+                        tdmFault(9)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The state of TDM indicators when the TDM PW last declared
+        an error second (either as ES, SES or a second with
+        errors inside a UAS) condition. At this time, only LOPS
+        can create a failure. Since indicators other than LOPS are
+        useful, all are latched here. For bit definitions, see
+        cpwCTDMCurrentIndications above.
+
+        Note: the algorithm used to latch these indications when
+        entering a defect state is implementation specific." 
+    ::= { cpwCTDMEntry 10 }
+
+cpwCTDMLastEsTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime at the most recent occasion at
+        which the TDM PW entered the ES or SES state." 
+    ::= { cpwCTDMEntry 11 }
+ 
+
+
+-- End of TDM PW table
+--   
+-- PW Generic TDM PW Configuration Table
+
+cpwCTDMCfgIndexNext OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the value to be used for
+        cpwCTDMCfgIndex when creating entries in the
+        cpwCTDMCfgTable. The value 0 indicates that no
+        unassigned entries are available.  To obtain the
+        value of cpwCTDMCfgIndexNext for a new entry in the
+        cpwCTDMCfgTable, the manager issues a management
+        protocol retrieval operation. The agent will
+        determine through its local policy when this
+        index value will be made available for reuse." 
+    ::= { cpwCTDMObjects 2 }
+
+cpwCTDMCfgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpwCTDMCfgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a set of parameters that may be
+        referenced by one or more TDM PWs in cpwCTDMTable."
+    ::= { cpwCTDMObjects 3 }
+
+cpwCTDMCfgEntry OBJECT-TYPE
+    SYNTAX          CpwCTDMCfgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "These parameters define the characteristics of a
+        TDM PW. They are grouped here to ease NMS burden.
+        Once an entry is created here it may be re-used
+        by many PWs."
+    INDEX           { cpwCTDMCfgIndex } 
+    ::= { cpwCTDMCfgTable 1 }
+
+CpwCTDMCfgEntry ::= SEQUENCE {
+        cpwCTDMCfgIndex                     CpwTDMCfgIndex,
+        cpwCTDMCfgConfErr                   BITS,
+        cpwCTDMCfgPayloadSize               Unsigned32,
+        cpwCTDMCfgPktReorder                TruthValue,
+        cpwCTDMCfgRtpHdrUsed                TruthValue,
+        cpwCTDMCfgJtrBfrDepth               Unsigned32,
+        cpwCTDMCfgPayloadSuppression        INTEGER,
+        cpwCTDMCfgConsecPktsInSynch         Unsigned32,
+        cpwCTDMCfgConsecMissPktsOutSynch    Unsigned32,
+        cpwCTDMCfgSetUp2SynchTimeOut        Unsigned32,
+        cpwCTDMCfgPktReplacePolicy          INTEGER,
+        cpwCTDMCfgAvePktLossTimeWindow      Integer32,
+        cpwCTDMCfgExcessivePktLossThreshold Unsigned32,
+        cpwCTDMCfgAlarmThreshold            Unsigned32,
+        cpwCTDMCfgClearAlarmThreshold       Unsigned32,
+        cpwCTDMCfgMissingPktsToSes          Unsigned32,
+        cpwCTDMCfgTimestampMode             INTEGER,
+        cpwCTDMCfgStorageType               StorageType,
+        cpwCTDMCfgRowStatus                 RowStatus
+}
+
+cpwCTDMCfgIndex OBJECT-TYPE
+    SYNTAX          CpwTDMCfgIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Index to an entry in this table. The value is a copy of
+        the assigned cpwCTDMCfgIndexNext." 
+    ::= { cpwCTDMCfgEntry 1 }
+
+cpwCTDMCfgConfErr OBJECT-TYPE
+    SYNTAX          BITS {
+                        other(0),
+                        payloadSize(1),
+                        jtrBfrDepth(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the various configuration errors,
+        illegal settings within the cpwCTDMCfg table. The errors
+        can be due to several reasons, like Payload size mismatch
+        or Jitter Buffer depth value mistmatch. 
+
+        payloadSize - This bit is set if there is Payload size
+                      mismatch between the local and peer
+                      configurations. 
+        jtrBfrDepth - This bit is set if there is Jitter Buffer
+                      depth value mistmatch.
+        other       - This bit is set if the error is not due to
+                      payloadSize and jtrBfrDepth mismatch." 
+    ::= { cpwCTDMCfgEntry 2 }
+
+cpwCTDMCfgPayloadSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "bytes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value of this object indicates the PayLoad Size (in
+        bytes) to be defined during the PW setUp. Upon TX,
+        implementation must be capable of carrying that amount of
+        bytes. Upon RX, when the LEN field is set to 0, the
+        payload of packet  MUST assume this size, and if the actual
+        packet size is inconsistent with this length,
+        the packet MUST be considered to be malformed."
+    DEFVAL          { 32 } 
+    ::= { cpwCTDMCfgEntry 3 }
+
+cpwCTDMCfgPktReorder OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "If set to true, CE bound packets are queued in the
+        jitter buffer, out of order packets are re-ordered. The
+        maximum sequence number differential (i.e., the range in
+        which re-sequencing can occur) is dependant on the depth
+        of the jitter buffer. See cpwCTDMCfgJtrBfrDepth."
+    DEFVAL          { true } 
+    ::= { cpwCTDMCfgEntry 4 }
+
+cpwCTDMCfgRtpHdrUsed OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "If the value of this object is set to false, then a
+        RTP header is not pre-pended to the TDM packet."
+    REFERENCE
+        "RFC 4553, which describes a pseudowire
+            encapsulation for TDM (T1, E1, T3, E3) bit-streams
+            disregards any structure that may be imposed on these
+            streams."
+    DEFVAL          { false } 
+    ::= { cpwCTDMCfgEntry 5 }
+
+cpwCTDMCfgJtrBfrDepth OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "microsecond"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The size of this buffer SHOULD be locally
+        configured to allow accommodation to the PSN-specific
+        packet delay variation.
+
+        If configured to a value not supported by the
+        implementation, the agent MUST return an error code
+        'jtrBfrDepth' in 'cpwCTDMConfigError '.
+        Jitter buffers are a limited resource to be managed.
+        The actual size should be at least twice as big as the
+        value of cpwCTDMCfgJtrBfrDepth"
+    DEFVAL          { 3000 } 
+    ::= { cpwCTDMCfgEntry 6 }
+
+cpwCTDMCfgPayloadSuppression OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enable(1),
+                        disable(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the Payload suppression
+        is eanbled or disabled.
+        Payload MAY be omitted in order to conserve bandwidth.
+
+        enable  - Payload suppression is allowed.
+        disable - No Payload suppresion under any condition."
+    DEFVAL          { disable } 
+    ::= { cpwCTDMCfgEntry 7 }
+
+cpwCTDMCfgConsecPktsInSynch OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "packets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The number of consecutive packets with sequential
+        sequence numbers that are required to exit the
+        Loss of Packets (LOPS) state."
+    REFERENCE
+        "RFC 4553, which describes a pseudowire
+            encapsulation for TDM (T1, E1, T3, E3) bit-streams
+            that disregards any structure that may be imposed
+            on these streams."
+    DEFVAL          { 2 } 
+    ::= { cpwCTDMCfgEntry 8 }
+
+cpwCTDMCfgConsecMissPktsOutSynch OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "packets"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The number of consecutive missing packets that are
+        required to enter the LOPS state."
+    REFERENCE
+        "RFC 4553, which describes a pseudowire
+            encapsulation for TDM (T1, E1, T3, E3) bit-streams
+            that disregards any structure that may be imposed
+            on these streams."
+    DEFVAL          { 10 } 
+    ::= { cpwCTDMCfgEntry 9 }
+
+cpwCTDMCfgSetUp2SynchTimeOut OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "millisecond"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The amount of time the host should wait before declaring
+        the pseudo wire in down state,  if the number of consecutive
+        TDM packets that have been received after changing the
+        administrative status to up and after finalization of
+        signaling (if supported) between the two PEs is smaller
+        than cpwCTDMCfgConsecPktsInSynch. Once the the PW has
+        OperStatus of 'up' this parameter is no longer valid. This
+        parameter is defined to ensure that the host does not
+        prematurely inform failure of the PW. In particular PW
+        'down' notifications should not be sent before expiration of
+        this timer. This parameter is valid only after adminisrative
+        changes of the status of the PW. If the PW fails due to
+        network impairments a 'down' notification should be sent."
+    DEFVAL          { 5000 } 
+    ::= { cpwCTDMCfgEntry 10 }
+
+cpwCTDMCfgPktReplacePolicy OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ais(1),
+                        implementationSpecific(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This parameter determines the value to be played when CE
+        bound packets have over/underflow the jitter buffer, or are
+        missing for any reason. This AIS (Alarm Indication Signal)
+        pattern is sent (played) on the TDM line.
+
+        ais                    - AIS (Alarm Indication Signal)
+                                 pattern is sent (played) on
+                                 the TDM line. 
+        implementationSpecific - Implementation specific pattern is
+                                 sent on the TDM line."
+    DEFVAL          { ais } 
+    ::= { cpwCTDMCfgEntry 11 }
+
+cpwCTDMCfgAvePktLossTimeWindow OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "millisecond"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The length of time over which the average packet
+        loss rate should be computed to detect Excessive packet
+        loss rate"
+    DEFVAL          { 20 } 
+    ::= { cpwCTDMCfgEntry 12 }
+
+cpwCTDMCfgExcessivePktLossThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Excessive packet loss rate is detected by computing the
+        average packetloss rate over a 
+        cpwCTDMCfgAvePktLossTimeWindow amount of time and
+        comparing it with this threshold value."
+    DEFVAL          { 2 } 
+    ::= { cpwCTDMCfgEntry 13 }
+
+cpwCTDMCfgAlarmThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Alarms are only reported when the defect state persists
+        for the length of time specified by this object.
+        The object's unit is millisec"
+    DEFVAL          { 2500 } 
+    ::= { cpwCTDMCfgEntry 14 }
+
+cpwCTDMCfgClearAlarmThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Alarm MUST be cleared after the corresponding defect is
+        undetected for the amount of time specified by this object.
+        The object's unit is millisec"
+    DEFVAL          { 10000 } 
+    ::= { cpwCTDMCfgEntry 15 }
+
+cpwCTDMCfgMissingPktsToSes OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Number of missing packets detected (consecutive or not)
+        within a 1 second window to cause a Severely Error
+        Second (SES) to be counted."
+    DEFVAL          { 3 } 
+    ::= { cpwCTDMCfgEntry 16 }
+
+cpwCTDMCfgTimestampMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        notApplicable(1),
+                        absolute(2),
+                        differential(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Timestamp generation MAY be used in one of the following
+        modes:
+        1. Absolute mode: the PSN-bound IWF sets timestamps
+         using the clock recovered from the incoming TDM attachment
+         circuit. As a consequence, the timestamps are closely
+         correlated with the sequence numbers. All TDM 
+         implementations that support usage of the RTP header MUST
+         support this mode.
+        2. Differential mode: Both IWFs have access to a common
+         high-quality timing source, and this source is used for
+         timestamp generation. Support of this mode is OPTIONAL."
+    DEFVAL          { absolute } 
+    ::= { cpwCTDMCfgEntry 17 }
+
+cpwCTDMCfgStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates the storage type for this row.
+        The following are the read-write objects in permanent(4)
+        rows, that an agent must allow to be writable:
+        cpwCTDMCfgPayloadSize, cpwCTDMCfgPktReorder,
+        cpwCTDMCfgRtpHdrUsed, cpwCTDMCfgJtrBfrDepth,
+        cpwCTDMCfgPayloadSuppression, cpwCTDMCfgConfErr."
+    DEFVAL          { nonVolatile } 
+    ::= { cpwCTDMCfgEntry 18 }
+
+cpwCTDMCfgRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+
+        To create a row in this table, a manager must
+        set this object to either createAndGo(4) or
+        createAndWait(5).
+
+        All of the columnar objects have to be set to
+        valid values before the row can be activated.
+        Default value will be automatically provisioned
+        if for those objects not specified during row
+        creation. 
+        No objects in cascading tables have to be populated with
+        related data before the row can be activated.
+
+        The following objects cannot be modified if the
+        RowStatus is active:
+        cpwCTDMCfgPayloadSize, cpwCTDMCfgRtpHdrUsed,
+        cpwCTDMCfgJtrBfrDepth, and cpwCTDMCfgPayloadSuppression.
+
+        If the RowStatus is active, the following parameters can be
+        modified: 
+        cpwCTDMCfgConfErr, cpwCTDMCfgPktReorder, 
+        cpwCTDMCfgConsecPktsInSynch,
+        cpwCTDMCfgConsecMissPktsOutSynch,
+        cpwCTDMCfgSetUp2SynchTimeOut, cpwCTDMCfgPktReplacePolicy,
+        cpwCTDMCfgAvePktLossTimeWindow, 
+        cpwCTDMCfgExcessivePktLossThreshold,
+        cpwCTDMCfgAlarmThreshold, cpwCTDMCfgClearAlarmThreshold,
+        cpwCTDMCfgMissingPktsToSes, cpwCTDMCfgTimestampMode,
+        cpwCTDMCfgStorageType.
+
+        A row may be deleted by setting the RowStatus to 'destroy'." 
+    ::= { cpwCTDMCfgEntry 19 }
+ 
+
+-- END of Table
+--   
+-- TDM PW Performance Current Table.
+
+cpwCTDMPerfCurrentTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpwCTDMPerfCurrentEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides TDM PW performance information.
+        This includes current 15 minute interval counts. 
+
+        The table includes counters that work together to
+        integrate errors and the lack of errors on the TDM PW.
+        An error is caused by a missing packet. Missing packet
+        can be a result of, packet loss in the network,
+        (uncorrectable) packet out of sequence, packet length error,
+        jitter buffer overflow, and jitter buffer underflow.
+        The result is declaring whether or not the TDM PW is in
+        Loss of Packet (LOPS) state."
+    ::= { cpwCTDMObjects 5 }
+
+cpwCTDMPerfCurrentEntry OBJECT-TYPE
+    SYNTAX          CpwCTDMPerfCurrentEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table is created by the agent for every
+        cpwCTDMTable entry. After 15 minutes, the contents of this
+        table entry are copied to a new entry in the
+        cpwCTDMPerfInterval table and the counts in this entry
+        are reset to zero."
+    INDEX           { cpwVcIndex } 
+    ::= { cpwCTDMPerfCurrentTable 1 }
+
+CpwCTDMPerfCurrentEntry ::= SEQUENCE {
+        cpwCTDMPerfCurrentMissingPkts     PerfCurrentCount,
+        cpwCTDMPerfCurrentPktsReOrder     PerfCurrentCount,
+        cpwCTDMPerfCurrentJtrBfrUnderruns PerfCurrentCount,
+        cpwCTDMPerfCurrentMisOrderDropped PerfCurrentCount,
+        cpwCTDMPerfCurrentMalformedPkt    PerfCurrentCount,
+        cpwCTDMPerfCurrentESs             PerfCurrentCount,
+        cpwCTDMPerfCurrentSESs            PerfCurrentCount,
+        cpwCTDMPerfCurrentUASs            PerfCurrentCount,
+        cpwCTDMPerfCurrentFC              PerfCurrentCount
+}
+
+cpwCTDMPerfCurrentMissingPkts OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of missing packets (as detected via control word
+        sequence number gaps)." 
+    ::= { cpwCTDMPerfCurrentEntry 1 }
+
+cpwCTDMPerfCurrentPktsReOrder OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets detected out of sequence (via control
+        word sequence number), but successfully re-ordered." 
+    ::= { cpwCTDMPerfCurrentEntry 2 }
+
+cpwCTDMPerfCurrentJtrBfrUnderruns OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of times a packet needed to be played
+        out and the jitter buffer was empty." 
+    ::= { cpwCTDMPerfCurrentEntry 3 }
+
+cpwCTDMPerfCurrentMisOrderDropped OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets detected out of order(via control word
+        sequence numbers), and could not be re-ordered, or could
+        not fit in the jitter buffer." 
+    ::= { cpwCTDMPerfCurrentEntry 4 }
+
+cpwCTDMPerfCurrentMalformedPkt OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets detected with unexpected size, or
+        bad headers' stack" 
+    ::= { cpwCTDMPerfCurrentEntry 5 }
+
+cpwCTDMPerfCurrentESs OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Error
+        Seconds encountered. Any malformed packet, sequence error
+        and similar are considered as error second" 
+    ::= { cpwCTDMPerfCurrentEntry 6 }
+
+cpwCTDMPerfCurrentSESs OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of
+        Severely Error Seconds encountered." 
+    ::= { cpwCTDMPerfCurrentEntry 7 }
+
+cpwCTDMPerfCurrentUASs OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of
+        Unavailable Seconds encountered. Any consequtive
+        five seconds of SES are counted as one UAS" 
+    ::= { cpwCTDMPerfCurrentEntry 8 }
+
+cpwCTDMPerfCurrentFC OBJECT-TYPE
+    SYNTAX          PerfCurrentCount
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of TDM failure
+        events. A failure event begins when the LOPS failure
+        is declared, and ends when the failure is cleared. A
+        failure event that begins in one period and ends in
+        another period is counted only in the period in which
+        it begins." 
+    ::= { cpwCTDMPerfCurrentEntry 9 }
+ 
+
+-- End TDM PW Performance Current Interval Table
+--   
+
+-- TDM PW Performance Interval Table.
+
+cpwCTDMPerfIntervalTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpwCTDMPerfIntervalEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides performance information per TDM PW
+        similar to the cpwCTDMPerfCurrentTable above. However,
+        these counts represent historical 15 minute intervals.
+        Typically, this table will have a maximum of 96 entries
+        for a 24 hour period, but is not limited to this."
+    ::= { cpwCTDMObjects 6 }
+
+cpwCTDMPerfIntervalEntry OBJECT-TYPE
+    SYNTAX          CpwCTDMPerfIntervalEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table is created by the agent for
+        every cpwCTDMPerfCurrentEntry that is 15 minutes old.
+        The contents of the Current entry are copied to the new
+        entry here. The Current entry, then resets its counts
+        to zero for the next current 15 minute interval."
+    INDEX           {
+                        cpwVcIndex,
+                        cpwCTDMPerfIntervalNumber
+                    } 
+    ::= { cpwCTDMPerfIntervalTable 1 }
+
+CpwCTDMPerfIntervalEntry ::= SEQUENCE {
+        cpwCTDMPerfIntervalNumber          Unsigned32,
+        cpwCTDMPerfIntervalValidData       TruthValue,
+        cpwCTDMPerfIntervalDuration        Unsigned32,
+        cpwCTDMPerfIntervalMissingPkts     PerfIntervalCount,
+        cpwCTDMPerfIntervalPktsReOrder     PerfIntervalCount,
+        cpwCTDMPerfIntervalJtrBfrUnderruns PerfIntervalCount,
+        cpwCTDMPerfIntervalMisOrderDropped PerfIntervalCount,
+        cpwCTDMPerfIntervalMalformedPkt    PerfIntervalCount,
+        cpwCTDMPerfIntervalESs             PerfIntervalCount,
+        cpwCTDMPerfIntervalSESs            PerfIntervalCount,
+        cpwCTDMPerfIntervalUASs            PerfIntervalCount,
+        cpwCTDMPerfIntervalFC              PerfIntervalCount
+}
+
+cpwCTDMPerfIntervalNumber OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a number (normally between 1 and
+        96 to cover a 24 hour period) which identifies the interval
+        for which the set of statistics is available. The interval
+        identified by 1 is the most recently completed 15 minute
+        interval, and the interval identified by N is the interval
+        immediately preceding the one identified by N-1.
+        The minimum range of N is 1 through 4.The default range
+        is 1 through 32. The maximum value of N is 1 through 96." 
+    ::= { cpwCTDMPerfIntervalEntry 1 }
+
+cpwCTDMPerfIntervalValidData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates if the data for this interval
+        is valid." 
+    ::= { cpwCTDMPerfIntervalEntry 2 }
+
+cpwCTDMPerfIntervalDuration OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The duration of a particular interval in seconds.
+        Adjustments in the system's time-of-day clock, may
+        cause the interval to be greater or less than, the
+        normal value. Therefore this actual interval value
+        is provided."
+    DEFVAL          { 900 } 
+    ::= { cpwCTDMPerfIntervalEntry 3 }
+
+cpwCTDMPerfIntervalMissingPkts OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of missing packets (as detected via control
+        word sequence number gaps)." 
+    ::= { cpwCTDMPerfIntervalEntry 4 }
+
+cpwCTDMPerfIntervalPktsReOrder OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets detected out of sequence (via control
+        word sequence number), but successfully re-ordered." 
+    ::= { cpwCTDMPerfIntervalEntry 5 }
+
+cpwCTDMPerfIntervalJtrBfrUnderruns OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of times a packet needed to be played
+        out and the jitter buffer was empty." 
+    ::= { cpwCTDMPerfIntervalEntry 6 }
+
+cpwCTDMPerfIntervalMisOrderDropped OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets detected out of order(via control word
+        sequence numbers), and could not be re-ordered, or could
+        not fit in the jitter buffer." 
+    ::= { cpwCTDMPerfIntervalEntry 7 }
+
+cpwCTDMPerfIntervalMalformedPkt OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets detected with unexpected size, or
+        bad headers' stack" 
+    ::= { cpwCTDMPerfIntervalEntry 8 }
+
+cpwCTDMPerfIntervalESs OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Error
+        Seconds encountered." 
+    ::= { cpwCTDMPerfIntervalEntry 9 }
+
+cpwCTDMPerfIntervalSESs OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of
+        Severely Error Seconds encountered." 
+    ::= { cpwCTDMPerfIntervalEntry 10 }
+
+cpwCTDMPerfIntervalUASs OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of
+        Unavailable Seconds encountered." 
+    ::= { cpwCTDMPerfIntervalEntry 11 }
+
+cpwCTDMPerfIntervalFC OBJECT-TYPE
+    SYNTAX          PerfIntervalCount
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of TDM failure
+        events. A failure event begins when the LOPS failure
+        is declared, and ends when the failure is cleared. A
+        failure event that begins in one period and ends in
+        another period is counted only in the period in which
+        it begins." 
+    ::= { cpwCTDMPerfIntervalEntry 12 }
+ 
+
+-- End TDM PW Performance Interval Table
+--   
+
+-- TDM PW 1day Performance Table
+
+cpwCTDMPerf1DayIntervalTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CpwCTDMPerf1DayIntervalEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides performance information per TDM PW
+        similar to the cpwCTDMPerfIntervalTable above. However,
+        these counters represent historical 1 day intervals up to
+        one full month. The table consists of real time data, as
+        such it is not persistence across re-boot."
+    ::= { cpwCTDMObjects 7 }
+
+cpwCTDMPerf1DayIntervalEntry OBJECT-TYPE
+    SYNTAX          CpwCTDMPerf1DayIntervalEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry is created in this table by the agent
+        for every entry in the cpwCTDMTable table."
+    INDEX           {
+                        cpwVcIndex,
+                        cpwCTDMPerf1DayIntervalNumber
+                    } 
+    ::= { cpwCTDMPerf1DayIntervalTable 1 }
+
+CpwCTDMPerf1DayIntervalEntry ::= SEQUENCE {
+        cpwCTDMPerf1DayIntervalNumber          Unsigned32,
+        cpwCTDMPerf1DayIntervalValidData       TruthValue,
+        cpwCTDMPerf1DayIntervalDuration        Unsigned32,
+        cpwCTDMPerf1DayIntervalMissingPkts     Counter32,
+        cpwCTDMPerf1DayIntervalPktsReOrder     Counter32,
+        cpwCTDMPerf1DayIntervalJtrBfrUnderruns Counter32,
+        cpwCTDMPerf1DayIntervalMisOrderDropped Counter32,
+        cpwCTDMPerf1DayIntervalMalformedPkt    Counter32,
+        cpwCTDMPerf1DayIntervalESs             Counter32,
+        cpwCTDMPerf1DayIntervalSESs            Counter32,
+        cpwCTDMPerf1DayIntervalUASs            Counter32,
+        cpwCTDMPerf1DayIntervalFC              Counter32
+}
+
+cpwCTDMPerf1DayIntervalNumber OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The number of interval, where 1 indicates current day
+        measured period and 2 and above indicate previous days
+        respectively" 
+    ::= { cpwCTDMPerf1DayIntervalEntry 1 }
+
+cpwCTDMPerf1DayIntervalValidData OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates if the data for this interval
+        is valid." 
+    ::= { cpwCTDMPerf1DayIntervalEntry 2 }
+
+cpwCTDMPerf1DayIntervalDuration OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The duration of a particular interval in seconds,
+        Adjustments in the system's time-of-day clock, may
+        cause the interval to be greater or less than, the
+        normal value. Therefore this actual interval value
+        is provided." 
+    ::= { cpwCTDMPerf1DayIntervalEntry 3 }
+
+cpwCTDMPerf1DayIntervalMissingPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of missing packets (as detected via control word
+        sequence number gaps)." 
+    ::= { cpwCTDMPerf1DayIntervalEntry 4 }
+
+cpwCTDMPerf1DayIntervalPktsReOrder OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets detected out of sequence (via control
+        word sequence number), but successfully re-ordered." 
+    ::= { cpwCTDMPerf1DayIntervalEntry 5 }
+
+cpwCTDMPerf1DayIntervalJtrBfrUnderruns OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of times a packet needed to be played
+        out and the jitter buffer was empty." 
+    ::= { cpwCTDMPerf1DayIntervalEntry 6 }
+
+cpwCTDMPerf1DayIntervalMisOrderDropped OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets detected out of order(via control word
+        sequence numbers), and could not be re-ordered, or could
+        not fit in the jitter buffer." 
+    ::= { cpwCTDMPerf1DayIntervalEntry 7 }
+
+cpwCTDMPerf1DayIntervalMalformedPkt OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets detected with unexpected size, or
+        bad headers' stack." 
+    ::= { cpwCTDMPerf1DayIntervalEntry 8 }
+
+cpwCTDMPerf1DayIntervalESs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Error
+        Seconds encountered." 
+    ::= { cpwCTDMPerf1DayIntervalEntry 9 }
+
+cpwCTDMPerf1DayIntervalSESs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of Severely
+        Error Seconds." 
+    ::= { cpwCTDMPerf1DayIntervalEntry 10 }
+
+cpwCTDMPerf1DayIntervalUASs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The counter associated with the number of
+        UnAvailable Seconds.
+        When first entering the UAS state, the number
+        of SES To UAS is added to this object, then as each
+        additional UAS occurs, this object increments by one." 
+    ::= { cpwCTDMPerf1DayIntervalEntry 11 }
+
+cpwCTDMPerf1DayIntervalFC OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of TDM failure
+        events. A failure event begins when the LOPS failure
+        is declared, and ends when the failure is cleared." 
+    ::= { cpwCTDMPerf1DayIntervalEntry 12 }
+ 
+
+-- End of PW TDM Performance table
+--   
+-- Conformance Information
+
+cpwCTDMGroups  OBJECT IDENTIFIER
+    ::= { cpwCTDMConformance 1 }
+
+cpwCTDMCompliances  OBJECT IDENTIFIER
+    ::= { cpwCTDMConformance 2 }
+
+
+cpwTDMModuleCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for agent that support TDM PW
+        over  PSN operation."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cpwCTDMGroup,
+                        cpwCTDMPerfCurrentGroup,
+                        cpwCTDMPerfIntervalGroup,
+                        cpwCTDMPerf1DayIntervalGroup
+                    }
+
+    OBJECT          cpwCTDMCfgPktReorder
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "The ability to set the packet reordering
+        is not required."
+
+    OBJECT          cpwCTDMCfgRtpHdrUsed
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "The ability to set the whether to use the
+        RTP header or not is not required."
+
+    OBJECT          cpwCTDMCfgPayloadSuppression
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "The ability to set this object is not
+        required."
+
+    OBJECT          cpwCTDMCfgStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "The ability to set the storage type is
+        not required."
+    ::= { cpwCTDMCompliances 1 }
+
+-- Units of conformance.
+
+cpwCTDMGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpwCTDMRate,
+                        cpwCTDMIfIndex,
+                        cpwCGenTDMCfgIndex,
+                        cpwCRelTDMCfgIndex,
+                        cpwCTDMConfigError,
+                        cpwCTDMTimeElapsed,
+                        cpwCTDMValidIntervals,
+                        cpwCTDMValidDayIntervals,
+                        cpwCTDMCurrentIndications,
+                        cpwCTDMLatchedIndications,
+                        cpwCTDMLastEsTimeStamp,
+                        cpwCTDMCfgIndexNext,
+                        cpwCTDMCfgRowStatus,
+                        cpwCTDMCfgConfErr,
+                        cpwCTDMCfgPayloadSize,
+                        cpwCTDMCfgPktReorder,
+                        cpwCTDMCfgRtpHdrUsed,
+                        cpwCTDMCfgJtrBfrDepth,
+                        cpwCTDMCfgPayloadSuppression,
+                        cpwCTDMCfgConsecPktsInSynch,
+                        cpwCTDMCfgConsecMissPktsOutSynch,
+                        cpwCTDMCfgSetUp2SynchTimeOut,
+                        cpwCTDMCfgPktReplacePolicy,
+                        cpwCTDMCfgAvePktLossTimeWindow,
+                        cpwCTDMCfgExcessivePktLossThreshold,
+                        cpwCTDMCfgAlarmThreshold,
+                        cpwCTDMCfgClearAlarmThreshold,
+                        cpwCTDMCfgMissingPktsToSes,
+                        cpwCTDMCfgTimestampMode,
+                        cpwCTDMCfgStorageType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Collection of objects for basic TDM PW config and
+        status."
+    ::= { cpwCTDMGroups 1 }
+
+cpwCTDMPerfCurrentGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpwCTDMPerfCurrentMissingPkts,
+                        cpwCTDMPerfCurrentPktsReOrder,
+                        cpwCTDMPerfCurrentJtrBfrUnderruns,
+                        cpwCTDMPerfCurrentMisOrderDropped,
+                        cpwCTDMPerfCurrentMalformedPkt,
+                        cpwCTDMPerfCurrentESs,
+                        cpwCTDMPerfCurrentSESs,
+                        cpwCTDMPerfCurrentUASs,
+                        cpwCTDMPerfCurrentFC
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Collection of current statistics objects for TDM PWs."
+    ::= { cpwCTDMGroups 2 }
+
+cpwCTDMPerfIntervalGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpwCTDMPerfIntervalValidData,
+                        cpwCTDMPerfIntervalDuration,
+                        cpwCTDMPerfIntervalMissingPkts,
+                        cpwCTDMPerfIntervalPktsReOrder,
+                        cpwCTDMPerfIntervalJtrBfrUnderruns,
+                        cpwCTDMPerfIntervalMisOrderDropped,
+                        cpwCTDMPerfIntervalMalformedPkt,
+                        cpwCTDMPerfIntervalESs,
+                        cpwCTDMPerfIntervalSESs,
+                        cpwCTDMPerfIntervalUASs,
+                        cpwCTDMPerfIntervalFC
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Collection of Interval statistics objects for TDM PWs."
+    ::= { cpwCTDMGroups 3 }
+
+cpwCTDMPerf1DayIntervalGroup OBJECT-GROUP
+    OBJECTS         {
+                        cpwCTDMPerf1DayIntervalValidData,
+                        cpwCTDMPerf1DayIntervalDuration,
+                        cpwCTDMPerf1DayIntervalMissingPkts,
+                        cpwCTDMPerf1DayIntervalPktsReOrder,
+                        cpwCTDMPerf1DayIntervalJtrBfrUnderruns,
+                        cpwCTDMPerf1DayIntervalMisOrderDropped,
+                        cpwCTDMPerf1DayIntervalMalformedPkt,
+                        cpwCTDMPerf1DayIntervalESs,
+                        cpwCTDMPerf1DayIntervalSESs,
+                        cpwCTDMPerf1DayIntervalUASs,
+                        cpwCTDMPerf1DayIntervalFC
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Collection of Daily statistics objects for TDM PWs."
+    ::= { cpwCTDMGroups 4 }
+
+END

@@ -1,0 +1,50 @@
+-- MIB file created 04-Nov-2005 16:49:50, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VOICE-APPLICATIONS-OID-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VOICE-APPLICATIONS-OID-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoModules
+            FROM CISCO-SMI;
+
+ciscoVoiceApplicationsOIDMIB OBJECT IDENTIFIER ::= { ciscoModules 5 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200406170000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems 
+--            Customer Service 
+--    
+--    Postal: 170 W Tasman Drive 
+--            San Jose, CA  95134 
+--            USA 
+--    
+--       Tel: +1 800 553-NETS 
+--    
+--    E-mail: cs-itm@cisco.com
+--  Descr
+--    This module defines the object identifiers that are 
+--    assigned to various Cisco voice applications. Voice 
+--    applications include call agents and other voice  
+--    application products. Call agents are call processing 
+--    components of a device in a IP telephony and VoIP network.
+--  RevDate
+--    200406170000Z
+--  RevDescr
+--    The initial version of this MIB module.
+
+cvaMIBOids      OBJECT IDENTIFIER ::= { ciscoVoiceApplicationsOIDMIB 1 }
+ciscoCallManager OBJECT IDENTIFIER ::= { cvaMIBOids 1 }
+ciscoCallManagerExpress OBJECT IDENTIFIER ::= { cvaMIBOids 2 }
+ciscoSRST       OBJECT IDENTIFIER ::= { cvaMIBOids 3 }
+ciscoBTS        OBJECT IDENTIFIER ::= { cvaMIBOids 4 }
+ciscoCSPS       OBJECT IDENTIFIER ::= { cvaMIBOids 5 }
+
+
+END
+

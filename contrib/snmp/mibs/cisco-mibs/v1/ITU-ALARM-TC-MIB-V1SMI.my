@@ -1,0 +1,95 @@
+-- MIB file created 26-May-2010 17:41:37, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ITU-ALARM-TC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ITU-ALARM-TC-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    mib-2
+            FROM SNMPv2-SMI-v1;
+
+ituAlarmTc OBJECT IDENTIFIER ::= { mib-2 120 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200409090000Z
+--  OrgName
+--    IETF Distributed Management Working Group
+--  ContactInfo
+--     WG EMail: disman@ietf.org
+--      Subscribe: disman-request@ietf.org
+--      http://www.ietf.org/html.charters/disman-charter.html
+--    
+--      Chair:     Randy Presuhn
+--                 randy_presuhn@mindspring.com
+--    
+--      Editors:   Sharon Chisholm
+--                 Nortel Networks
+--                 PO Box 3511 Station C
+--                 Ottawa, Ont.  K1Y 4H7
+--                 Canada
+--                 schishol@nortelnetworks.com
+--    
+--                 Dan Romascanu
+--                 Avaya
+--                 Atidim Technology Park, Bldg. #3
+--                 Tel Aviv, 61131
+--                 Israel
+--                 Tel: +972-3-645-8414
+--                 Email: dromasca@avaya.com
+--  Descr
+--    This MIB module defines the ITU Alarm
+--    textual convention for objects not expected to require
+--    regular extension.
+--    
+--    Copyright (C) The Internet Society (2004).  The
+--    initial version of this MIB module was published
+--    in RFC 3877.  For full legal notices see the RFC
+--    itself.  Supplementary information may be available on:
+--    http://www.ietf.org/copyrights/ianamib.html
+--  RevDate
+--    200409090000Z
+--  RevDescr
+--    Initial version, published as RFC 3877.
+
+ItuPerceivedSeverity ::= INTEGER {
+        cleared(1),
+        indeterminate(2),
+        critical(3),
+        major(4),
+        minor(5),
+        warning(6)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    ITU perceived severity values
+--  Refer
+--    ITU Recommendation M.3100, 'Generic Network Information
+--     Model', 1995
+--     ITU Recommendation X.733, 'Information Technology - Open
+--     Systems Interconnection - System Management: Alarm
+--     Reporting Function', 1992
+
+ItuTrendIndication ::= INTEGER {
+        moreSevere(1),
+        noChange(2),
+        lessSevere(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    ITU trend indication values for alarms.
+--  Refer
+--    ITU Recommendation M.3100, 'Generic Network Information
+--     Model', 1995
+--     ITU Recommendation X.733, 'Information Technology - Open
+--     Systems Interconnection - System Management: Alarm
+--     Reporting Function', 1992
+
+
+END
+

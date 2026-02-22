@@ -1,0 +1,64 @@
+-- ********************************************************************
+-- CISCO-VOICE-APPLICATIONS-OID-MIB.my: Cisco VoiceApplications Object 
+--                                      Identifier Assignments.
+--
+-- November 2003, Chandresh Patel   
+--
+-- Copyright (c) 2003 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ********************************************************************
+
+
+CISCO-VOICE-APPLICATIONS-OID-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    ciscoModules
+        FROM CISCO-SMI;
+
+ciscoVoiceApplicationsOIDMIB MODULE-IDENTITY
+        LAST-UPDATED    "200406170000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-itm@cisco.com"
+        DESCRIPTION
+            "This module defines the object identifiers that are
+            assigned to various Cisco voice applications. Voice
+            applications include call agents and other voice 
+            application products. Call agents are call processing
+            components of a device in a IP telephony and VoIP network."
+        REVISION "200406170000Z"
+        DESCRIPTION
+            "The initial version of this MIB module."
+    ::= { ciscoModules 5 }
+
+
+cvaMIBOids  OBJECT IDENTIFIER ::= { ciscoVoiceApplicationsOIDMIB 1 }
+
+-- Cisco Call Manager Application(CCM)
+ciscoCallManager OBJECT IDENTIFIER ::= { cvaMIBOids 1 }
+
+-- Cisco Call Manager Express(CCME)
+ciscoCallManagerExpress OBJECT IDENTIFIER ::= { cvaMIBOids 2 }  
+
+-- Cisco Survivable Remote Site Telephony(SRST)
+ciscoSRST OBJECT IDENTIFIER ::= { cvaMIBOids 3 }
+
+-- Cisco Broadband Telephony Services(BTS)
+ciscoBTS OBJECT IDENTIFIER ::= { cvaMIBOids 4 }
+
+-- Cisco SIP Proxy Server (Standalone Unix/Linux SIP Proxy)
+ciscoCSPS OBJECT IDENTIFIER ::= { cvaMIBOids 5 }
+
+END
+

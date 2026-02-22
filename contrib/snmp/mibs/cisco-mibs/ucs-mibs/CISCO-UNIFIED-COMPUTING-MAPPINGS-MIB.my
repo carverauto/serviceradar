@@ -1,0 +1,231 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-MAPPINGS-MIB.my
+-- 
+-- Three mappings are defined:
+-- parent managed object to child managed object,
+-- child managed object to parent managed object,
+-- and managed object distinguished name to OID.
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-MAPPINGS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIB,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB;
+
+cucsMappingsObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "Three mappings are defined:
+        parent managed object to child managed object,
+        child managed object to parent managed object,
+        and managed object distinguished name to OID."
+    ::= { ciscoUnifiedComputingMIB 3 }
+
+cucsMappingsMoContainmentTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMappingsMoContainmentEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Maps parent managed objects to their children using
+        instance id indices. The distinguished names (Dns)
+        of parent and child are accessible."
+    ::= { cucsMappingsObjects 1 }
+
+cucsMappingsMoContainmentEntry OBJECT-TYPE
+    SYNTAX           CucsMappingsMoContainmentEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMappingsMoContainmentTable table."
+    INDEX { cucsMappingsMoContainmentParentInstanceId, cucsMappingsMoContainmentChildInstanceId }
+    ::= { cucsMappingsMoContainmentTable 1 }
+
+CucsMappingsMoContainmentEntry ::= SEQUENCE {
+    cucsMappingsMoContainmentParentInstanceId                        CucsManagedObjectId,
+    cucsMappingsMoContainmentChildInstanceId                         CucsManagedObjectId,
+    cucsMappingsMoContainmentParentDn                                CucsManagedObjectDn,
+    cucsMappingsMoContainmentChildDn                                 CucsManagedObjectDn
+}
+
+cucsMappingsMoContainmentParentInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Parent instance id."
+    ::= { cucsMappingsMoContainmentEntry 1 }
+
+cucsMappingsMoContainmentChildInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Child instance id."
+    ::= { cucsMappingsMoContainmentEntry 2 }
+
+cucsMappingsMoContainmentParentDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Parent distinguished name (Dn)."
+    ::= { cucsMappingsMoContainmentEntry 3 }
+
+cucsMappingsMoContainmentChildDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Child distinguished name (Dn)."
+    ::= { cucsMappingsMoContainmentEntry 4 }
+
+
+cucsMappingsMoInverseContainmentTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMappingsMoInverseContainmentEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Maps child managed objects to their parent using
+        instance id indices. The distinguished names (Dns)
+        of parent and child are accessible."
+    ::= { cucsMappingsObjects 2 }
+
+cucsMappingsMoInverseContainmentEntry OBJECT-TYPE
+    SYNTAX           CucsMappingsMoInverseContainmentEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMappingsMoInverseContainmentTable table."
+    INDEX { cucsMappingsMoInverseContainmentChildInstanceId, cucsMappingsMoInverseContainmentParentInstanceId }
+    ::= { cucsMappingsMoInverseContainmentTable 1 }
+
+CucsMappingsMoInverseContainmentEntry ::= SEQUENCE {
+    cucsMappingsMoInverseContainmentChildInstanceId                  CucsManagedObjectId,
+    cucsMappingsMoInverseContainmentParentInstanceId                 CucsManagedObjectId,
+    cucsMappingsMoInverseContainmentParentDn                         CucsManagedObjectDn,
+    cucsMappingsMoInverseContainmentChildDn                          CucsManagedObjectDn
+}
+
+cucsMappingsMoInverseContainmentChildInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Child instance id."
+    ::= { cucsMappingsMoInverseContainmentEntry 1 }
+
+cucsMappingsMoInverseContainmentParentInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Parent instance id."
+    ::= { cucsMappingsMoInverseContainmentEntry 2 }
+
+cucsMappingsMoInverseContainmentParentDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Parent distinguished name (Dn)."
+    ::= { cucsMappingsMoInverseContainmentEntry 3 }
+
+cucsMappingsMoInverseContainmentChildDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Child distinguished name (Dn)."
+    ::= { cucsMappingsMoInverseContainmentEntry 4 }
+
+
+cucsMappingsDnToOidTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMappingsDnToOidEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Maps the distinguished name (Dn) of a managed object
+        to its object id (OID)."
+    ::= { cucsMappingsObjects 3 }
+
+cucsMappingsDnToOidEntry OBJECT-TYPE
+    SYNTAX           CucsMappingsDnToOidEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMappingsDnToOidTable table."
+    INDEX { cucsMappingsDnToOidDn }
+    ::= { cucsMappingsDnToOidTable 1 }
+
+CucsMappingsDnToOidEntry ::= SEQUENCE {
+    cucsMappingsDnToOidDn                                            CucsManagedObjectDn,
+    cucsMappingsDnToOidOid                                           RowPointer
+}
+
+cucsMappingsDnToOidDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Managed object distinguished name (Dn)."
+    ::= { cucsMappingsDnToOidEntry 1 }
+
+cucsMappingsDnToOidOid OBJECT-TYPE
+    SYNTAX       RowPointer
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Managed object id (OID)."
+    ::= { cucsMappingsDnToOidEntry 2 }
+
+END

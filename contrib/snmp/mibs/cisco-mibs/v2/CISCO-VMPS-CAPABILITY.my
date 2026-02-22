@@ -1,0 +1,212 @@
+-- *****************************************************************
+-- CISCO-VMPS-CAPABILITY.my:
+-- Cisco CISCO-VMPS-MIB AGENT-CAPABILITIES
+--
+-- September 2003, Dipesh Gorashia
+--
+-- Copyright (c) 2003, 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VMPS-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        DisplayString
+                FROM SNMPv2-TC
+        SnmpAdminString
+                FROM SNMP-FRAMEWORK-MIB
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoVmpsCapability MODULE-IDENTITY
+        LAST-UPDATED    "200404070000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-vlans@cisco.com, 
+                        cs-lan-switch-snmp@cisco.com"
+        DESCRIPTION
+                "The capabilities description of
+                CISCO-VMPS-MIB."
+
+        REVISION        "200404070000Z"
+        DESCRIPTION
+                "Added capability statement ciscoVmpsCapCatOSV08R0401."
+ 
+        REVISION        "200403120000Z"
+        DESCRIPTION
+                "Added capability statement ciscoVmpsCapCatOSV08R0301."
+
+        REVISION        "200310310000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 365 }
+
+ciscoVmpsCapCatOSV08R0101 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "Cisco CatOS 8.1(1)."
+    STATUS               current
+    DESCRIPTION          "CISCO-VMPS-MIB capabilities."
+
+    SUPPORTS             CISCO-VMPS-MIB 
+        INCLUDES         { ciscoVlanMemberPolicyServerGroup,
+                           ciscoVlanMemberPolicyServerRcpGroup }
+
+        VARIATION        vmpsRowStatus
+            ACCESS       read-only
+            DESCRIPTION  "Implementation only supports read operation
+                         for this object."
+
+        VARIATION        vmpsConfigFileName
+            SYNTAX       DisplayString (SIZE (0..32)) 
+            ACCESS       read-write
+            DESCRIPTION  "Implementation only supports
+                         vmpsConfigFileName of length 0 to 32 
+                         characters."
+
+        VARIATION        vmpsRcpRemoteUserName
+            SYNTAX       SnmpAdminString (SIZE (1..40))
+            DESCRIPTION  "Implementation only supports
+                         vmpsRcpRemoteUserName of length 1 to 40 
+                         characters."
+
+        VARIATION        vmpsMacConfigVlan
+            ACCESS       read-only
+            DESCRIPTION  "Implementation only supports read operation 
+                         for this object."
+
+        VARIATION        vmpsMacConfigStatus
+            ACCESS       read-only
+            DESCRIPTION  "Implementation only supports read operation
+                         for this object." 
+
+        VARIATION        vmpsVlanConfigStatus
+            ACCESS       read-only
+            DESCRIPTION  "Implementation only supports read operation
+                         for this object."
+
+    ::= { ciscoVmpsCapability 1 }
+
+ciscoVmpsCapCatOSV08R0301 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "Cisco CatOS 8.3(1) for Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS               current
+    DESCRIPTION          "CISCO-VMPS-MIB capabilities."
+
+    SUPPORTS             CISCO-VMPS-MIB
+        INCLUDES         { ciscoVlanMemberPolicyServerGroup,
+                           ciscoVlanMemberPolicyServerRcpGroup,
+                           ciscoVmpsAutoBackupGroup }
+
+        VARIATION        vmpsRowStatus
+            ACCESS       read-only
+            DESCRIPTION  "Implementation only supports read operation
+                         for this object."
+
+        VARIATION        vmpsConfigFileName
+            SYNTAX       DisplayString (SIZE (1..32))
+            ACCESS       read-write
+            DESCRIPTION  "Implementation only supports
+                         vmpsConfigFileName of length 1 to 32 
+                         characters."
+
+        VARIATION        vmpsRcpRemoteUserName
+            SYNTAX       SnmpAdminString (SIZE (1..40))
+            DESCRIPTION  "Implementation only supports
+                         vmpsRcpRemoteUserName of length 1 to 40
+                         characters."
+
+        VARIATION        vmpsMacConfigVlan
+            ACCESS       read-only
+            DESCRIPTION  "Implementation only supports read operation
+                         for this object."
+
+        VARIATION        vmpsMacConfigStatus
+            ACCESS       read-only
+            DESCRIPTION  "Implementation only supports read operation
+                         for this object."
+
+        VARIATION        vmpsVlanConfigStatus
+            ACCESS       read-only
+            DESCRIPTION  "Implementation only supports read operation
+                         for this object."
+
+        VARIATION        vmpsAutoBackupFileName
+            SYNTAX       SnmpAdminString (SIZE (7..94))
+            DESCRIPTION  "Implementation requires the value of this 
+                         object is always set in the format of
+                         <devices>:<filename>, with zero length 
+                         <filename> is not allowed."
+
+    ::= { ciscoVmpsCapability 2 }
+
+ciscoVmpsCapCatOSV08R0401 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "Cisco CatOS 8.4(1)."
+    STATUS               current
+    DESCRIPTION          "CISCO-VMPS-MIB capabilities."
+
+    SUPPORTS             CISCO-VMPS-MIB
+        INCLUDES         { ciscoVlanMemberPolicyServerGroup,
+                           ciscoVlanMemberPolicyServerRcpGroup,
+                           ciscoVlanMemberPolicyServerRcpGroup2,
+                           ciscoVmpsAutoBackupGroup }
+
+        VARIATION        vmpsRowStatus
+            ACCESS       read-only
+            DESCRIPTION  "Implementation only supports read operation
+                         for this object."
+
+        VARIATION        vmpsConfigFileName
+            SYNTAX       DisplayString (SIZE (1..32))
+            DESCRIPTION  "Implementation only supports
+                         vmpsConfigFileName of length 1 to 32
+                         characters."
+
+        VARIATION        vmpsRcpRemoteUserName
+            SYNTAX       SnmpAdminString (SIZE (1..40))
+            DESCRIPTION  "Implementation only supports
+                         vmpsRcpRemoteUserName of length 1 to 40
+                         characters."
+
+        VARIATION        vmpsRcpRemoteUserName2
+            SYNTAX       SnmpAdminString (SIZE (0..40))
+            DESCRIPTION  "Implementation only supports
+                         vmpsRcpRemoteUserName2 of length 0 to 40
+                         characters."
+
+        VARIATION        vmpsMacConfigVlan
+            ACCESS       read-only
+            DESCRIPTION  "Implementation only supports read operation
+                         for this object."
+
+        VARIATION        vmpsMacConfigStatus
+            ACCESS       read-only
+            DESCRIPTION  "Implementation only supports read operation
+                         for this object."
+
+        VARIATION        vmpsVlanConfigStatus
+            ACCESS       read-only
+            DESCRIPTION  "Implementation only supports read operation
+                         for this object."
+
+        VARIATION        vmpsAutoBackupFileName
+            SYNTAX       SnmpAdminString (SIZE (7..94))
+            DESCRIPTION  "Implementation requires the value of this
+                         object is always set in the format of
+                         <devices>:<filename>, with zero length
+                         <filename> is not allowed."
+
+    ::= { ciscoVmpsCapability 3 }
+
+END

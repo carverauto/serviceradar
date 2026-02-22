@@ -1,0 +1,193 @@
+-- MIB file created 31-May-2006 16:39:47, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+PCUBE-CONFIG-COPY-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "PCUBE-CONFIG-COPY.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    pcubeMgmt
+            FROM PCUBE-SMI
+    RowStatus
+            FROM SNMPv2-TC-v1
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+pcubeConfigCopyMIB OBJECT IDENTIFIER ::= { pcubeMgmt 1 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200604062000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     Customer Service 
+--      
+--    Postal: 170 W Tasman Drive 
+--      San Jose, CA  95134 
+--      USA 
+--    
+--    Tel: +1 800 553-NETS 
+--    
+--    E-mail: cs-sce@cisco.com
+--  Descr
+--    This MIB facilitates writing of  running 
+--     configuration of the SCOS to  
+--     startup configuration. 
+--     A config-copy operation is a request to  
+--     copy a configuration file of a running  
+--     SCOS. The term 'agent-config' will  
+--     be used in this MIB to refer to either 
+--     the running config or the startup config. 
+--     The term SCE refers to Service Control Engine
+--  RevDate
+--    200604062000Z
+--  RevDescr
+--    The original mib has been chagned to use SMIv2 syntax. 
+--    Clarified descriptions in the mib.
+--  RevDate
+--    200201142000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+pcubeConfigCopyMIBObjects OBJECT IDENTIFIER ::= { pcubeConfigCopyMIB 1 }
+pcubeConfigCopyMIBConformance OBJECT IDENTIFIER ::= { pcubeConfigCopyMIB 2 }
+pcubeConfigCopyMIBGroups OBJECT IDENTIFIER ::= { pcubeConfigCopyMIBConformance 1 }
+pcubeConfigCopyMIBCompliances OBJECT IDENTIFIER ::= { pcubeConfigCopyMIBConformance 2 }
+pcubeCopy       OBJECT IDENTIFIER ::= { pcubeConfigCopyMIBObjects 1 }
+
+ConfigFileType ::= INTEGER {
+        startupConfig(1),
+        runningConfig(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The various types of files on which a config-copy 
+--    operation can be performed.
+
+pcubeCopyTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF PcubeCopyEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of config-copy requests."
+    ::= { pcubeCopy 1 }
+
+pcubeCopyEntry OBJECT-TYPE
+    SYNTAX PcubeCopyEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A config-copy request. 
+        
+        A management station wishing to save the running config 
+        may use any number to be used as an index. 
+        The station should then create the associated instance of the  
+        row status and row index objects.   
+        It should be noted however that currently  
+        'pcubeCopySourceFileType' must be of 'runningConfig' type and  
+        'pcubeCopyDestFileType' must be of 'startupConfig' type  
+        (that are the default values). 
+         
+        After setting pcubeCopySourceFileType and pcubeCopyDestFileType 
+        objects by explicit SNMP request or or by default, the row status 
+        should be set to createAndGo to initiate the request.  
+        Note that this entire procedure may be initiated  
+        via a single set request which specifies a row  
+        status of 'createAndGo(4)'."
+    INDEX { pcubeCopyIndex }
+    ::= { pcubeCopyTable 1 }
+
+PcubeCopyEntry ::= SEQUENCE {
+    pcubeCopyIndex INTEGER,
+    pcubeCopyEntryRowStatus RowStatus,
+    pcubeCopySourceFileType ConfigFileType,
+    pcubeCopyDestFileType ConfigFileType
+    }
+
+pcubeCopyIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Object which specifies a unique entry in the 
+        pcubeCopyTable.  A management station wishing 
+        to initiate a config-copy operation should use a 
+        random value for this object when creating 
+        or modifying an instance of a 'pcubeCopyEntry'. 
+        The RowStatus semantics of the 'pcubeCopyEntryRowStatus' 
+        object will prevent access conflicts."
+    ::= { pcubeCopyEntry 1 }
+
+pcubeCopyEntryRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object can be used for creating/deleting entries  
+        from the table."
+    ::= { pcubeCopyEntry 2 }
+
+pcubeCopySourceFileType OBJECT-TYPE
+    SYNTAX ConfigFileType
+--    Rsyntax INTEGER {
+--        startupConfig(1),
+--        runningConfig(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the type of file to copy from.  
+        Currently only 'runningConfig(2)' is supported."
+    ::= { pcubeCopyEntry 3 }
+
+pcubeCopyDestFileType OBJECT-TYPE
+    SYNTAX ConfigFileType
+--    Rsyntax INTEGER {
+--        startupConfig(1),
+--        runningConfig(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the type of file to copy to. 
+        currently only 'startupConfig(1)' is supported."
+    ::= { pcubeCopyEntry 4 }
+
+pcubeCopyGroup OBJECT IDENTIFIER ::= { pcubeConfigCopyMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects used for specifying  
+--    the configuration of the copy operation.
+--  objects
+--    pcubeCopyEntryRowStatus, pcubeCopySourceFileType, 
+--    pcubeCopyDestFileType
+
+pcubeConfigCopyMIBCompliance OBJECT IDENTIFIER ::= { pcubeConfigCopyMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    A compliance statement defined in this MIB module, 
+--    for SCE SNMP agents.
+--  Module
+--    >>current<<
+--   MandGroup
+--    pcubeCopyGroup
+
+
+END
+

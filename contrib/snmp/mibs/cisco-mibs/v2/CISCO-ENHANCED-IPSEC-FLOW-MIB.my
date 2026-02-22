@@ -1,0 +1,4279 @@
+-- *------------------------------------------------------------------
+-- * CISCO-ENHANCED-IPSEC-FLOW-MIB.my:
+-- *                   Enhanced IPsec Flow Monitoring MIB.
+-- *
+-- * August 2004, S Ramakrishnan, John Fan
+-- *
+-- * Copyright (c) 2004, 2011, 2013 by cisco Systems Inc.
+-- * All rights reserved.
+-- *------------------------------------------------------------------
+
+CISCO-ENHANCED-IPSEC-FLOW-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Counter32,
+    Counter64,
+    Gauge32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TimeStamp,
+    DateAndTime,
+    TimeInterval,
+    TruthValue
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ifIndex,
+    InterfaceIndex
+        FROM IF-MIB
+    CiscoIpProtocol,
+    CiscoPort
+        FROM CISCO-TC
+    CIPsecEncryptionKeySize,
+    CIPsecControlProtocol,
+    CIPsecDiffHellmanGrp,
+    CIPsecEncapMode,
+    CIPsecEncryptAlgorithm,
+    CIPsecSpi,
+    CIPsecAuthAlgorithm,
+    CIPsecCompAlgorithm,
+    CIPsecEndPtType,
+    CIPsecNATTraversalMode,
+    CIPsecPhase1TunnelIndexOrZero,
+    CIPsecPhase2TunnelIndex,
+    CIPsecPhase2SaDirection,
+    CIPsecProtocol,
+    CIPsecPmtu,
+    CIPsecTunnelStatus
+        FROM CISCO-IPSEC-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoEnhancedIpsecFlowMIB MODULE-IDENTITY
+    LAST-UPDATED    "201306280000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+                    Tel: +1 800 553-NETS
+            E-mail: cs-ipsecmib@external.cisco.com"
+    DESCRIPTION
+        "This is a MIB Module for monitoring the structures
+        and status of IPSec-based networks. The MIB has been 
+        designed to be adopted as an IETF standard. Hence 
+        vendor-specific features of IPSec protocol are excluded 
+        from this MIB.
+
+        Acronyms
+        The following acronyms are used in this document:
+
+           IPsec:      Secure IP Protocol
+
+           VPN:        Virtual Private Network
+
+           ISAKMP:     Internet Security Association and Key Exchange
+                       Protocol
+
+           IKE:        Internet Key Exchange Protocol
+
+           SA:         Security Association
+               (ref: rfc2408).
+
+           SPI:        Security Parameter Index is the pointer or
+               identifier used in accessing SA attributes
+               (ref: rfc2408).
+
+           MM:         Main Mode - the process of setting up
+                       a Phase 1 SA to secure the exchanges
+                       required to setup Phase 2 SAs
+
+           QM:         Quick Mode - the process of setting up
+                       Phase 2 Security Associations using
+                       a Phase 1 SA.
+
+           Phase 1 Tunnel:
+                       An ISAKMP SA can be regarded as representing
+                       a flow of ISAKMP/IKE traffic. Hence an ISAKMP
+                       is referred to as a 'Phase 1 Tunnel' in this
+                       document. 
+
+           Control Tunnel:
+                       Another term for a Phase 1 Tunnel.
+
+           Phase 2 Tunnel:
+                       An instance of a non-ISAKMP SA  bundle in which all
+                       the SA share the same proxy identifiers (IDii,IDir)
+                       protect the same stream of application traffic.
+                       Such an SA bundle is termed a 'Phase 2 Tunnel'.
+                       Note that a Phase 2 tunnel may comprise different
+                       SA bundles and different number of SA bundles at
+                       different times (due to key refresh).
+
+           MTU:
+                       Maximum Transmission Unit (of an IPsec tunnel).
+
+        History of the MIB
+         A precursor to this MIB was written by Tivoli and implemented 
+         in IBM Nways routers in 1999. During late 1999, Cisco adopted
+         the MIB and together with Tivoli publised the IPsec Flow
+         Monitor MIB in IETF IPsec WG in 
+         draft-ietf-ipsec-flow-monitoring-mib-00.txt. In 2000, the
+         MIB was Cisco-ized and implemented this draft as
+         CISCO-IPSEC-FLOW-MONITOR-MIB in IOS and VPN3000 platforms.
+
+         With the evolution of IKEv2, the MIB was modified and 
+         presented to the IPsec WG again in May 2003 in
+         draft-ietf-ipsec-flow-monitoring-mib-02.txt.
+
+         With the emergence of multiple IPsec signaling protocols,
+         it became apparent that the signaling aspects of IPsec
+         need to be instrumented separately in their own right.
+         Thus, the IPsec control attributes and metrics were 
+         separated out into CISCO-IPSEC-SIGNALING-MIB and
+         CISCO-IKE-FLOW-MIB.
+
+         This version of the draft is the version of the draft
+         that models that IPsec data protocol, structures and 
+         activity alone.
+
+        Overview of MIB
+
+         The MIB contains four major groups of objects which are
+         used to manage the IPsec Protocol. These groups include
+         a Levels Group, a Phase-1 Group, a Phase-2 Group,
+         a History Group, a Failure Group and a TRAP Control Group.
+         The following table illustrates the structure of the
+         IPsec MIB.
+
+         The Phase 2 group models objects pertaining to
+         IPsec data tunnels.
+
+         The History group is to aid applications that do
+         trending analysis.
+
+         The Failure group is to enable an operator to
+         do troubleshooting and debugging of the VPN Router.
+         Further, counters are supported to aid detection
+         of potential security violations.
+
+         In addition to the three major MIB Groups, there are
+         a number of Notifications. The following table
+         illustrates the name and description of the
+         IPsec TRAPs."
+    REVISION        "201306280000Z"
+    DESCRIPTION
+        "Added ciscoEnhIPsecFlowPerformanceThroughputGroup group
+        Added performanceUtilization to ceipSecFailReason"
+    REVISION        "201107190000Z"
+    DESCRIPTION
+        "Added ciscoEnhIPsecFlowNotifCntlGroupSup01 control group with
+        certificate objects:
+          ceipSecNotifCntlCertExpiry
+          ceipSecNotifCntlCertRenewal
+        Added ciscoEnhIPsecFlowNotifGroupSup01 notification group with
+        certificate objects:
+          ciscoEnhIpsecFlowCertExpiry
+          ciscoEnhIpsecFlowCertRenewal
+        Added ciscoEnhIPsecFlowCertObjectGroup with certificate
+        objects:
+          ceipSecCertSubjectName
+          ceipSecCertSerialNumber
+          ceipSecCertIssuerName
+          ceipSecCertRenewalStatus
+          ceipSecCertExpiryStatus
+        Added certificate groups and objects to
+        ciscoEnhIPsecFlowMIBComplianceRev1"
+    REVISION        "200501120000Z"
+    DESCRIPTION
+        "Added a new table, ceipSecTunnelSaTable"
+    REVISION        "200408310000Z"
+    DESCRIPTION
+        "Initial version of this module."
+    ::= { ciscoMgmt 432 }
+
+
+ciscoEnhancedIpsecFlowMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoEnhancedIpsecFlowMIB 0 }
+
+ciscoEnhancedIpsecFlowMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoEnhancedIpsecFlowMIB 1 }
+
+ciscoEnhancedIpsecFlowMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoEnhancedIpsecFlowMIB 2 }
+
+ceipSecPhaseTwo  OBJECT IDENTIFIER
+    ::= { ciscoEnhancedIpsecFlowMIBObjects 1 }
+
+ceipSecHistory  OBJECT IDENTIFIER
+    ::= { ciscoEnhancedIpsecFlowMIBObjects 2 }
+
+ceipSecFailures  OBJECT IDENTIFIER
+    ::= { ciscoEnhancedIpsecFlowMIBObjects 3 }
+
+ceipSecNotificationCntl  OBJECT IDENTIFIER
+    ::= { ciscoEnhancedIpsecFlowMIBObjects 5 }
+
+ceipSecCertNotification  OBJECT IDENTIFIER
+    ::= { ciscoEnhancedIpsecFlowMIBObjects 6 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- IPsec Phase-2 Group
+--   
+-- This group consists of:
+-- 1) IPsec Phase-2 Global Statistics
+-- 2) IPsec Phase-2 Tunnel Table
+-- 3) IPsec Phase-2 Endpoint Table
+-- 4) IPsec Phase-2 Security Protection Index Table
+-- 4) IPsec Phase-2 Security Protection Index Objects
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+--   
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- The IPsec Phase-2 Global Tunnel Statistics
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ceipSecGlobalStats  OBJECT IDENTIFIER
+    ::= { ceipSecPhaseTwo 1 }
+
+
+ceipSecGlobalActiveTunnels OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Tunnels"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of currently active
+        IPsec Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 1 }
+
+ceipSecGlobalPreviousTunnels OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Tunnels"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of previously active
+        IPsec Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 2 }
+
+ceipSecGlobalInOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number of
+        octets received by all current and previous
+        IPsec Phase-2 Tunnels. This value is accumulated
+        BEFORE determining whether or not the packet
+        should be decompressed." 
+    ::= { ceipSecGlobalStats 3 }
+
+ceipSecGlobalInDecompOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number
+        of decompressed octets received by all current
+        and previous IPsec Phase-2 Tunnels.  This value
+        is accumulated AFTER the packet is decompressed.
+        If compression is not being used, this value
+        will match the value of ceipSecGlobalInOctets." 
+    ::= { ceipSecGlobalStats 4 }
+
+ceipSecGlobalInPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets received
+        by all current and previous
+        IPsec Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 5 }
+
+ceipSecGlobalInDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets dropped
+        during receive processing by all current and
+        previous IPsec Phase-2 Tunnels. This count does
+        NOT include packets dropped due to
+        Anti-Replay processing." 
+    ::= { ceipSecGlobalStats 6 }
+
+ceipSecGlobalInReplayDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets dropped during
+        receive processing due to Anti-Replay
+        processing by all current and previous IPsec
+        Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 7 }
+
+ceipSecGlobalInAuths OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound authentication's
+        performed by all current and previous IPsec
+        Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 8 }
+
+ceipSecGlobalInAuthFails OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound authentication's
+        which ended in failure by all current and 
+        previous IPsec Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 9 }
+
+ceipSecGlobalInDecrypts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound decryption's
+        performed by all current and previous IPsec
+        Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 10 }
+
+ceipSecGlobalInDecryptFails OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound decryption's
+        which ended in failure by all current and
+        previous IPsec Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 11 }
+
+ceipSecGlobalOutOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number
+        of octets sent by all current and previous
+        IPsec Phase-2 Tunnels.  This value is accumulated
+        AFTER determining whether or not the packet should
+        be compressed." 
+    ::= { ceipSecGlobalStats 12 }
+
+ceipSecGlobalOutUncompOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number of
+        uncompressed octets sent by all current and previous
+        IPsec Phase-2 Tunnels.  This value is accumulated
+        BEFORE the packet is compressed.  If compression is
+        not being used, this value will match the
+        value of ceipSecGlobalOutOctets." 
+    ::= { ceipSecGlobalStats 13 }
+
+ceipSecGlobalOutPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets sent by all
+        current and previous IPsec Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 14 }
+
+ceipSecGlobalOutDrops OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets dropped during send
+        processing by all current and previous IPsec
+        Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 15 }
+
+ceipSecGlobalOutAuths OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound authentication's
+        performed by all current and previous IPsec
+        Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 16 }
+
+ceipSecGlobalOutAuthFails OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound authentication's
+        which ended in failure
+        by all current and previous IPsec Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 17 }
+
+ceipSecGlobalOutEncrypts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound encryption's performed
+        by all current and previous IPsec Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 18 }
+
+ceipSecCertSubjectName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the subject name from the X.509
+        certificate, or the alternate subject name if it is available.
+        The subject name is formatted as a character string matching the
+        output of a ssh-certview command-line application, except that
+        the application sending the notification may limit the string
+        length.
+        Example Subject Name: C=US, OU=DEV, CN=Test-01
+        Example Subject Alternative Name:
+        2001:0022:0022:0020:0000:0000:0000:0102"
+    REFERENCE
+        "RFC 3280 section 4.1.2.6  Subject
+        RFC 3280 section 4.2.1.7  Subject Alternative Name" 
+    ::= { ceipSecCertNotification 1 }
+
+ceipSecCertSerialNumber OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the serial number from the X.509
+        certificate. The serial number is formatted as a character
+        string matching the output of a ssh-certview command-line
+        application. The issuer name and the serial number identify a
+        unique certificate.
+        Example: 1000655533"
+    REFERENCE       "RFC 3280 section 4.1.2.2  Serial number" 
+    ::= { ceipSecCertNotification 2 }
+
+ceipSecCertIssuerName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the issuer name from the X.509
+        certificate. The issuer name is formatted as a character string
+        matching the output of a ssh-certview command-line application,
+        except that the application sending the notification may limit
+        the string length. The issuer name and the serial number
+        identify a unique certificate.
+        Example: C=US, O=Cisco, OU=MITG, CN=Lnx-Insta-RootCA-1"
+    REFERENCE       "RFC 3280 section 5.1.2.3  Issuer Name" 
+    ::= { ceipSecCertNotification 3 }
+
+ceipSecCertExpiryTime OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the validity notAfter time from the X.509
+        certificate. The notAfter time is the time after which the
+        certificate is not valid. The time is formatted as a character
+        string matching the output of a ssh-certview command-line
+        application.
+        Example: 2012 Apr 14th, 19:01:45 GMT"
+    REFERENCE       "RFC 3280 section 4.1.2.5  Validity" 
+    ::= { ceipSecCertNotification 4 }
+
+ceipSecCertRenewalStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        renewalNotNeeded(1), -- valid
+                        renewalRequestNeeded(2),
+                        renewalRequested(3),
+                        renewalSuccess(4),
+                        renewalFailedUpdate(5),
+                        renewalFailedExpired(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the renewal status of the X.509
+        certificate on the application sending the notification.
+        renewalNotNeeded(1)     = certificate is OK and does not need to
+        be renewed renewalRequestNeeded(2) = certificate renewal request
+        is needed
+        renewalRequested(3)     = certificate renewal has been requested
+        and the renewal process is proceeding
+        renewalSuccess(4)       = certificate has been renewed and will
+        be OK (renewalNotNeeded)
+        renewalFailedUpdate(5)  = certificate renewal failed, but
+        certificate is still usable until the validity expiration time
+        provided in the notification, or otherwise restricted by the
+        application
+        renewalFailedExpired(6) = certificate is no longer valid, the
+        current time is after the certificate's validity notAfter time,
+        which is provided in this notification" 
+    ::= { ceipSecCertNotification 5 }
+
+ceipSecCertExpiryStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        certOK(1),
+                        certGoingExpired(2),
+                        certExpired(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the expiration status of the X.509
+        certificate on the application sending the notification.
+        The notification is sent when the value of this object is
+        changed from certOK(1) to certGoingExpired(2).
+        certOK(1)           = certificate is OK and is not within the
+        configured time threshold for going to expire
+        certGoingExpired(2) = certificate is within the configured time
+        threshold for going to expire
+        certExpired(3)      = certificate has expired, the current time
+        is after the certificate's validity notAfter time" 
+    ::= { ceipSecCertNotification 6 }
+
+ceipSecGlobalOutEncryptFails OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound encryption's
+        which ended in failure by all current and
+        previous IPsec Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 19 }
+
+ceipSecGlobalProtocolUseFails OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of protocol use failures
+        which occurred during processing of all current
+        and previously active IPsec Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 20 }
+
+ceipSecGlobalNoSaFails OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of non-existent Security
+        Association in failures which occurred during 
+        processing of all current and previous IPsec 
+        Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 21 }
+
+ceipSecGlobalSysCapFails OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of system capacity failures
+        which occurred during processing of all current
+        and previously active IPsec Phase-2 Tunnels." 
+    ::= { ceipSecGlobalStats 22 }
+
+ceipSecGlobalOutCompressedPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The cumulative number of outbound packets across all
+        IPsec flows terminating at this device which were
+        successfully compressed." 
+    ::= { ceipSecGlobalStats 23 }
+
+ceipSecGlobalOutCompSkippedPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets across all
+        IPsec flows terminating at this devices that were 
+        to be compressed but which were skipped due to 
+        the compression hysteresis." 
+    ::= { ceipSecGlobalStats 24 }
+
+ceipSecGlobalOutCompFailPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets across all IPsec
+        flows terminating at this device that failed compression
+        because they grew in size after compression." 
+    ::= { ceipSecGlobalStats 25 }
+
+ceipSecGlobalOutCompTooSmallPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets across all IPsec
+        flows terminating at this device that were to be 
+        compressed but were smaller than the compression 
+        threshold size. This number is cumulative since the 
+        last system start." 
+    ::= { ceipSecGlobalStats 26 }
+
+ceipSecGlobalThroughputUtilizatioinTimeInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The object is the length of the time interval
+        to measure the throughtput utilization." 
+    ::= { ceipSecGlobalStats 27 }
+
+ceipSecGlobalThroughputLastUpdatedTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The timestamp is the end of the last throughput
+        utilization time interval." 
+    ::= { ceipSecGlobalStats 28 }
+
+ceipSecGlobalLastAveragePacketSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object is the average packet size in the
+        last throughput utilization time interval that
+        ended at ceipSecGlobalThroughputLastUpdatedTime." 
+    ::= { ceipSecGlobalStats 29 }
+
+ceipSecGlobalLastThroughputInMbps OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Mbps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The object is the total throughput in Mbps in
+        the last throughput utilization time interval that
+        ended at ceipSecGlobalThroughputLastUpdatedTime." 
+    ::= { ceipSecGlobalStats 30 }
+
+ceipSecGlobalLastThroughputInKpps OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Kpps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The object is the total throughput in Kpps in
+        the last throughput utilization time interval that
+        ended at ceipSecGlobalThroughputLastUpdatedTime." 
+    ::= { ceipSecGlobalStats 31 }
+
+ceipSecGlobalLastThroughputUtilization OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The object is the throughput utilization in
+        percentage in the last performance utilization
+        time interval that ended at
+        ceipSecGlobalThroughputLastUpdatedTime." 
+    ::= { ceipSecGlobalStats 32 }
+
+ceipSecGlobalPeakThroughputUtilization OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The object is the peak throughput utilization
+        in percentage since the managed system is active.
+        It was observed in the throughput utilization
+        time interval that ended at
+        ceipSecGlobalPeakThroughputDateAndTime." 
+    ::= { ceipSecGlobalStats 33 }
+
+ceipSecGlobalPeakThroughputDateAndTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The date and time when
+        ceipSecGlobalPeakThroughputUtilization is 
+        updated." 
+    ::= { ceipSecGlobalStats 34 }
+
+ceipSecGlobalPeakThroughputInMbps OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Mbps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The object indicates the peak value of throughput
+        in Mbps." 
+    ::= { ceipSecGlobalStats 35 }
+
+ceipSecGlobalPeakAvgPacketSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average packet size in
+        bytes in the throughput utilization time interval
+        that ended at ceipSecGlobalPeakThroughputDateAndTime." 
+    ::= { ceipSecGlobalStats 36 }
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- The IPsec Phase-2 Tunnel Table
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ceipSecTunnelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CeipSecTunnelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The IPsec Phase-2 Tunnel Table.
+        There is one entry in this table for
+        each active IPsec Phase-2 Tunnel."
+    ::= { ceipSecPhaseTwo 2 }
+
+ceipSecTunnelEntry OBJECT-TYPE
+    SYNTAX          CeipSecTunnelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the attributes
+        associated with an active IPsec Phase-2 Tunnel."
+    INDEX           { ceipSecTunIndex } 
+    ::= { ceipSecTunnelTable 1 }
+
+CeipSecTunnelEntry ::= SEQUENCE {
+        ceipSecTunIndex               CIPsecPhase2TunnelIndex,
+        ceipSecTunLocalAddressType    InetAddressType,
+        ceipSecTunLocalAddress        InetAddress,
+        ceipSecTunRemoteAddressType   InetAddressType,
+        ceipSecTunRemoteAddress       InetAddress,
+        ceipSecTunControlProtocol     CIPsecControlProtocol,
+        ceipSecTunControlTunnelIndex  CIPsecPhase1TunnelIndexOrZero,
+        ceipSecTunControlTunnelAlive  TruthValue,
+        ceipSecTunEncapMode           CIPsecEncapMode,
+        ceipSecTunNATTraversalMode    CIPsecNATTraversalMode,
+        ceipSecTunLifeSize            Unsigned32,
+        ceipSecTunLifeTime            Unsigned32,
+        ceipSecTunActiveTime          TimeInterval,
+        ceipSecTunSaLifeSizeThreshold Unsigned32,
+        ceipSecTunSaLifeTimeThreshold Unsigned32,
+        ceipSecTunTotalRefreshes      Counter32,
+        ceipSecTunExpiredSaInstances  Counter32,
+        ceipSecTunCurrentSaInstances  Gauge32,
+        ceipSecTunInSaDHGrp           CIPsecDiffHellmanGrp,
+        ceipSecTunInSaEncryptAlgo     CIPsecEncryptAlgorithm,
+        ceipSecTunInSaEncryptKeySize  CIPsecEncryptionKeySize,
+        ceipSecTunInSaAhAuthAlgo      CIPsecAuthAlgorithm,
+        ceipSecTunInSaEspAuthAlgo     CIPsecAuthAlgorithm,
+        ceipSecTunInSaDecompAlgo      CIPsecCompAlgorithm,
+        ceipSecTunOutSaDHGrp          CIPsecDiffHellmanGrp,
+        ceipSecTunOutSaEncryptAlgo    CIPsecEncryptAlgorithm,
+        ceipSecTunOutSaEncryptKeySize CIPsecEncryptionKeySize,
+        ceipSecTunOutSaAhAuthAlgo     CIPsecAuthAlgorithm,
+        ceipSecTunOutSaEspAuthAlgo    CIPsecAuthAlgorithm,
+        ceipSecTunOutSaCompAlgo       CIPsecCompAlgorithm,
+        ceipSecTunPmtu                CIPsecPmtu,
+        ceipSecTunInOctets            Counter64,
+        ceipSecTunInDecompOctets      Counter64,
+        ceipSecTunInPkts              Counter32,
+        ceipSecTunInDropPkts          Counter32,
+        ceipSecTunInReplayDropPkts    Counter32,
+        ceipSecTunInAuths             Counter32,
+        ceipSecTunInAuthFails         Counter32,
+        ceipSecTunInDecrypts          Counter32,
+        ceipSecTunInDecryptFails      Counter32,
+        ceipSecTunOutOctets           Counter64,
+        ceipSecTunOutUncompOctets     Counter64,
+        ceipSecTunOutPkts             Counter32,
+        ceipSecTunOutDropPkts         Counter32,
+        ceipSecTunOutAuths            Counter32,
+        ceipSecTunOutAuthFails        Counter32,
+        ceipSecTunOutEncrypts         Counter32,
+        ceipSecTunOutEncryptFails     Counter32,
+        ceipSecTunOutCompressedPkts   Counter32,
+        ceipSecTunOutCompSkippedPkts  Counter32,
+        ceipSecTunOutCompFailPkts     Counter32,
+        ceipSecTunOutCompTooSmallPkts Counter32,
+        ceipSecIfIndex                InterfaceIndex,
+        ceipSecTunStatus              CIPsecTunnelStatus
+}
+
+ceipSecTunIndex OBJECT-TYPE
+    SYNTAX          CIPsecPhase2TunnelIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The index of the IPsec Phase-2 Tunnel Table.
+        The value of the index is a number which begins
+        at 1 and is incremented with each tunnel that is
+        created. The value of this object will wrap at
+        2,147,483,647.
+
+        Since this object must correspond to a valid
+        Phase-2 IPsec tunnel, this object may not assume 
+        the value of 0." 
+    ::= { ceipSecTunnelEntry 1 }
+
+ceipSecTunLocalAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the IP address of the local endpoint
+        for the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 2 }
+
+ceipSecTunLocalAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The IP address of the local endpoint
+        for the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 3 }
+
+ceipSecTunRemoteAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the IP address of the remote
+        endpoint for the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 4 }
+
+ceipSecTunRemoteAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The IP address of the remote endpoint for
+        the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 5 }
+
+ceipSecTunControlProtocol OBJECT-TYPE
+    SYNTAX          CIPsecControlProtocol
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Identifies the protocol used to setup and
+        administer this Phase-2 IPsec tunnel. 
+
+        In case this tunnel was spawned by an IPsec 
+        signaling protocol, this MIB object contains the 
+        value of the object 'cisgIpsSgProtocol' defined 
+        in CISCO-IPSEC-SIGNALING-MIB in the table
+        'cisgIpsSgTunnelTable' in the row corresponding
+        to the control tunnel.
+
+        A value of 'cpManual' is indicative of a 
+        manually installed and administered Phase-2 
+        tunnel." 
+    ::= { ceipSecTunnelEntry 6 }
+
+ceipSecTunControlTunnelIndex OBJECT-TYPE
+    SYNTAX          CIPsecPhase1TunnelIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The index of the associated IPsec Phase-1
+        Tunnel. In case this tunnel was spawned by an
+        IPsec signaling protocol, this MIB object
+        contains the value of the object 'cisgIpsSgTunIndex'
+        defined in CISCO-IPSEC-SIGNALING-MIB in the table
+        'cisgIpsSgTunnelTable' in the row corresponding to 
+        the control tunnel.
+
+        A value of 0 identifies that this Phase-2 tunnel 
+        was setup manually." 
+    ::= { ceipSecTunnelEntry 7 }
+
+ceipSecTunControlTunnelAlive OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An indicator which specifies whether or not the
+        IPsec Phase-1 Tunnel that spawned this Phase-2
+        tunnel currently exists." 
+    ::= { ceipSecTunnelEntry 8 }
+
+ceipSecTunEncapMode OBJECT-TYPE
+    SYNTAX          CIPsecEncapMode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The encapsulation mode used by the
+        IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 9 }
+
+ceipSecTunNATTraversalMode OBJECT-TYPE
+    SYNTAX          CIPsecNATTraversalMode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The encapsulation used by the IPsec Phase-2
+        tunnel for NAT traversal.
+
+        The value of this object is constrained based on
+        the value of the column 'ceipSecTunEncapMode'. If
+        the value of 'ceipSecTunEncapMode' is 'encapTransport',
+        then this object may not assume the values
+        'natEncapIPsecOverUdp' or 'natEncapIPsecOverTcp'." 
+    ::= { ceipSecTunnelEntry 10 }
+
+ceipSecTunLifeSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The negotiated LifeSize of the
+        IPsec Phase-2 Tunnel in kilobytes." 
+    ::= { ceipSecTunnelEntry 11 }
+
+ceipSecTunLifeTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The negotiated LifeTime of the IPsec Phase-2
+        Tunnel in seconds.
+
+        If the tunnel was setup manually, the value of this
+        MIB element should be 0." 
+    ::= { ceipSecTunnelEntry 12 }
+
+ceipSecTunActiveTime OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The length of time the IPsec Phase-2
+        Tunnel has been active in hundredths of seconds." 
+    ::= { ceipSecTunnelEntry 13 }
+
+ceipSecTunSaLifeSizeThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The security association LifeSize refresh
+        threshold in kilobytes.
+
+        If the tunnel was setup manually, the value of this
+        MIB element should be 0." 
+    ::= { ceipSecTunnelEntry 14 }
+
+ceipSecTunSaLifeTimeThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The security association LifeTime refresh
+        threshold in seconds.
+
+        If the tunnel was setup manually, the value of this
+        MIB element should be 0." 
+    ::= { ceipSecTunnelEntry 15 }
+
+ceipSecTunTotalRefreshes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "QM Exchanges"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of security
+        association refreshes performed." 
+    ::= { ceipSecTunnelEntry 16 }
+
+ceipSecTunExpiredSaInstances OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "SAs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of security associations
+        which have expired.
+
+        If the tunnel was setup manually, the value of this
+        MIB element should be 0." 
+    ::= { ceipSecTunnelEntry 17 }
+
+ceipSecTunCurrentSaInstances OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of security associations
+        which are currently active or expiring." 
+    ::= { ceipSecTunnelEntry 18 }
+
+ceipSecTunInSaDHGrp OBJECT-TYPE
+    SYNTAX          CIPsecDiffHellmanGrp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Diffie Hellman Group used
+        by the inbound security association of the
+        IPsec Phase-2 Tunnel.
+
+        If the tunnel was setup manually, the value of this
+        MIB element would be `none'." 
+    ::= { ceipSecTunnelEntry 19 }
+
+ceipSecTunInSaEncryptAlgo OBJECT-TYPE
+    SYNTAX          CIPsecEncryptAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The encryption algorithm used by the inbound security
+        association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 20 }
+
+ceipSecTunInSaEncryptKeySize OBJECT-TYPE
+    SYNTAX          CIPsecEncryptionKeySize
+    UNITS           "Bits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The key size in bits of the negotiated key to be
+        used with the algorithm denoted by 
+        'ceipSecTunInSaEncryptAlgo'.
+
+        For DES and 3DES the key size is respectively 56 and
+        168. For AES, this will denote the negotiated key size." 
+    ::= { ceipSecTunnelEntry 21 }
+
+ceipSecTunInSaAhAuthAlgo OBJECT-TYPE
+    SYNTAX          CIPsecAuthAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The authentication algorithm used by the inbound
+        authentication header (AH) security association of
+        the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 22 }
+
+ceipSecTunInSaEspAuthAlgo OBJECT-TYPE
+    SYNTAX          CIPsecAuthAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The authentication algorithm used by the inbound
+        ecapsulation security protocol (ESP) security
+        association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 23 }
+
+ceipSecTunInSaDecompAlgo OBJECT-TYPE
+    SYNTAX          CIPsecCompAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The decompression algorithm used by the inbound
+        security association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 24 }
+
+ceipSecTunOutSaDHGrp OBJECT-TYPE
+    SYNTAX          CIPsecDiffHellmanGrp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Diffie Hellman Group used by the outbound security
+        association of the IPsec Phase-2 Tunnel.
+
+        If the tunnel was setup manually, the value of this
+        MIB element would be 'none'." 
+    ::= { ceipSecTunnelEntry 25 }
+
+ceipSecTunOutSaEncryptAlgo OBJECT-TYPE
+    SYNTAX          CIPsecEncryptAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The encryption algorithm used by the outbound security
+        association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 26 }
+
+ceipSecTunOutSaEncryptKeySize OBJECT-TYPE
+    SYNTAX          CIPsecEncryptionKeySize
+    UNITS           "Bits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The key size in bits of the negotiated key to be
+        used with the algorithm denoted by 
+        'ceipSecTunOutSaEncryptAlgo'.
+
+        For DES and 3DES the key size is respectively 56 and
+        168. For AES, this will denote the negotiated key size." 
+    ::= { ceipSecTunnelEntry 27 }
+
+ceipSecTunOutSaAhAuthAlgo OBJECT-TYPE
+    SYNTAX          CIPsecAuthAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The authentication algorithm used by the outbound
+        authentication header (AH) security association of
+        the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 28 }
+
+ceipSecTunOutSaEspAuthAlgo OBJECT-TYPE
+    SYNTAX          CIPsecAuthAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The authentication algorithm used by the inbound
+        encapsulation security protocol (ESP)
+        security association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 29 }
+
+ceipSecTunOutSaCompAlgo OBJECT-TYPE
+    SYNTAX          CIPsecCompAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The compression algorithm used by the inbound
+        security association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 30 }
+
+ceipSecTunPmtu OBJECT-TYPE
+    SYNTAX          CIPsecPmtu
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Path MTU for this IPsec Phase-2 tunnel, which has
+        been either learnt from the network or which has been
+        specified by the administrator. The lower end of the
+        range is 68 which is the minimum MTU for IPv4." 
+    ::= { ceipSecTunnelEntry 31 }
+
+ceipSecTunInOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number of octets
+        received by this IPsec Phase-2 Tunnel.  This value is
+        accumulated BEFORE determining whether or not the packet
+        should be decompressed." 
+    ::= { ceipSecTunnelEntry 32 }
+
+ceipSecTunInDecompOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number of decompressed
+        octets received by this IPsec Phase-2 Tunnel.  This value
+        is accumulated AFTER the packet is decompressed. If
+        compression is not being used, this value will match the
+        value of ceipSecTunInOctets." 
+    ::= { ceipSecTunnelEntry 33 }
+
+ceipSecTunInPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets received by this IPsec
+        Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 34 }
+
+ceipSecTunInDropPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets dropped
+        during receive processing by this IPsec Phase-2
+        Tunnel. This count does NOT include
+        packets dropped due to Anti-Replay processing." 
+    ::= { ceipSecTunnelEntry 35 }
+
+ceipSecTunInReplayDropPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets dropped during
+        receive processing due to Anti-Replay processing
+        by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 36 }
+
+ceipSecTunInAuths OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound
+        authentication's performed by this
+        IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 37 }
+
+ceipSecTunInAuthFails OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound authentication's
+        which ended in failure by this IPsec Phase-2 Tunnel ." 
+    ::= { ceipSecTunnelEntry 38 }
+
+ceipSecTunInDecrypts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound decryption's performed
+        by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 39 }
+
+ceipSecTunInDecryptFails OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound decryption's
+        which ended in failure by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 40 }
+
+ceipSecTunOutOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number of octets
+        sent by this IPsec Phase-2 Tunnel.  This value is
+        accumulated AFTER determining whether or not the
+        packet should be compressed." 
+    ::= { ceipSecTunnelEntry 41 }
+
+ceipSecTunOutUncompOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number
+        of uncompressed octets sent by this IPsec
+        Phase-2 Tunnel.  This value is accumulated BEFORE
+        the packet is compressed. If compression
+        is not being used, this value will match the value
+        of ceipSecTunOutOctets." 
+    ::= { ceipSecTunnelEntry 42 }
+
+ceipSecTunOutPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets sent by this
+        IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 43 }
+
+ceipSecTunOutDropPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets dropped during
+        send processing by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 44 }
+
+ceipSecTunOutAuths OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound authentication's performed
+        by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 45 }
+
+ceipSecTunOutAuthFails OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound
+        authentication's which ended in failure
+        by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 46 }
+
+ceipSecTunOutEncrypts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound encryption's performed
+        by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 47 }
+
+ceipSecTunOutEncryptFails OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound encryption's
+        which ended in failure by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelEntry 48 }
+
+ceipSecTunOutCompressedPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets
+        which were successfully compressed." 
+    ::= { ceipSecTunnelEntry 49 }
+
+ceipSecTunOutCompSkippedPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets that were to be
+        compressed but which were skipped due to the compression
+        hysteresis." 
+    ::= { ceipSecTunnelEntry 50 }
+
+ceipSecTunOutCompFailPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets that failed
+        compression because they grew in size after compression." 
+    ::= { ceipSecTunnelEntry 51 }
+
+ceipSecTunOutCompTooSmallPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets that were to be
+        compressed but were smaller than the compression threshold
+        size." 
+    ::= { ceipSecTunnelEntry 52 }
+
+ceipSecIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the ifIndex of an interface
+        where this tunnel is created.
+        Multiple IPsec tunnels can be created using the same
+        interface." 
+    ::= { ceipSecTunnelEntry 53 }
+
+ceipSecTunStatus OBJECT-TYPE
+    SYNTAX          CIPsecTunnelStatus
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The status of the MIB table row.
+
+        This object can be used to bring the tunnel down
+        or force a rekeying.
+        When the value is set to destroy(5), the SA
+        bundle is destroyed and this row is deleted
+        from this table.  When the value is set to rekey(6),
+        then rekeying is forced on this tunnel.
+
+        When this MIB value is queried, the value of
+        active(4) is always returned, if the instance
+        exists.
+
+        This object cannot be used to create a MIB
+        table row." 
+    ::= { ceipSecTunnelEntry 54 }
+ 
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- The IPsec Phase-2 Tunnel Endpoint Table
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ceipSecEndPtTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CeipSecEndPtEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The IPsec Phase-2 Tunnel Endpoint Table.
+        This table contains an entry for each
+        active endpoint associated with an IPsec
+        Phase-2 Tunnel."
+    ::= { ceipSecPhaseTwo 3 }
+
+ceipSecEndPtEntry OBJECT-TYPE
+    SYNTAX          CeipSecEndPtEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An IPsec Phase-2 Tunnel Endpoint entry."
+    INDEX           {
+                        ceipSecTunIndex,
+                        ceipSecEndPtIndex
+                    } 
+    ::= { ceipSecEndPtTable 1 }
+
+CeipSecEndPtEntry ::= SEQUENCE {
+        ceipSecEndPtIndex           Unsigned32,
+        ceipSecEndPtLocalName       SnmpAdminString,
+        ceipSecEndPtLocalType       CIPsecEndPtType,
+        ceipSecEndPtLocalAddrType1  InetAddressType,
+        ceipSecEndPtLocalAddr1      InetAddress,
+        ceipSecEndPtLocalAddrType2  InetAddressType,
+        ceipSecEndPtLocalAddr2      InetAddress,
+        ceipSecEndPtLocalProtocol   CiscoIpProtocol,
+        ceipSecEndPtLocalPort       CiscoPort,
+        ceipSecEndPtRemoteName      SnmpAdminString,
+        ceipSecEndPtRemoteType      CIPsecEndPtType,
+        ceipSecEndPtRemoteAddrType1 InetAddressType,
+        ceipSecEndPtRemoteAddr1     InetAddress,
+        ceipSecEndPtRemoteAddrType2 InetAddressType,
+        ceipSecEndPtRemoteAddr2     InetAddress,
+        ceipSecEndPtRemoteProtocol  CiscoIpProtocol,
+        ceipSecEndPtRemotePort      CiscoPort
+}
+
+ceipSecEndPtIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The number of the Endpoint associated with the
+        IPsec Phase-2 Tunnel Table.  The value of this
+        index is a number which begins at one and
+        is incremented with each Endpoint associated
+        with an IPsec Phase-2 Tunnel.
+        The value of this object will wrap at 4,294,967,295." 
+    ::= { ceipSecEndPtEntry 1 }
+
+ceipSecEndPtLocalName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The DNS name of the local Endpoint." 
+    ::= { ceipSecEndPtEntry 2 }
+
+ceipSecEndPtLocalType OBJECT-TYPE
+    SYNTAX          CIPsecEndPtType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of identity for the local Endpoint." 
+    ::= { ceipSecEndPtEntry 3 }
+
+ceipSecEndPtLocalAddrType1 OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the IP address for this local Endpoint's
+        first IP address." 
+    ::= { ceipSecEndPtEntry 4 }
+
+ceipSecEndPtLocalAddr1 OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The local Endpoint's first IP address specification.
+
+        If the local Endpoint type is single IP address,
+        then this is the value of the IP address.
+
+        If the local Endpoint type is IP subnet, then this
+        is the value of the subnet.
+
+        If the local Endpoint type is IP address range,
+        then this is the value of beginning IP address
+        of the range.
+
+        If the type is an IP address, a range or a subnet,
+        the type of the address can be inferred from
+        ceipSecEndPtLocalType." 
+    ::= { ceipSecEndPtEntry 5 }
+
+ceipSecEndPtLocalAddrType2 OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the IP address for this local Endpoint's
+        second IP address." 
+    ::= { ceipSecEndPtEntry 6 }
+
+ceipSecEndPtLocalAddr2 OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The local Endpoint's second IP address specification.
+
+        If the local Endpoint type is single IP address,
+        then this is the value of the IP address.
+
+        If the local Endpoint type is IP subnet, then this
+        is the value of the subnet mask.
+
+        If the local Endpoint type is IP address range,
+        then this is the value of ending IP address
+        of the range.
+
+        If the type is an IP address, a range or a subnet,
+        the type of the address can be inferred from
+        ceipSecEndPtLocalType." 
+    ::= { ceipSecEndPtEntry 7 }
+
+ceipSecEndPtLocalProtocol OBJECT-TYPE
+    SYNTAX          CiscoIpProtocol
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The protocol number of the local Endpoint's traffic." 
+    ::= { ceipSecEndPtEntry 8 }
+
+ceipSecEndPtLocalPort OBJECT-TYPE
+    SYNTAX          CiscoPort
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The port number of the local Endpoint's traffic." 
+    ::= { ceipSecEndPtEntry 9 }
+
+ceipSecEndPtRemoteName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The DNS name of the remote Endpoint." 
+    ::= { ceipSecEndPtEntry 10 }
+
+ceipSecEndPtRemoteType OBJECT-TYPE
+    SYNTAX          CIPsecEndPtType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of identity for the remote Endpoint." 
+    ::= { ceipSecEndPtEntry 11 }
+
+ceipSecEndPtRemoteAddrType1 OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the IP address for this remote Endpoint's
+        first IP address." 
+    ::= { ceipSecEndPtEntry 12 }
+
+ceipSecEndPtRemoteAddr1 OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The remote Endpoint's first IP address specification.
+
+        If the remote Endpoint type is single IP address,
+        then this is the value of the IP address.
+
+        If the remote Endpoint type is IP subnet, then this
+        is the value of the subnet.
+
+        If the remote Endpoint type is IP address range,
+        then this is the value of beginning IP address
+        of the range.
+
+        If the type is an IP address, a range or a subnet,
+        the type of the address can be inferred from
+        ceipSecEndPtRemoteType." 
+    ::= { ceipSecEndPtEntry 13 }
+
+ceipSecEndPtRemoteAddrType2 OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the IP address for this remote Endpoint's
+        second IP address." 
+    ::= { ceipSecEndPtEntry 14 }
+
+ceipSecEndPtRemoteAddr2 OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The remote Endpoint's second IP address specification.
+
+        If the remote Endpoint type is single IP address,
+        then this is the value of the IP address.
+
+        If the remote Endpoint type is IP subnet, then this
+        is the value of the subnet mask.
+
+        If the remote Endpoint type is IP address range,
+        then this is the value of ending IP address of
+        the range.
+
+        If the type is an IP address, a range or a subnet,
+        the type of the address can be inferred from
+        ceipSecEndPtRemoteType." 
+    ::= { ceipSecEndPtEntry 15 }
+
+ceipSecEndPtRemoteProtocol OBJECT-TYPE
+    SYNTAX          CiscoIpProtocol
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The protocol number of the remote Endpoint's traffic." 
+    ::= { ceipSecEndPtEntry 16 }
+
+ceipSecEndPtRemotePort OBJECT-TYPE
+    SYNTAX          CiscoPort
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The port number of the remote Endpoint's traffic." 
+    ::= { ceipSecEndPtEntry 17 }
+ 
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- The IPsec Phase-2 Security Association Table
+-- This table provides the security association (SA)
+-- decomposition of the tunnels listed in the tunnel table.
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ceipSecSaTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CeipSecSaEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The IPsec Phase-2 Security Association Table.
+        This table identifies the structure (in terms of
+        component SAs) of each active Phase-2 IPsec tunnel.
+        This table contains an entry for each active and
+        expiring security association and maps each entry
+        in the active Phase-2 tunnel table (ceipSecTunTable)
+        into a number of entries in this table. The index 
+        of this table reflects the
+
+             <destination-address, protocol, spi>
+
+        rule for identifying Security Associations."
+    ::= { ceipSecPhaseTwo 4 }
+
+ceipSecSaEntry OBJECT-TYPE
+    SYNTAX          CeipSecSaEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the attributes associated with
+        active and expiring IPsec Phase-2
+        security associations."
+    INDEX           {
+                        ceipSecTunIndex,
+                        ceipSecSaProtocol,
+                        ceipSecSaIndex
+                    } 
+    ::= { ceipSecSaTable 1 }
+
+CeipSecSaEntry ::= SEQUENCE {
+        ceipSecSaProtocol  CIPsecProtocol,
+        ceipSecSaIndex     Unsigned32,
+        ceipSecSaDirection CIPsecPhase2SaDirection,
+        ceipSecSaValue     CIPsecSpi,
+        ceipSecSaStatus    INTEGER
+}
+
+ceipSecSaProtocol OBJECT-TYPE
+    SYNTAX          CIPsecProtocol
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This column represents the security protocol (AH,
+        ESP or IPComp) for which this security association 
+        was setup." 
+    ::= { ceipSecSaEntry 1 }
+
+ceipSecSaIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The object, in the context of the IPsec tunnel
+        'ceipSecTunIndex', is an index of security 
+        associations comprising the Phase-2 IPsec tunnel 
+        represented by the tunnel index 'ceipSecTunIndex'.
+
+        The value of this index is a number which begins at
+        1 and is incremented with each SPI associated with
+        the corresponding IPsec Phase-2 Tunnel." 
+    ::= { ceipSecSaEntry 2 }
+
+ceipSecSaDirection OBJECT-TYPE
+    SYNTAX          CIPsecPhase2SaDirection
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Phase-2 IPsec security associations are simplex.
+        Hence a particular security association is used either
+        for securing outgoing traffic or decoding incoming 
+        traffic. This column identifies the direction of the 
+        security association represented by this entry." 
+    ::= { ceipSecSaEntry 3 }
+
+ceipSecSaValue OBJECT-TYPE
+    SYNTAX          CIPsecSpi
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This is the value of the Security Protection Index
+        (SPI) assigned by the system to the security 
+        association represented by this entry." 
+    ::= { ceipSecSaEntry 4 }
+
+ceipSecSaStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        active(2),
+                        expiring(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This column represents the status of the security
+        association represented by this conceptual row. If 
+        the status of the SA is 'active', the SA is ready 
+        for active use. The status 'expiring' represents any 
+        of the various states that the security association 
+        transitions through before being purged." 
+    ::= { ceipSecSaEntry 5 }
+ 
+
+
+ceipSecTunnelSaTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CeipSecTunnelSaEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The IPsec Phase-2 Tunnel Security Association Table.
+        This table identifies the SAs that are currently
+        associated with an active Phase-2 tunnel.
+        This table contains an entry for each active or
+        expiring security association (SA) which is
+        associated with an ceipSecTunnelEntry in 'active' state
+        and provides statistic information of this SA.
+        There might be multiple SAs associated with one
+        ceipSecTunnelEntry."
+    ::= { ceipSecPhaseTwo 5 }
+
+ceipSecTunnelSaEntry OBJECT-TYPE
+    SYNTAX          CeipSecTunnelSaEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the attributes and statistics
+        associated with an active or expiring IPsec Phase-2
+        security associations."
+    INDEX           {
+                        ceipSecTunIndex,
+                        ceipSecTunSaProtocol,
+                        ceipSecTunSaIndex,
+                        ceipSecTunSaDirection
+                    } 
+    ::= { ceipSecTunnelSaTable 1 }
+
+CeipSecTunnelSaEntry ::= SEQUENCE {
+        ceipSecTunSaProtocol            CIPsecProtocol,
+        ceipSecTunSaIndex               Unsigned32,
+        ceipSecTunSaDirection           CIPsecPhase2SaDirection,
+        ceipSecTunSaValue               CIPsecSpi,
+        ceipSecTunSaIfIndex             InterfaceIndex,
+        ceipSecTunSaInOctets            Counter64,
+        ceipSecTunSaInDecompOctets      Counter64,
+        ceipSecTunSaInPkts              Counter64,
+        ceipSecTunSaInDropPkts          Counter64,
+        ceipSecTunSaInReplayDropPkts    Counter64,
+        ceipSecTunSaInAuths             Counter64,
+        ceipSecTunSaInAuthFails         Counter64,
+        ceipSecTunSaInDecrypts          Counter64,
+        ceipSecTunSaInDecryptFails      Counter64,
+        ceipSecTunSaOutOctets           Counter64,
+        ceipSecTunSaOutUncompOctets     Counter64,
+        ceipSecTunSaOutPkts             Counter64,
+        ceipSecTunSaOutDropPkts         Counter64,
+        ceipSecTunSaOutAuths            Counter64,
+        ceipSecTunSaOutAuthFails        Counter64,
+        ceipSecTunSaOutEncrypts         Counter64,
+        ceipSecTunSaOutEncryptFails     Counter64,
+        ceipSecTunSaOutCompressedPkts   Counter64,
+        ceipSecTunSaOutCompSkippedPkts  Counter64,
+        ceipSecTunSaOutCompFailPkts     Counter64,
+        ceipSecTunSaOutCompTooSmallPkts Counter64,
+        ceipSecTunSaStatus              INTEGER
+}
+
+ceipSecTunSaProtocol OBJECT-TYPE
+    SYNTAX          CIPsecProtocol
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This column represents the security protocol (AH,
+        ESP or IPComp) for which this security association 
+        was setup." 
+    ::= { ceipSecTunnelSaEntry 1 }
+
+ceipSecTunSaIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The object, in the context of the IPsec tunnel
+        'ceipSecTunIndex', is an index of security 
+        associations comprising the Phase-2 IPsec tunnel 
+        represented by the tunnel index 'ceipSecTunIndex'.
+
+        The value of this index is a number which begins at
+        1 and is incremented with each SPI associated with
+        the corresponding IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelSaEntry 2 }
+
+ceipSecTunSaDirection OBJECT-TYPE
+    SYNTAX          CIPsecPhase2SaDirection
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Phase-2 IPsec security associations are simplex.
+        Hence a particular security association is used either
+        for securing outgoing traffic or decoding incoming 
+        traffic. This column identifies the direction of the 
+        security association represented by this entry." 
+    ::= { ceipSecTunnelSaEntry 3 }
+
+ceipSecTunSaValue OBJECT-TYPE
+    SYNTAX          CIPsecSpi
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This is the value of the Security Protection Index
+        (SPI) assigned by the system to the security 
+        association represented by this entry." 
+    ::= { ceipSecTunnelSaEntry 4 }
+
+ceipSecTunSaIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the ifIndex of an interface
+        where a tunnel with ceipSecTunIndex is created.
+        Multiple IPsec tunnels can be created using the same
+        interface." 
+    ::= { ceipSecTunnelSaEntry 5 }
+
+ceipSecTunSaInOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number of octets
+        received by using this SA. This value is
+        accumulated BEFORE determining whether or not the packet
+        should be decompressed." 
+    ::= { ceipSecTunnelSaEntry 6 }
+
+ceipSecTunSaInDecompOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number of decompressed
+        octets received by using this SA.  This value
+        is accumulated AFTER the packet is decompressed. If
+        compression is not being used, this value will match the
+        value of ceipSecTunSaTunInOctets." 
+    ::= { ceipSecTunnelSaEntry 7 }
+
+ceipSecTunSaInPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets received by using this SA." 
+    ::= { ceipSecTunnelSaEntry 8 }
+
+ceipSecTunSaInDropPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets dropped
+        during receive process by using this SA.
+        This count does NOT include packets dropped due
+        to Anti-Replay processing." 
+    ::= { ceipSecTunnelSaEntry 9 }
+
+ceipSecTunSaInReplayDropPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets dropped during
+        receive processing due to Anti-Replay processing
+        by using this SA." 
+    ::= { ceipSecTunnelSaEntry 10 }
+
+ceipSecTunSaInAuths OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound authentication's
+        performed by using this SA." 
+    ::= { ceipSecTunnelSaEntry 11 }
+
+ceipSecTunSaInAuthFails OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound authentication's
+        which ended in failure by using this SA." 
+    ::= { ceipSecTunnelSaEntry 12 }
+
+ceipSecTunSaInDecrypts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound decryption's performed
+        by this SA." 
+    ::= { ceipSecTunnelSaEntry 13 }
+
+ceipSecTunSaInDecryptFails OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound decryption's
+        which ended in failure by using this SA." 
+    ::= { ceipSecTunnelSaEntry 14 }
+
+ceipSecTunSaOutOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number of octets
+        sent by using this SA. This value is
+        accumulated AFTER determining whether or not the packet
+        should be compressed." 
+    ::= { ceipSecTunnelSaEntry 15 }
+
+ceipSecTunSaOutUncompOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number
+        of uncompressed octets sent by using this SA.
+        This value is accumulated BEFORE
+        the packet is compressed. If compression
+        is not being used, this value will match the value
+        of ceipSecTunSaTunOutOctets." 
+    ::= { ceipSecTunnelSaEntry 16 }
+
+ceipSecTunSaOutPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets sent by using this SA." 
+    ::= { ceipSecTunnelSaEntry 17 }
+
+ceipSecTunSaOutDropPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets dropped during
+        send processing by using this SA." 
+    ::= { ceipSecTunnelSaEntry 18 }
+
+ceipSecTunSaOutAuths OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound authentication's performed
+        by using this SA." 
+    ::= { ceipSecTunnelSaEntry 19 }
+
+ceipSecTunSaOutAuthFails OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound
+        authentication's which ended in failure
+        by using this SA." 
+    ::= { ceipSecTunnelSaEntry 20 }
+
+ceipSecTunSaOutEncrypts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound encryption's performed
+        by using this SA." 
+    ::= { ceipSecTunnelSaEntry 21 }
+
+ceipSecTunSaOutEncryptFails OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound encryption's
+        which ended in failure by using this SA." 
+    ::= { ceipSecTunnelSaEntry 22 }
+
+ceipSecTunSaOutCompressedPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets
+        which were successfully compressed by using this
+        SA." 
+    ::= { ceipSecTunnelSaEntry 23 }
+
+ceipSecTunSaOutCompSkippedPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets that were to be
+        compressed but which were skipped due to the compression
+        hysteresis when using this SA." 
+    ::= { ceipSecTunnelSaEntry 24 }
+
+ceipSecTunSaOutCompFailPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets that failed
+        compression because they grew in size after compression
+        when using this SA." 
+    ::= { ceipSecTunnelSaEntry 25 }
+
+ceipSecTunSaOutCompTooSmallPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets that were to be
+        compressed but were smaller than the compression threshold
+        size when using this SA." 
+    ::= { ceipSecTunnelSaEntry 26 }
+
+ceipSecTunSaStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        active(2),
+                        expiring(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This column represents the status of the security
+        association represented by this conceptual row. If
+        the status of the SA is 'active', the SA is ready
+        for active use. The status 'expiring' represents any
+        of the various states that the security association
+        transitions through before being purged." 
+    ::= { ceipSecTunnelSaEntry 27 }
+ 
+
+
+ceipSecIfTunnelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CeipSecIfTunnelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The IPsec Phase-2 Tunnels to Interface association
+        table.  This table contains an entry for each
+        active IPsec Phase-2 Tunnel created under an interface.
+        Multiple IPsec Phase-2 Tunnels can be created using the
+        same interface."
+    ::= { ceipSecPhaseTwo 6 }
+
+ceipSecIfTunnelEntry OBJECT-TYPE
+    SYNTAX          CeipSecIfTunnelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the IPsec Phase-2 Tunnel
+        associated with an interface."
+    INDEX           {
+                        ifIndex,
+                        ceipSecTunIndex
+                    } 
+    ::= { ceipSecIfTunnelTable 1 }
+
+CeipSecIfTunnelEntry ::= SEQUENCE {
+        ceipSecIfTunnelStatus CIPsecTunnelStatus
+}
+
+ceipSecIfTunnelStatus OBJECT-TYPE
+    SYNTAX          CIPsecTunnelStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object corresponds to the status of
+        a IPsec Phase-2 Tunnel in ceipSecTunnelTable
+        indexed by ceipSecTunIndex. The valid status 
+        this object can have are 'active' and
+        'awaitCommit'." 
+    ::= { ceipSecIfTunnelEntry 1 }
+ 
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- The IPsec History Group
+--   
+-- This group consists of:
+-- 1) IPsec History Global Objects
+-- 2) IPsec Phase-2 History Objects
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ceipSecHistGlobal  OBJECT IDENTIFIER
+    ::= { ceipSecHistory 1 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- IPsec History Global Control Objects
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ceipSecHistGlobalCntl  OBJECT IDENTIFIER
+    ::= { ceipSecHistGlobal 1 }
+
+
+ceipSecHistTableSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The window size of the IPsec Phase-2 History Tables.
+
+        The IPsec Phase-2 History Tables are implemented as 
+        a sliding window in which only the last 'N' entries 
+        are maintained.  This object is used specify the number 
+        of entries which will be maintained in the IPsec 
+        Phase-2 History Tables.
+
+        An implementation may choose suitable minimum and
+        maximum values for this element based on the local
+        policy and available resources. If an SNMP SET request
+        specifies a value outside this window for this element,
+        in appropriate SNMP error code should be returned.
+
+        Setting this value to zero is equivalent to deleting
+        all conceptual rows in the archiving tables 
+        ('ceipSecHistTable' and 'ceipSecEndPtHistTable') and 
+        disabling the archiving of entries in the tables." 
+    ::= { ceipSecHistGlobalCntl 1 }
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- The IPsec Phase-2 Tunnel History Table
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ceipSecTunnelHistTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CeipSecTunnelHistEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The IPsec Phase-2 Tunnel History Table.
+        This table is conceptually a sliding window in 
+        which only the last 'N' entries are maintained,
+        where 'N' is the value of the object 
+        'ceipSecHistTableSize'.
+
+        If the value of 'ceipSecHistTableSize' is 0,
+        archiving of entries in this table is disabled."
+    ::= { ceipSecHistory 2 }
+
+ceipSecTunnelHistEntry OBJECT-TYPE
+    SYNTAX          CeipSecTunnelHistEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the attributes associated
+        with a previously active IPsec Phase-2 Tunnel."
+    INDEX           { ceipSecTunHistIndex } 
+    ::= { ceipSecTunnelHistTable 1 }
+
+CeipSecTunnelHistEntry ::= SEQUENCE {
+        ceipSecTunHistIndex              Unsigned32,
+        ceipSecTunHistTermReason         INTEGER,
+        ceipSecTunHistActiveIndex        CIPsecPhase2TunnelIndex,
+        ceipSecTunHistLocalAddressType   InetAddressType,
+        ceipSecTunHistLocalAddress       InetAddress,
+        ceipSecTunHistRemoteAddressType  InetAddressType,
+        ceipSecTunHistRemoteAddress      InetAddress,
+        ceipSecTunHistControlProtocol    CIPsecControlProtocol,
+        ceipSecTunHistControlTunnelIndex CIPsecPhase1TunnelIndexOrZero,
+        ceipSecTunHistEncapMode          CIPsecEncapMode,
+        ceipSecTunHistNATTraversalMode   CIPsecNATTraversalMode,
+        ceipSecTunHistLifeSize           Unsigned32,
+        ceipSecTunHistLifeTime           Unsigned32,
+        ceipSecTunHistStartTime          TimeStamp,
+        ceipSecTunHistActiveTime         TimeInterval,
+        ceipSecTunHistTotalRefreshes     Counter32,
+        ceipSecTunHistTotalSas           Counter32,
+        ceipSecTunHistInSaDHGrp          CIPsecDiffHellmanGrp,
+        ceipSecTunHistInSaEncryptAlgo    CIPsecEncryptAlgorithm,
+        ceipSecTunHistInSaEncryptKeySize CIPsecEncryptionKeySize,
+        ceipSecTunHistInSaAhAuthAlgo     CIPsecAuthAlgorithm,
+        ceipSecTunHistInSaEspAuthAlgo    CIPsecAuthAlgorithm,
+        ceipSecTunHistInSaDecompAlgo     CIPsecCompAlgorithm,
+        ceipSecTunHistOutSaDHGrp         CIPsecDiffHellmanGrp,
+        ceipSecTunHistOutSaEncryptAlgo   CIPsecEncryptAlgorithm,
+        ceipSecTunHistOutSaEncryptKeySz  CIPsecEncryptionKeySize,
+        ceipSecTunHistOutSaAhAuthAlgo    CIPsecAuthAlgorithm,
+        ceipSecTunHistOutSaEspAuthAlgo   CIPsecAuthAlgorithm,
+        ceipSecTunHistOutSaCompAlgo      CIPsecCompAlgorithm,
+        ceipSecTunHistPmtu               CIPsecPmtu,
+        ceipSecTunHistInOctets           Counter64,
+        ceipSecTunHistInDecompOctets     Counter64,
+        ceipSecTunHistInPkts             Counter32,
+        ceipSecTunHistInDropPkts         Counter32,
+        ceipSecTunHistInReplayDropPkts   Counter32,
+        ceipSecTunHistInAuths            Counter32,
+        ceipSecTunHistInAuthFails        Counter32,
+        ceipSecTunHistInDecrypts         Counter32,
+        ceipSecTunHistInDecryptFails     Counter32,
+        ceipSecTunHistOutOctets          Counter64,
+        ceipSecTunHistOutUncompOctets    Counter64,
+        ceipSecTunHistOutPkts            Counter32,
+        ceipSecTunHistOutDropPkts        Counter32,
+        ceipSecTunHistOutAuths           Counter32,
+        ceipSecTunHistOutAuthFails       Counter32,
+        ceipSecTunHistOutEncrypts        Counter32,
+        ceipSecTunHistOutEncryptFails    Counter32,
+        ceipSecTunHistOutCompressedPkts  Counter32,
+        ceipSecTunHistOutCompSkippedPkts Counter32,
+        ceipSecTunHistOutCompFailPkts    Counter32,
+        ceipSecTunHistOutCompSmallPkts   Counter32
+}
+
+ceipSecTunHistIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The index of the IPsec Phase-2 Tunnel History Table.
+        The value of the index is a number which
+        begins at one and is incremented with each tunnel
+        that ends. The value
+        of this object will wrap at 4,294,967,295." 
+    ::= { ceipSecTunnelHistEntry 1 }
+
+ceipSecTunHistTermReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        normal(2),
+                        operRequest(3),
+                        peerDelRequest(4),
+                        peerLost(5),
+                        applicationInitiated(6),
+                        xauthFailure(7),
+                        seqNumRollOver(8),
+                        checkPointReq(9)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The reason the IPsec Phase-2 Tunnel was terminated.
+        Possible reasons include:
+        1 = other
+        2 = normal termination
+        3 = operator request
+        4 = peer delete request was received
+        5 = contact with peer was lost
+        6 = applicationInitiated (eg: L2TP requesting the 
+        termination)
+        7 = failure of extended authentication
+        8 = local failure occurred
+        9 = operator initiated check point request" 
+    ::= { ceipSecTunnelHistEntry 2 }
+
+ceipSecTunHistActiveIndex OBJECT-TYPE
+    SYNTAX          CIPsecPhase2TunnelIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The index of the previously active IPsec Phase-2
+        Tunnel.
+
+        This object must correspond to an expired IPsec 
+        tunnel; hence this object may not assume the value 
+        of 0." 
+    ::= { ceipSecTunnelHistEntry 3 }
+
+ceipSecTunHistLocalAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the IP address of the local endpoint for
+        the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 4 }
+
+ceipSecTunHistLocalAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The IP address of the local endpoint for
+        the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 5 }
+
+ceipSecTunHistRemoteAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the IP address of the remote endpoint
+        for the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 6 }
+
+ceipSecTunHistRemoteAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The IP address of the remote endpoint for
+        the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 7 }
+
+ceipSecTunHistControlProtocol OBJECT-TYPE
+    SYNTAX          CIPsecControlProtocol
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Identifies the protocol that was used to setup
+        and administer Phase-2 IPsec tunnel." 
+    ::= { ceipSecTunnelHistEntry 8 }
+
+ceipSecTunHistControlTunnelIndex OBJECT-TYPE
+    SYNTAX          CIPsecPhase1TunnelIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The index of the IPsec Phase-1 Tunnel that spawned
+        this Phase-2 tunnel (in case of IKE, this value 
+        would refer to 'csikeTunIndex' in the 'csikeTunnelTable').
+
+        If the IPsec tunnel corresponding to this entry 
+        was setup manually, the value of this object should 
+        be zero." 
+    ::= { ceipSecTunnelHistEntry 9 }
+
+ceipSecTunHistEncapMode OBJECT-TYPE
+    SYNTAX          CIPsecEncapMode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The encapsulation mode used by the
+        IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 10 }
+
+ceipSecTunHistNATTraversalMode OBJECT-TYPE
+    SYNTAX          CIPsecNATTraversalMode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The encapsulation used by the IPsec Phase-2
+        tunnel corresponding to this conceptual row 
+        for NAT traversal." 
+    ::= { ceipSecTunnelHistEntry 11 }
+
+ceipSecTunHistLifeSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    UNITS           "KBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The negotiated LifeSize of the IPsec Phase-2 Tunnel in
+        kilobytes." 
+    ::= { ceipSecTunnelHistEntry 12 }
+
+ceipSecTunHistLifeTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    UNITS           "Seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The negotiated LifeTime of the IPsec Phase-2 Tunnel in
+        seconds." 
+    ::= { ceipSecTunnelHistEntry 13 }
+
+ceipSecTunHistStartTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime in hundredths of seconds
+        when the IPsec Phase-2 Tunnel was started." 
+    ::= { ceipSecTunnelHistEntry 14 }
+
+ceipSecTunHistActiveTime OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The length of time the IPsec Phase-2 Tunnel has been
+        active in hundredths of seconds." 
+    ::= { ceipSecTunnelHistEntry 15 }
+
+ceipSecTunHistTotalRefreshes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "QM Exchanges"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of security association refreshes
+        performed." 
+    ::= { ceipSecTunnelHistEntry 16 }
+
+ceipSecTunHistTotalSas OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "SAs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of security associations used
+        during the life of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 17 }
+
+ceipSecTunHistInSaDHGrp OBJECT-TYPE
+    SYNTAX          CIPsecDiffHellmanGrp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Diffie Hellman Group used by the inbound security
+        association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 18 }
+
+ceipSecTunHistInSaEncryptAlgo OBJECT-TYPE
+    SYNTAX          CIPsecEncryptAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The encryption algorithm used by the inbound security
+        association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 19 }
+
+ceipSecTunHistInSaEncryptKeySize OBJECT-TYPE
+    SYNTAX          CIPsecEncryptionKeySize
+    UNITS           "Bits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The size in bits of the key which was negotiated to
+        be used with the encryption transform used with this 
+        tunnel denoted by ceipSecTunHistInSaEncryptAlgo.
+
+        For DES and 3DES the key size is respectively 56 and
+        168. For AES, this will denote the negotiated key size." 
+    ::= { ceipSecTunnelHistEntry 20 }
+
+ceipSecTunHistInSaAhAuthAlgo OBJECT-TYPE
+    SYNTAX          CIPsecAuthAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The authentication algorithm used by the inbound
+        authentication header (AH) security association of
+        the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 21 }
+
+ceipSecTunHistInSaEspAuthAlgo OBJECT-TYPE
+    SYNTAX          CIPsecAuthAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The authentication algorithm used by the inbound
+        encapsulation security protocol (ESP)
+        security association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 22 }
+
+ceipSecTunHistInSaDecompAlgo OBJECT-TYPE
+    SYNTAX          CIPsecCompAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The decompression algorithm used by the inbound
+        security association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 23 }
+
+ceipSecTunHistOutSaDHGrp OBJECT-TYPE
+    SYNTAX          CIPsecDiffHellmanGrp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Diffie Hellman Group used by the outbound security
+        association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 24 }
+
+ceipSecTunHistOutSaEncryptAlgo OBJECT-TYPE
+    SYNTAX          CIPsecEncryptAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The encryption algorithm used by the outbound security
+        association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 25 }
+
+ceipSecTunHistOutSaEncryptKeySz OBJECT-TYPE
+    SYNTAX          CIPsecEncryptionKeySize
+    UNITS           "Bits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The size in bits of the key which was negotiated to
+        be used with the encryption transform used with this 
+        tunnel denoted by ceipSecTunHistOutSaEncryptAlgo.
+
+        For DES and 3DES the key size is respectively 56 and
+        168. For AES, this will denote the negotiated key 
+        size." 
+    ::= { ceipSecTunnelHistEntry 26 }
+
+ceipSecTunHistOutSaAhAuthAlgo OBJECT-TYPE
+    SYNTAX          CIPsecAuthAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The authentication algorithm used by the outbound
+        authentication header (AH) security association of
+        the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 27 }
+
+ceipSecTunHistOutSaEspAuthAlgo OBJECT-TYPE
+    SYNTAX          CIPsecAuthAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The authentication algorithm used by the inbound
+        ecapsulation security protocol (ESP)
+        security association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 28 }
+
+ceipSecTunHistOutSaCompAlgo OBJECT-TYPE
+    SYNTAX          CIPsecCompAlgorithm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The compression algorithm used by the inbound
+        security association of the IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 29 }
+
+ceipSecTunHistPmtu OBJECT-TYPE
+    SYNTAX          CIPsecPmtu
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Path MTU that was determined for this IPsec
+        Phase-2 tunnel." 
+    ::= { ceipSecTunnelHistEntry 30 }
+
+ceipSecTunHistInOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number of octets
+        received by this IPsec Phase-2 Tunnel. This value
+        is accumulated BEFORE determining whether or not
+        the packet should be decompressed." 
+    ::= { ceipSecTunnelHistEntry 31 }
+
+ceipSecTunHistInDecompOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number of
+        decompressed octets received by this IPsec Phase-2 Tunnel.  
+        This value is accumulated AFTER the packet is 
+        decompressed. 
+        If compression is not being used, this value will match 
+        the value of ceipSecTunInOctets." 
+    ::= { ceipSecTunnelHistEntry 32 }
+
+ceipSecTunHistInPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets received by this
+        IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 33 }
+
+ceipSecTunHistInDropPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets dropped during
+        receive processing by this IPsec Phase-2 Tunnel.
+        This count does NOT include packets
+        dropped due to Anti-Replay processing." 
+    ::= { ceipSecTunnelHistEntry 34 }
+
+ceipSecTunHistInReplayDropPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets dropped during
+        receive processing due to Anti-Replay processing
+        by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 35 }
+
+ceipSecTunHistInAuths OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound authentication's
+        performed by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 36 }
+
+ceipSecTunHistInAuthFails OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound authentication's
+        which ended in failure by this IPsec Phase-2 Tunnel ." 
+    ::= { ceipSecTunnelHistEntry 37 }
+
+ceipSecTunHistInDecrypts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound decryption's performed
+        by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 38 }
+
+ceipSecTunHistInDecryptFails OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of inbound decryption's
+        which ended in failure by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 39 }
+
+ceipSecTunHistOutOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total number of octets
+        sent by this IPsec Phase-2 Tunnel.  This value
+        is accumulated AFTER determining whether or not
+        the packet should be compressed." 
+    ::= { ceipSecTunnelHistEntry 40 }
+
+ceipSecTunHistOutUncompOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high capacity count of the total
+        number of uncompressed octets sent by this
+        IPsec Phase-2 Tunnel.  This value is accumulated
+        BEFORE the packet is compressed. If compression
+        is not being used, this value will match the value 
+        of 'ceipSecTunOutOctets'." 
+    ::= { ceipSecTunnelHistEntry 41 }
+
+ceipSecTunHistOutPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets sent by this
+        IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 42 }
+
+ceipSecTunHistOutDropPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of packets dropped during
+        send processing by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 43 }
+
+ceipSecTunHistOutAuths OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound authentication's
+        performed by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 44 }
+
+ceipSecTunHistOutAuthFails OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound authentication's
+        which ended in failure by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 45 }
+
+ceipSecTunHistOutEncrypts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound encryption's performed
+        by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 46 }
+
+ceipSecTunHistOutEncryptFails OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound encryption's
+        which ended in failure by this IPsec Phase-2 Tunnel." 
+    ::= { ceipSecTunnelHistEntry 47 }
+
+ceipSecTunHistOutCompressedPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets
+        which were successfully compressed." 
+    ::= { ceipSecTunnelHistEntry 48 }
+
+ceipSecTunHistOutCompSkippedPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets that were to be
+        compressed but which were skipped due to the 
+        compression hysteresis." 
+    ::= { ceipSecTunnelHistEntry 49 }
+
+ceipSecTunHistOutCompFailPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets that failed
+        compression because they grew in size after compression." 
+    ::= { ceipSecTunnelHistEntry 50 }
+
+ceipSecTunHistOutCompSmallPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of outbound packets that were
+        to be compressed but were smaller than the 
+        compression threshold size." 
+    ::= { ceipSecTunnelHistEntry 51 }
+ 
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- The IPsec Phase-2 Tunnel Endpoint History Table
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ceipSecEndPtHistTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CeipSecEndPtHistEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The IPsec Phase-2 Tunnel Endpoint History Table.
+        This table is conceptually a sliding window in 
+        which only the last 'N' entries are maintained,
+        where 'N' is the value of the object 
+        'ceipSecHistTableSize'.
+
+        If the value of 'ceipSecHistTableSize' is 0,
+        archiving of entries in this table is disabled."
+    ::= { ceipSecHistory 3 }
+
+ceipSecEndPtHistEntry OBJECT-TYPE
+    SYNTAX          CeipSecEndPtHistEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the attributes associated with
+        a previously active IPsec Phase-2 Tunnel Endpoint."
+    INDEX           { ceipSecEndPtHistIndex } 
+    ::= { ceipSecEndPtHistTable 1 }
+
+CeipSecEndPtHistEntry ::= SEQUENCE {
+        ceipSecEndPtHistIndex           Unsigned32,
+        ceipSecEndPtHistTunIndex        Unsigned32,
+        ceipSecEndPtHistActiveIndex     Unsigned32,
+        ceipSecEndPtHistLocalName       SnmpAdminString,
+        ceipSecEndPtHistLocalType       CIPsecEndPtType,
+        ceipSecEndPtHistLocalAddrType1  InetAddressType,
+        ceipSecEndPtHistLocalAddr1      InetAddress,
+        ceipSecEndPtHistLocalAddrType2  InetAddressType,
+        ceipSecEndPtHistLocalAddr2      InetAddress,
+        ceipSecEndPtHistLocalProtocol   CiscoIpProtocol,
+        ceipSecEndPtHistLocalPort       CiscoPort,
+        ceipSecEndPtHistRemoteName      SnmpAdminString,
+        ceipSecEndPtHistRemoteType      CIPsecEndPtType,
+        ceipSecEndPtHistRemoteAddrType1 InetAddressType,
+        ceipSecEndPtHistRemoteAddr1     InetAddress,
+        ceipSecEndPtHistRemoteAddrType2 InetAddressType,
+        ceipSecEndPtHistRemoteAddr2     InetAddress,
+        ceipSecEndPtHistRemoteProtocol  CiscoIpProtocol,
+        ceipSecEndPtHistRemotePort      CiscoPort
+}
+
+ceipSecEndPtHistIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The number of the previously active Endpoint
+        associated with a IPsec Phase-2 Tunnel Table.  
+        The value of this index is a number which begins 
+        at one and is incremented with each Endpoint
+        associated with an IPsec Phase-2 Tunnel.
+        The value of this object will wrap at 4,294,967,295." 
+    ::= { ceipSecEndPtHistEntry 1 }
+
+ceipSecEndPtHistTunIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The index  of the previously active IPsec
+        Phase-2 Tunnel Table." 
+    ::= { ceipSecEndPtHistEntry 2 }
+
+ceipSecEndPtHistActiveIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The index  of the previously active Endpoint." 
+    ::= { ceipSecEndPtHistEntry 3 }
+
+ceipSecEndPtHistLocalName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The DNS name of the local Endpoint." 
+    ::= { ceipSecEndPtHistEntry 4 }
+
+ceipSecEndPtHistLocalType OBJECT-TYPE
+    SYNTAX          CIPsecEndPtType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of identity for the local Endpoint." 
+    ::= { ceipSecEndPtHistEntry 5 }
+
+ceipSecEndPtHistLocalAddrType1 OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the IP address for this local Endpoint's
+        first IP address." 
+    ::= { ceipSecEndPtHistEntry 6 }
+
+ceipSecEndPtHistLocalAddr1 OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The local Endpoint's first IP address specification.
+
+        If the local Endpoint type is single IP address,
+        then this is the value of the IP address.
+
+        If the local Endpoint type is IP subnet, then this
+        is the value of the subnet.
+
+        If the local Endpoint type is IP address range,
+        then this is the value of beginning IP address of
+        the range.
+
+        If the type is an IP address, a range or a subnet,
+        the type of the address can be inferred from
+        cceipSecEndPtLocalType." 
+    ::= { ceipSecEndPtHistEntry 7 }
+
+ceipSecEndPtHistLocalAddrType2 OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the IP address for this local Endpoint's
+        second IP address." 
+    ::= { ceipSecEndPtHistEntry 8 }
+
+ceipSecEndPtHistLocalAddr2 OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The local Endpoint's second IP address
+        specification.
+
+        If the local Endpoint type is single IP address,
+        then this is the value of the IP address.
+
+        If the local Endpoint type is IP subnet, then this
+        is the value of the subnet mask.
+
+        If the local Endpoint type is IP address range,
+        then this is the value of ending IP address of
+        the range.
+
+        If the type is an IP address, a range or a subnet,
+        the type of the address can be inferred from
+        cceipSecEndPtLocalType." 
+    ::= { ceipSecEndPtHistEntry 9 }
+
+ceipSecEndPtHistLocalProtocol OBJECT-TYPE
+    SYNTAX          CiscoIpProtocol
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The protocol number of the local Endpoint's
+        traffic." 
+    ::= { ceipSecEndPtHistEntry 10 }
+
+ceipSecEndPtHistLocalPort OBJECT-TYPE
+    SYNTAX          CiscoPort
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The port number of the local Endpoint's traffic." 
+    ::= { ceipSecEndPtHistEntry 11 }
+
+ceipSecEndPtHistRemoteName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The DNS name of the remote Endpoint." 
+    ::= { ceipSecEndPtHistEntry 12 }
+
+ceipSecEndPtHistRemoteType OBJECT-TYPE
+    SYNTAX          CIPsecEndPtType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of identity for the remote Endpoint." 
+    ::= { ceipSecEndPtHistEntry 13 }
+
+ceipSecEndPtHistRemoteAddrType1 OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the IP address for this remote Endpoint's
+        first IP address." 
+    ::= { ceipSecEndPtHistEntry 14 }
+
+ceipSecEndPtHistRemoteAddr1 OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The remote Endpoint's first IP address
+        specification.
+
+        If the remote Endpoint type is single IP address,
+        then this is the value of the IP address.
+
+        If the remote Endpoint type is IP subnet, then this
+        is the value of the subnet.
+
+        If the remote Endpoint type is IP address range,
+        then this is the value of beginning IP address of
+        the range.
+
+        If the type is an IP address, a range or a subnet,
+        the type of the address can be inferred from
+        cceipSecEndPtRemoteType." 
+    ::= { ceipSecEndPtHistEntry 15 }
+
+ceipSecEndPtHistRemoteAddrType2 OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the IP address for this remote Endpoint's
+        second IP address." 
+    ::= { ceipSecEndPtHistEntry 16 }
+
+ceipSecEndPtHistRemoteAddr2 OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The remote Endpoint's second IP address
+        specification.
+
+        If the remote Endpoint type is single IP address,
+        then this is the value of the IP address.
+
+        If the remote Endpoint type is IP subnet, then this
+        is the value of the subnet mask.
+
+        If the remote Endpoint type is IP address range,
+        then this is the value of ending IP address of the 
+        range.
+
+        If the type is an IP address, a range or a subnet,
+        the type of the address can be inferred from
+        cceipSecEndPtRemoteType." 
+    ::= { ceipSecEndPtHistEntry 17 }
+
+ceipSecEndPtHistRemoteProtocol OBJECT-TYPE
+    SYNTAX          CiscoIpProtocol
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The protocol number of the remote Endpoint's traffic." 
+    ::= { ceipSecEndPtHistEntry 18 }
+
+ceipSecEndPtHistRemotePort OBJECT-TYPE
+    SYNTAX          CiscoPort
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The port number of the remote Endpoint's traffic." 
+    ::= { ceipSecEndPtHistEntry 19 }
+ 
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- The IPsec Failure Group
+--   
+-- This group consists of:
+-- 1) IPsec Failure Global Objects
+-- 2) IPsec Phase-2 Tunnel Failure Table
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ceipSecFailGlobal  OBJECT IDENTIFIER
+    ::= { ceipSecFailures 1 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- The IPsec Failure Global Control Objects
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ceipSecFailGlobalCntl  OBJECT IDENTIFIER
+    ::= { ceipSecFailGlobal 1 }
+
+
+ceipSecFailTableSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The window size of the IPsec Phase-2 Failure Table.
+
+        The IPsec Phase-2 Failure Tables are implemented as 
+        a sliding window in which only the last N entries are 
+        maintained. This object is used specify the number of 
+        entries which will be maintained in the IPsec Phase-2 
+        Failure Tables.
+
+        An implementation may choose suitable minimum and
+        maximum values for this element based on the local
+        policy and available resources. If an SNMP SET 
+        request specifies a value outside this window for 
+        this element, an appropriate SNMP error vode must 
+        be returned.
+
+        Setting this value to zero is equivalent to deleting
+        all conceptual rows in the archiving table 
+        'ceipSecFailTable' and disabling the archiving of 
+        entries in these tables." 
+    ::= { ceipSecFailGlobalCntl 1 }
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- The IPsec Phase-2 Failure Table
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ceipSecFailTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CeipSecFailEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The IPsec Phase-2 Failure Table.
+        This table is implemented as a sliding window
+        in which only the last n entries are maintained.
+        The maximum number of entries
+        is specified by the ceipSecFailTableSize object."
+    ::= { ceipSecFailures 2 }
+
+ceipSecFailEntry OBJECT-TYPE
+    SYNTAX          CeipSecFailEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains the attributes associated with
+        an IPsec Phase-1 failure."
+    INDEX           { ceipSecFailIndex } 
+    ::= { ceipSecFailTable 1 }
+
+CeipSecFailEntry ::= SEQUENCE {
+        ceipSecFailIndex             Unsigned32,
+        ceipSecFailReason            INTEGER,
+        ceipSecFailTime              TimeStamp,
+        ceipSecFailTunnelIndex       CIPsecPhase2TunnelIndex,
+        ceipSecFailSaSpi             CIPsecSpi,
+        ceipSecFailPktSrcAddressType InetAddressType,
+        ceipSecFailPktSrcAddress     InetAddress,
+        ceipSecFailPktDstAddressType InetAddressType,
+        ceipSecFailPktDstAddress     InetAddress
+}
+
+ceipSecFailIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The IPsec Phase-2 Failure Table index.
+        The value of the index is a number which
+        begins at one and is incremented with each
+        IPsec Phase-1 failure. The value of this
+        object will wrap at 4,294,967,295." 
+    ::= { ceipSecFailEntry 1 }
+
+ceipSecFailReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        internalError(2),
+                        peerEncodingError(3),
+                        proposalFailure(4),
+                        protocolUseFail(5),
+                        nonExistentSa(6),
+                        decryptFailure(7),
+                        encryptFailure(8),
+                        inAuthFailure(9),
+                        outAuthFailure(10),
+                        compression(11),
+                        sysCapExceeded(12),
+                        peerDelRequest(13),
+                        peerLost(14),
+                        seqNumRollOver(15),
+                        operRequest(16),
+                        performanceUtilization(17)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The reason for the failure.  Possible reasons
+        include:
+             1 = other
+             2 = internal error occurred
+             3 = peer encoding error
+             4 = proposal failure
+             5 = protocol use failure
+             6 = non-existent security association
+             7 = decryption failure
+             8 = encryption failure
+             9 = inbound authentication failure
+            10 = outbound authentication failure
+            11 = compression failure
+            12 = system capacity failure
+            13 = peer delete request was received
+            14 = contact with peer was lost
+            15 = sequence number rolled over
+            16 = operator requested termination
+            17 = performance utilization exceeding the threshold." 
+    ::= { ceipSecFailEntry 2 }
+
+ceipSecFailTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime in hundredths of seconds
+        at the time of the failure." 
+    ::= { ceipSecFailEntry 3 }
+
+ceipSecFailTunnelIndex OBJECT-TYPE
+    SYNTAX          CIPsecPhase2TunnelIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Phase-2 Tunnel index (ceipSecTunIndex).
+
+        If this conceptual row corresponds to an operation
+        failure (that is, the failure of an established
+        Phase-2 IPsec tunnel), then the value of this object
+        may not be zero." 
+    ::= { ceipSecFailEntry 4 }
+
+ceipSecFailSaSpi OBJECT-TYPE
+    SYNTAX          CIPsecSpi
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The security association SPI value.
+
+        If this conceptual row corresponds to a setup
+        failure (failure to establish the tunnel), the
+        value of this MIB object is undefined." 
+    ::= { ceipSecFailEntry 5 }
+
+ceipSecFailPktSrcAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the packet's source IP address." 
+    ::= { ceipSecFailEntry 6 }
+
+ceipSecFailPktSrcAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The packet's source IP address." 
+    ::= { ceipSecFailEntry 7 }
+
+ceipSecFailPktDstAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the packet's destination IP address." 
+    ::= { ceipSecFailEntry 8 }
+
+ceipSecFailPktDstAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The packet's destination IP address." 
+    ::= { ceipSecFailEntry 9 }
+ 
+
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- The IPsec Notification Control Group
+--   
+-- This group of objects controls the sending of IPsec
+-- SNMP notifications.
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ceipSecNotiCntlIpSecAllNotifs OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object
+        sending any notification
+        defined in this MIB module. That is, a particular
+        notification 'foo' defined in this MIB module is
+        enabled if and only if the expression
+
+        (ceipSecNotiCntlIpSecAllNotifs && ceipSecNotiCntl<foo>)
+
+        evaluates to 'true', where ceipSecNotiCntl<foo> is a
+        notification defined in this MIB module."
+    DEFVAL          { true } 
+    ::= { ceipSecNotificationCntl 1 }
+
+ceipSecNotifCntlIpSecTunnelStart OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the administrative state
+        of sending the IPsec Phase-2 Tunnel Start TRAP.
+
+        If the value of this object is 'true', the issuing
+        of the notification 'ciscoEnhIpsecFlowTunnelStart' 
+        is enabled."
+    DEFVAL          { true } 
+    ::= { ceipSecNotificationCntl 2 }
+
+ceipSecNotifCntlIpSecTunnelStop OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the administrative state of
+        sending the IPsec Phase-2 Tunnel Stop TRAP.
+
+        If the value of this object is 'true', the issuing
+        of the notification 'ciscoEnhIpsecFlowTunnelStop' 
+        is enabled."
+    DEFVAL          { true } 
+    ::= { ceipSecNotificationCntl 3 }
+
+ceipSecNotifCntlIpSecSysFailure OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the administrative state
+        of sending the IPsec Phase-2 System Failure TRAP.
+
+        If the value of this object is 'true', the issuing
+        of the notification 'ciscoEnhIpsecFlowSysFailure' 
+        is enabled."
+    DEFVAL          { true } 
+    ::= { ceipSecNotificationCntl 4 }
+
+ceipSecNotifCntlIpSecSetUpFail OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the administrative state
+        of sending the IPsec Phase-2 Set Up Failure TRAP.
+
+        If the value of this object is 'true', the issuing
+        of the notification 'ciscoEnhIpsecFlowSetupFail' 
+        is enabled."
+    DEFVAL          { true } 
+    ::= { ceipSecNotificationCntl 5 }
+
+ceipSecNotifCntlIpSecBadSa OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the administrative state of
+        sending the IPsec Phase-2  No Security Association 
+        trap.
+
+        If the value of this object is 'true', the issuing
+        of the notification 'ciscoEnhIpsecFlowBadSa' is 
+        enabled."
+    DEFVAL          { true } 
+    ::= { ceipSecNotificationCntl 6 }
+
+ceipSecNotifCntlCertExpiry OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the administrative state of sending the
+        IPSec certificate expiry notification.
+
+        If the value of this object is 'true', the issuing of the
+        notification 'ciscoEnhIpsecFlowCertExpiry' is enabled,
+        otherwise notification 'ciscoEnhIpsecFlowCertExpiry' is
+        disabled."
+    DEFVAL          { true } 
+    ::= { ceipSecNotificationCntl 7 }
+
+ceipSecNotifCntlCertRenewal OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the administrative state of sending the
+        IPSec X.509 certificate renewal status notification.
+
+        If the value of this object is 'true', the issuing of the
+        notification 'ciscoEnhIpsecFlowCertRenewal' is enabled,
+        otherwise notification 'ciscoEnhIpsecFlowCertRenewal' is
+        disabled."
+    DEFVAL          { true } 
+    ::= { ceipSecNotificationCntl 8 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- IPsec Notifications - TRAPs
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ciscoEnhIpsecFlowTunnelStart NOTIFICATION-TYPE
+    OBJECTS         {
+                        ceipSecTunLifeTime,
+                        ceipSecTunLifeSize
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when an IPsec Phase-2
+        Tunnel becomes active."
+   ::= { ciscoEnhancedIpsecFlowMIBNotifs 1 }
+
+ciscoEnhIpsecFlowTunnelStop NOTIFICATION-TYPE
+    OBJECTS         {
+                        ceipSecTunHistTermReason,
+                        ceipSecTunActiveTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when an IPsec Phase-2
+        Tunnel becomes inactive."
+   ::= { ciscoEnhancedIpsecFlowMIBNotifs 2 }
+
+ciscoEnhIpsecFlowSysFailure NOTIFICATION-TYPE
+    OBJECTS         {
+                        ceipSecFailReason,
+                        ceipSecFailPktSrcAddressType,
+                        ceipSecFailPktSrcAddress,
+                        ceipSecFailPktDstAddressType,
+                        ceipSecFailPktDstAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the processing
+        for an IPsec Phase-2 Tunnel experiences an internal
+        or system capacity error."
+   ::= { ciscoEnhancedIpsecFlowMIBNotifs 3 }
+
+ciscoEnhIpsecFlowSetupFail NOTIFICATION-TYPE
+    OBJECTS         {
+                        ceipSecFailReason,
+                        ceipSecFailPktSrcAddressType,
+                        ceipSecFailPktSrcAddress,
+                        ceipSecFailPktDstAddressType,
+                        ceipSecFailPktDstAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the setup for
+        an IPsec Phase-2 Tunnel fails."
+   ::= { ciscoEnhancedIpsecFlowMIBNotifs 4 }
+
+ciscoEnhIpsecFlowBadSa NOTIFICATION-TYPE
+    OBJECTS         { ceipSecFailSaSpi }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the managed
+        entity receives an IPsec packet with a non-existent 
+        (non-existant in the local Security Association
+        Database) SPI."
+   ::= { ciscoEnhancedIpsecFlowMIBNotifs 5 }
+
+ciscoEnhIpsecFlowCertExpiry NOTIFICATION-TYPE
+    OBJECTS         {
+                        ceipSecCertSubjectName,
+                        ceipSecCertSerialNumber,
+                        ceipSecCertIssuerName,
+                        ceipSecCertExpiryTime,
+                        ceipSecCertExpiryStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated to notify that an X.509
+        certificate is going to expire. The notification is triggered
+        the time threshold configured on the application for
+        notification before the certificate is going to expire, which
+        is  when the value of ceipSecCertExpiryStatus is changed from
+        certOK(1) to certGoingExpired(2). The user should take action
+        to renew the certificate identified in the notification prior
+        to the certificate expiration, which is at the validity
+        notAfter time provided in the notification."
+   ::= { ciscoEnhancedIpsecFlowMIBNotifs 6 }
+
+ciscoEnhIpsecFlowCertRenewal NOTIFICATION-TYPE
+    OBJECTS         {
+                        ceipSecCertSubjectName,
+                        ceipSecCertSerialNumber,
+                        ceipSecCertIssuerName,
+                        ceipSecCertRenewalStatus,
+                        ceipSecCertExpiryTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated to report a status transition
+        for an X.509 certificate renewal performed by the application.
+        The notification is generated when the value of
+        ceipSecCertRenewalStatus is changed from 
+        1. renewalNotNeeded(1) to renewalRequestNeeded(2) or
+        renewalRequested(3)
+        2. renewalRequestNeeded(2) to renewalRequested(3)
+        3. renewalRequested(3) to renewalSuccess(4) or
+        renewalFailedUpdate(5) or renewalFailedExpired(6)
+        4. renewalFailedUpdate(5) to renewalFailedExpired(6)"
+   ::= { ciscoEnhancedIpsecFlowMIBNotifs 7 }
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Conformance Information
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ciscoEnhIPsecFlowMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoEnhancedIpsecFlowMIBConform 1 }
+
+ciscoIPsecFlowMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoEnhancedIpsecFlowMIBConform 2 }
+
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Compliance Statements
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ciscoEnhIPsecFlowMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for SNMP entities
+        pertaining to Phase-2 of IP Security Protocol."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoEnhIPsecFlowActivityGroup,
+                        ciscoEnhIPsecFlowCoreHistGroup,
+                        ciscoEnhIPsecFlowCoreFailGroup,
+                        ciscoEnhIPsecFlowTunnelSaGroup
+                    }
+
+    GROUP           ciscoEnhIPsecFlowHistoryGroup
+    DESCRIPTION
+        "This group is optional and must be implemented
+        by the agent of the managed entity if the managed 
+        entity implements historical archiving of IPsec 
+        flows."
+
+    GROUP           ciscoEnhIPsecFlowFailureGroup
+    DESCRIPTION
+        "This group is optional and must be implemented
+        by the agent of the managed entity if the
+        managed entity implements historical archiving
+        of failure of IPsec Phase-2 operations and tunnels."
+
+    GROUP           ciscoEnhIPsecFlowNotifGroup
+    DESCRIPTION
+        "The group is optional."
+
+    GROUP           ciscoEnhIPsecFlowNotifCntlGroup
+    DESCRIPTION
+        "The agent must implement this group if it implements
+        the group 'ciscoEnhIPsecFlowNotifGroup'."
+
+    OBJECT          ceipSecTunStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecHistTableSize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required. In addition,
+        implementations which want to disable archiving
+        of tunnels may set the value of this object to
+        zero."
+
+    OBJECT          ceipSecFailTableSize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required. In addition,
+        implementations which want to disable archiving
+        of failures may set the value of this object to
+        zero."
+
+    OBJECT          ceipSecNotiCntlIpSecAllNotifs
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecTunnelStart
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecTunnelStop
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecSysFailure
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecSetUpFail
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecBadSa
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoEnhIPsecFlowMIBCompliances 1 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Compliance Statements
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ciscoEnhIPsecFlowMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for SNMP entities
+        pertaining to Phase-2 of IP Security Protocol."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoEnhIPsecFlowActivityGroup,
+                        ciscoEnhIPsecFlowCoreHistGroup,
+                        ciscoEnhIPsecFlowCoreFailGroup,
+                        ciscoEnhIPsecFlowTunnelSaGroup
+                    }
+
+    GROUP           ciscoEnhIPsecFlowHistoryGroup
+    DESCRIPTION
+        "This group is optional and must be implemented
+        by the agent of the managed entity if the managed 
+        entity implements historical archiving of IPsec 
+        flows."
+
+    GROUP           ciscoEnhIPsecFlowFailureGroup
+    DESCRIPTION
+        "This group is optional and must be implemented
+        by the agent of the managed entity if the
+        managed entity implements historical archiving
+        of failure of IPsec Phase-2 operations and tunnels."
+
+    GROUP           ciscoEnhIPsecFlowNotifGroup
+    DESCRIPTION
+        "The group is optional."
+
+    GROUP           ciscoEnhIPsecFlowNotifCntlGroup
+    DESCRIPTION
+        "The agent must implement this group if it implements
+        the group 'ciscoEnhIPsecFlowNotifGroup'."
+
+    GROUP           ciscoEnhIPsecFlowNotifGroupSup01
+    DESCRIPTION
+        "This group is optional."
+
+    GROUP           ciscoEnhIPsecFlowNotifCntlGroupSup01
+    DESCRIPTION
+        "The agent must implement this group if it implements
+        the group 'ciscoEnhIPsecFlowNotifGroupSup01'."
+
+    GROUP           ciscoEnhIPsecFlowCertObjectGroup
+    DESCRIPTION
+        "The agent must implement this group if it implements
+        the group 'ciscoEnhIPsecFlowNotifGroupSup01'."
+
+    OBJECT          ceipSecTunStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecHistTableSize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required. In addition,
+        implementations which want to disable archiving
+        of tunnels may set the value of this object to
+        zero."
+
+    OBJECT          ceipSecFailTableSize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required. In addition,
+        implementations which want to disable archiving
+        of failures may set the value of this object to
+        zero."
+
+    OBJECT          ceipSecNotiCntlIpSecAllNotifs
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecTunnelStart
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecTunnelStop
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecSysFailure
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecSetUpFail
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecBadSa
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoEnhIPsecFlowMIBCompliances 2 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Compliance Statements
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ciscoEnhIPsecFlowMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for SNMP entities
+        pertaining to Phase-2 of IP Security Protocol."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoEnhIPsecFlowActivityGroup,
+                        ciscoEnhIPsecFlowCoreHistGroup,
+                        ciscoEnhIPsecFlowCoreFailGroup,
+                        ciscoEnhIPsecFlowTunnelSaGroup
+                    }
+
+    GROUP           ciscoEnhIPsecFlowHistoryGroup
+    DESCRIPTION
+        "This group is optional and must be implemented
+        by the agent of the managed entity if the managed 
+        entity implements historical archiving of IPsec 
+        flows."
+
+    GROUP           ciscoEnhIPsecFlowFailureGroup
+    DESCRIPTION
+        "This group is optional and must be implemented
+        by the agent of the managed entity if the
+        managed entity implements historical archiving
+        of failure of IPsec Phase-2 operations and tunnels."
+
+    GROUP           ciscoEnhIPsecFlowNotifGroup
+    DESCRIPTION
+        "The group is optional."
+
+    GROUP           ciscoEnhIPsecFlowNotifCntlGroup
+    DESCRIPTION
+        "The agent must implement this group if it implements
+        the group 'ciscoEnhIPsecFlowNotifGroup'."
+
+    GROUP           ciscoEnhIPsecFlowNotifGroupSup01
+    DESCRIPTION
+        "This group is optional."
+
+    GROUP           ciscoEnhIPsecFlowNotifCntlGroupSup01
+    DESCRIPTION
+        "The agent must implement this group if it implements
+        the group 'ciscoEnhIPsecFlowNotifGroupSup01'."
+
+    GROUP           ciscoEnhIPsecFlowCertObjectGroup
+    DESCRIPTION
+        "The agent must implement this group if it implements
+        the group 'ciscoEnhIPsecFlowNotifGroupSup01'."
+
+    GROUP           ciscoEnhIPsecFlowPerformanceThroughputGroup
+    DESCRIPTION
+        "This group is optional."
+
+    OBJECT          ceipSecTunStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecHistTableSize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required. In addition,
+        implementations which want to disable archiving
+        of tunnels may set the value of this object to
+        zero."
+
+    OBJECT          ceipSecFailTableSize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required. In addition,
+        implementations which want to disable archiving
+        of failures may set the value of this object to
+        zero."
+
+    OBJECT          ceipSecNotiCntlIpSecAllNotifs
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecTunnelStart
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecTunnelStop
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecSysFailure
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecSetUpFail
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ceipSecNotifCntlIpSecBadSa
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoEnhIPsecFlowMIBCompliances 3 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Units of Conformance: List of current groups
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ciscoEnhIPsecFlowActivityGroup OBJECT-GROUP
+    OBJECTS         {
+                        ceipSecGlobalActiveTunnels,
+                        ceipSecGlobalPreviousTunnels,
+                        ceipSecGlobalInOctets,
+                        ceipSecGlobalInDecompOctets,
+                        ceipSecGlobalInPkts,
+                        ceipSecGlobalInDrops,
+                        ceipSecGlobalInReplayDrops,
+                        ceipSecGlobalInAuths,
+                        ceipSecGlobalInAuthFails,
+                        ceipSecGlobalInDecrypts,
+                        ceipSecGlobalInDecryptFails,
+                        ceipSecGlobalOutOctets,
+                        ceipSecGlobalOutUncompOctets,
+                        ceipSecGlobalOutPkts,
+                        ceipSecGlobalOutDrops,
+                        ceipSecGlobalOutAuths,
+                        ceipSecGlobalOutAuthFails,
+                        ceipSecGlobalOutEncrypts,
+                        ceipSecGlobalOutEncryptFails,
+                        ceipSecGlobalProtocolUseFails,
+                        ceipSecGlobalNoSaFails,
+                        ceipSecGlobalSysCapFails,
+                        ceipSecGlobalOutCompressedPkts,
+                        ceipSecGlobalOutCompSkippedPkts,
+                        ceipSecGlobalOutCompFailPkts,
+                        ceipSecGlobalOutCompTooSmallPkts,
+                        ceipSecTunEncapMode,
+                        ceipSecTunLifeSize,
+                        ceipSecTunLifeTime,
+                        ceipSecTunActiveTime,
+                        ceipSecTunSaLifeSizeThreshold,
+                        ceipSecTunSaLifeTimeThreshold,
+                        ceipSecTunTotalRefreshes,
+                        ceipSecTunExpiredSaInstances,
+                        ceipSecTunCurrentSaInstances,
+                        ceipSecTunInSaDHGrp,
+                        ceipSecTunInSaEncryptAlgo,
+                        ceipSecTunInSaAhAuthAlgo,
+                        ceipSecTunInSaEspAuthAlgo,
+                        ceipSecTunInSaDecompAlgo,
+                        ceipSecTunOutSaDHGrp,
+                        ceipSecTunOutSaEncryptAlgo,
+                        ceipSecTunOutSaAhAuthAlgo,
+                        ceipSecTunOutSaEspAuthAlgo,
+                        ceipSecTunOutSaCompAlgo,
+                        ceipSecTunPmtu,
+                        ceipSecTunInOctets,
+                        ceipSecTunInDecompOctets,
+                        ceipSecTunInPkts,
+                        ceipSecTunInDropPkts,
+                        ceipSecTunInReplayDropPkts,
+                        ceipSecTunInAuths,
+                        ceipSecTunInAuthFails,
+                        ceipSecTunInDecrypts,
+                        ceipSecTunInDecryptFails,
+                        ceipSecTunOutOctets,
+                        ceipSecTunOutUncompOctets,
+                        ceipSecTunOutPkts,
+                        ceipSecTunOutDropPkts,
+                        ceipSecTunOutAuths,
+                        ceipSecTunOutAuthFails,
+                        ceipSecTunOutEncrypts,
+                        ceipSecTunOutEncryptFails,
+                        ceipSecTunOutCompressedPkts,
+                        ceipSecTunOutCompSkippedPkts,
+                        ceipSecTunOutCompFailPkts,
+                        ceipSecTunOutCompTooSmallPkts,
+                        ceipSecIfIndex,
+                        ceipSecTunStatus,
+                        ceipSecTunControlTunnelIndex,
+                        ceipSecTunControlProtocol,
+                        ceipSecTunControlTunnelAlive,
+                        ceipSecTunInSaEncryptKeySize,
+                        ceipSecTunOutSaEncryptKeySize,
+                        ceipSecTunLocalAddressType,
+                        ceipSecTunLocalAddress,
+                        ceipSecTunRemoteAddressType,
+                        ceipSecTunRemoteAddress,
+                        ceipSecTunNATTraversalMode,
+                        ceipSecEndPtLocalName,
+                        ceipSecEndPtLocalType,
+                        ceipSecEndPtLocalAddrType1,
+                        ceipSecEndPtLocalAddr1,
+                        ceipSecEndPtLocalAddrType2,
+                        ceipSecEndPtLocalAddr2,
+                        ceipSecEndPtLocalProtocol,
+                        ceipSecEndPtLocalPort,
+                        ceipSecEndPtRemoteName,
+                        ceipSecEndPtRemoteType,
+                        ceipSecEndPtRemoteAddrType1,
+                        ceipSecEndPtRemoteAddr1,
+                        ceipSecEndPtRemoteAddrType2,
+                        ceipSecEndPtRemoteAddr2,
+                        ceipSecEndPtRemoteProtocol,
+                        ceipSecEndPtRemotePort,
+                        ceipSecSaDirection,
+                        ceipSecSaValue,
+                        ceipSecSaStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group consists of:
+        1) IPsec Phase-2 Global Statistics
+        2) IPsec Phase-2 Tunnel Table
+        3) IPsec Phase-2 Endpoint Table
+        4) IPsec Phase-2 Security Association Table"
+    REFERENCE       "rfc2408, rfc2407; rfc2409 section 5.5"
+    ::= { ciscoIPsecFlowMIBGroups 1 }
+
+ciscoEnhIPsecFlowCoreHistGroup OBJECT-GROUP
+    OBJECTS         { ceipSecHistTableSize }
+    STATUS          current
+    DESCRIPTION
+        "This group consists of the core (mandatory)
+        objects pertaining to maintaining history of 
+        IPsec activity."
+    ::= { ciscoIPsecFlowMIBGroups 2 }
+
+ciscoEnhIPsecFlowHistoryGroup OBJECT-GROUP
+    OBJECTS         {
+                        ceipSecTunHistTermReason,
+                        ceipSecTunHistActiveIndex,
+                        ceipSecTunHistEncapMode,
+                        ceipSecTunHistLifeSize,
+                        ceipSecTunHistLifeTime,
+                        ceipSecTunHistStartTime,
+                        ceipSecTunHistActiveTime,
+                        ceipSecTunHistTotalRefreshes,
+                        ceipSecTunHistTotalSas,
+                        ceipSecTunHistInSaDHGrp,
+                        ceipSecTunHistInSaEncryptAlgo,
+                        ceipSecTunHistInSaAhAuthAlgo,
+                        ceipSecTunHistInSaEspAuthAlgo,
+                        ceipSecTunHistInSaDecompAlgo,
+                        ceipSecTunHistOutSaDHGrp,
+                        ceipSecTunHistOutSaEncryptAlgo,
+                        ceipSecTunHistOutSaAhAuthAlgo,
+                        ceipSecTunHistOutSaEspAuthAlgo,
+                        ceipSecTunHistOutSaCompAlgo,
+                        ceipSecTunHistPmtu,
+                        ceipSecTunHistInOctets,
+                        ceipSecTunHistInDecompOctets,
+                        ceipSecTunHistInPkts,
+                        ceipSecTunHistInDropPkts,
+                        ceipSecTunHistInReplayDropPkts,
+                        ceipSecTunHistInAuths,
+                        ceipSecTunHistInAuthFails,
+                        ceipSecTunHistInDecrypts,
+                        ceipSecTunHistInDecryptFails,
+                        ceipSecTunHistOutOctets,
+                        ceipSecTunHistOutUncompOctets,
+                        ceipSecTunHistOutPkts,
+                        ceipSecTunHistOutDropPkts,
+                        ceipSecTunHistOutAuths,
+                        ceipSecTunHistOutAuthFails,
+                        ceipSecTunHistOutEncrypts,
+                        ceipSecTunHistOutEncryptFails,
+                        ceipSecTunHistOutCompressedPkts,
+                        ceipSecTunHistOutCompSkippedPkts,
+                        ceipSecTunHistOutCompFailPkts,
+                        ceipSecTunHistOutCompSmallPkts,
+                        ceipSecTunHistControlProtocol,
+                        ceipSecTunHistControlTunnelIndex,
+                        ceipSecTunHistInSaEncryptKeySize,
+                        ceipSecTunHistOutSaEncryptKeySz,
+                        ceipSecTunHistLocalAddressType,
+                        ceipSecTunHistLocalAddress,
+                        ceipSecTunHistRemoteAddressType,
+                        ceipSecTunHistRemoteAddress,
+                        ceipSecTunHistNATTraversalMode,
+                        ceipSecEndPtHistTunIndex,
+                        ceipSecEndPtHistActiveIndex,
+                        ceipSecEndPtHistLocalName,
+                        ceipSecEndPtHistLocalType,
+                        ceipSecEndPtHistLocalAddrType1,
+                        ceipSecEndPtHistLocalAddr1,
+                        ceipSecEndPtHistLocalAddrType2,
+                        ceipSecEndPtHistLocalAddr2,
+                        ceipSecEndPtHistLocalProtocol,
+                        ceipSecEndPtHistLocalPort,
+                        ceipSecEndPtHistRemoteName,
+                        ceipSecEndPtHistRemoteType,
+                        ceipSecEndPtHistRemoteAddrType1,
+                        ceipSecEndPtHistRemoteAddr1,
+                        ceipSecEndPtHistRemoteAddrType2,
+                        ceipSecEndPtHistRemoteAddr2,
+                        ceipSecEndPtHistRemoteProtocol,
+                        ceipSecEndPtHistRemotePort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group consists of objects that pertain
+        to maintenance of history of IPsec Phase 2 
+        activity."
+    ::= { ciscoIPsecFlowMIBGroups 3 }
+
+ciscoEnhIPsecFlowCoreFailGroup OBJECT-GROUP
+    OBJECTS         { ceipSecFailTableSize }
+    STATUS          current
+    DESCRIPTION
+        "This group consists of the core (mandatory)
+        objects pertaining to maintaining history of 
+        failure IPsec activity."
+    ::= { ciscoIPsecFlowMIBGroups 4 }
+
+ciscoEnhIPsecFlowFailureGroup OBJECT-GROUP
+    OBJECTS         {
+                        ceipSecFailReason,
+                        ceipSecFailTime,
+                        ceipSecFailTunnelIndex,
+                        ceipSecFailSaSpi,
+                        ceipSecFailPktSrcAddressType,
+                        ceipSecFailPktSrcAddress,
+                        ceipSecFailPktDstAddressType,
+                        ceipSecFailPktDstAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group consists of objects that pertain
+        to maintenance of history of failures 
+        associated with Phase 2 IPsec activity."
+    ::= { ciscoIPsecFlowMIBGroups 5 }
+
+ciscoEnhIPsecFlowNotifCntlGroup OBJECT-GROUP
+    OBJECTS         {
+                        ceipSecNotiCntlIpSecAllNotifs,
+                        ceipSecNotifCntlIpSecTunnelStart,
+                        ceipSecNotifCntlIpSecTunnelStop,
+                        ceipSecNotifCntlIpSecSysFailure,
+                        ceipSecNotifCntlIpSecSetUpFail,
+                        ceipSecNotifCntlIpSecBadSa
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects controls the sending
+        of notifications pertaining to IPsec Phase-2
+        processing."
+    ::= { ciscoIPsecFlowMIBGroups 6 }
+
+ciscoEnhIPsecFlowNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoEnhIpsecFlowTunnelStart,
+                        ciscoEnhIpsecFlowTunnelStop,
+                        ciscoEnhIpsecFlowSysFailure,
+                        ciscoEnhIpsecFlowSetupFail,
+                        ciscoEnhIpsecFlowBadSa
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains the notifications pertaining
+        to Phase-2 operations and data transfer."
+    REFERENCE       "rfc2408, rfc2407; rfc2409 section 5.5"
+    ::= { ciscoIPsecFlowMIBGroups 7 }
+
+ciscoEnhIPsecFlowTunnelSaGroup OBJECT-GROUP
+    OBJECTS         {
+                        ceipSecTunSaValue,
+                        ceipSecTunSaIfIndex,
+                        ceipSecTunSaInOctets,
+                        ceipSecTunSaInDecompOctets,
+                        ceipSecTunSaInPkts,
+                        ceipSecTunSaInDropPkts,
+                        ceipSecTunSaInReplayDropPkts,
+                        ceipSecTunSaInAuths,
+                        ceipSecTunSaInAuthFails,
+                        ceipSecTunSaInDecrypts,
+                        ceipSecTunSaInDecryptFails,
+                        ceipSecTunSaOutOctets,
+                        ceipSecTunSaOutUncompOctets,
+                        ceipSecTunSaOutPkts,
+                        ceipSecTunSaOutDropPkts,
+                        ceipSecTunSaOutAuths,
+                        ceipSecTunSaOutAuthFails,
+                        ceipSecTunSaOutEncrypts,
+                        ceipSecTunSaOutEncryptFails,
+                        ceipSecTunSaOutCompressedPkts,
+                        ceipSecTunSaOutCompSkippedPkts,
+                        ceipSecTunSaOutCompFailPkts,
+                        ceipSecTunSaOutCompTooSmallPkts,
+                        ceipSecTunSaStatus,
+                        ceipSecIfTunnelStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group consists of the Phase-2 IPsec tunnel
+        Security Association and traffic information."
+    ::= { ciscoIPsecFlowMIBGroups 8 }
+
+ciscoEnhIPsecFlowNotifCntlGroupSup01 OBJECT-GROUP
+    OBJECTS         {
+                        ceipSecNotifCntlCertExpiry,
+                        ceipSecNotifCntlCertRenewal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This supplement group of objects controls the sending of X.509
+        certificate IPSec notifications."
+    ::= { ciscoIPsecFlowMIBGroups 9 }
+
+ciscoEnhIPsecFlowNotifGroupSup01 NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoEnhIpsecFlowCertExpiry,
+                        ciscoEnhIpsecFlowCertRenewal
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This supplement group contains the X.509 certificate
+        notifications for the IPSec MIB."
+    ::= { ciscoIPsecFlowMIBGroups 10 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- Units of Conformance
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ciscoEnhIPsecFlowCertObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        ceipSecCertSubjectName,
+                        ceipSecCertSerialNumber,
+                        ceipSecCertIssuerName,
+                        ceipSecCertExpiryTime,
+                        ceipSecCertRenewalStatus,
+                        ceipSecCertExpiryStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group consists of objects to support X.509 certificates."
+    ::= { ciscoIPsecFlowMIBGroups 11 }
+
+ciscoEnhIPsecFlowPerformanceThroughputGroup OBJECT-GROUP
+    OBJECTS         {
+                        ceipSecGlobalThroughputUtilizatioinTimeInterval,
+                        ceipSecGlobalThroughputLastUpdatedTime,
+                        ceipSecGlobalLastAveragePacketSize,
+                        ceipSecGlobalLastThroughputInMbps,
+                        ceipSecGlobalLastThroughputInKpps,
+                        ceipSecGlobalLastThroughputUtilization,
+                        ceipSecGlobalPeakThroughputUtilization,
+                        ceipSecGlobalPeakThroughputDateAndTime,
+                        ceipSecGlobalPeakThroughputInMbps,
+                        ceipSecGlobalPeakAvgPacketSize
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group consists of objects to show the the performance
+        utilization."
+    ::= { ciscoIPsecFlowMIBGroups 12 }
+
+END
+
+
+

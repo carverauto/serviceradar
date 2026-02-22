@@ -1,0 +1,209 @@
+-- ********************************************************************* 
+-- CISCO-NAT-EXT-MIB.my: Cisco NAT Extension MIB
+--
+-- June 2006, Suresh Kumar Jagadeesan
+--
+-- Copyright (c) 2006 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+--
+
+CISCO-NAT-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Gauge32,
+        Unsigned32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        entPhysicalIndex
+                FROM ENTITY-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+ciscoNATExtMIB MODULE-IDENTITY
+        LAST-UPDATED        "200606050000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+                        
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+                        
+                   Tel: +1 800 553-NETS
+                   
+                E-mail:  cs-l4l7security@cisco.com"
+        DESCRIPTION
+                "This MIB is an extension to the NAT-MIB.
+                 This MIB module includes objects for
+                 providing the NAT related statistics.
+                 
+                 Acronyms:
+                 
+                 NAT    Network Address Translation.
+                "
+        REVISION  "200606050000Z"
+        DESCRIPTION
+                "Initial version of this MIB."
+        ::= { ciscoMgmt 532 }
+
+ciscoNatExtMIBNotifs OBJECT IDENTIFIER ::=
+            { ciscoNATExtMIB 0 }
+
+ciscoNatExtMIBObjects OBJECT IDENTIFIER ::=
+            { ciscoNATExtMIB 1 }
+
+ciscoNatExtMIBConformance OBJECT IDENTIFIER ::=
+            { ciscoNATExtMIB 2 }
+
+--
+-- MIB objects
+--
+
+cneAddrTranslationStatsTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CneAddrTranslationStatsEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "A table of NAT statistics in a managed system."
+        ::= { ciscoNatExtMIBObjects 1 }
+
+cneAddrTranslationStatsEntry OBJECT-TYPE
+        SYNTAX      CneAddrTranslationStatsEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the cneAddrTranslationStatsTable.
+                 This contains information about the NAT related
+                 statistics pertaining to a module.
+                 The entPhysicalIndex specifies the entry in 
+                 entPhysicalTable with entPhysicalClass='module'."
+        INDEX       { entPhysicalIndex }
+        ::= { cneAddrTranslationStatsTable 1 }
+
+CneAddrTranslationStatsEntry ::=
+        SEQUENCE {
+                cneAddrTranslationNumActive      Gauge32,
+                cneAddrTranslationNumPeak        Unsigned32,
+                cneAddrTranslation1min           Gauge32,
+                cneAddrTranslation5min           Gauge32
+        }
+
+cneAddrTranslationNumActive OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "Number of address translation entries"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The total number of address translation entries that
+                 are currently available in the NAT device. This indicates
+                 the aggregate of the translation entries created from 
+                 both the static and dynamic address translation 
+                 mechanisms.
+                "
+        REFERENCE
+                "This object is an aggregate of the objects 
+                 natAddrBindNumberOfEntries and
+                 natAddrPortBindNumberOfEntries defined in the 
+                 RFC 4008, NAT-MIB [RFC4008].                
+                "
+        ::= { cneAddrTranslationStatsEntry 1 }
+
+cneAddrTranslationNumPeak OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "Number of address translation entries"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The maximum number of address translation entries
+                 that are active at any one time since the system
+                 startup. This indicates the high watermark of
+                 address translation entries that are active at any
+                 one time since the system startup.
+                 
+                 This object includes the translation entries created
+                 from both the static and dynamic address translation
+                 mechanisms.
+                "
+        ::= { cneAddrTranslationStatsEntry 2 }
+
+cneAddrTranslation1min OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "Address translation entries per second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The averaged number of address translation entries 
+                 which the NAT device establishing per second, averaged
+                 over the last 1 minute.
+                 
+                 This object includes the translation entries created
+         from both the static and dynamic address translation
+                 mechanisms.
+                "
+        ::= { cneAddrTranslationStatsEntry 3 }
+
+cneAddrTranslation5min OBJECT-TYPE
+        SYNTAX     Gauge32
+        UNITS      "Address translation entries per second"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "The averaged number of address translation entries which
+         the NAT device establishing per second, averaged over
+                 the last 5 minutes.
+                 
+         This object includes the translation entries created
+         from both the static and dynamic address translation
+                 mechanisms.
+                "
+        ::= { cneAddrTranslationStatsEntry 4 }
+
+ciscoNatExtMIBCompliances
+    OBJECT IDENTIFIER ::= { ciscoNatExtMIBConformance 1 }
+ciscoNatExtMIBGroups
+    OBJECT IDENTIFIER ::= { ciscoNatExtMIBConformance 2 }
+
+--
+-- Compliance statements
+--
+
+ciscoNatExtMIBCompliance MODULE-COMPLIANCE
+        STATUS         current
+        DESCRIPTION
+           "The compliance statement for entities which implement the 
+            CISCO-NAT-EXT-MIB."
+        MODULE 
+           MANDATORY-GROUPS { 
+              ciscoNatExtAddrTransStatsGroup
+           }
+        ::= { ciscoNatExtMIBCompliances 1 }
+--
+-- Units of conformance
+--
+
+ciscoNatExtAddrTransStatsGroup  OBJECT-GROUP
+   OBJECTS
+   {
+      cneAddrTranslationNumActive,
+      cneAddrTranslationNumPeak,
+      cneAddrTranslation1min,
+      cneAddrTranslation5min
+   }
+   STATUS current
+   DESCRIPTION
+          "This group contains the objects for NAT address translation 
+           related statistics."
+   ::= { ciscoNatExtMIBGroups 1 }
+
+END
+     
+  
+ 
+ 

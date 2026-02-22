@@ -1,0 +1,1243 @@
+-- MIB file created 13-Aug-2004 11:24:23, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-MVPN-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-MVPN-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowStatus, TimeStamp, DisplayString, TimeInterval
+            FROM SNMPv2-TC-v1
+    ciscoExperiment
+            FROM CISCO-SMI
+    ifIndex
+            FROM IF-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InetAddress, InetAddressType
+            FROM INET-ADDRESS-MIB
+    mplsVpnVrfName, MplsVpnRouteDistinguisher
+            FROM MPLS-VPN-MIB
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoMvpnMIB OBJECT IDENTIFIER ::= { ciscoExperiment 113 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200402231200Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--     Cisco Systems, Inc.
+--      170 Tasman Drive
+--      San Jose, CA 95134
+--      USA
+--    
+--      Tel: +1 800 553-NETS
+--    
+--      EMail: cs-ipmulticast@cisco.com
+--  Descr
+--    This MIB contains managed object definitions for
+--     Cisco implementation of multicast in VPNs defined 
+--     by the Internet draft: draft-rosen-vpn-mcast-05.txt. 
+--     Note that this MIB works along with the 
+--     L3VPN-MPLS-VPN-MIB.
+--  RevDate
+--    200402231200Z
+--  RevDescr
+--    Initial version.
+
+ciscoMvpnNotifications OBJECT IDENTIFIER ::= { ciscoMvpnMIB 0 }
+ciscoMvpnObjects OBJECT IDENTIFIER ::= { ciscoMvpnMIB 1 }
+ciscoMvpnScalars OBJECT IDENTIFIER ::= { ciscoMvpnObjects 1 }
+ciscoMvpnGeneric OBJECT IDENTIFIER ::= { ciscoMvpnObjects 2 }
+ciscoMvpnConfig OBJECT IDENTIFIER ::= { ciscoMvpnObjects 3 }
+ciscoMvpnProtocol OBJECT IDENTIFIER ::= { ciscoMvpnObjects 4 }
+ciscoMvpnConformance OBJECT IDENTIFIER ::= { ciscoMvpnMIB 2 }
+ciscoMvpnGroups OBJECT IDENTIFIER ::= { ciscoMvpnConformance 1 }
+ciscoMvpnCompliances OBJECT IDENTIFIER ::= { ciscoMvpnConformance 2 }
+
+ciscoMvpnMvrfNumber OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of MVRFs that are present in this device."
+    ::= { ciscoMvpnScalars 1 }
+
+ciscoMvpnNotificationEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If this object is TRUE, then the generation of 
+         all notifications defined in this MIB is enabled."
+    DEFVAL { false }
+    ::= { ciscoMvpnScalars 2 }
+
+ciscoMvpnGenericTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoMvpnGenericEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table gives the generic information about the MVRFs 
+         present in this device."
+    ::= { ciscoMvpnGeneric 1 }
+
+ciscoMvpnGenericEntry OBJECT-TYPE
+    SYNTAX CiscoMvpnGenericEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table is created for every MVRF in the 
+         device. 
+         Note that many implementations may have MVRF for global 
+         VRF (VRF0) by default in the device.
+         Also note that existence of the correspoding VRF in 
+         L3VPN-MPLS-VPN-MIB is necessary for a row to exist in
+         this table. Deletion of corresponding VRF in 
+         L3VPN-MPLS-VPN-MIB also results in deletion of a row here. 
+         But deletion of a row ie deletion of a MVRF here does not 
+         result in the deletion of the corresponding VRF in 
+         L3VPN-MPLS-VPN-MIB."
+    INDEX { mplsVpnVrfName }
+    ::= { ciscoMvpnGenericTable 1 }
+
+CiscoMvpnGenericEntry ::= SEQUENCE {
+    ciscoMvpnGenOperStatusChange INTEGER,
+    ciscoMvpnGenOperChangeTime TimeStamp,
+    ciscoMvpnGenAssociatedInterfaces Gauge,
+    ciscoMvpnGenRowStatus RowStatus
+    }
+
+ciscoMvpnGenOperStatusChange OBJECT-TYPE
+    SYNTAX INTEGER {
+        createdMvrf(1),
+        deletedMvrf(2),
+        modifiedMvrfDefMdtConfig(3),
+        modifiedMvrfDataMdtConfig(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes the last operational change that
+         happened for the given MVRF. 
+        
+         createdMvrf - indicates that the MVRF was created in the 
+         device.
+        
+         deletedMvrf - indicates that the MVRF was deleted from 
+         the device. A row in this table will never have 
+         ciscoMvpnGenOperStatusChange equal to deletedMvrf(2),
+         because in that case the row itself will be deleted 
+         from the table. This value for 
+         ciscoMvpnGenOperStatusChange is defined mainly for use 
+         in ciscoMvpnMvrfChange notification.
+        
+         modifiedMvrfDefMdtConfig - indicates that the default MDT 
+         group for the MVRF was configured, deleted or changed.
+        
+         modifiedMvrfDataMdtConfig - indicates that the data MDT 
+         group range or a associated variable (like the threshold) 
+         for the MVRF was configured, deleted or changed."
+    DEFVAL { createdMvrf }
+    ::= { ciscoMvpnGenericEntry 1 }
+
+ciscoMvpnGenOperChangeTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time at which the last operational change for the 
+         MVRF in question took place. The last operational change
+         is specified by ciscoMvpnGenOperStatusChange."
+    ::= { ciscoMvpnGenericEntry 2 }
+
+ciscoMvpnGenAssociatedInterfaces OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of interfaces associated with this MVRF (including
+         the MDT tunnel interface) with ifOperStatus = up(1)."
+    ::= { ciscoMvpnGenericEntry 3 }
+
+ciscoMvpnGenRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable is used to create or delete a row in this table."
+    ::= { ciscoMvpnGenericEntry 4 }
+
+ciscoMvpnMdtDefaultTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoMvpnMdtDefaultEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table specifies the default MDT address and the 
+         encapsulation type used for a MVRF instance."
+    ::= { ciscoMvpnConfig 1 }
+
+ciscoMvpnMdtDefaultEntry OBJECT-TYPE
+    SYNTAX CiscoMvpnMdtDefaultEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table is created for every MVRF for which 
+         a default MDT group is configured. A MVRF which does not 
+         have a default MDT group configured will not appear in 
+         this table.
+         Creation of a row in this table is the equivalent of 
+         configuring default MDT address for the given MVRF. 
+         Deletion of a row in this table is the equivalent of 
+         deconfiguring default MDT address for the given MVRF."
+    INDEX { mplsVpnVrfName }
+    ::= { ciscoMvpnMdtDefaultTable 1 }
+
+CiscoMvpnMdtDefaultEntry ::= SEQUENCE {
+    ciscoMvpnMdtDefaultAddrType InetAddressType,
+    ciscoMvpnMdtDefaultAddress InetAddress,
+    ciscoMvpnMdtEncapsType INTEGER,
+    ciscoMvpnMdtDefaultRowStatus RowStatus
+    }
+
+ciscoMvpnMdtDefaultAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnMdtDefaultAddress."
+    ::= { ciscoMvpnMdtDefaultEntry 1 }
+
+ciscoMvpnMdtDefaultAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The default MDT address to be used for the MVRF in question."
+    ::= { ciscoMvpnMdtDefaultEntry 2 }
+
+ciscoMvpnMdtEncapsType OBJECT-TYPE
+    SYNTAX INTEGER {
+        greIp(1),
+        ipIp(2),
+        mpls(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The encapsulation type to be used in the MVRF in question."
+    ::= { ciscoMvpnMdtDefaultEntry 3 }
+
+ciscoMvpnMdtDefaultRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable is used to create, modify or delete a 
+         row in this table."
+    ::= { ciscoMvpnMdtDefaultEntry 4 }
+
+ciscoMvpnMdtDataTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoMvpnMdtDataEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table specifies the range of data MDT addresses and 
+         associated variables for a MVRF instance."
+    ::= { ciscoMvpnConfig 2 }
+
+ciscoMvpnMdtDataEntry OBJECT-TYPE
+    SYNTAX CiscoMvpnMdtDataEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table is created for every MVRF for which 
+         a data MDT group range is configured. A MVRF which does
+         not have a data MDT group range configured will not appear
+         in this table. 
+         Creation of a row in this table is the equivalent of 
+         configuring data MDT addresses for the given MVRF. Deletion 
+         of a row in this table is the equivalent of deconfiguring 
+         data MDT address usage in the given MVRF. 
+        
+         Note that ciscoMvpnMdtDefaultEntry for a MVRF should be 
+         present in the device before ciscoMvpnMdtDataEntry for 
+         that MVRF can be created."
+    INDEX { mplsVpnVrfName }
+    ::= { ciscoMvpnMdtDataTable 1 }
+
+CiscoMvpnMdtDataEntry ::= SEQUENCE {
+    ciscoMvpnMdtDataRangeAddrType InetAddressType,
+    ciscoMvpnMdtDataRangeAddress InetAddress,
+    ciscoMvpnMdtDataWildcardType InetAddressType,
+    ciscoMvpnMdtDataWildcardBits InetAddress,
+    ciscoMvpnMdtDataThreshold Gauge,
+    ciscoMvpnMdtDataRowStatus RowStatus
+    }
+
+ciscoMvpnMdtDataRangeAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnMdtDataRangeAddress."
+    ::= { ciscoMvpnMdtDataEntry 1 }
+
+ciscoMvpnMdtDataRangeAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The data MDT group range address for the given MVRF. 
+         This along with ciscoMvpnMdtDataWildcardBits gives the 
+         pool of data MDT addresses that can be used for
+         encapsulation in the MVRF upon data MDT switchover."
+    ::= { ciscoMvpnMdtDataEntry 2 }
+
+ciscoMvpnMdtDataWildcardType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnMdtDataWildcardBits."
+    ::= { ciscoMvpnMdtDataEntry 3 }
+
+ciscoMvpnMdtDataWildcardBits OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Wildcard bits which when used along with data MDT range 
+         address, give a pool of addresses to be used in a MVRF.
+        
+         For example, if ciscoMvpnMdtDataRangeAddress is 239.1.2.0 
+         and ciscoMvpnMdtDataWildcardBits is 0.0.0.3, the possible 
+         data MDT addresses are 239.1.2.0, 239.1.2.1, 239.1.2.2 
+         and 239.1.2.3.
+        
+         Note that wild card bits should be right contiguous."
+    ::= { ciscoMvpnMdtDataEntry 4 }
+
+ciscoMvpnMdtDataThreshold OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+--  Units
+--    kilobits per second
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The bandwidth threshold value which when exceeded for a 
+         multicast routing entry in the given MVRF, triggers usage 
+         of data MDT address instead of default MDT address for 
+         encapsulation."
+    ::= { ciscoMvpnMdtDataEntry 5 }
+
+ciscoMvpnMdtDataRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable is used to create, modify or delete a 
+         row in this table."
+    ::= { ciscoMvpnMdtDataEntry 6 }
+
+ciscoMvpnMrouteMdtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoMvpnMrouteMdtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Given a multicast routing entry and the context MVRF, this 
+         table provides information about the MDT group being used for 
+         encapsulating the traffic for the multicast routing entry in 
+         the provider network at the instance of querying. Note that
+         this table is a read-only table and is the result of the 
+         default MDT and data MDT configurations and the operational 
+         conditions like the traffic rate and sometimes, the 
+         implementation choices."
+    ::= { ciscoMvpnProtocol 1 }
+
+ciscoMvpnMrouteMdtEntry OBJECT-TYPE
+    SYNTAX CiscoMvpnMrouteMdtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table exists for a multicast routing entry 
+         the traffic for which is being encapsulated in a context 
+         MVRF."
+    INDEX { mplsVpnVrfName, ciscoMvpnMrouteMvrfGrpAddrType, ciscoMvpnMrouteMvrfGroup, ciscoMvpnMrouteMvrfSrcAddrType, ciscoMvpnMrouteMvrfSource, ciscoMvpnMrouteUpDownStreamInfo }
+    ::= { ciscoMvpnMrouteMdtTable 1 }
+
+CiscoMvpnMrouteMdtEntry ::= SEQUENCE {
+    ciscoMvpnMrouteMvrfGrpAddrType InetAddressType,
+    ciscoMvpnMrouteMvrfGroup InetAddress,
+    ciscoMvpnMrouteMvrfSrcAddrType InetAddressType,
+    ciscoMvpnMrouteMvrfSource InetAddress,
+    ciscoMvpnMrouteUpDownStreamInfo INTEGER,
+    ciscoMvpnMrouteMdtGrpAddrType InetAddressType,
+    ciscoMvpnMrouteMdtGroup InetAddress,
+    ciscoMvpnMrouteMdtType INTEGER
+    }
+
+ciscoMvpnMrouteMvrfGrpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnMrouteMvrfGroup."
+    ::= { ciscoMvpnMrouteMdtEntry 1 }
+
+ciscoMvpnMrouteMvrfGroup OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Group adddress of multicast routing entry in question."
+    ::= { ciscoMvpnMrouteMdtEntry 2 }
+
+ciscoMvpnMrouteMvrfSrcAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnMrouteMvrfSource."
+    ::= { ciscoMvpnMrouteMdtEntry 3 }
+
+ciscoMvpnMrouteMvrfSource OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Source adddress of the multicast routing entry in question."
+    ::= { ciscoMvpnMrouteMdtEntry 4 }
+
+ciscoMvpnMrouteUpDownStreamInfo OBJECT-TYPE
+    SYNTAX INTEGER {
+        upstream(1),
+        downstream(2)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates if this PE is the upstream (sending) or the 
+         downstream (receiving) router for the multicast routing entry 
+         specified by ciscoMvpnMrouteMvrfSource and 
+         ciscoMvpnMrouteMvrfGroup in the context MVRF specified by 
+         mplsVpnVrfName.
+         Note that there may be two rows for the same multicast 
+         routing entry if the traffic is bi-directional, one row 
+         for PE as an upstream router the other for PE as the 
+         downstream router."
+    ::= { ciscoMvpnMrouteMdtEntry 5 }
+
+ciscoMvpnMrouteMdtGrpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnMrouteMdtGroup."
+    ::= { ciscoMvpnMrouteMdtEntry 6 }
+
+ciscoMvpnMrouteMdtGroup OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "MDT group address used to encapsulate the multicast routing 
+         entry specified by ciscoMvpnMrouteMvrfSource and 
+         ciscoMvpnMrouteMvrfGroup in the context MVRF specified by 
+         mplsVpnVrfName."
+    ::= { ciscoMvpnMrouteMdtEntry 7 }
+
+ciscoMvpnMrouteMdtType OBJECT-TYPE
+    SYNTAX INTEGER {
+        mdtDefault(1),
+        mdtData(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the type of MDT group used for encapsulation."
+    ::= { ciscoMvpnMrouteMdtEntry 8 }
+
+ciscoMvpnBgpMdtUpdateTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoMvpnBgpMdtUpdateEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table has information about the BGP advertisement of the 
+         the MDT groups. (These advertisements are generated 
+         and used for source discovery when SSM is used.)"
+    ::= { ciscoMvpnProtocol 2 }
+
+ciscoMvpnBgpMdtUpdateEntry OBJECT-TYPE
+    SYNTAX CiscoMvpnBgpMdtUpdateEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table is created when a BGP advertisement of 
+         the MDT group is received and cached in the PE device. 
+         An entry in this table deleted when such a cached BGP MDT 
+         update is withdrawn."
+    INDEX { ciscoMvpnBgpMdtUpdGrpAddrType, ciscoMvpnBgpMdtUpdateGroup, ciscoMvpnBgpMdtUpdSrcAddrType, ciscoMvpnBgpMdtUpdateSource }
+    ::= { ciscoMvpnBgpMdtUpdateTable 1 }
+
+CiscoMvpnBgpMdtUpdateEntry ::= SEQUENCE {
+    ciscoMvpnBgpMdtUpdGrpAddrType InetAddressType,
+    ciscoMvpnBgpMdtUpdateGroup InetAddress,
+    ciscoMvpnBgpMdtUpdateRd MplsVpnRouteDistinguisher,
+    ciscoMvpnBgpMdtUpdSrcAddrType InetAddressType,
+    ciscoMvpnBgpMdtUpdateSource InetAddress,
+    ciscoMvpnBgpMdtUpdOrigAddrType InetAddressType,
+    ciscoMvpnBgpMdtUpdateOriginator InetAddress,
+    ciscoMvpnBgpMdtUpdNhAddrType InetAddressType,
+    ciscoMvpnBgpMdtUpdateNexthop InetAddress
+    }
+
+ciscoMvpnBgpMdtUpdGrpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnBgpMdtUpdateGroup."
+    ::= { ciscoMvpnBgpMdtUpdateEntry 1 }
+
+ciscoMvpnBgpMdtUpdateGroup OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "MDT group address in the BGP MDT advertisement."
+    ::= { ciscoMvpnBgpMdtUpdateEntry 2 }
+
+ciscoMvpnBgpMdtUpdateRd OBJECT-TYPE
+    SYNTAX MplsVpnRouteDistinguisher
+--    Rsyntax OCTET STRING(SIZE(0..256))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "RD (route distinguisher) in the BGP MDT advertisement. This 
+         is the RD corresponding to the originator PE."
+    ::= { ciscoMvpnBgpMdtUpdateEntry 3 }
+
+ciscoMvpnBgpMdtUpdSrcAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnBgpMdtUpdateSource."
+    ::= { ciscoMvpnBgpMdtUpdateEntry 4 }
+
+ciscoMvpnBgpMdtUpdateSource OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "MDT source address in the BGP MDT advertisement."
+    ::= { ciscoMvpnBgpMdtUpdateEntry 5 }
+
+ciscoMvpnBgpMdtUpdOrigAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnBgpMdtUpdateOriginator."
+    ::= { ciscoMvpnBgpMdtUpdateEntry 6 }
+
+ciscoMvpnBgpMdtUpdateOriginator OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The BGP peering address of the device that originated (or 
+         advertized) the BGP MDT update."
+    ::= { ciscoMvpnBgpMdtUpdateEntry 7 }
+
+ciscoMvpnBgpMdtUpdNhAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnBgpMdtUpdateNexthop."
+    ::= { ciscoMvpnBgpMdtUpdateEntry 8 }
+
+ciscoMvpnBgpMdtUpdateNexthop OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The next-hop address (address of the border router to be
+         used to reach the destination network) in the BGP MDT 
+         advertisement."
+    ::= { ciscoMvpnBgpMdtUpdateEntry 9 }
+
+ciscoMvpnMdtJnRcvTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoMvpnMdtJnRcvEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table has information about the data MDT join TLVs 
+         received by a device."
+    ::= { ciscoMvpnProtocol 3 }
+
+ciscoMvpnMdtJnRcvEntry OBJECT-TYPE
+    SYNTAX CiscoMvpnMdtJnRcvEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table is created or updated for every MDT 
+         data join TLV received and cached in the device. The value of 
+         mplsVpnVrfName in such an entry specifies the name of the 
+         MVRF for which the data MDT groups from the TLVs are used."
+    INDEX { mplsVpnVrfName, ciscoMvpnMdtJnRcvGrpAddrType, ciscoMvpnMdtJnRcvGroup, ciscoMvpnMdtJnRcvSrcAddrType, ciscoMvpnMdtJnRcvSource }
+    ::= { ciscoMvpnMdtJnRcvTable 1 }
+
+CiscoMvpnMdtJnRcvEntry ::= SEQUENCE {
+    ciscoMvpnMdtJnRcvGrpAddrType InetAddressType,
+    ciscoMvpnMdtJnRcvGroup InetAddress,
+    ciscoMvpnMdtJnRcvSrcAddrType InetAddressType,
+    ciscoMvpnMdtJnRcvSource InetAddress,
+    ciscoMvpnMdtJnRcvUpTime TimeInterval,
+    ciscoMvpnMdtJnRcvExpTime TimeInterval
+    }
+
+ciscoMvpnMdtJnRcvGrpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnMdtJnRcvGroup."
+    ::= { ciscoMvpnMdtJnRcvEntry 1 }
+
+ciscoMvpnMdtJnRcvGroup OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Data MDT group address in the MDT join TLV."
+    ::= { ciscoMvpnMdtJnRcvEntry 2 }
+
+ciscoMvpnMdtJnRcvSrcAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnMdtJnRcvSource."
+    ::= { ciscoMvpnMdtJnRcvEntry 3 }
+
+ciscoMvpnMdtJnRcvSource OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Source address for the MDT multicast routing entry created 
+         following the receipt of MDT join TLV."
+    ::= { ciscoMvpnMdtJnRcvEntry 4 }
+
+ciscoMvpnMdtJnRcvUpTime OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time since this MDT join TLV was first received by the 
+         device."
+    ::= { ciscoMvpnMdtJnRcvEntry 5 }
+
+ciscoMvpnMdtJnRcvExpTime OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of time remaining before the cache corresponding 
+         to this MDT join TLV is deleted from the device and the 
+         corresponding  MDT multicast routing entry is marked as a 
+         non-MDT entry.
+         Note that multiple TLVs for a data MDT group may be received 
+         by a device. Upon receipt, the expiry timer of an already 
+         existing entry is restarted and so ciscoMvpnMdtJnRcvExpTime 
+         is updated."
+    ::= { ciscoMvpnMdtJnRcvEntry 6 }
+
+ciscoMvpnMdtJnSendTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoMvpnMdtJnSendEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table specifies the data MDT Join TLVs sent by a 
+         device."
+    ::= { ciscoMvpnProtocol 4 }
+
+ciscoMvpnMdtJnSendEntry OBJECT-TYPE
+    SYNTAX CiscoMvpnMdtJnSendEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entries in this table exist for data MDT Join TLVs that are 
+         being sent by this device to other PEs."
+    INDEX { mplsVpnVrfName, ciscoMvpnMdtJnSendGrpAddrType, ciscoMvpnMdtJnSendGroup, ciscoMvpnMdtJnSendSrcAddrType, ciscoMvpnMdtJnSendSource }
+    ::= { ciscoMvpnMdtJnSendTable 1 }
+
+CiscoMvpnMdtJnSendEntry ::= SEQUENCE {
+    ciscoMvpnMdtJnSendGrpAddrType InetAddressType,
+    ciscoMvpnMdtJnSendGroup InetAddress,
+    ciscoMvpnMdtJnSendSrcAddrType InetAddressType,
+    ciscoMvpnMdtJnSendSource InetAddress,
+    ciscoMvpnMdtJnSendMdtGrpAddrType InetAddressType,
+    ciscoMvpnMdtJnSendMdtGroup InetAddress,
+    ciscoMvpnMdtJnSendMdtRefCt Gauge
+    }
+
+ciscoMvpnMdtJnSendGrpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnMdtJnSendGroup."
+    ::= { ciscoMvpnMdtJnSendEntry 1 }
+
+ciscoMvpnMdtJnSendGroup OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This indicates the address of a multicast group in the 
+         MVRF specified by the column mplsVpnVrfName. This along 
+         with ciscoMvpnMdtJnSendSource identifies the multicast 
+         routing entry for which the MDT join TLV is sent."
+    ::= { ciscoMvpnMdtJnSendEntry 2 }
+
+ciscoMvpnMdtJnSendSrcAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnMdtJnSendSource."
+    ::= { ciscoMvpnMdtJnSendEntry 3 }
+
+ciscoMvpnMdtJnSendSource OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(4|16|20))
+--    Rsyntax OCTET STRING(SIZE(4|16|20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This indicates the address of a source in the MVRF 
+         specified by the column mplsVpnVrfName. This, along with 
+         ciscoMvpnMdtJnSendGroup identifies the multicast routing entry
+         for which the MDT join TLV is sent."
+    ::= { ciscoMvpnMdtJnSendEntry 4 }
+
+ciscoMvpnMdtJnSendMdtGrpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address type of ciscoMvpnMdtJnSendMdtGroup."
+    ::= { ciscoMvpnMdtJnSendEntry 5 }
+
+ciscoMvpnMdtJnSendMdtGroup OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The data MDT group in the MDT Join TLV sent."
+    ::= { ciscoMvpnMdtJnSendEntry 6 }
+
+ciscoMvpnMdtJnSendMdtRefCt OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates how many multicast routing entries in the MVRF 
+         specified by the column mplsVpnVrfName are using 
+         ciscoMvpnMdtJnSendMdtGroup for encapsulation."
+    ::= { ciscoMvpnMdtJnSendEntry 7 }
+
+ciscoMvpnTunnelTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoMvpnTunnelEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table gives information about the MVPN/MDT tunnels 
+         present in the device."
+    ::= { ciscoMvpnProtocol 5 }
+
+ciscoMvpnTunnelEntry OBJECT-TYPE
+    SYNTAX CiscoMvpnTunnelEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table is created for every MVPN tunnel 
+         interface present in the device. The ifType for a MVPN
+         tunnel is 'tunnel' (131). 
+         (A MVPN tunnel interface should have relevant generic 
+         support in the IF-MIB and in the internet draft,
+         draft-thaler-inet-tunnel-mib. Only MVPN specific aspects
+         of such a tunnel interface are to be specified in this
+         table.)"
+    INDEX { ifIndex }
+    ::= { ciscoMvpnTunnelTable 1 }
+
+CiscoMvpnTunnelEntry ::= SEQUENCE {
+    ciscoMvpnTunnelName DisplayString,
+    ciscoMvpnTunnelMvrf SnmpAdminString
+    }
+
+ciscoMvpnTunnelName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The canonical name assigned to the tunnel. The ifName of 
+         this tunnel interface should have a value equal to 
+         ciscoMvpnTunnelName."
+    ::= { ciscoMvpnTunnelEntry 1 }
+
+ciscoMvpnTunnelMvrf OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of the MVRF that this tunnel is associated with.
+         This object has the same value as mplsVpnVrfName
+         for the MVRF."
+    ::= { ciscoMvpnTunnelEntry 2 }
+
+ciscoMvpnMvrfChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoMvpnMIB
+    VARIABLES {
+        ciscoMvpnGenOperStatusChange }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ciscoMvpnMvrfChange notification signifies a change about
+         a MVRF in the device. The change event can be creation of 
+         the MVRF, deletion of the MVRF or an update on the default 
+         or data MDT configuration of the MVRF. The change event 
+         is indicated by ciscoMvpnGenOperStatusChange embedded in 
+         the notification. The user can then query 
+         ciscoMvpnGenericTable, ciscoMvpnMdtDefaultTable and/or 
+         ciscoMvpnMdtDataTable to get the details of the change as 
+         necessary.
+        
+         Note: Since the creation of a MVRF is often followed by 
+         configuration of default and data MDT groups for the MVRF, 
+         more than one (three at most) notifications for a MVRF may 
+         be generated serially, and it is really not necessary to 
+         generate all three of them. An agent may choose to generate a 
+         notification for the last event only, that is for data MDT 
+         configuration.
+        
+         Similarly, deletion of default or data MDT configuration on a 
+         MVRF happens before a MVRF is deleted, it is recommended 
+         that the agent send the notification for MVRF deletion 
+         event only."
+    ::= 2
+
+ciscoMvpnScalarGroup OBJECT IDENTIFIER ::= { ciscoMvpnGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Collection of scalar objects required for MVPN management.
+--  objects
+--    ciscoMvpnMvrfNumber, ciscoMvpnNotificationEnable
+
+ciscoMvpnMIBGenericGroup OBJECT IDENTIFIER ::= { ciscoMvpnGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Collection of objects needed for MVPN MVRF management.
+--  objects
+--    ciscoMvpnGenOperStatusChange, ciscoMvpnGenOperChangeTime, 
+--    ciscoMvpnGenAssociatedInterfaces, ciscoMvpnGenRowStatus
+
+ciscoMvpnMIBMdtDefaultGroup OBJECT IDENTIFIER ::= { ciscoMvpnGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Collection of objects needed for MVPN default MDT group 
+--     management.
+--  objects
+--    ciscoMvpnMdtDefaultAddrType, ciscoMvpnMdtDefaultAddress, 
+--    ciscoMvpnMdtEncapsType, ciscoMvpnMdtDefaultRowStatus
+
+ciscoMvpnMIBMdtDataGroup OBJECT IDENTIFIER ::= { ciscoMvpnGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Collection of objects needed for MVPN data MDT group
+--     management.
+--  objects
+--    ciscoMvpnMdtDataRangeAddrType, ciscoMvpnMdtDataRangeAddress, 
+--    ciscoMvpnMdtDataWildcardType, ciscoMvpnMdtDataWildcardBits, 
+--    ciscoMvpnMdtDataThreshold, ciscoMvpnMdtDataRowStatus
+
+ciscoMvpnMIBMrouteMdtGroup OBJECT IDENTIFIER ::= { ciscoMvpnGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Collection of objects that list sources in a MVRF
+--     and the corresponding MDT groups.
+--  objects
+--    ciscoMvpnMrouteMdtGrpAddrType, ciscoMvpnMrouteMdtGroup, 
+--    ciscoMvpnMrouteMdtType
+
+ciscoMvpnMIBBgpMdtUpdateGroup OBJECT IDENTIFIER ::= { ciscoMvpnGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Collection of objects needed for MVPN BGP MDT updates 
+--     related information.
+--  objects
+--    ciscoMvpnBgpMdtUpdateRd, ciscoMvpnBgpMdtUpdOrigAddrType, 
+--    ciscoMvpnBgpMdtUpdateOriginator, ciscoMvpnBgpMdtUpdNhAddrType, 
+--    ciscoMvpnBgpMdtUpdateNexthop
+
+ciscoMvpnMIBMdtJnRcvGroup OBJECT IDENTIFIER ::= { ciscoMvpnGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Collection of objects needed for management of MVPN MDT 
+--     data joins received by a device.
+--  objects
+--    ciscoMvpnMdtJnRcvUpTime, ciscoMvpnMdtJnRcvExpTime
+
+ciscoMvpnMIBMdtJnSendGroup OBJECT IDENTIFIER ::= { ciscoMvpnGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Collection of objects needed for management of MVPN MDT 
+--     data joins received by a device.
+--  objects
+--    ciscoMvpnMdtJnSendMdtGrpAddrType, ciscoMvpnMdtJnSendMdtGroup, 
+--    ciscoMvpnMdtJnSendMdtRefCt
+
+ciscoMvpnTunnelGroup OBJECT IDENTIFIER ::= { ciscoMvpnGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects required for MDT tunnel interface management.
+--  objects
+--    ciscoMvpnTunnelName, ciscoMvpnTunnelMvrf
+
+ciscoMvpnNotificationGroup OBJECT IDENTIFIER ::= { ciscoMvpnGroups 10 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of MVPN notifications.
+--  notifications
+--    ciscoMvpnMvrfChange
+
+ciscoMvpnModuleFullCompliance OBJECT IDENTIFIER ::= { ciscoMvpnCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Compliance statement for agents that support read-create
+--     so that both configuration and monitoring can be
+--     accomplished via this MIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoMvpnScalarGroup
+--   MandGroup
+--    ciscoMvpnMIBGenericGroup
+--   MandGroup
+--    ciscoMvpnMIBMdtDefaultGroup
+--   MandGroup
+--    ciscoMvpnMIBMdtDataGroup
+--   MandGroup
+--    ciscoMvpnMIBMrouteMdtGroup
+--   MandGroup
+--    ciscoMvpnMIBBgpMdtUpdateGroup
+--   MandGroup
+--    ciscoMvpnMIBMdtJnRcvGroup
+--   MandGroup
+--    ciscoMvpnMIBMdtJnSendGroup
+--   MandGroup
+--    ciscoMvpnTunnelGroup
+--   MandGroup
+--    ciscoMvpnNotificationGroup
+--   ObjVar
+--    ciscoMvpnGenRowStatus
+--   ObjVar
+--    ciscoMvpnMdtDefaultAddrType
+--   ObjVar
+--    ciscoMvpnMdtEncapsType
+--   ObjVar
+--    ciscoMvpnMdtDefaultRowStatus
+--   ObjVar
+--    ciscoMvpnMdtDataRangeAddrType
+--   ObjVar
+--    ciscoMvpnMdtDataWildcardType
+--   ObjVar
+--    ciscoMvpnMdtDataRowStatus
+--   ObjVar
+--    ciscoMvpnMrouteMdtGrpAddrType
+--   ObjVar
+--    ciscoMvpnBgpMdtUpdOrigAddrType
+--   ObjVar
+--    ciscoMvpnBgpMdtUpdNhAddrType
+--   ObjVar
+--    ciscoMvpnMdtJnSendMdtGrpAddrType
+
+ciscoMvpnModuleReadOnlyCompliance OBJECT IDENTIFIER ::= { ciscoMvpnCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Compliance statement for agents that support the
+--     monitoring of MVRFs via this MIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoMvpnScalarGroup
+--   MandGroup
+--    ciscoMvpnMIBGenericGroup
+--   MandGroup
+--    ciscoMvpnMIBMdtDefaultGroup
+--   MandGroup
+--    ciscoMvpnMIBMdtDataGroup
+--   MandGroup
+--    ciscoMvpnMIBMrouteMdtGroup
+--   MandGroup
+--    ciscoMvpnMIBBgpMdtUpdateGroup
+--   MandGroup
+--    ciscoMvpnMIBMdtJnRcvGroup
+--   MandGroup
+--    ciscoMvpnMIBMdtJnSendGroup
+--   MandGroup
+--    ciscoMvpnTunnelGroup
+--   MandGroup
+--    ciscoMvpnNotificationGroup
+--   ObjVar
+--    ciscoMvpnGenRowStatus
+--   ObjVar
+--    ciscoMvpnMdtDefaultAddrType
+--   ObjVar
+--    ciscoMvpnMdtDefaultAddress
+--   ObjVar
+--    ciscoMvpnMdtEncapsType
+--   ObjVar
+--    ciscoMvpnMdtDefaultRowStatus
+--   ObjVar
+--    ciscoMvpnMdtDataRangeAddrType
+--   ObjVar
+--    ciscoMvpnMdtDataRangeAddress
+--   ObjVar
+--    ciscoMvpnMdtDataWildcardType
+--   ObjVar
+--    ciscoMvpnMdtDataWildcardBits
+--   ObjVar
+--    ciscoMvpnMdtDataThreshold
+--   ObjVar
+--    ciscoMvpnMdtDataRowStatus
+--   ObjVar
+--    ciscoMvpnMrouteMdtGrpAddrType
+--   ObjVar
+--    ciscoMvpnBgpMdtUpdOrigAddrType
+--   ObjVar
+--    ciscoMvpnBgpMdtUpdNhAddrType
+--   ObjVar
+--    ciscoMvpnMdtJnSendMdtGrpAddrType
+
+
+END
+

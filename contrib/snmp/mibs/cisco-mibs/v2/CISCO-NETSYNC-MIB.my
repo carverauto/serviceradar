@@ -1,0 +1,1874 @@
+-- *****************************************************************
+-- CISCO-NETSYNC-MIB.my: Cisco SyncE MIB
+--   
+-- October 2010, Danny Lee
+--   
+-- Copyright (c) 2010 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-NETSYNC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Gauge32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    TEXTUAL-CONVENTION,
+    TimeStamp
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoNetsyncMIB MODULE-IDENTITY
+    LAST-UPDATED    "201010150000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+
+            Postal: 170 W Tasman Drive
+
+            San Jose, CA  95134
+
+            USA
+
+
+            Tel: +1 800 553-NETS
+
+
+            E-mail: cs-sync-e@cisco.com"
+    DESCRIPTION
+        "The Synchronous Ethernet (SyncE) MIB is defined
+        for monitoring network synchronization based on
+        ITU-T G.781 clock selection.
+        
+        Synchronous Ethernet (SyncE) is a standard defined
+        for delivering timing to the remote NEs through a 
+        Packet Network.   SyncE is well defined by ITU-T
+        which included G.8261, G.8262, G.8264 and G.781.
+        It leverages the PHY layer of Ethernet to transmit
+        frequency to the remote sites.  Its functionality
+        and accuracy mimics that of the SONET/SDH network
+        because of its physical layer characteristic.
+        In order to allow best clock source traceabiliy,
+        correctly define the timing source and helps
+        preventing timing loop, Synchronization Status
+        Message is required for SyncE.  This is similar
+        to SONET/SDH.  However, since SONET/SDH use 4 bits
+        from the two S bytes in the SONET/SDH overhead
+        frame for such message, Ethernet relies on a
+        different channel called ESMC (Ethernet
+        Synchronization Messaging Channel) which is based
+        on IEEE 802.3 Organization Specific Slow Protocol.
+        
+        Glossary:
+        AIS: Alarm Indication Signal
+        ATM: Asynchronous Transfer Mode
+        EEC: Ethernet Equipment Clock
+        ESMC: Ethernet Synchronization Messaging Channel
+        QL: Quality Level
+        SASE: Stand Alone Synchronization Equipment
+        SSM: Synchronization Status Messaging"
+    REVISION        "201010150000Z"
+    DESCRIPTION
+        "Initial version of the SyncE MIB module."
+    ::= { ciscoMgmt 761 }
+
+
+
+-- Textual Conventions
+
+CiscoNetsyncIfType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Network synchronization clock source Interface type.
+        
+        Netsync interface         Interface type
+        ========================  ==============
+        netsyncIfTypeUnknown      Unknown
+        netsyncIfTypeInternal     Internal
+        netsyncIfTypeEthernet     Ethernet
+        netsyncIfTypeSonet        SONET
+        netsyncIfTypeTop          Timing Over Packet
+        netsyncIfTypeExt          External interface
+        netsyncIfTypeController   T1/E1 Controller
+        netsyncIfTypeGps          GPS
+        netsyncIfTypeAtm          ATM
+        
+        For external and GPS interface types, the following
+        syntax is used for specifying an interface:
+            <slot>/<card>/<port> <signal type> where
+        slot : slot number of the device where card is present.
+        card : bay number in which card is inserted.
+        port : port number on the card.
+        signal type: hardware signal of the specified
+                     <slot>/<card>/<port>. Examples of signal
+                     type are T1 SF and T1 ESF.
+        "
+    SYNTAX          INTEGER  {
+                        netsyncIfTypeUnknown(1),
+                        netsyncIfTypeInternal(2),
+                        netsyncIfTypeEthernet(3),
+                        netsyncIfTypeSonet(4),
+                        netsyncIfTypeTop(5),
+                        netsyncIfTypeExt(6),
+                        netsyncIfTypeController(7),
+                        netsyncIfTypeGps(8),
+                        netsyncIfTypeAtm(9)
+                    }
+
+CiscoNetsyncNetworkOption ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Network synchronization networking options.
+ 
+        Network option                Network option type
+        ===========================   ===================
+        netsyncNetworkOptionUnknown   Unknown network option
+        netsyncNetworkOption1         Option I
+        netsyncNetworkOption2Gen1     Option II Generation 1
+        netsyncNetworkOption2Gen2     Option II Generation 2
+        netsyncNetworkOption3         Option III
+        netsyncNetworkOptionInvalid   Invalid network option
+
+        Option I refers to ITU-T Option I synchronization networks.
+
+        Option II refers to ITU-T Option II synchronization networks
+        designed for North America.
+
+        Option III refers to ITU-T Option III synchronization networks
+        designed for Japan.
+        "
+    REFERENCE       "ITU-T standard G.781"
+    SYNTAX          INTEGER  {
+                        netsyncNetworkOptionUnknown(1),
+                        netsyncNetworkOption1(2),
+                        netsyncNetworkOption2Gen1(3),
+                        netsyncNetworkOption2Gen2(4),
+                        netsyncNetworkOption3(5),
+                        netsyncNetworkOptionInvalid(6)
+                    }
+
+CiscoNetsyncEECOption ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Network synchronization EEC (Ethernet Equipment Clock)
+        options.
+
+        The EEC options are for Synchronous Ethernet devices and define
+        the requirements for clocks, e.g. bandwidth, frequency accuracy,
+        holdover and noise generation.
+
+        Two options are defined:
+        EEC-Option 1: Designed to interwork with network optimized for
+        the 2048 kbit/s hierarchy.
+
+        EEC-Option 2: Designed to interwork with network optimized for
+        the 1544 kbit/s hierarchy.
+        
+        netsyncEECOptionUnknown   Unknown
+        netsyncEECOption1         EEC option 1
+        netsyncEECOption2         EEC option 2
+        netsyncEECOptionInvalid   Invalid EEC option
+        "
+
+    REFERENCE       "ITU-T standard G.781"
+    SYNTAX          INTEGER  {
+                        netsyncEECOptionUnknown(1),
+                        netsyncEECOption1(2),
+                        netsyncEECOption2(3),
+                        netsyncEECOptionInvalid(4)
+                    }
+
+CiscoNetsyncQLMode ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The clock mode of the network synchronization clock selection
+        process as described in ITU-T standard G.781 section 5.12.
+        
+        G.781 clock selection runs in one of two clock modes:
+        QL (Quality Level) enabled mode and QL disabled mode.  
+        
+        netsyncQLModeUnknown    - QL mode unknown
+        netsyncQLModeQlDisabled - QL-disabled mode;
+                                  clock selection is running 
+                                  in QL disabled mode,
+                                  which primarily considers
+                                  the source's priority as the
+                                  clock selection criteria.
+        netsyncQLModeQlEnabled  - QL-enabled mode
+                                  clock selection is running
+                                  in QL enabled mode,
+                                  which primarily considers
+                                  the source's clock quality
+                                  level and priority as the
+                                  clock selection criteria.
+        "
+    REFERENCE       "ITU-T standard G.781 section 5.12"
+    SYNTAX          INTEGER  {
+                        netsyncQLModeUnknown(1),
+                        netsyncQLModeQlDisabled(2),
+                        netsyncQLModeQlEnabled(3)
+                    }
+
+CiscoNetsyncClockMode ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Clock operating mode:
+
+        netsyncClockModeUnknown  - system is unable to 
+                                   determine the operating mode.
+        netsyncClockModeFreerun  - free-running mode.
+        netsyncClockModeHoldover - holdover mode.
+        netsyncClockModeLocked   - a valid clock source is locked.
+        "
+    SYNTAX          INTEGER  {
+                        netsyncClockModeUnknown(1),
+                        netsyncClockModeFreerun(2),
+                        netsyncClockModeHoldover(3),
+                        netsyncClockModeLocked(4)
+                    }
+
+CiscoNetsyncQualityLevel ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Clock source QL (quality level) is defined in ITU-T G.781
+        section 5.4 to reflect the synchronization quality within a
+        network Option, i.e. I, II, and III.
+
+        The following clock source quality levels are defined for the
+        synchronization process of Option I: 
+        
+        QL-PRC     Primary reference clock 
+        QL-SSU-A   Type I or V slave clock defined in ITU-T G.811
+        QL-SSU-B   Type VI slave clock defined in ITU-T G.812
+        QL-SEC     Synchronous equipment clock
+        QL-DNU     Do not use for synchronization
+        QL-INVx    Unallocated SSM value,
+                   where x represent the value of SSM received
+        QL-FAILED  Signal failure state
+        QL-UNC     Unconnected to an input
+        QL-NSUPP   Not supporting the SSM processing
+
+        The following clock source quality levels are defined for the
+        synchronization process of Option II: 
+        
+        QL-PRS     PRS traceable
+        QL-STU     Synchronized; traceability unknown
+        QL-ST2     Stratum 2
+        QL-TNC     Transit node clock
+        QL-ST3E    Stratum 3E
+        QL-ST3     Stratum 3
+        QL-SMC     SONET clock self timed
+        QL-ST4     Stratum 4 freerun
+        QL-PROV    Provisionable by the network operator
+        QL-DUS     Do not use for synchronization
+        QL-INVx    Unallocated SSM value,
+                   where x represent the value of SSM received
+        QL-FAILED  Signal failure state
+        QL-UNC     Unconnected to an input
+        QL-NSUPP   Not supporting the SSM processing
+
+        The following clock source quality levels are defined for the
+        synchronization process of Option III:
+        
+        QL-UNK     Unknown clock source
+        QL-SEC     Synchronous equipment clock
+        
+        QL-INVx    Unallocated SSM value,
+                   where x represent the value of SSM received
+        QL-FAILED  Signal failure state
+        QL-UNC     Unconnected to an input
+        QL-NSUPP   Not supporting the SSM processing        
+        "
+    REFERENCE       "ITU-T standard G.781 section 5.4"
+    SYNTAX          INTEGER  {
+                        netsyncQualityLevelNULL(1),
+                        netsyncQualityLevelDNU(2),
+                        netsyncQualityLevelDUS(3),
+                        netsyncQualityLevelFAILED(4),
+                        netsyncQualityLevelINV0(5),
+                        netsyncQualityLevelINV1(6),
+                        netsyncQualityLevelINV2(7),
+                        netsyncQualityLevelINV3(8),
+                        netsyncQualityLevelINV4(9),
+                        netsyncQualityLevelINV5(10),
+                        netsyncQualityLevelINV6(11),
+                        netsyncQualityLevelINV7(12),
+                        netsyncQualityLevelINV8(13),
+                        netsyncQualityLevelINV9(14),
+                        netsyncQualityLevelINV10(15),
+                        netsyncQualityLevelINV11(16),
+                        netsyncQualityLevelINV12(17),
+                        netsyncQualityLevelINV13(18),
+                        netsyncQualityLevelINV14(19),
+                        netsyncQualityLevelINV15(20),
+                        netsyncQualityLevelNSUPP(21),
+                        netsyncQualityLevelPRC(22),
+                        netsyncQualityLevelPROV(23),
+                        netsyncQualityLevelPRS(24),
+                        netsyncQualityLevelSEC(25),
+                        netsyncQualityLevelSMC(26),
+                        netsyncQualityLevelSSUA(27),
+                        netsyncQualityLevelSSUB(28),
+                        netsyncQualityLevelST2(29),
+                        netsyncQualityLevelST3(30),
+                        netsyncQualityLevelST3E(31),
+                        netsyncQualityLevelST4(32),
+                        netsyncQualityLevelSTU(33),
+                        netsyncQualityLevelTNC(34),
+                        netsyncQualityLevelUNC(35),
+                        netsyncQualityLevelUNK(36)
+                    }
+
+CiscoNetsyncSSMCap ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Network synchronization clock source interface SSM
+        (Synchronization Status Message) capability.
+        
+        SSM Capability         Capability information
+        =====================  ======================
+        netsyncSSMCapNone      No SSM capability
+        netsyncSSMCapTxRx      To transmit and receive SSM
+        netsyncSSMCapTx        To transmit SSM only
+        netsyncSSMCapRx        To receive SSM only
+        netsyncSSMCapInvalid   Capability invalid or unsupported
+        "
+    SYNTAX          INTEGER  {
+                        netsyncSSMCapNone(1),
+                        netsyncSSMCapTxRx(2),
+                        netsyncSSMCapTx(3),
+                        netsyncSSMCapRx(4),
+                        netsyncSSMCapInvalid(5)
+                    }
+
+CiscoNetsyncESMCCap ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Network synchronization clock source interface ESMC
+        (Ethernet Synchronization Messaging Channel)
+        capability.
+        
+        ESMC Capability         Capability information
+        ======================  ======================
+        netsyncESMCCapNone      No ESMC capability
+        netsyncESMCCapTxRx      To transmit and receive ESMC
+        netsyncESMCCapTx        To transmit SSM only
+        netsyncESMCCapRx        To receive SSM only
+        netsyncESMCCapInvalid   Capability invalid or unsupported
+        "
+    SYNTAX          INTEGER  {
+                        netsyncESMCCapNone(1),
+                        netsyncESMCCapTxRx(2),
+                        netsyncESMCCapTx(3),
+                        netsyncESMCCapRx(4),
+                        netsyncESMCCapInvalid(5)
+                    }
+
+CiscoNetsyncAlarmInfo ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Input clock source's alarm reasons:
+
+        netsyncSrcAlarmReasonAIS      - Alarm Indication Signal
+        netsyncSrcAlarmReasonOOR      - Out of range
+        netsyncSrcAlarmReasonOIR      - Online Insertion Removal
+        netsyncSrcAlarmReasonInternal - Internal"
+    SYNTAX          BITS {
+                        netsyncSrcAlarmReasonAIS(0),
+                        netsyncSrcAlarmReasonOOR(1),
+                        netsyncSrcAlarmReasonOIR(2),
+                        netsyncSrcAlarmReasonInternal(3)
+                    }
+-- Textual Conventions definition will be defined before this line
+
+ciscoNetsyncMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoNetsyncMIB 0 }
+
+ciscoNetsyncMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoNetsyncMIB 1 }
+
+ciscoNetsyncMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoNetsyncMIB 2 }
+
+ciscoNetsyncMIBTables  OBJECT IDENTIFIER
+    ::= { ciscoNetsyncMIBObjects 1 }
+
+cnsClkSelGlobalTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnsClkSelGlobalEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "G.781 clock selection process table.
+        This table contains the global parameters for the G.781 clock
+        selection process."
+    ::= { ciscoNetsyncMIBTables 1 }
+
+cnsClkSelGlobalEntry OBJECT-TYPE
+    SYNTAX          CnsClkSelGlobalEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry is added to cnsClkSelGlobalTable when G.781 clock
+        selection is enabled in the device configuration.  The entry
+        is removed when G.781 clock selection is removed from the
+        configuration."
+    INDEX           { cnsClkSelGloProcIndex } 
+    ::= { cnsClkSelGlobalTable 1 }
+
+CnsClkSelGlobalEntry ::= SEQUENCE {
+        cnsClkSelGloProcIndex            Unsigned32,
+        cnsClkSelGlobProcessMode         CiscoNetsyncQLMode,
+        cnsClkSelGlobClockMode           CiscoNetsyncClockMode,
+        cnsClkSelGlobNetsyncEnable       TruthValue,
+        cnsClkSelGlobRevertiveMode       TruthValue,
+        cnsClkSelGlobESMCMode            TruthValue,
+        cnsClkSelGlobEECOption           CiscoNetsyncEECOption,
+        cnsClkSelGlobNetworkOption       CiscoNetsyncNetworkOption,
+        cnsClkSelGlobHoldoffTime         Unsigned32,
+        cnsClkSelGlobWtrTime             Unsigned32,
+        cnsClkSelGlobNofSources          Unsigned32,
+        cnsClkSelGlobLastHoldoverSeconds Gauge32,
+        cnsClkSelGlobCurrHoldoverSeconds Gauge32
+}
+
+cnsClkSelGloProcIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index that uniquely represents a clock selection process.
+        
+        This index is assigned arbitrarily by the system
+        and may not be persistent across reboots."
+    ::= { cnsClkSelGlobalEntry 1 }
+
+cnsClkSelGlobProcessMode OBJECT-TYPE
+    SYNTAX          CiscoNetsyncQLMode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the QL mode of
+        the network synchronization clock selection
+        process as described in ITU-T standard G.781
+        section 5.12.
+        " 
+    ::= { cnsClkSelGlobalEntry 2 }
+
+cnsClkSelGlobClockMode OBJECT-TYPE
+    SYNTAX          CiscoNetsyncClockMode
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the operating mode
+        of the system clock." 
+    ::= { cnsClkSelGlobalEntry 3 }
+
+cnsClkSelGlobNetsyncEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the G.781
+        clock selection is enabled or not.
+
+        'true'  - G.781 clock selection is enabled
+        'false' - G.781 clock selection is disabled"
+    DEFVAL          { false } 
+    ::= { cnsClkSelGlobalEntry 4 }
+
+cnsClkSelGlobRevertiveMode OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the revertive mode
+        setting in the G.781 clock selection process.
+        
+        The switching of clock sources can be made revertive or
+        non-revertive. In non-revertive mode, an alternate
+        clock source is maintained even after the original clock
+        source has recovered from the failure that caused the switch.
+        In revertive mode, the clock selection process switches back
+        to the original clock source after recovering from the
+        failure."
+    DEFVAL          { false } 
+    ::= { cnsClkSelGlobalEntry 5 }
+
+cnsClkSelGlobESMCMode OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates if global ESMC is enabled.
+        With ESMC enabled globally, the system is capable
+        of handling ESMC messages."
+    DEFVAL          { false } 
+    ::= { cnsClkSelGlobalEntry 6 }
+
+cnsClkSelGlobEECOption OBJECT-TYPE
+    SYNTAX          CiscoNetsyncEECOption
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the network synchronization
+        EEC (Ethernet Equipment Clock) option."
+    REFERENCE       "ITU-T standard G.781"
+    DEFVAL          { netsyncEECOptionUnknown } 
+    ::= { cnsClkSelGlobalEntry 7 }
+
+cnsClkSelGlobNetworkOption OBJECT-TYPE
+    SYNTAX          CiscoNetsyncNetworkOption
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the synchronization
+        network option."
+    REFERENCE       "ITU-T standard G.781"
+    DEFVAL          { netsyncNetworkOptionUnknown } 
+    ::= { cnsClkSelGlobalEntry 8 }
+
+cnsClkSelGlobHoldoffTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the global
+        holdoff time in the G.781 clock
+        selection process."
+    REFERENCE       "ITU-T standard G.781 section 5.8"
+    DEFVAL          { 300 } 
+    ::= { cnsClkSelGlobalEntry 9 }
+
+cnsClkSelGlobWtrTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the global
+        wait-to-restore time in the G.781
+        clock selection process."
+    REFERENCE       "ITU-T standard G.781 section 5.9"
+    DEFVAL          { 300 } 
+    ::= { cnsClkSelGlobalEntry 10 }
+
+cnsClkSelGlobNofSources OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..255)
+    UNITS           "clock sources"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of
+        synchronization sources currently
+        configured for the G.781
+        clock selection process." 
+    ::= { cnsClkSelGlobalEntry 11 }
+
+cnsClkSelGlobLastHoldoverSeconds OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the duration of
+        the last holdover period in seconds.
+        If the holdover duration is less than a second,
+        the object will carry the value zero." 
+    ::= { cnsClkSelGlobalEntry 12 }
+
+cnsClkSelGlobCurrHoldoverSeconds OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the duration of
+        the current holdover period.
+        If a system clock is in holdover mode,
+        the object carries the current holdover
+        duration in seconds. If the system clock
+        is not in holdover, the object carries
+        the value 0." 
+    ::= { cnsClkSelGlobalEntry 13 }
+ 
+
+
+cnsSelectedInputSourceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnsSelectedInputSourceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "T0 selected clock source table.
+        This table contains the selected clock source for the input T0
+        clock."
+    ::= { ciscoNetsyncMIBTables 2 }
+
+cnsSelectedInputSourceEntry OBJECT-TYPE
+    SYNTAX          CnsSelectedInputSourceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry is created in the table when the G.781 clock
+        selection process has successfully selected a T0 clock
+        source.  The entry shall remain during the time
+        the G.781 clock selection process remains enabled."
+    INDEX           { cnsSelInpSrcNetsyncIndex } 
+    ::= { cnsSelectedInputSourceTable 1 }
+
+CnsSelectedInputSourceEntry ::= SEQUENCE {
+        cnsSelInpSrcNetsyncIndex Unsigned32,
+        cnsSelInpSrcName         SnmpAdminString,
+        cnsSelInpSrcIntfType     CiscoNetsyncIfType,
+        cnsSelInpSrcQualityLevel CiscoNetsyncQualityLevel,
+        cnsSelInpSrcPriority     Unsigned32,
+        cnsSelInpSrcTimestamp    TimeStamp,
+        cnsSelInpSrcFSW          TruthValue,
+        cnsSelInpSrcMSW          TruthValue
+}
+
+cnsSelInpSrcNetsyncIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index that uniquely represents an entry in
+        this table. This index is assigned arbitrarily
+        by the clock selection process and may not be persistent
+        across reboots." 
+    ::= { cnsSelectedInputSourceEntry 1 }
+
+cnsSelInpSrcName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the
+        selected T0 clock." 
+    ::= { cnsSelectedInputSourceEntry 2 }
+
+cnsSelInpSrcIntfType OBJECT-TYPE
+    SYNTAX          CiscoNetsyncIfType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of the
+        selected T0 clock." 
+    ::= { cnsSelectedInputSourceEntry 3 }
+
+cnsSelInpSrcQualityLevel OBJECT-TYPE
+    SYNTAX          CiscoNetsyncQualityLevel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the selected T0 clock
+        source's effective quality level, which
+        is the derived clock quality based on the three factors: 
+        (a) Received quality level. 
+        (b) Configured Rx quality level.  This factor supersedes (a). 
+        (c) System overridden quality level as a result of exceptional
+        events such as signal failure or ESMC failure.  This factor
+        supersedes (a) and (b)." 
+    ::= { cnsSelectedInputSourceEntry 4 }
+
+cnsSelInpSrcPriority OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1024)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured
+        priority of the selected T0 clock.
+        A smaller value represents a higher priority."
+    REFERENCE       "ITU-T standard G.781 section 5.10" 
+    ::= { cnsSelectedInputSourceEntry 5 }
+
+cnsSelInpSrcTimestamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the timestamp of
+        the T0 clock source being selected by
+        the G.781 clock selection process."
+    ::= { cnsSelectedInputSourceEntry 6 }
+
+cnsSelInpSrcFSW OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the forced switching flag. Forced
+        switching, as described in G.781, is used to override the
+        currently selected synchronization source.
+
+        The 'true' value indicates the currently selected clock
+        source is a result of the forced switching. The 'false'
+        value indicates the currently selected clock source is
+        not a result of forced switching."
+    REFERENCE       "ITU-T standard G.781 section 5.11.2.2" 
+    ::= { cnsSelectedInputSourceEntry 7 }
+
+cnsSelInpSrcMSW OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the manual switching flag.
+        The 'true' value indicates the currently selected clock source
+        is a result of the manual switch command. The command allows
+        a user to select a synchronization source assuming it is
+        enabled, not locked out, not in signal fail condition,
+        and has a QL better than DNU in QL-enabled mode. Furthermore,
+        in QL-enabled mode, a manual switch can be performed only to
+        a source which has the highest available QL."
+    REFERENCE       "ITU-T standard G.781 section 5.11.2.3" 
+    ::= { cnsSelectedInputSourceEntry 8 }
+ 
+
+
+cnsInputSourceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnsInputSourceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "T0 clock source table.
+        This table contains a list of input sources for input T0 clock
+        selection."
+    ::= { ciscoNetsyncMIBTables 3 }
+
+cnsInputSourceEntry OBJECT-TYPE
+    SYNTAX          CnsInputSourceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry is created in the table when a user adds a T0
+        clock source in the configuration. An entry is removed 
+        in the table when a user removes a T0 clock source from
+        the configuration."
+    INDEX           { cnsInpSrcNetsyncIndex } 
+    ::= { cnsInputSourceTable 1 }
+
+CnsInputSourceEntry ::= SEQUENCE {
+        cnsInpSrcNetsyncIndex       Unsigned32,
+        cnsInpSrcName               SnmpAdminString,
+        cnsInpSrcIntfType           CiscoNetsyncIfType,
+        cnsInpSrcPriority           Unsigned32,
+        cnsInpSrcESMCCap            CiscoNetsyncESMCCap,
+        cnsInpSrcSSMCap             CiscoNetsyncSSMCap,
+        cnsInpSrcQualityLevelTxCfg  CiscoNetsyncQualityLevel,
+        cnsInpSrcQualityLevelRxCfg  CiscoNetsyncQualityLevel,
+        cnsInpSrcQualityLevelTx     CiscoNetsyncQualityLevel,
+        cnsInpSrcQualityLevelRx     CiscoNetsyncQualityLevel,
+        cnsInpSrcQualityLevel       CiscoNetsyncQualityLevel,
+        cnsInpSrcHoldoffTime        Unsigned32,
+        cnsInpSrcWtrTime            Unsigned32,
+        cnsInpSrcLockout            TruthValue,
+        cnsInpSrcSignalFailure      TruthValue,
+        cnsInpSrcAlarm              TruthValue,
+        cnsInpSrcAlarmInfo          CiscoNetsyncAlarmInfo,
+        cnsInpSrcFSW                TruthValue,
+        cnsInpSrcMSW                TruthValue
+}
+
+cnsInpSrcNetsyncIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index that uniquely represents an entry in
+        this table. This index is assigned arbitrarily
+        by the clock selection process and may not be persistent
+        across reboots."
+    ::= { cnsInputSourceEntry 1 }
+
+cnsInpSrcName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of an input
+        clock source configured for the T0 clock
+        selection." 
+    ::= { cnsInputSourceEntry 2 }
+
+cnsInpSrcIntfType OBJECT-TYPE
+    SYNTAX          CiscoNetsyncIfType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of an input
+        clock source configured for the T0 clock
+        selection." 
+    ::= { cnsInputSourceEntry 3 }
+
+cnsInpSrcPriority OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1024)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the priority of an input
+        clock source configured for the T0 clock
+        selection.
+        
+        A smaller value represents a higher priority."
+    REFERENCE       "ITU-T standard G.781 section 5.10" 
+    ::= { cnsInputSourceEntry 4 }
+
+cnsInpSrcESMCCap OBJECT-TYPE
+    SYNTAX          CiscoNetsyncESMCCap
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ESMC capability
+        of an input clock source configured for the
+        T0 clock selection.  This is applicable only to Synchronous
+        Ethernet input clock source identified by cnsInpSrcIntfType
+        'netsyncIfTypeEthernet'." 
+    ::= { cnsInputSourceEntry 5 }
+
+cnsInpSrcSSMCap OBJECT-TYPE
+    SYNTAX          CiscoNetsyncSSMCap
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the SSM capability
+        of an input clock source configured for the
+        T0 clock selection. This is applicable only to
+        any synchronous interface clock source except
+        SyncE interface, which is identified by cnsInpSrcIntfType
+        'netsyncIfTypeEthernet'." 
+    ::= { cnsInputSourceEntry 6 }
+
+cnsInpSrcQualityLevelTxCfg OBJECT-TYPE
+    SYNTAX          CiscoNetsyncQualityLevel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured transmit
+        clock quality level of an input clock source." 
+    ::= { cnsInputSourceEntry 7 }
+
+cnsInpSrcQualityLevelRxCfg OBJECT-TYPE
+    SYNTAX          CiscoNetsyncQualityLevel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured receive
+        clock quality level of an input clock source." 
+    ::= { cnsInputSourceEntry 8 }
+
+cnsInpSrcQualityLevelTx OBJECT-TYPE
+    SYNTAX          CiscoNetsyncQualityLevel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the most recent clock
+        quality level transmitted on the input clock
+        source." 
+    ::= { cnsInputSourceEntry 9 }
+
+cnsInpSrcQualityLevelRx OBJECT-TYPE
+    SYNTAX          CiscoNetsyncQualityLevel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the last clock quality
+        level received on the input clock source." 
+    ::= { cnsInputSourceEntry 10 }
+
+cnsInpSrcQualityLevel OBJECT-TYPE
+    SYNTAX          CiscoNetsyncQualityLevel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current clock quality
+        level of the input clock source.  This is the
+        effective quality which is derived from three values:
+
+        1) most recent clock quality level received,
+        2) forced clock quality level (entered via configuration)
+        3) overridden clock quality level as a result of line protocol
+        down, signal failure, or alarms." 
+    ::= { cnsInputSourceEntry 11 }
+
+cnsInpSrcHoldoffTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the hold-off time value of
+        an input clock source.
+        
+        The hold-off time prevents short activation of signal failure
+        is passed to the selection process.  When a signal failure
+        event is reported on a clock source, it waits the duration of
+        the hold-off time before declaring signal failure on the clock
+        source."
+    REFERENCE       "ITU-T standard G.781 section 5.8" 
+    ::= { cnsInputSourceEntry 12 }
+
+cnsInpSrcWtrTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "Seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the wait-to-restore time value
+        of an input clock source.
+        
+        The wait-to-restore time ensures that a previous failed
+        synchronization source is only again considered as available
+        by the selection process if it is fault-free for a certain time.
+        When a signal failure condition is cleared on a clock source,
+        it waits the duration of the wait-to-restore time before
+        clearing the signal failure status on the clock source."
+    REFERENCE       "ITU-T standard G.781 section 5.9" 
+    ::= { cnsInputSourceEntry 13 }
+
+cnsInpSrcLockout OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not the lockout
+        command has been applied to a clock source.
+        
+        The 'true' value means the clock source is not
+        considered by the selection process."
+    REFERENCE       "ITU-T standard G.781 section 5.11.1" 
+    ::= { cnsInputSourceEntry 14 }
+
+cnsInpSrcSignalFailure OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not a
+        signal failure event is currently being
+        reported on the input clock source."
+    REFERENCE       "ITU-T standard G.781 section 5.7" 
+    ::= { cnsInputSourceEntry 15 }
+
+cnsInpSrcAlarm OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not an
+        alarm event is currently being reported
+        on the input clock source." 
+    ::= { cnsInputSourceEntry 16 }
+
+cnsInpSrcAlarmInfo OBJECT-TYPE
+    SYNTAX          CiscoNetsyncAlarmInfo
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the alarm reasons of
+        an input clock source if an alarm event
+        is being reported on it."
+    ::= { cnsInputSourceEntry 17 }
+
+cnsInpSrcFSW OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the forced switching flag.
+        Forced switching, as described in G.781, is used to
+        override the currently selected synchronization source.
+        
+        The 'true' value indicates the currently selected clock source
+        is a result of the forced switching. The 'false' value
+        indicates the currently selected clock source is not a result
+        of forced switching."
+    REFERENCE       "ITU-T standard G.781 section 5.11.2.2" 
+    ::= { cnsInputSourceEntry 18 }
+
+cnsInpSrcMSW OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the manual switching flag.
+        
+        The 'true' value indicates the currently selected clock source
+        is a result of the manual switching. The switch allows
+        a user to select a synchronization source assuming it is
+        enabled, not locked out, not in signal fail condition,
+        and has a QL better than DNU in QL-enabled mode.
+        
+        A clock source is enabled when it occupies a row in
+        cnsInputSourceTable.  A clock source is not locked out
+        when cnsInpSrcLockout contains the value 'false'.
+        A clock source is not in signal failure condition when
+        cnsInpSrcSignalFailure contains the value 'false'. 
+        The QL is identified in cnsInpSrcQualityLevel.
+        
+        In QL-enabled mode, a manual switch can be performed only to
+        a source which has the highest available QL."
+    REFERENCE       "ITU-T standard G.781 section 5.11.2.3" 
+    ::= { cnsInputSourceEntry 19 }
+ 
+
+
+cnsExtOutputTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnsExtOutputEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "T4 external output table.
+        This table contains a list of T4 external outputs.
+        
+        Each T4 external output is associated with clock
+        source(s) to be found in cnsT4ClockSourceTable.
+        The clock selection process considers all the
+        available clock sources and select the T4 clock
+        source based on the G.781 clock selection algorithm." 
+    ::= { ciscoNetsyncMIBTables 4 }
+
+cnsExtOutputEntry OBJECT-TYPE
+    SYNTAX          CnsExtOutputEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry is created in the table when a user adds
+        a T4 external output in the configuration.  A T4 external
+        output configured input clock sources are defined in
+        cnsT4ClockSourceTable.
+
+        An entry is removed from the table when a user removes
+        a T4 external output from the configuration."
+    INDEX           { cnsExtOutListIndex } 
+    ::= { cnsExtOutputTable 1 }
+
+CnsExtOutputEntry ::= SEQUENCE {
+        cnsExtOutListIndex       Unsigned32,
+        cnsExtOutSelNetsyncIndex Unsigned32,
+        cnsExtOutName            SnmpAdminString,
+        cnsExtOutIntfType        CiscoNetsyncIfType,
+        cnsExtOutQualityLevel    CiscoNetsyncQualityLevel,
+        cnsExtOutPriority        Unsigned32,
+        cnsExtOutFSW             TruthValue,
+        cnsExtOutMSW             TruthValue,
+        cnsExtOutSquelch         TruthValue
+}
+
+cnsExtOutListIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index that uniquely represents an entry in
+        this table.  This index is assigned arbitrarily by the
+        clock selection process and may not be persistent
+        across reboots."
+    ::= { cnsExtOutputEntry 1 }
+
+cnsExtOutSelNetsyncIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An index that uniquely represents the selected input clock
+        source whose information is reported by a row in
+        cnsT4ClockSourceTable. The index lists the value of
+        cnsT4ClkSrcNetsyncIndex, which is the input clock source
+        of the T4 external output selected by the G.781 clock
+        selection process."
+    ::= { cnsExtOutputEntry 2 }
+
+cnsExtOutName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of a
+        T4 external output." 
+    ::= { cnsExtOutputEntry 3 }
+
+cnsExtOutIntfType OBJECT-TYPE
+    SYNTAX          CiscoNetsyncIfType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the interface type
+        of the T4 external output." 
+    ::= { cnsExtOutputEntry 4 }
+
+cnsExtOutQualityLevel OBJECT-TYPE
+    SYNTAX          CiscoNetsyncQualityLevel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the clock quality
+        of the T4 external output." 
+    ::= { cnsExtOutputEntry 5 }
+
+cnsExtOutPriority OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1024)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the priority of the
+        selected clock source for a T4 external
+        output.
+        
+        A smaller value represents a higher priority."
+    REFERENCE       "ITU-T standard G.781 section 5.10" 
+    ::= { cnsExtOutputEntry 6 }
+
+cnsExtOutFSW OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the forced switching flag.
+        Forced switching, as described in G.781, is used to
+        override the currently selected synchronization source,
+        The T4 selected synchronization source is identified by
+        cnsExtOutSelNetsyncIndex, which contains the index to
+        the clock source in cnsT4ClockSourceTable.
+        
+        The 'true' value indicates the currently selected
+        T4 clock source is a result of the forced switching.
+        The 'false' value indicates the currently selected T4
+        clock source is not a result of forced switching."
+    REFERENCE       "ITU-T standard G.781 section 5.11.2.2" 
+    ::= { cnsExtOutputEntry 7 }
+
+cnsExtOutMSW OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the manual switching flag.
+        
+        The 'true' value indicates the currently selected
+        T4 clock source is a result of the manual switch command.
+        The command allows a user to select a synchronization source
+        assuming it is enabled, not locked out, not in signal fail
+        condition, and has a QL better than DNU in QL-enabled mode.
+        
+        A clock source is enabled when it occupies in row in
+        cnsT4ClockSourceTable.  A clock source is not locked out
+        when cnsT4ClkSrcLockout contains the value 'false'.
+        A clock source is not in signal failure condition when
+        cnsT4ClkSrcSignalFailure contains the value 'false'. 
+        The QL is identified in cnsT4ClkSrcQualityLevel.
+        
+        In QL-enabled mode, a manual switch can be 
+        performed only to a source which has the highest
+        available QL."
+    REFERENCE       "ITU-T standard G.781 section 5.11.2.3" 
+    ::= { cnsExtOutputEntry 8 }
+
+cnsExtOutSquelch OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not a
+        T4 external output is squelched.
+        
+        Squelching is a sychronization function defined to prevent
+        transmission of a timing signal with a quality that is lower
+        than the quality of the clock in the receiving networks
+        element or SASE. It is also used for the prevention of
+        timing loops."
+    REFERENCE       "ITU-T standard G.781 section 5.4.1.4" 
+    ::= { cnsExtOutputEntry 9 }
+ 
+
+
+cnsT4ClockSourceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnsT4ClockSourceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "T4 clock source table.
+        This table contains a list of input sources for a specific
+        T4 external output. An entry shall be added to
+        cnsExtOutputTable first. Then clock sources shall be
+        added in this table for the selection process to select
+        the appropriate T4 clock source."
+    ::= { ciscoNetsyncMIBTables 5 }
+
+cnsT4ClockSourceEntry OBJECT-TYPE
+    SYNTAX          CnsT4ClockSourceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry is created in the table when a user adds a
+        clock source to a T4 external output in the configuration.
+        The T4 external output is defined in the T4 external
+        output table. An entry is removed in the table when a user
+        removes a T4 clock source from the configuration."
+    INDEX           {
+                        cnsExtOutListIndex,
+                        cnsT4ClkSrcNetsyncIndex
+                    } 
+    ::= { cnsT4ClockSourceTable 1 }
+
+CnsT4ClockSourceEntry ::= SEQUENCE {
+        cnsT4ClkSrcNetsyncIndex       Unsigned32,
+        cnsT4ClkSrcName               SnmpAdminString,
+        cnsT4ClkSrcIntfType           CiscoNetsyncIfType,
+        cnsT4ClkSrcPriority           Unsigned32,
+        cnsT4ClkSrcESMCCap            CiscoNetsyncESMCCap,
+        cnsT4ClkSrcSSMCap             CiscoNetsyncSSMCap,
+        cnsT4ClkSrcQualityLevelTxCfg  CiscoNetsyncQualityLevel,
+        cnsT4ClkSrcQualityLevelRxCfg  CiscoNetsyncQualityLevel,
+        cnsT4ClkSrcQualityLevelTx     CiscoNetsyncQualityLevel,
+        cnsT4ClkSrcQualityLevelRx     CiscoNetsyncQualityLevel,
+        cnsT4ClkSrcQualityLevel       CiscoNetsyncQualityLevel,
+        cnsT4ClkSrcHoldoffTime        Unsigned32,
+        cnsT4ClkSrcWtrTime            Unsigned32,
+        cnsT4ClkSrcLockout            TruthValue,
+        cnsT4ClkSrcSignalFailure      TruthValue,
+        cnsT4ClkSrcAlarm              TruthValue,
+        cnsT4ClkSrcAlarmInfo          CiscoNetsyncAlarmInfo,
+        cnsT4ClkSrcFSW                TruthValue,
+        cnsT4ClkSrcMSW                TruthValue
+}
+
+cnsT4ClkSrcNetsyncIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index that uniquely represents an entry in
+        this table.  This index is assigned arbitrarily by the
+        clock selection process and may not be persistent
+        across reboots."
+    ::= { cnsT4ClockSourceEntry 1 }
+
+cnsT4ClkSrcName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (1..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of a input
+        clock source configured for the T4 clock
+        selection." 
+    ::= { cnsT4ClockSourceEntry 2 }
+
+cnsT4ClkSrcIntfType OBJECT-TYPE
+    SYNTAX          CiscoNetsyncIfType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of an input
+        clock source configured for the T4 clock
+        selection." 
+    ::= { cnsT4ClockSourceEntry 3 }
+
+cnsT4ClkSrcPriority OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1024)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the priority of an input
+        clock source configured for the T4 clock
+        selection.
+        
+        A smaller value represents a higher priority."
+    REFERENCE       "ITU-T standard G.781 section 5.10" 
+    ::= { cnsT4ClockSourceEntry 4 }
+
+cnsT4ClkSrcESMCCap OBJECT-TYPE
+    SYNTAX          CiscoNetsyncESMCCap
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the ESMC capability
+        of an input clock source configured for the
+        T4 clock selection.  This is applicable
+        only to Synchronous Ethernet input clock source
+        identified by cnsT4ClkSrcIntfType 'netsyncIfTypeEthernet'."
+    ::= { cnsT4ClockSourceEntry 5 }
+
+cnsT4ClkSrcSSMCap OBJECT-TYPE
+    SYNTAX          CiscoNetsyncSSMCap
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the SSM capability
+        of an input clock source configured for the
+        T4 clock selection. This is applicable only to any
+        synchronous interface clock source except SyncE interface,
+        which is identified by cnsT4ClkSrcIntfType
+        'netsyncIfTypeEthernet'." 
+    ::= { cnsT4ClockSourceEntry 6 }
+
+cnsT4ClkSrcQualityLevelTxCfg OBJECT-TYPE
+    SYNTAX          CiscoNetsyncQualityLevel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured transmit
+        clock quality level of a T4 input clock source." 
+    ::= { cnsT4ClockSourceEntry 7 }
+
+cnsT4ClkSrcQualityLevelRxCfg OBJECT-TYPE
+    SYNTAX          CiscoNetsyncQualityLevel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured receive
+        clock quality level of a T4 input clock source." 
+    ::= { cnsT4ClockSourceEntry 8 }
+
+cnsT4ClkSrcQualityLevelTx OBJECT-TYPE
+    SYNTAX          CiscoNetsyncQualityLevel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the most recent clock
+        quality level transmitted on the T4 input
+        clock source." 
+    ::= { cnsT4ClockSourceEntry 9 }
+
+cnsT4ClkSrcQualityLevelRx OBJECT-TYPE
+    SYNTAX          CiscoNetsyncQualityLevel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the last clock quality
+        level received on the T4 input clock
+        source." 
+    ::= { cnsT4ClockSourceEntry 10 }
+
+cnsT4ClkSrcQualityLevel OBJECT-TYPE
+    SYNTAX          CiscoNetsyncQualityLevel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current clock quality
+        level of the T4 input clock source.  This is the
+        effective quality which is derived from three values:
+
+        1) most recent clock quality level received,
+        2) forced clock quality level (entered via configuration)
+        3) overridden clock quality level as a result of line protocol
+        down, signal failure, or alarms." 
+    ::= { cnsT4ClockSourceEntry 11 }
+
+cnsT4ClkSrcHoldoffTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the hold-off time value of
+        a T4 input clock source.
+        
+        The hold-off time prevents short activation of signal failure
+        is passed to the selection process.  When a signal failure
+        event is reported on a clock source, it waits the duration of
+        the hold-off time before declaring signal failure on the clock
+        source."
+    REFERENCE       "ITU-T standard G.781 section 5.8" 
+    ::= { cnsT4ClockSourceEntry 12 }
+
+cnsT4ClkSrcWtrTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the wait-to-restore time value
+        of a T4 input clock source.
+        
+        The wait-to-restore time ensures that a previous failed
+        synchronization source is only again considered as available
+        by the selection process if it is fault-free for a certain time.
+        When a signal failure condition is cleared on a clock source,
+        it waits the duration of the wait-to-restore time before
+        clearing the signal failure status on the clock source."
+    REFERENCE       "ITU-T standard G.781 section 5.9" 
+    ::= { cnsT4ClockSourceEntry 13 }
+
+cnsT4ClkSrcLockout OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not the lockout
+        command has been applied on a T4 clock source.
+        
+        The 'true' value means the clock source is not
+        considered by the selection process."
+    REFERENCE       "ITU-T standard G.781 section 5.11.1" 
+    ::= { cnsT4ClockSourceEntry 14 }
+
+cnsT4ClkSrcSignalFailure OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not a
+        signal failure event is currently being
+        reported on the T4 input clock source."
+    REFERENCE       "ITU-T standard G.781 section 5.7" 
+    ::= { cnsT4ClockSourceEntry 15 }
+
+cnsT4ClkSrcAlarm OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether or not an
+        alarm event is currently being reported
+        on the T4 input clock source." 
+    ::= { cnsT4ClockSourceEntry 16 }
+
+cnsT4ClkSrcAlarmInfo OBJECT-TYPE
+    SYNTAX          CiscoNetsyncAlarmInfo
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the alarm reasons of
+        a T4 input clock source if an alarm event
+        is being reported on the clock source."
+    ::= { cnsT4ClockSourceEntry 17 }
+
+cnsT4ClkSrcFSW OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the forced switching flag.
+        Forced switching, as described in G.781, is used to
+        override the currently selected synchronization source.
+        
+        The 'true' value indicates the currently selected
+        T4 clock source is a result of the forced switching.
+        The 'false' value indicates the currently selected
+        T4 clock source is not a result of forced switching."
+    REFERENCE       "ITU-T standard G.781 section 5.11.2.2" 
+    ::= { cnsT4ClockSourceEntry 18 }
+
+cnsT4ClkSrcMSW OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the manual switching flag.
+        
+        The 'true' value indicates the currently selected
+        T4 clock source is a result of the manual switching.
+        The switch allows a user to select a 
+        synchronization source assuming it is enabled,
+        not locked out, not in signal fail condition,
+        and has a QL better than DNU in QL-enabled mode.
+        
+        A clock source is enabled when it occupies a row in 
+        cnsT4ClockSourceTable.  A clock source is not locked
+        out when cnsT4ClkSrcLockout contains the value 'false'.
+        A clock source is not in signal failure condition when
+        cnsT4ClkSrcSignalFailure contains the value 'false'.
+        The QL is identified in cnsT4ClkSrcQualityLevel.
+        
+        In QL-enabled mode, a manual switch
+        can be performed only to a source which has the
+        highest available QL."
+    REFERENCE       "ITU-T standard G.781 section 5.11.2.3" 
+    ::= { cnsT4ClockSourceEntry 19 }
+
+cnsNotifObjects  OBJECT IDENTIFIER
+    ::= { ciscoNetsyncMIBObjects 2 }
+
+
+cnsInpSrcFailClear OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the clear status of a signal failure
+        event. A value of 'true' means a signal failure event reported
+        on a clock source has been cleared.  A value of 'false' means
+        a signal event has been reported on a clock source."
+    ::= { cnsNotifObjects 1 }
+
+cnsInpSrcAlarmClear OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the clear status of an alarm event.
+        A value of 'true' means an alarm event reported on a clock
+        source has been cleared.  A value of 'false' means an alarm
+        event has been reported on a clock source."
+    ::= { cnsNotifObjects 2 }
+
+ciscoNetsyncMIBNotifControl  OBJECT IDENTIFIER
+    ::= { ciscoNetsyncMIBObjects 3 }
+
+cnsMIBEnableStatusNotification OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current 
+    DESCRIPTION
+        "A control object to enable/disable
+        ciscoNetsyncSelectedT0Clock, ciscoNetsyncSelectedT4Clock,
+        ciscoNetsyncInputSignalFailureStatus,
+        ciscoNetsyncInputAlarmStatus notifications at the system
+        level.
+        This object should hold any of the below values.
+            true - The notif is enabled globally for the system
+            false- The notif is disabled globally for the system"
+        DEFVAL { false } 
+        ::= { ciscoNetsyncMIBNotifControl 1 }
+
+
+-- Default Notification Type
+
+ciscoNetsyncSelectedT0Clock NOTIFICATION-TYPE
+    OBJECTS         {
+                        cnsSelInpSrcName,
+                        cnsSelInpSrcIntfType,
+                        cnsSelInpSrcQualityLevel,
+                        cnsSelInpSrcPriority
+                    }
+    STATUS          current
+    DESCRIPTION
+        "T0 clock selection notification.
+
+        This notification is generated when one
+        of the following conditions is met:
+
+        - A new clock source is selected by the
+          T0 clock selection.
+        - The clock quality of a T0 selected clock 
+          source is changed.
+        - The configured priority of a T0 selected
+          clock source is changed.
+        "
+   ::= { ciscoNetsyncMIBNotifs 1 }
+
+ciscoNetsyncSelectedT4Clock NOTIFICATION-TYPE
+    OBJECTS         {
+                        cnsExtOutName,
+                        cnsT4ClkSrcName,
+                        cnsT4ClkSrcIntfType,
+                        cnsT4ClkSrcQualityLevel,
+                        cnsT4ClkSrcPriority
+                    }
+    STATUS          current
+    DESCRIPTION
+        "T4 clock selection notification.
+
+        This notification is generated when one
+        of the following conditions is met:
+
+        - A new clock source is selected by the
+          T4 clock selection.
+        - The clock quality of a T4 selected clock 
+          source is changed.
+        - The configured priority of a T4 selected
+          clock source is changed.
+        "
+   ::= { ciscoNetsyncMIBNotifs 2 }
+
+ciscoNetsyncInputSignalFailureStatus NOTIFICATION-TYPE
+    OBJECTS         {
+                        cnsInpSrcName,
+                        cnsInpSrcIntfType,
+                        cnsInpSrcFailClear
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Input clock source signal failure notification.
+        
+        This notification is generated when a signal
+        failure event is reported on an input clock source.
+        One of the conditions a signal failure event
+        could be due to interface shutdown."
+   ::= { ciscoNetsyncMIBNotifs 3 }
+
+ciscoNetsyncInputAlarmStatus NOTIFICATION-TYPE
+    OBJECTS         {
+                        cnsInpSrcName,
+                        cnsInpSrcIntfType,
+                        cnsInpSrcAlarmInfo,
+                        cnsInpSrcAlarmClear
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Input clock source alarm notification.
+        
+        This notification is generated when an alarm
+        event is reported on an input clock source."
+   ::= { ciscoNetsyncMIBNotifs 4 }
+
+
+ciscoNetsyncMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoNetsyncMIBConform 1 }
+
+ciscoNetsyncMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoNetsyncMIBConform 2 }
+
+
+ciscoNetsyncMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cnsClkSelGlobalObjectGroup,
+                        cnsSelectedInputSourceObjectGroup,
+                        cnsInputSourceObjectGroup,
+                        cnsExtOutputObjectGroup,
+                        cnsT4ClkSrcObjectGroup,
+                        ciscoNetsyncMIBNotificationGroup,
+                        cnsMIBNotifEnablesGroup
+                    }
+    ::= { ciscoNetsyncMIBCompliances 1 }
+
+-- Units of Conformance
+
+cnsClkSelGlobalObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnsClkSelGlobProcessMode,
+                        cnsClkSelGlobClockMode,
+                        cnsClkSelGlobNetsyncEnable,
+                        cnsClkSelGlobRevertiveMode,
+                        cnsClkSelGlobESMCMode,
+                        cnsClkSelGlobEECOption,
+                        cnsClkSelGlobNetworkOption,
+                        cnsClkSelGlobHoldoffTime,
+                        cnsClkSelGlobWtrTime,
+                        cnsClkSelGlobNofSources,
+                        cnsClkSelGlobLastHoldoverSeconds,
+                        cnsClkSelGlobCurrHoldoverSeconds
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains all objects referenced by
+        the G.781 clock selection process table."
+    ::= { ciscoNetsyncMIBGroups 1 }
+
+cnsSelectedInputSourceObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnsSelInpSrcName,
+                        cnsSelInpSrcQualityLevel,
+                        cnsSelInpSrcTimestamp,
+                        cnsSelInpSrcFSW,
+                        cnsSelInpSrcMSW,
+                        cnsSelInpSrcIntfType,
+                        cnsSelInpSrcPriority
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains all objects referenced by
+        cnsSelectedInputSourceTable."
+    ::= { ciscoNetsyncMIBGroups 2 }
+
+cnsInputSourceObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnsInpSrcName,
+                        cnsInpSrcIntfType,
+                        cnsInpSrcPriority,
+                        cnsInpSrcESMCCap,
+                        cnsInpSrcSSMCap,
+                        cnsInpSrcQualityLevelTxCfg,
+                        cnsInpSrcQualityLevelRxCfg,
+                        cnsInpSrcQualityLevelTx,
+                        cnsInpSrcQualityLevelRx,
+                        cnsInpSrcQualityLevel,
+                        cnsInpSrcHoldoffTime,
+                        cnsInpSrcWtrTime,
+                        cnsInpSrcLockout,
+                        cnsInpSrcSignalFailure,
+                        cnsInpSrcAlarm,
+                        cnsInpSrcAlarmInfo,
+                        cnsInpSrcFSW,
+                        cnsInpSrcMSW,
+                        cnsInpSrcAlarmClear,
+                        cnsInpSrcFailClear
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains all objects referenced by
+        cnsInputSourceTable."
+    ::= { ciscoNetsyncMIBGroups 3 }
+
+cnsExtOutputObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnsExtOutName,
+                        cnsExtOutSelNetsyncIndex,
+                        cnsExtOutIntfType,
+                        cnsExtOutQualityLevel,
+                        cnsExtOutPriority,
+                        cnsExtOutFSW,
+                        cnsExtOutMSW,
+                        cnsExtOutSquelch
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains all objects referenced by
+        cnsExtOutputTable."
+    ::= { ciscoNetsyncMIBGroups 4 }
+
+cnsT4ClkSrcObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnsT4ClkSrcName,
+                        cnsT4ClkSrcIntfType,
+                        cnsT4ClkSrcPriority,
+                        cnsT4ClkSrcESMCCap,
+                        cnsT4ClkSrcSSMCap,
+                        cnsT4ClkSrcQualityLevelTxCfg,
+                        cnsT4ClkSrcQualityLevelRxCfg,
+                        cnsT4ClkSrcQualityLevelTx,
+                        cnsT4ClkSrcQualityLevelRx,
+                        cnsT4ClkSrcQualityLevel,
+                        cnsT4ClkSrcHoldoffTime,
+                        cnsT4ClkSrcWtrTime,
+                        cnsT4ClkSrcLockout,
+                        cnsT4ClkSrcSignalFailure,
+                        cnsT4ClkSrcAlarm,
+                        cnsT4ClkSrcAlarmInfo,
+                        cnsT4ClkSrcFSW,
+                        cnsT4ClkSrcMSW
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains all objects referenced by
+        cnsT4ClockSourceTable."
+    ::= { ciscoNetsyncMIBGroups 5 }
+
+cnsMIBNotifEnablesGroup OBJECT-GROUP
+    OBJECTS {
+        cnsMIBEnableStatusNotification
+    }
+    STATUS  current
+    DESCRIPTION
+        "The collection of objects which are used to
+        enable notification.
+        "
+    ::= { ciscoNetsyncMIBGroups 6 }
+
+ciscoNetsyncMIBNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoNetsyncSelectedT0Clock,
+                        ciscoNetsyncSelectedT4Clock,
+                        ciscoNetsyncInputSignalFailureStatus,
+                        ciscoNetsyncInputAlarmStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The is the netsync notification group."
+    ::= { ciscoNetsyncMIBGroups 7 }
+
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

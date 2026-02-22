@@ -1,0 +1,70 @@
+-- MIB file created 20-Mar-2009 23:32:53, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+LANGTAG-TC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "RFC5131-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    mib-2
+            FROM SNMPv2-SMI-v1;
+
+langTagTcMIB OBJECT IDENTIFIER ::= { mib-2 165 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200711090000Z
+--  OrgName
+--    IETF Operations and Management (OPS) Area
+--  ContactInfo
+--    EMail: ops-area@ietf.org
+--     Home page: http://www.ops.ietf.org/
+--  Descr
+--    This MIB module defines a textual convention for
+--    representing BCP 47 language tags.
+--  RevDate
+--    200711090000Z
+--  RevDescr
+--    Initial revision, published as RFC 5131.
+--    
+--     Copyright (C) The IETF Trust (2007).  This version of this
+--     MIB module is part of RFC 5131; see the RFC itself for full
+--     legal notices.
+
+LangTag ::= OCTET STRING(SIZE(0|2..63))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    1a
+--  Status
+--    mandatory
+--  Descr
+--    A language tag, constructed in accordance with BCP 47.
+--    
+--    Only lowercase characters are allowed.  The purpose of this
+--    restriction is to provide unique language tags for use as
+--    indexes.  BCP 47 recommends case conventions for user
+--    interfaces, but objects using this TEXTUAL-CONVENTION MUST
+--    use only lowercase.
+--    
+--    Values MUST be well-formed language tags, in conformance
+--    with the definition of well-formed tags in BCP 47.  An
+--    implementation MAY further limit the values it accepts to
+--    those permitted by a 'validating' processor, as defined in
+--    BCP 47.
+--    
+--    In theory, BCP 47 language tags are of unlimited length.
+--    The language tag described in this TEXTUAL-CONVENTION is of
+--    limited length.  The analysis of language tag lengths in BCP
+--    47 confirms that this limit will not pose a problem in
+--    practice.  In particular, this length is greater than the
+--    minimum requirements set out in Section 4.3.1.
+--    
+--    A zero-length language tag is not a valid language tag.
+--    This can be used to express 'language tag absent' where
+--    required, for example, when used as an index field.
+--  Refer
+--    RFC 4646 BCP 47
+
+
+END
+

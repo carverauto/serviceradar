@@ -1,0 +1,255 @@
+-- MIB file created 31-Mar-2011 07:12:24, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ETHERLIKE-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ETHERLIKE-EXT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    dot3StatsIndex
+            FROM EtherLike-MIB
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoEtherExtMIB OBJECT IDENTIFIER ::= { ciscoMgmt 645 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201006040000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA 95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    The MIB module to describe generic objects for
+--    ethernet-like network interfaces. 
+--    
+--    This MIB provides ethernet-like network interfaces 
+--    information that are either excluded by EtherLike-MIB 
+--    or specific to Cisco products.
+--  RevDate
+--    201006040000Z
+--  RevDescr
+--    Added a new table ceeSubInterfaceTable under new OID subtree
+--    ceeSubIf.
+--    
+--    Added a new group ciscoEtherExtSubIfGroup.
+--    
+--    Added a new Compliance ceeEtherExtMIBComplianceR01, which
+--    deprecates ceeEtherExtMIBCompliance.
+--  RevDate
+--    200810150000Z
+--  RevDescr
+--    Updated ceeDot3PauseExtAdminMode DESCRIPTION with
+--    correct dot3PauseOperMode values.
+--  RevDate
+--    200801090000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoEtherExtMIBNotifs OBJECT IDENTIFIER ::= { ciscoEtherExtMIB 0 }
+ciscoEtherExtMIBObjects OBJECT IDENTIFIER ::= { ciscoEtherExtMIB 1 }
+ciscoEtherExtMIBConform OBJECT IDENTIFIER ::= { ciscoEtherExtMIB 2 }
+ceeDot3PauseExt OBJECT IDENTIFIER ::= { ciscoEtherExtMIBObjects 1 }
+ceeSubIf        OBJECT IDENTIFIER ::= { ciscoEtherExtMIBObjects 2 }
+ceeEtherExtMIBCompliances OBJECT IDENTIFIER ::= { ciscoEtherExtMIBConform 1 }
+ceeEtherExtMIBGroups OBJECT IDENTIFIER ::= { ciscoEtherExtMIBConform 2 }
+
+ceeDot3PauseExtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CeeDot3PauseExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of additional descriptive and status
+        information about the MAC Control PAUSE 
+        function on the ethernet-like interfaces 
+        attached to a particular system, in extension to
+        dot3PauseTable in EtherLike-MIB. There will be 
+        one row in this table for each ethernet-like 
+        interface in the system which supports the MAC 
+        Control PAUSE function."
+    ::= { ceeDot3PauseExt 1 }
+
+ceeDot3PauseExtEntry OBJECT-TYPE
+    SYNTAX CeeDot3PauseExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing additional
+        information about the MAC Control PAUSE function 
+        on a single ethernet-like interface, in extension 
+        to dot3PauseEntry in Etherlike-MIB."
+    INDEX { dot3StatsIndex }
+    ::= { ceeDot3PauseExtTable 1 }
+
+CeeDot3PauseExtEntry ::= SEQUENCE {
+    ceeDot3PauseExtAdminMode OCTET STRING,
+    ceeDot3PauseExtOperMode OCTET STRING
+    }
+
+ceeDot3PauseExtAdminMode OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   txDesired(0)
+        --   rxDesired(1)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates preference to send or process pause
+        frames on this interface.
+        txDesired(0)  -  indicates preference to send pause 
+                         frames, but autonegotiates flow 
+                         control. This bit can only be 
+                         turned on when the corresponding 
+                         instance of dot3PauseAdminMode 
+                         has the value of 'enabledXmit' or 
+                         'enabledXmitAndRcv'.
+        rxDesired(1)  -  indicates preference to process 
+                         pause frames, but autonegotiates 
+                         flow control. This bit can only be 
+                         turned on when the corresponding 
+                         instance of dot3PauseAdminMode 
+                         has the value of 'enabledRcv' or 
+                         'enabledXmitAndRcv'."
+    ::= { ceeDot3PauseExtEntry 1 }
+
+ceeDot3PauseExtOperMode OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   txDisagree(0)
+        --   rxDisagree(1)
+        --   txDesired(2)
+        --   rxDesired(3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Provides additional information about the flow
+        control operational status on this interface.
+        txDisagree(0) - the transmit pause function on 
+                        this interface is disabled due to 
+                        disagreement from the far end on 
+                        negotiation.
+        rxDisagree(1) - the receive pause function on  
+                        this interface is disabled due to 
+                        disagreement from the far end on 
+                        negotiation.
+        txDesired(2)  - the transmit pause function on 
+                        this interface is desired.
+        rxDesired(3)  - the receive pause function on  
+                        this interface is desired."
+    ::= { ceeDot3PauseExtEntry 2 }
+
+ceeSubInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CeeSubInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides the subinterface related information
+        associated to the Ethernet-like interfaces.
+        
+        The subinterface is a division of one physical interface into
+        multiple logical interfaces. As an example of what a typical
+        subinterface setup might look like on a device, a single
+        Ethernet port such as GigabitEthernet0/0 would be subdivided
+        into Gi0/0.1, Gi0/0.2, Gi0/0.3 and so on, each one performing as
+        if it were a separate interface."
+    ::= { ceeSubIf 1 }
+
+ceeSubInterfaceEntry OBJECT-TYPE
+    SYNTAX CeeSubInterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains a row for each Ethernet-like interface
+        by it's ifTable ifIndex in the system, which supports the
+        sub-interface.
+        
+        An entry is created by an agent, when it detects a
+        Ethernet-like interface is created in ifTable and it 
+        can support sub-interface.
+        
+        An entry is deleted by an agent, when the ifTable entry
+        associated to the Ethernet-like interface is deleted.
+        Typically, when the card is removed from the device."
+    INDEX { ifIndex }
+    ::= { ceeSubInterfaceTable 1 }
+
+CeeSubInterfaceEntry ::= SEQUENCE {
+    ceeSubInterfaceCount Gauge
+    }
+
+ceeSubInterfaceCount OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+--  Units
+--    subifs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of subinterfaces
+        created on a Ethernet-like interface."
+    ::= { ceeSubInterfaceEntry 1 }
+
+ciscoEtherExtPauseGroup OBJECT IDENTIFIER ::= { ceeEtherExtMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the additional information
+--    for the control of the MAC Control PAUSE function on 
+--    ethernet-like network interfaces.
+--  objects
+--    ceeDot3PauseExtAdminMode, ceeDot3PauseExtOperMode
+
+ciscoEtherExtSubIfGroup OBJECT IDENTIFIER ::= { ceeEtherExtMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the Ethernet-like
+--    subinterface information.
+--  objects
+--    ceeSubInterfaceCount
+
+ceeEtherExtMIBCompliance OBJECT IDENTIFIER ::= { ceeEtherExtMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for CISCO-ETHERLIKE-EXT-MIB.
+--  Module
+--    >>current<<
+--   OptGroup
+--    ciscoEtherExtPauseGroup
+
+ceeEtherExtMIBComplianceR01 OBJECT IDENTIFIER ::= { ceeEtherExtMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for CISCO-ETHERLIKE-EXT-MIB.
+--    This deprecates ceeEtherExtMIBCompliance.
+--  Module
+--    >>current<<
+--   OptGroup
+--    ciscoEtherExtPauseGroup
+--   OptGroup
+--    ciscoEtherExtSubIfGroup
+
+
+END
+

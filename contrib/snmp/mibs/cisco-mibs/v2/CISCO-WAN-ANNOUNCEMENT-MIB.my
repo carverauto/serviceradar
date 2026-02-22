@@ -1,0 +1,567 @@
+-- *****************************************************************
+-- CISCO-WAN-ANNOUNCEMENT-MIB.my: Media Gateway Card 
+--                                Announcement Group MIB file
+--
+-- December 2003, George Ogagan 
+--
+-- Copyright (c) 2001-2003 by Cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+--
+CISCO-WAN-ANNOUNCEMENT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32 
+                        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowStatus,
+    DisplayString       FROM SNMPv2-TC                        
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+                        FROM SNMPv2-CONF
+    ciscoWan            FROM CISCOWAN-SMI;
+
+
+ciscoWanAnnouncementMIB MODULE-IDENTITY
+    LAST-UPDATED "200312220000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA 95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-vism@cisco.com"
+
+    DESCRIPTION
+            "The MIB module is defined to configure the Announcements
+             feature on the Media Gateway Card.
+
+             The Media Gateway Card will have the capability to 
+             play pre-recorded local announcements in switched 
+             VoIP solutions only.  Under the control of a call agent,
+             announcements can be played in either direction over 
+             existing connections (calls) or towards the Time
+             Division Multiplexed (TDM) network on a TDM endpoint
+             that is terminated on the the Media Gateway Card.
+
+             A large number of different announcements may be cached
+             on the Media Gateway Card for immediate play out.
+             A persistent announcement store, called the Announcement
+             file server, will exist in the packet network and hold
+             all the announcements in the network. Announcements will 
+             be downloaded on demand as announcement files from
+             the configured announcement store. Downloaded announcement
+             files will be stored on the Media Gateway Card as either 
+             'permanent' or 'dynamic' announcement files. Permanent
+             files on the Media Gateway Card are exempt from being
+             refreshed, replaced, or removed without explicit
+             provisioning actions.  Dynamic announcement files will
+             not persist across resets.  Permanent announcement files
+             will be reloaded, if possible, following a reset. Dynamic
+             announcement files are automatically 'aged'. 'Aged'
+             files are re-fetched from the Announcement file server.
+             Dynamic Announcement files can be replaced on the 
+             Media Gateway Card if the Announcement memory on the
+             card is full and additional Announcement files are to 
+             be downloaded. The file(s) to be replaced will be
+             determined according to some Least Recently Used(LRU)
+             algorithm.
+             
+             Announcements can be played over established connections
+             and unconnected TDM endpoints in any encoding supported
+             by the Media Gateway Card in its current configuration.
+             Announcement files must be encoded in G.729a to be
+             played on G.729ab connections or, if G.729ab has been
+             chosen as the preferred codec, unconnected endpoints.
+
+             The Announcement file server will reside on an IP network 
+             reachable from the Media Gateway Card using TFTP.
+             The user will configure the Announcement file server 
+             node name on the the Media Gateway Card.
+             The Announcement file server will have a 'main' file
+             directory for Announcements. If the Announcement prefix
+             path is configured to begin with a '/' then the 
+             directory is absolute. If the prefix path is configured
+             to begin without a '/' then it will be relative to the
+             default TFTP server directory. If no prefix path is
+             configured then the Announcement 'main' directory and
+             the TFTP default directory will be the same. The user
+             must configure subdirectories within the main
+             Announcement directory for each encoding that
+             Announcements may be played in. These subdirectories must
+             be of the following names: 'g711u', 'g711a', 'g726_40k',
+             'g726_32k', 'g726_24k', 'g726_16k', 'g729_a',
+             'g7231_high_rate', 'g7231_a_high_rate', 'g7231_low_rate', 
+             'g7231_a_low_rate'.
+
+
+             The Media Gateway Card maintains an Announcement cache in
+             resident memory. The cache is populated on demand with
+             dynamic files or provisioned with permanent files. That
+             is to say that when an Announcement is requested to be
+             played it will first be retrieved from the Announcement
+             file server and placed in the on-board Announcement cache.
+             Subsequent requests for the same Announcement will not
+             require retrieval of the Announcement file from the
+             Announcement file server.  Note that an Announcement in
+             one encoding is a different file than the same
+             Announcement in a different encoding.
+
+             The 'Announcement aging' policy is provisionable for 
+             dynamic files. Once a dynamic Announcement has 'aged'
+             in the on-board cache it will be 'refreshed' by being 
+             retrieved again from the Announcement file server.  
+             The age time determines the maximum time before an updated
+             Announcement file is automatically propagated to the card.
+             Shorter age times will result in more frequent file
+             server access. Changing the 'age' time does not affect
+             the age times of dynamic Announcement files currently
+             loaded. However, once these files are refreshed, they
+             will then use the new 'age' time.
+
+             Announcements may also be provisioned as 'permanent'.  
+             A permanent Announcement will be fetched from the 
+             Announcement file server and 'frozen' in the Media
+             Gateway Card Announcement cache.  Permanent
+             Announcements will be excluded from aging (and being
+             automatically refreshed) and excluded from being 
+             replaced if the Announcement cache becomes full.  
+             Permanent Announcements can only be removed from the
+             cache explicitly by user through command line
+             interface or through a Network Manager. If the Media
+             Gateway Card is reset, permanent Announcements will be
+             re-fetched from the Announcement file server as soon
+             as the card becomes active. The Announcement encoding
+             must be specified when provisioning permanent
+             Announcements.
+            " 
+    REVISION "200312220000Z"
+    DESCRIPTION
+        "Update with description changes from review."
+
+    REVISION "200112260000Z"
+    DESCRIPTION "
+                Initial draft. Created new Media Gateway Card 
+                Announcement Group
+                "
+    ::= { ciscoWan 25 }
+
+cwAnnounceGrpMIBObjects  OBJECT IDENTIFIER ::= 
+                           { ciscoWanAnnouncementMIB 1}
+cwAnnounceGeneric        OBJECT IDENTIFIER ::= 
+                           { cwAnnounceGrpMIBObjects 1 }
+cwAnnounceControlGrp     OBJECT IDENTIFIER ::= 
+                           { cwAnnounceGeneric 1 }
+cwAnnounceTableGrp       OBJECT IDENTIFIER ::= 
+                           { cwAnnounceGeneric 2 }
+
+
+AnnCodecType ::= TEXTUAL-CONVENTION
+        STATUS        current
+        DESCRIPTION
+            "This textual convention describes the Codec Type.
+            The Announcement MIBs has two separate but identical 
+            objects which have the same structure for codec type,
+            the scalar control group and the cwAnnounceTable.
+ 
+            Ref : ITU-T Series G: G.711 for 'g711u' and 'g711a'.
+            Ref : ITU-T Series G: G.726 for 'g726r32000',
+                  'g726r16000', 'g726r24000', 'g726r40000'. 
+            Ref : ITU-T Series G: G.729 for 'g729a' and 'g729ab'.
+            Ref : ITU-T Series G: G.723.1 for 'g723h', 'g723ah',
+                  'g723l', 'g723al'. 
+            "
+        SYNTAX        INTEGER   {
+                                g711u        (1),
+                                g711a        (2),
+                                g726r32000   (3),
+                                g729a        (4),
+                                g729ab       (5),
+
+                                g726r16000   (7),
+                                g726r24000   (8),
+                                g726r40000   (9),
+
+                                g723h        (11),
+                                g723ah       (12),
+                                g723l        (13),
+                                g723al       (14)
+                                }
+
+--
+-- Announcement Control Group
+--
+
+cwAnnMaximumSize  OBJECT-TYPE
+    SYNTAX        Integer32 (0..2147483647)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "This object records the maximum size of the Announcement
+         table.
+
+         This number consists of the maximum number of Announcement
+         file names that may be kept on the Media Gateway Card.
+        "
+    ::= { cwAnnounceControlGrp 1 }
+
+cwAnnFileServerName  OBJECT-TYPE
+    SYNTAX           DisplayString  (SIZE (0..255))
+    MAX-ACCESS       read-write
+    STATUS           current
+    DESCRIPTION
+        "This object records the name of the Announcement file
+         server.
+
+         The individual characters in this name may be alphanumeric 
+         characters, forward slashes, backward slashes, periods,
+         dashes, and underscores, but no embedded spaces.  
+         Also, the last character of the name must not be a
+         dash or a forward slash.
+
+         The default value for this MIB object is a 'null'.  
+         If the Announcement file server name is not configured, 
+         Announcements cannot be downloaded.
+          
+         The 'null' value of this field is a single space character, 
+         which may be set to this value by setting this MIB object to
+         the single character space string (' ').  
+         Alternatively, for computing systems that cannot handle
+         single character space strings, the single character
+         ('_') underscore string may be used as an alternative 
+         'null' value, which would then be converted internally to 
+         the single character space string.
+
+         Before the Announcement file server name may be successfully 
+         configured, the name must first be added to the list of
+         domain names (mgDomainName) contained in the 
+         mgDomainNameTable(defined in CISCO-WAN-MG-MIB MIB).  
+         If the domain is configured for internal resolution, then 
+         the file server name must be asssigned an IP address
+         to be put in the mgcResolutionTable(defined in 
+         CISCO-WAN-MG-MIB MIB)."
+    DEFVAL { " " }
+    ::= { cwAnnounceControlGrp 2 }
+
+cwAnnAgeTime         OBJECT-TYPE
+    SYNTAX           Integer32 (0..2147483647)
+    UNITS            "minutes"
+    MAX-ACCESS       read-write
+    STATUS           current
+    DESCRIPTION
+         "This object records the time in minutes for a dynamic
+          Announcement file in the cache to age.
+
+          The Age time is the configurable number of minutes before a
+          dynamic Announcement file in the Media Gateway Card
+          Announcement cache will be invalidated and refreshed
+          from the Announcement file server.
+
+          An Announcement file starts 'aging' as soon as it is
+          brought into the cache from the file server.
+
+          Zero (0) time specifies that the age time is infinite, 
+          so that no aging will occur. But, unlike a permanent file,
+          a file with aging of 0 may be replaced."
+    DEFVAL { 10080 }
+    ::= { cwAnnounceControlGrp 3 }
+
+cwAnnPreferenceCodec OBJECT-TYPE
+    SYNTAX           AnnCodecType
+    MAX-ACCESS       read-write
+    STATUS           current
+    DESCRIPTION
+        " This object records the codec to be used for playing
+          Announcements on an unconnected TDM endpoint.
+
+          The default will be 'g711u' for a T1 Media
+          Gateway Card, or will be 'g711a' for an E1
+          Media Gateway Card.
+        "
+    ::= { cwAnnounceControlGrp 4 }
+
+cwAnnPrefixPath      OBJECT-TYPE
+    SYNTAX           DisplayString  (SIZE (0..255))
+    MAX-ACCESS       read-write
+    STATUS           current
+    DESCRIPTION
+        "This object records the directory path under the default 
+        TFTP directory in the Announcement File server for 
+        announcement files.
+
+        The purpose of this MIB object is to specify the 'main'
+        directory for Announcements if it is to be different than 
+        the default TFTP directory.
+
+        The individual characters in this name may be alphanumeric 
+        characters, forward slashes, backward slashes, periods, 
+        dashes, and underscores, but no embedded spaces. Also,
+        the last character of the name must not be a dash or a
+        forward slash.
+
+        If this MIB object is a 'null' value it will not cause any 
+        directory path string to be inserted with the 
+        cwAnnFileName MIB object.
+
+        The 'null' value of this field is a single space character, 
+        which may be set to this value by setting this MIB object to 
+        the single character space string (' '), or alternatively, 
+        for computing systems that cannot handle single 
+        character space strings, to the single character
+        ('_') underscore string, which will then be converted 
+        internally to the single character space string."
+    DEFVAL { " " }
+    ::= { cwAnnounceControlGrp 5 }
+
+cwAnnReqTimeout      OBJECT-TYPE
+    SYNTAX           Integer32 (0..2147483647)
+    UNITS            "seconds"
+    MAX-ACCESS       read-write
+    STATUS           current
+    DESCRIPTION
+        " This object records the time for a dynamic play Announcement 
+        request to be serviced.
+
+        If the Announcement subsystem cannot start playing the 
+        Announcement within cwAnnReqTimeout seconds since the 
+        request was received, the play request will be aborted.
+
+        Zero (0) time specifies that the timeout time is infinite,
+        so that no timeout will occur."
+    DEFVAL { 5 }
+    ::= { cwAnnounceControlGrp 6 }
+
+--
+-- Announcement Table
+--
+--
+
+cwAnnounceTable   OBJECT-TYPE
+    SYNTAX        SEQUENCE OF CwAnnounceEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "This table contains configuration information about different 
+         permanent Announcements that are stored on the Media Gateway
+         Card. 
+
+         This table may contain up to the maximum number of 
+         permanent Announcement file names which is given 
+         by the value of cwAnnMaximumSize.  
+        "
+    ::= { cwAnnounceTableGrp 1 }
+
+cwAnnounceEntry   OBJECT-TYPE
+    SYNTAX        CwAnnounceEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "An entry in this table consists of configuration
+         information for a specific Announcement file name.
+        "
+    INDEX { cwAnnounceNumber }
+    ::= { cwAnnounceTable 1 }
+
+CwAnnounceEntry ::=
+    SEQUENCE {
+        cwAnnounceNumber      Integer32,
+        cwAnnFileStatus       INTEGER,
+        cwAnnFileName         DisplayString,
+        cwAnnFileCodec        AnnCodecType,
+        cwAnnRowStatus        RowStatus
+        }
+
+cwAnnounceNumber     OBJECT-TYPE
+    SYNTAX           Integer32 (0..2147483647)
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "This object serves as index to this table.
+        "
+    ::= { cwAnnounceEntry 1 }
+
+cwAnnFileStatus   OBJECT-TYPE
+    SYNTAX        INTEGER
+                         {
+                         loaded         (1),
+                         loading        (2),
+                         invalidFile    (3),
+                         loadFailed     (4)
+                         }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "This attribute specifies the status of this entry 
+        regarding to the permanent Announcement file name 
+        in cwAnnFileName MIB object:
+          'loaded(1)':      successfully downloaded permanent file.
+          'loading(2)':     in process of downloading a permanent file.
+          'invalidFile(3)': file on File server is too large or 
+                            corrupted.
+          'loadFailed(4)':  timeout when trying to download a 
+                            permanent file.
+
+
+          When this entry is created with a valid permanent 
+          Announcement file name in the cwAnnFileName MIB object,
+          this permanent status is set to 'loading(3)' while
+          background activities attempt to download the permanent
+          file from the Announcement FTP server.  If this attempt is 
+          successful, the permanent status is set to 'loaded(3)', but
+          if this process fails the permanent status is set to one
+          either 'invalidFile(3)', or 'loadFailed(4)'.
+
+          Once an entry is loaded, if a subsequent card reset 
+          occurs the Media Gateway Card will attempt to restore all
+          of the configuration information by doing its normal 
+          download of the latest MIB data base from the PXM
+          (Processor Switch Module) hard disk, set all
+          'loaded (2)' MIB objects to 'loading (3)', and then do
+          an background process to retrieve all of the Announcement
+          files from the Announcement file server, since this
+          information is not contained in the PXM.  If this retrieval
+          of the Announcement files succeeds then this MIB object
+          will be set back to 'loaded (2)'. If this file retrieval
+          does not succeed, then this MIB object will be set to
+          one of: 'invalidFile(3)', or 'loadFailed(4)'.
+       "
+    ::= { cwAnnounceEntry 2 }
+
+cwAnnFileName         OBJECT-TYPE
+    SYNTAX            DisplayString  (SIZE (0..255))
+    MAX-ACCESS        read-create
+    STATUS            current
+    DESCRIPTION
+        "This is the name of a valid Announcement file which has
+         been stored in the Announcement table as a permanent
+         Announcement File name. This file name may include path
+         or subdirectory information.
+
+         The individual characters in this name may be alphanumeric
+         characters, forward slashes, backward slashes, periods, 
+         dashes, and underscores, but no embedded spaces. Also, 
+         the last character of the name must not be a dash or a
+         forward slash.
+
+         However, single underscore character ('_') is considered 
+         a NULL string and should not consist cwAnnFileName name.
+        "
+    ::= { cwAnnounceEntry 3 }
+
+cwAnnFileCodec       OBJECT-TYPE
+    SYNTAX           AnnCodecType
+    MAX-ACCESS       read-create
+    STATUS           current
+    DESCRIPTION
+        "This object records the codec associated with a specific 
+        Announcdement file.
+
+        The default will be the value specified in the 
+        cwAnnPreferenceCodec MIB object above."
+    ::= { cwAnnounceEntry 4 }
+
+cwAnnRowStatus        OBJECT-TYPE
+    SYNTAX            RowStatus
+    MAX-ACCESS        read-create
+    STATUS            current
+    DESCRIPTION
+        " Once a row is created, modification is not allowed on
+          the row.
+
+          cwAnnFileName MIB object is the mandatory parameter 
+          for creating an entry in this table.
+
+          To delete an Announcement file entry, the RowStaus 
+          will be set to 'destroy'.
+        "
+    ::= { cwAnnounceEntry 5 }
+
+
+-- *****************************************************************
+-- Media Gateway Card Announcement Group notification
+-- *****************************************************************
+-- *****************************************************************
+
+cwAnnounceNotificationPrefix OBJECT IDENTIFIER 
+                                ::= { ciscoWanAnnouncementMIB 2 }
+
+cwAnnounceNotifications      OBJECT IDENTIFIER 
+                                ::= { cwAnnounceNotificationPrefix 0 }
+
+-- **********************************************************************
+-- Conformance
+-- **********************************************************************
+
+--
+-- conformance information
+--
+
+cwAnnounceMIBConformance  OBJECT IDENTIFIER  ::= 
+                            { ciscoWanAnnouncementMIB 3 }
+
+cwAnnounceMIBCompliances  OBJECT IDENTIFIER  ::= 
+                            { cwAnnounceMIBConformance 1 }
+cwAnnounceMIBGroups       OBJECT IDENTIFIER  ::= 
+                            { cwAnnounceMIBConformance 2 }
+
+--
+-- Conformance and compliance statements statements
+--
+
+announceMIBCompliance MODULE-COMPLIANCE
+    STATUS     current
+    DESCRIPTION
+        " The compliance statement for the Media Gateway Card 
+        Announcement group which implements cwAnnounceGeneric MIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS { cwAnnounceControlGroup,
+                           cwAnnounceTableGroup
+                         }
+    ::= { cwAnnounceMIBCompliances 1 }
+
+
+--
+-- units of conformance
+--
+-- MIB Groups
+--
+
+cwAnnounceControlGroup OBJECT-GROUP
+         OBJECTS {
+                 cwAnnMaximumSize,
+                 cwAnnFileServerName,
+                 cwAnnAgeTime,
+                 cwAnnPreferenceCodec,
+                 cwAnnPrefixPath,
+                 cwAnnReqTimeout
+                 }
+    STATUS    current
+    DESCRIPTION
+            "This group contains objects related to the control of the 
+             Media Gateway Card Announcement Table.
+             "
+    ::= { cwAnnounceMIBGroups 1 }
+
+cwAnnounceTableGroup OBJECT-GROUP
+         OBJECTS {
+                 cwAnnFileStatus,
+                 cwAnnFileName,
+                 cwAnnFileCodec,
+                 cwAnnRowStatus
+                 }
+    STATUS    current
+    DESCRIPTION
+            "This group contains objects related to configuration of
+             Media Gateway Card Announcement Table.
+             "
+    ::= { cwAnnounceMIBGroups 2 }
+
+END

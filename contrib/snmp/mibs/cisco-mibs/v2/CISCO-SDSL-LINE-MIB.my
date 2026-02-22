@@ -1,0 +1,2727 @@
+-- *****************************************************************
+-- Description of managed objects for SDSL line interfaces.
+--
+-- 03/10/2000 Andy Spooner
+--            Patrick Gili
+--
+-- Copyright (c) 1999, 2000, 2001 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SDSL-LINE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    Counter32,
+    Gauge32,
+    Integer32,
+    MODULE-IDENTITY,
+    OBJECT-TYPE                         FROM SNMPv2-SMI
+    TruthValue,
+    VariablePointer,
+    TEXTUAL-CONVENTION                  FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP                        FROM SNMPv2-CONF
+    ciscoMgmt                           FROM CISCO-SMI
+    AdslLineProfileName,
+    adslLineConfProfileName,
+    adslLineAlarmConfProfileName        FROM ADSL-LINE-MIB
+    ifIndex                             FROM IF-MIB
+    SnmpAdminString                     FROM SNMP-FRAMEWORK-MIB
+    PerfCurrentCount,
+    PerfIntervalCount                   FROM PerfHist-TC-MIB;
+
+
+ciscoSdslLineMIB MODULE-IDENTITY
+    LAST-UPDATED   "200108201000Z"
+    ORGANIZATION   "Cisco Systems, Inc."
+    CONTACT-INFO   "Cisco Systems
+                    Customer Service
+
+                    Postal: 170 W Tasman Drive
+                    San Jose, CA 95134
+
+                    Tel: +1 800 553-NETS
+
+                    E-mail: cs-dslam@cisco.com"
+    DESCRIPTION
+        "This MIB module describes all variations of the symmetric 
+        DSL line interfaces.  The structure of this module resembles 
+        and maintains consistency with the ADSL-LINE-MIB, 
+        ADSL-DMT-LINE-MIB, CISCO-ADSL-DMT-LINE-MIB, and 
+        CISCO-ADSL-CAP-LINE-MIB. Observe that the tables in this 
+        module do not necessarily extend the tables defined by the
+        these mibs. Currently, only those tables that contain 
+        configuration information extend the profile tables defined 
+        by the above modules.  This allows the management
+        client to define DSL configuration profiles that apply across
+        all DSL modems, independent of the technology being utilized by
+        the modem.
+
+        *** DEFINITIONS ***
+
+	ATTENUATION
+	  Attenuation is a decrease in the strength of a signal 
+	  over the length of a cable.
+
+        CODING VIOLATION
+            A coding violation occurs when the incoming signal exhibits
+            a CRC anomaly.
+
+        DOWNSTREAM
+            The flow of data in the direction from the ATU-C to ATU-R.
+                      
+        ERRORED SECOND
+            A second with one or more coding violations or one or more
+            incoming defects (e.g., LOS or LOSQ).
+
+        LINE RATE
+            The total data rate supported by a line.  Observe that the
+            payload rate is equal the line rate for the earliest
+            implementations of SDSL.  However, the payload rate maybe
+            less than the line rate for future implementations.
+
+        LOSS OF SYNC DEFECT
+            A Loss of Sync Defect is defined as 3 consecutive received 
+            frames which contain one or more errors in the framing
+            bits. A Loss of Sync Defect shall be cleared when at least 
+            2 consecutive received frames contain no errors in the
+            framing bits.
+
+        LOSS OF SYNC FAILURE 
+             A LOSW Failure is defined as at least 2 consecutive
+             seconds of LOSW Defect.  The LOSW Failure should be
+             cleared when the LOSW defect is absent for 20 seconds or
+             less. (i.e. clear within 20 seconds ).
+
+        MARGIN (also referred to as 'SNR margin')
+            The difference between the SNR of the received signal and
+            the SNR required to provide a BER of 10E-7.
+
+        SEVERELY ERRORED SECOND
+            A one second interval during which or more LOSW or CV defects
+            are declared. 
+
+        UNAVAILABLE SECOND
+            A Unavailable Second is defined as a one second interval
+            during which LOSW Failure ( at least 2 seconds of LOSW
+            Defect ).
+
+        UPSTREAM
+            The flow of data in the direction from the ATU-R to ATU-C.
+
+        *** ABBREVIATIONS, ACRONYMS, AND SYMBOLS ***
+
+        ADSL - Asymmetric Digital Subscriber Line.
+
+        ATM - Asynchronous Transfer Mode.
+
+        BER - Bit Error Ratio.
+
+        CV - Coding Violation.
+
+        DSL - Digital Subscriber Line.
+
+        ES - Errored Second.
+
+        LOS - Loss Of Sync.
+
+        LOSQ - Loss Of Signal Quality.
+
+        LOSW - Loss of Sync Word Failure
+
+	PSD - Power Spectral Density.
+
+        SES - Severely Errored Second.
+
+        SNR - Signal-to-Noise Ratio.
+
+        STM - Synchronous Transfer Mode.
+
+        STU-C - SDSL Transceiver Unit, Central Office end.
+
+        STU-R - ADSL Transceiver Unit, Remote terminal end.
+
+        UAS - UnAvailable Second."
+
+    REVISION    "200108201000Z"
+    DESCRIPTION
+        "The object cSdslStucCurrGain and cSdslSturCurrGain are 
+	deprecated to remove the range. The new objects added are
+	cSdslStucCurrGainRev and cSdslSturCurrGainRev."
+    REVISION    "200104091013Z" -- April 9, 2001 10:13 AM
+    DESCRIPTION
+        "Added cSdslSturAnnex for G.shdsl CPE device. Also updated 
+         description for cSdslStucAnnex. " 
+    REVISION	"200101301600Z"
+    DESCRIPTION
+	"Added cSdslLineEquipmentType, cSdslLineAutoRateEnable.
+	cSdslShdslLineMaxRate, cSdslStucPsdMaskType, cSdslStucAnnex, 
+	and cSdslStucThresholdSnrMgn. Changed default for 
+	cSdslLineMaxRate. Updated description for SNR and output 
+	pwr profile settings."
+
+    ::= { ciscoMgmt 155 }
+
+-- Textual Conventions
+
+SdslPerfTimeElapsed ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the current
+        interval exceeds the maximum value, the agent will return the
+        maximum value."
+    SYNTAX Gauge32
+
+SdslPerfCurrDayCount ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "A counter associated with interval performance measurements in
+        a current 1-day (24 hour) measurement interval.
+
+        The value of this counter starts at zero at the beginning of an
+        interval and increases when associated events occur, until the
+        end of the 1-day interval.  At that time, the agent stores the
+        value of the counter in the previous 1-day history interval,
+        if available, and resets the value of the counter to zero.
+
+        In the case where the agent has no valid data available for this
+        interval, the corresponding object instance is not available.
+        In this case, the agent will respond with the appropriate error
+        indicating that the instance does not exist; that is,
+        'noSuchName' in response to a SNMPv1 get request, and
+        'noSuchInstance' in response to a SNMPv2 get request."
+    SYNTAX Gauge32
+
+SdslPerfPrevDayCount ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "A counter associated with interval performance measurements
+        during the most previous 1-day (24 hour) measurement interval.
+        The value of this counter is equal to the current day counter
+        at the end of its most recent interval.
+
+        In the case where the agent has no valid data available for this
+        interval, the corresponding object instance is not available.
+        In this case, the agent will respond with the appropriate error
+        indicating that the instance does not exist; that is,
+        'noSuchName' in response to a SNMPv1 get request, and
+        'noSuchInstance' in response to a SNMPv2 get request."
+    SYNTAX Gauge32
+
+SdslStuxDefect ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "This object specifies any possible defects currently being
+        exhibited by the STU-x.  The value of this object is a bitmap
+        of possible defects.  The following list summarizes the
+        meaning of each bit in the bitmap
+
+        0   lossOfSignal            The STU-x is not receiving signal.
+
+        1   lossOfSignalQuality     The upstream SNR margin has fallen
+                                    below the SNR margin required to
+                                    maintain a minimum BER of 10^-7.
+
+        2   noPeerStuPresent        The STU-x can not initialize due
+                                    to the absence of a peer STU-x.
+
+        3   lossOfSyncFailure       The STU-x has suffered from at
+                                    least 2 consecutive seconds of
+                                    LOSW defect."
+    SYNTAX      BITS {
+        lossOfSignal(0),
+        lossOfSignalQuality(1),
+        noPeerStuPresent(2),
+        lossOfSyncFailure(3)
+    }
+
+-- MIB Objects Definitions
+
+ciscoSdslLineMIBObjects OBJECT IDENTIFIER ::= { ciscoSdslLineMIB 1 }
+
+-- SDSL Line Table
+
+cSdslLineTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CSdslLineEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains the enterprise-specific common attributes
+        describing both ends of SDSL lines supported by the system."
+    ::= { ciscoSdslLineMIBObjects 1 }
+
+cSdslLineEntry OBJECT-TYPE
+    SYNTAX      CSdslLineEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of enterprise-specific common attributes describing both
+        ends of an SDSL line supported by the system.  There exists an
+        entry for each ifEntry with an ifType of sdsl(96)."
+    INDEX       { ifIndex }
+    ::= { cSdslLineTable 1 }
+
+CSdslLineEntry ::= SEQUENCE {
+    cSdslLineCoding             INTEGER,
+    cSdslLineFraming            INTEGER,
+    cSdslLineSpecific           VariablePointer,
+    cSdslLineConfProfile        AdslLineProfileName,
+    cSdslLineAlarmConfProfile   AdslLineProfileName
+}
+
+cSdslLineCoding OBJECT-TYPE
+    SYNTAX      INTEGER {
+        other(1),   -- 
+        base2b1q(2),-- Baseband, 2B1Q encoding.  SDSL ports may use 2b1q
+                    --    line coding.
+        tcPam(3),   -- Trellis Coded Pulse Amplitude Modulated.
+                    --    G.shdsl ports use tcPam line coding.
+        optis(4),   -- Overlapped Pulse Amplitude Modulated
+                    --    Transmission with Interlocked Spectra.  HDSL2
+                    --    ports use optis line coding.
+        cap(5)      -- Carrierless Amplitude/Phase Modulation.  SDSL
+                    --    may use cap line coding.
+    }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Specifies encoding of signal used by this line.  Other types
+        may be added in the future."
+    REFERENCE
+        "ITU Draft G.Shdsl, Single-Pair High Speed Digital Subscriber
+         Line(SHDSL) Transceivers,
+
+        T1E1.4, Draft for HDSL2 Standard, Default Letter Ballot,
+
+        ITU-T G991.1, High-Bit-Rate Digital Subscriber Transceivers(HDSL)"
+    ::= { cSdslLineEntry 1 }
+
+cSdslLineFraming OBJECT-TYPE
+    SYNTAX      INTEGER {
+        none(1),            -- no frame format
+        other(2),           --
+        hdsl(3),            -- HDSL frame format for SDSL interaces
+        gShdsl(4),          -- G.SHDSL frame format for G.SHDSL
+        hdsl2(5),           -- HDSL2 frame format for HDSL2 interfaces
+        ds1(6)              -- DS1 frame format for HDSL2 interfaces
+    }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the current Transmission Convergence
+        framing structure being used by the interface."
+    REFERENCE
+        "ITU Draft G.Shdsl, Single-Pair High Speed Digital Subscriber
+        Line(SHDSL) Transceivers,
+
+        T1E1.4, Draft for HDSL2 Standard, Default Letter Ballot,
+ 
+       ITU-T G991.1, High-Bit-Rate Digital Subscriber Transceivers(HDSL)"
+
+    ::= { cSdslLineEntry 2}
+
+
+cSdslLineSpecific OBJECT-TYPE
+    SYNTAX      VariablePointer
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+         "This object specifies an object identifier of an instance of
+         an object in the MIB.  The implementation determines the
+         application of this object.   For example, an implementation
+         may use this object to provide a reference to the port-class
+         physical entity (see the ENTITY-MIB for further details)
+         corresponding to the SDSL line."
+    ::= { cSdslLineEntry  3 }
+
+
+cSdslLineConfProfile OBJECT-TYPE
+    SYNTAX      AdslLineProfileName
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the row in the adslLineConfProfileTable
+        (see the ADSL-LINE-MIB for further details), which applies for
+        this SDSL line interface.
+
+        In the case the implementation utilizes 'dynamic mode' (see
+        the ADSL-LINE-MIB for further details), then the value of this
+        object defaults to the name of a configuration profile
+        designated by the implementation as the default configuration
+        profile.
+
+        In the case the implementation utilizes 'static mode', then the
+        the value of this object is read-only."
+    ::= { cSdslLineEntry 4 }
+
+cSdslLineAlarmConfProfile OBJECT-TYPE
+    SYNTAX      AdslLineProfileName
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the row in the
+        adslLineAlarmConfProfileTable (see the ADSL-LINE-MIB for further
+        details), which applies for this SDSL line interface.
+
+        In the case the implementation utilizes 'dynamic mode' (see
+        the ADSL-LINE-MIB for further details), then the value of this
+        object defaults to the name of an alarm configuration profile
+        designated by the implementation as the default alarm
+        configuration profile.
+
+        In the case the implementation utilizes 'static mode', then the
+        the value of this object is read-only."
+    ::= { cSdslLineEntry 5 }
+
+-- SDSL STU-C Physical-Layer Parameters Table
+
+cSdslStucPhysTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CSdslStucPhysEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains enterprise-specific physical layer
+        parameters for STU-C class devices supported by the system."
+    ::= { ciscoSdslLineMIBObjects 2 }
+
+cSdslStucPhysEntry OBJECT-TYPE
+    SYNTAX      CSdslStucPhysEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of enterprise-specific physical-layer parameters for an 
+        STU-C class device supported by the system.  There exists an
+        entry for each ifEntry with an ifType of sdsl(96)."
+    INDEX       { ifIndex }
+    ::= { cSdslStucPhysTable 1 }
+
+CSdslStucPhysEntry ::= SEQUENCE {
+    cSdslStucInvSerialNumber    SnmpAdminString,
+    cSdslStucInvVendorId        SnmpAdminString,
+    cSdslStucInvVersionNumber   SnmpAdminString,
+    cSdslStucState              INTEGER,
+    cSdslStucDefect             SdslStuxDefect,
+    cSdslStucCurrRate           Integer32,
+    cSdslStucCurrSnrMgn         Gauge32,
+    cSdslStucCurrGain           Integer32, --deprecated
+    cSdslStucCurrOutputPwr      Gauge32,
+    cSdslStucCurrAtn            Gauge32,
+    cSdslStucCurrGainRev        Integer32
+}
+
+cSdslStucInvSerialNumber OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the vendor specific string that
+        identifies the vendor STU-C."
+    ::= { cSdslStucPhysEntry 1 }
+
+cSdslStucInvVendorId OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the vendor identifier assigned according
+        to T1.220"
+    REFERENCE
+        "ANSI T1.220-1991 Coded Representation of the North American 
+        Telecommunication Industry Manufacturers, Suppliers, 
+        and Related Service Companies"
+    ::= { cSdslStucPhysEntry 2 }
+
+cSdslStucInvVersionNumber OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the vendor specific version number of
+        the STU-C."
+    ::= { cSdslStucPhysEntry 3 }
+
+cSdslStucState OBJECT-TYPE
+    SYNTAX      INTEGER {
+        other(1),           --
+        idle(2),            -- Administratively down.
+        training(3),        -- Transceiver training in progress.
+        steadyState(4),     -- Nominal mode of operation.
+        testing(5),         -- Transceiver in loopback or running BERT.
+        downloading(6),     -- STU-C code download in progress.
+        downloadFailed(7)   -- STU-C code download failed.
+    }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the state of the STU-C transceiver."
+    ::= { cSdslStucPhysEntry 4 }
+
+cSdslStucDefect OBJECT-TYPE
+    SYNTAX      SdslStuxDefect
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies any possible defects currently being
+        exhibited by the STU-C.
+
+        This object has the intention of supplementing ifOperStatus."
+    ::= { cSdslStucPhysEntry 5 }
+
+cSdslStucCurrRate OBJECT-TYPE
+    SYNTAX      Integer32 (0..2320000)
+    UNITS       "bps"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the rate the STU-C transceiver was
+        able to obtain following training."
+    ::= { cSdslStucPhysEntry 6 }
+
+cSdslStucCurrSnrMgn OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "tenth dB"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the SNR margin as seen by this STU-C with
+        respect to its received signal."
+    ::= { cSdslStucPhysEntry 7 }
+
+cSdslStucCurrGain OBJECT-TYPE
+    SYNTAX      Integer32 (-200..200)
+    UNITS       "tenth dB"
+    MAX-ACCESS  read-only
+    STATUS      deprecated
+    DESCRIPTION
+        "This object specifies gain applied to this STU-C's receiver. 
+        This object is deprecated by cSdslStucCurrGainRev which has  
+        no specified range."
+    ::= { cSdslStucPhysEntry 8 }
+
+cSdslStucCurrOutputPwr OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "tenth dBm"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the measured total output power
+        transmitted by this STU-C.  This is the measurement that was
+        reported during the last activation sequence."
+    ::= { cSdslStucPhysEntry 9 }
+
+cSdslStucCurrAtn OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "tenth dBm"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Measured difference in the total power transmitted by
+         the peer STU-R and the total power received by this STU-C."
+    ::= { cSdslStucPhysEntry 10 }
+
+cSdslStucCurrGainRev OBJECT-TYPE
+    SYNTAX      Integer32
+    UNITS       "tenth dB"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies gain applied to this STU-C's receiver. 
+        This object deprecates cSdslStucCurrGainRev and has  
+        no specified range."
+    ::= { cSdslStucPhysEntry 11 }
+
+-- SDSL STU-R Physical-Layer Parameters Table
+
+cSdslSturPhysTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CSdslSturPhysEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains enterprise-specific physical layer
+        parameters for STU-R class devices supported by the system.
+
+--      Note to implementor:
+--      If the implementation does not support remote management
+--      of STU-R class devices, then the agent must respond with
+--      the appropriate error indicating that the instance does not
+--      exist; that is, 'noSuchName' in response to a SNMPv1 get
+--      request, 'noSuchInstance' in response to a SNMPv2 get
+--      request or a null string for string types."
+
+    ::= { ciscoSdslLineMIBObjects 3 }
+
+cSdslSturPhysEntry OBJECT-TYPE
+    SYNTAX      CSdslSturPhysEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of enterprise-specific physical-layer parameters for an 
+        STU-R class device supported by the system.  There exists an
+        entry for each ifEntry with an ifType of sdsl(96)."
+    INDEX       { ifIndex }
+    ::= { cSdslSturPhysTable 1 }
+
+CSdslSturPhysEntry ::= SEQUENCE {
+    cSdslSturInvSerialNumber    SnmpAdminString,
+    cSdslSturInvVendorId        SnmpAdminString,
+    cSdslSturInvVersionNumber   SnmpAdminString,
+    cSdslSturState              INTEGER,
+    cSdslSturDefect             SdslStuxDefect,
+    cSdslSturCurrRate           Integer32,
+    cSdslSturCurrSnrMgn         Gauge32,
+    cSdslSturCurrGain           Integer32, --deprecated
+    cSdslSturCurrOutputPwr      Gauge32,
+    cSdslSturCurrAtn            Gauge32,
+    cSdslSturCurrGainRev        Integer32
+}
+
+cSdslSturInvSerialNumber OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the vendor specific string that
+        identifies the vendor STU-R."
+    ::= { cSdslSturPhysEntry 1 }
+
+cSdslSturInvVendorId OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the vendor identifier assigned according
+        to T1.220"
+    REFERENCE
+        "ANSI T1.220-1991 Coded Representation of the North American 
+        Telecommunication Industry Manufacturers, Suppliers, 
+        and Related Service Companies"
+    ::= { cSdslSturPhysEntry 2 }
+
+cSdslSturInvVersionNumber OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the vendor specific version number of
+        the STU-R."
+    ::= { cSdslSturPhysEntry 3 }
+
+cSdslSturState OBJECT-TYPE
+    SYNTAX      INTEGER {
+        other(1),           --
+        training(2),        -- Transceiver training in progress.
+        steadyState(3)      -- Nominal mode of operation.
+    }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the state of the STU-R transceiver."
+    ::= { cSdslSturPhysEntry 4 }
+
+cSdslSturDefect OBJECT-TYPE
+    SYNTAX      SdslStuxDefect
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies any possible defects currently being
+        exhibited by the STU-R.
+
+        This object has the intention of supplementing ifOperStatus."
+    ::= { cSdslSturPhysEntry 5 }
+ 
+cSdslSturCurrRate OBJECT-TYPE
+    SYNTAX      Integer32(0..2320000)
+    UNITS       "bps"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the rate the STU-R transceiver was
+        able to obtain following training."
+    ::= { cSdslSturPhysEntry 6 }
+
+cSdslSturCurrSnrMgn OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "tenth dB"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the SNR margin as seen by this STU-R with
+        respect to its received signal."
+    ::= { cSdslSturPhysEntry 7 }
+
+cSdslSturCurrGain OBJECT-TYPE
+    SYNTAX      Integer32(-200..200)
+    UNITS       "tenth dB"
+    MAX-ACCESS  read-only
+    STATUS      deprecated
+    DESCRIPTION
+        "This object specifies gain applied to this STU-R's receiver.
+        This object is deprecated by cSdslSturCurrGainRev which has  
+        no specified range."
+    ::= { cSdslSturPhysEntry 8 }
+
+cSdslSturCurrOutputPwr OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the measured total output power
+        transmitted by this STU-R.  This is the measurement that was
+        reported during the last activation sequence."
+    ::= { cSdslSturPhysEntry 9 }
+
+cSdslSturCurrAtn OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "tenth dBm"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Measured difference in the total power transmitted by
+         the peer STU-C and the total power received by this STU-R"
+    ::= { cSdslSturPhysEntry 10 }
+
+cSdslSturCurrGainRev OBJECT-TYPE
+    SYNTAX      Integer32
+    UNITS       "tenth dB"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies gain applied to this STU-R's receiver.
+        This object deprecates by cSdslSturCurrGain and has  
+        no specified range."
+    ::= { cSdslSturPhysEntry 11 }
+
+-- SDSL STU-C Performance Data Table
+
+cSdslStucPerfDataTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CSdslStucPerfDataEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains physical-layer statistics for STU-C class
+        devices supported by the system."
+    ::= { ciscoSdslLineMIBObjects 6 }
+
+cSdslStucPerfDataEntry OBJECT-TYPE
+    SYNTAX      CSdslStucPerfDataEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of physical-layer statistics for an STU-C class device
+        supported by the system.  There exists an entry for each ifEntry
+        with an ifType of sdsl(96)."
+    REFERENCE
+        "ITU Draft G.Shdsl, Single-Pair High Speed Digital Subscriber
+         Line(SHDSL) Transceivers,
+
+        T1E1.4, Draft for HDSL2 Standard, Default Letter Ballot,
+
+        ITU-T G991.1, High-Bit-Rate Digital Subscriber Transceivers(HDSL),
+	
+	Tesink, K., Textual Conventions for MIB Modules Using
+        Performance History Based on 15 Minute Intervals, RFC 2493,
+        January 1999."
+    INDEX       { ifIndex }
+
+
+    ::= { cSdslStucPerfDataTable 1 }
+
+CSdslStucPerfDataEntry ::= SEQUENCE {
+    cSdslStucPerfLOSs                   Counter32,
+    cSdslStucPerfLOSQs                  Counter32,
+    cSdslStucPerfCVs                    Counter32,
+    cSdslStucPerfESs                    Counter32,
+    cSdslStucPerfSESs                   Counter32,
+    cSdslStucPerfUASs                   Counter32,
+    cSdslStucPerfInits                  Counter32,
+    cSdslStucUnavailRsrcs            	Counter32,
+    cSdslStucPerfValidIntervals         Integer32,
+    cSdslStucPerfInvalidIntervals       Integer32,
+    cSdslStucPerfCurr15MinTimeElapse    SdslPerfTimeElapsed,
+    cSdslStucPerfCurr15MinLOSs          PerfCurrentCount,
+    cSdslStucPerfCurr15MinLOSQs         PerfCurrentCount,
+    cSdslStucPerfCurr15MinCVs           PerfCurrentCount,
+    cSdslStucPerfCurr15MinESs           PerfCurrentCount,
+    cSdslStucPerfCurr15MinSESs          PerfCurrentCount,
+    cSdslStucPerfCurr15MinUASs          PerfCurrentCount,
+    cSdslStucPerfCurr15MinInits         PerfCurrentCount,
+    cSdslStucPerfCurr15MinUnavlRsrcs    PerfCurrentCount,
+    cSdslStucPerfCurr1DayTimeElapsed    SdslPerfTimeElapsed,
+    cSdslStucPerfCurr1DayLOSs           SdslPerfCurrDayCount,
+    cSdslStucPerfCurr1DayLOSQs          SdslPerfCurrDayCount,
+    cSdslStucPerfCurr1DayCVs            SdslPerfCurrDayCount,
+    cSdslStucPerfCurr1DayESs            SdslPerfCurrDayCount,
+    cSdslStucPerfCurr1DaySESs           SdslPerfCurrDayCount,
+    cSdslStucPerfCurr1DayUASs           SdslPerfCurrDayCount,
+    cSdslStucPerfCurr1DayInits          SdslPerfCurrDayCount,
+    cSdslStucPerfCurr1DayUnavlRsrcs     SdslPerfCurrDayCount,
+    cSdslStucPerfPrev1DayMoniSecs       Integer32,
+    cSdslStucPerfPrev1DayLOSs           SdslPerfPrevDayCount,
+    cSdslStucPerfPrev1DayLOSQs          SdslPerfPrevDayCount,
+    cSdslStucPerfPrev1DayCVs            SdslPerfPrevDayCount,
+    cSdslStucPerfPrev1DayESs            SdslPerfPrevDayCount,
+    cSdslStucPerfPrev1DaySESs           SdslPerfPrevDayCount,
+    cSdslStucPerfPrev1DayUASs           SdslPerfPrevDayCount,
+    cSdslStucPerfPrev1DayInits          SdslPerfPrevDayCount,
+    cSdslStucPerfPrev1DayUnavlRsrcs     SdslPerfPrevDayCount
+}
+
+cSdslStucPerfLOSs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of LOS failures experienced
+        by the STU-C since agent reset."
+    ::= { cSdslStucPerfDataEntry 1 }
+
+cSdslStucPerfLOSQs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of LOSQ failures experienced
+        by the STU-C since agent reset."
+    ::= { cSdslStucPerfDataEntry 2 }
+
+cSdslStucPerfCVs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations
+        experienced by the STU-C since agent reset."
+    ::= { cSdslStucPerfDataEntry 3 }
+
+cSdslStucPerfESs OBJECT-TYPE
+    SYNTAX      Counter32
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the STU-C since agent reset."
+    ::= { cSdslStucPerfDataEntry 4 }
+
+cSdslStucPerfSESs OBJECT-TYPE
+    SYNTAX      Counter32
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored
+        seconds experienced by the STU-C since agent reset."
+    ::= { cSdslStucPerfDataEntry 5 }
+
+cSdslStucPerfUASs OBJECT-TYPE
+    SYNTAX      Counter32
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of unavailable seconds
+        experienced by the STU-C since agent reset."
+    ::= { cSdslStucPerfDataEntry 6 }
+
+cSdslStucPerfInits OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of line initializations
+        attempted by the STU-C since agent reset.  This value includes
+        both successful and failed attempts."
+    ::= { cSdslStucPerfDataEntry 7 }
+
+cSdslStucUnavailRsrcs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of packets discarded on the
+	STU-C due to unavailable resources, such as lack of buffer 
+	space."
+    ::= { cSdslStucPerfDataEntry 8}
+
+cSdslStucPerfValidIntervals OBJECT-TYPE
+    SYNTAX      Integer32 (0..96)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of previous near end intervals for
+        which valid data was collected.  The value will be
+        96 unless the interface was brought online within
+        the last 24 hours, in which case the value will be
+        the number of complete 15 minute near end
+        intervals since the interface has been online."
+    ::= { cSdslStucPerfDataEntry 9}
+
+cSdslStucPerfInvalidIntervals OBJECT-TYPE
+    SYNTAX      Integer32 (0..96)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of near-end performance data 15-minute intervals in
+        the range from 0 to cSdslStucPerfValidIntervals for which no
+        data is available. This object will typically be zero except in
+        cases where the data for some intervals are not available (e.g.,
+        in proxy situations)."
+    ::= { cSdslStucPerfDataEntry 10 }
+
+cSdslStucPerfCurr15MinTimeElapse OBJECT-TYPE
+    SYNTAX      SdslPerfTimeElapsed (0..899)
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the current
+        interval exceeds the maximum value, the agent will return
+        the maximum value."
+    ::= { cSdslStucPerfDataEntry 11 }
+
+cSdslStucPerfCurr15MinLOSs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds in the current
+        15-minute interval when the STU-C experienced LOS."
+    ::= { cSdslStucPerfDataEntry 12 }
+
+cSdslStucPerfCurr15MinLOSQs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds in the current
+        15-minute interval when the STU-C experienced LOSQ."
+    ::= { cSdslStucPerfDataEntry 13 }
+
+cSdslStucPerfCurr15MinCVs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations 
+        experienced by the STU-C in the current 15-minute interval."
+    ::= { cSdslStucPerfDataEntry 14 }
+
+cSdslStucPerfCurr15MinESs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the STU-C in the current 15-minute interval."
+    ::= { cSdslStucPerfDataEntry 15 }
+
+cSdslStucPerfCurr15MinSESs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the STU-C in the current 15-minute interval."
+    ::= { cSdslStucPerfDataEntry 16 }
+
+cSdslStucPerfCurr15MinUASs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of unavailable seconds
+        experienced by the STU-C in the current 15-minute interval."
+    ::= { cSdslStucPerfDataEntry 17 }
+
+cSdslStucPerfCurr15MinInits OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of line initializations
+        attempted by the STU-C in the current 15-minute interval."
+    ::= { cSdslStucPerfDataEntry 18 }
+
+cSdslStucPerfCurr15MinUnavlRsrcs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of packets discarded on the
+	STU-C due to unavailable resources, such as lack of buffer 
+	space, in the current 15 minute interval."
+    ::= { cSdslStucPerfDataEntry 19 }
+
+cSdslStucPerfCurr1DayTimeElapsed OBJECT-TYPE
+    SYNTAX      SdslPerfTimeElapsed (0..86399)
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the current
+        interval exceeds the maximum value, the agent will return
+        the maximum value."
+    ::= { cSdslStucPerfDataEntry 20 }
+
+cSdslStucPerfCurr1DayLOSs OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds experienced by the
+        STU-C in the current 1-day interval when there was LOS."
+    ::= { cSdslStucPerfDataEntry 21 }
+
+cSdslStucPerfCurr1DayLOSQs OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds experienced by the
+        STU-C in the current 1-day interval when there was LOSQ."
+    ::= { cSdslStucPerfDataEntry 22 }
+
+cSdslStucPerfCurr1DayCVs OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations
+        experienced by the STU-C in the current 1-day interval."
+    ::= { cSdslStucPerfDataEntry 23}
+
+cSdslStucPerfCurr1DayESs OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the STU-C in the current 1-day interval."
+    ::= { cSdslStucPerfDataEntry 24 }
+
+cSdslStucPerfCurr1DaySESs OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the STU-C in the current 1-day interval."
+    ::= { cSdslStucPerfDataEntry 25 }
+
+cSdslStucPerfCurr1DayUASs OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of unavailable seconds
+        experienced by the STU-C in the current 1-day interval."
+    ::= { cSdslStucPerfDataEntry 26 }
+
+cSdslStucPerfCurr1DayInits OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of line initializations
+        attempted by the STU-C in the current 1-day interval."
+    ::= { cSdslStucPerfDataEntry 27 }
+
+cSdslStucPerfCurr1DayUnavlRsrcs OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of packets discarded on the
+	STU-C due to unavailable resources, such as lack of buffer 
+	space, in the current 1-day interval."
+    ::= { cSdslStucPerfDataEntry 28 }
+
+cSdslStucPerfPrev1DayMoniSecs OBJECT-TYPE
+    SYNTAX      Integer32 (0..86400)
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The amount of time in the previous 1-day interval over which
+        the performance monitoring information is actually counted.
+        This value will be the same as the interval duration except
+        in a situation where performance monitoring data could not be
+        collected for any reason."
+    ::= { cSdslStucPerfDataEntry 29 }
+
+cSdslStucPerfPrev1DayLOSs OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds in the current
+        1-day interval when the STU-C experienced LOS."
+    ::= { cSdslStucPerfDataEntry 30 }
+
+cSdslStucPerfPrev1DayLOSQs OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds in the previous
+        1-day interval when the STU-C experienced LOSQ."
+    ::= { cSdslStucPerfDataEntry 31 }
+
+cSdslStucPerfPrev1DayCVs OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations 
+        experienced by the STU-C in the previous 1-day interval."
+    ::= { cSdslStucPerfDataEntry 32 }
+
+cSdslStucPerfPrev1DayESs OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the STU-C in the previous 1-day interval."
+    ::= { cSdslStucPerfDataEntry 33 }
+
+cSdslStucPerfPrev1DaySESs OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the STU-C in the previous 1-day interval."
+    ::= { cSdslStucPerfDataEntry 34 }
+
+cSdslStucPerfPrev1DayUASs OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of unavailable seconds
+        experienced by the STU-C in the previous 1-day interval."
+    ::= { cSdslStucPerfDataEntry 35 }
+
+cSdslStucPerfPrev1DayInits OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of line initializations
+        attempted by the STU-C in the previous 1-day interval."
+    ::= { cSdslStucPerfDataEntry 36 }
+
+cSdslStucPerfPrev1DayUnavlRsrcs OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of packets discarded on the
+	STU-C due to unavailable resources, such as lack of buffer 
+	space, in the previous 1-day interval."
+    ::= { cSdslStucPerfDataEntry 37 }
+
+-- SDSL STU-R Performance Data Table
+
+cSdslSturPerfDataTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CSdslSturPerfDataEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains physical-layer statistics for STU-R class
+        devices supported by the system.
+
+--      Note to implementor:
+--      If the implementation does not support remote management
+--      of STU-R class devices, then the agent must respond with
+--      the appropriate error indicating that the instance does not
+--      exist; that is, 'noSuchName' in response to a SNMPv1 get
+--      request, and 'noSuchInstance' in response to a SNMPv2 get
+--      request."
+
+    ::= { ciscoSdslLineMIBObjects 7 }
+
+cSdslSturPerfDataEntry OBJECT-TYPE
+    SYNTAX      CSdslSturPerfDataEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of physical-layer statistics for an STU-R class device
+        supported by the system.  There exists an entry for each ifEntry
+        with an ifType of sdsl(96)."
+    REFERENCE
+
+        "ITU Draft G.Shdsl, Single-Pair High Speed Digital Subscriber
+         Line(SHDSL) Transceivers,
+
+        T1E1.4, Draft for HDSL2 Standard, Default Letter Ballot,
+
+        ITU-T G991.1, High-Bit-Rate Digital Subscriber Transceivers(HDSL)"
+	
+
+    INDEX       { ifIndex }
+    ::= { cSdslSturPerfDataTable 1 }
+
+CSdslSturPerfDataEntry ::= SEQUENCE {
+    cSdslSturPerfLOSs                   Counter32,
+    cSdslSturPerfLOSQs                  Counter32,
+    cSdslSturPerfCVs                    Counter32,
+    cSdslSturPerfESs                    Counter32,
+    cSdslSturPerfSESs                   Counter32,
+    cSdslSturPerfUASs                   Counter32,
+    cSdslSturPerfValidIntervals         Integer32,
+    cSdslSturPerfInvalidIntervals       Integer32,
+    cSdslSturPerfCurr15MinTimeElapse    SdslPerfTimeElapsed,
+    cSdslSturPerfCurr15MinLOSs          PerfCurrentCount,
+    cSdslSturPerfCurr15MinLOSQs         PerfCurrentCount,
+    cSdslSturPerfCurr15MinCVs           PerfCurrentCount,
+    cSdslSturPerfCurr15MinESs           PerfCurrentCount,
+    cSdslSturPerfCurr15MinSESs          PerfCurrentCount,
+    cSdslSturPerfCurr15MinUASs          PerfCurrentCount,
+    cSdslSturPerfCurr1DayTimeElapsed    SdslPerfTimeElapsed,
+    cSdslSturPerfCurr1DayLOSs           SdslPerfCurrDayCount,
+    cSdslSturPerfCurr1DayLOSQs          SdslPerfCurrDayCount,
+    cSdslSturPerfCurr1DayCVs            SdslPerfCurrDayCount,
+    cSdslSturPerfCurr1DayESs            SdslPerfCurrDayCount,
+    cSdslSturPerfCurr1DaySESs           SdslPerfCurrDayCount,
+    cSdslSturPerfCurr1DayUASs           SdslPerfCurrDayCount,
+    cSdslSturPerfPrev1DayMoniSecs       Integer32,
+    cSdslSturPerfPrev1DayLOSs           SdslPerfPrevDayCount,
+    cSdslSturPerfPrev1DayLOSQs          SdslPerfPrevDayCount,
+    cSdslSturPerfPrev1DayCVs            SdslPerfPrevDayCount,
+    cSdslSturPerfPrev1DayESs            SdslPerfPrevDayCount,
+    cSdslSturPerfPrev1DaySESs           SdslPerfPrevDayCount,
+    cSdslSturPerfPrev1DayUASs           SdslPerfPrevDayCount
+}
+
+cSdslSturPerfLOSs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of LOS failures experienced
+        by the STU-R since agent reset."
+    ::= { cSdslSturPerfDataEntry 1 }
+
+cSdslSturPerfLOSQs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of LOSQ failures experienced
+        by the STU-R since agent reset."
+    ::= { cSdslSturPerfDataEntry 2 }
+
+cSdslSturPerfCVs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations
+        experienced by the STU-R since agent reset."
+    ::= { cSdslSturPerfDataEntry 3 }
+
+cSdslSturPerfESs OBJECT-TYPE
+    SYNTAX      Counter32
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the STU-R since agent reset."
+    ::= { cSdslSturPerfDataEntry 4 }
+
+cSdslSturPerfSESs OBJECT-TYPE
+    SYNTAX      Counter32
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored
+        seconds experienced by the STU-R since agent reset."
+    ::= { cSdslSturPerfDataEntry 5 }
+
+cSdslSturPerfUASs OBJECT-TYPE
+    SYNTAX      Counter32
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of unavailable seconds
+        experienced by the STU-R since agent reset."
+    ::= { cSdslSturPerfDataEntry 6 }
+
+cSdslSturPerfValidIntervals OBJECT-TYPE
+    SYNTAX      Integer32 (0..96)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of previous far end intervals for
+        which valid data was collected.  The value will be
+        96 unless the interface was brought online within
+        the last 24 hours, in which case the value will be
+        the number of complete 15 minute far end
+        intervals since the interface has been online."
+    ::= { cSdslSturPerfDataEntry 7 }
+
+cSdslSturPerfInvalidIntervals OBJECT-TYPE
+    SYNTAX      Integer32 (0..96)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of far-end performance data 15-minute intervals in
+        the range from 0 to cSdslSturPerfValidIntervals for which no
+        data is available. This object will typically be zero except in
+        cases where the data for some intervals are not available (e.g.,
+        in proxy situations)."
+    ::= { cSdslSturPerfDataEntry 8 }
+
+cSdslSturPerfCurr15MinTimeElapse OBJECT-TYPE
+    SYNTAX      SdslPerfTimeElapsed (0..899)
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the current
+        interval exceeds the maximum value, the agent will return
+        the maximum value."
+    ::= { cSdslSturPerfDataEntry 9 }
+
+cSdslSturPerfCurr15MinLOSs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds in the current
+        15-minute interval when the STU-R experienced LOS."
+    ::= { cSdslSturPerfDataEntry 10 }
+
+cSdslSturPerfCurr15MinLOSQs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds in the current
+        15-minute interval when the STU-R experienced LOSQ."
+    ::= { cSdslSturPerfDataEntry 11 }
+
+cSdslSturPerfCurr15MinCVs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations 
+        experienced by the STU-R in the current 15-minute interval."
+    ::= { cSdslSturPerfDataEntry 12 }
+
+cSdslSturPerfCurr15MinESs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the STU-R in the current 15-minute interval."
+    ::= { cSdslSturPerfDataEntry 13 }
+
+cSdslSturPerfCurr15MinSESs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the STU-R in the current 15-minute interval."
+    ::= { cSdslSturPerfDataEntry 14 }
+
+cSdslSturPerfCurr15MinUASs OBJECT-TYPE
+    SYNTAX      PerfCurrentCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of unavailable seconds
+        experienced by the STU-R in the current 15-minute interval."
+    ::= { cSdslSturPerfDataEntry 15 }
+
+cSdslSturPerfCurr1DayTimeElapsed OBJECT-TYPE
+    SYNTAX      SdslPerfTimeElapsed (0..86399)
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of seconds that have elapsed since the beginning of
+        the current measurement period.  If, for some reason, such as an
+        adjustment in the system's time-of-day clock, the current
+        interval exceeds the maximum value, the agent will return
+        the maximum value."
+    ::= { cSdslSturPerfDataEntry 16 }
+
+cSdslSturPerfCurr1DayLOSs OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds experienced by the
+        STU-R in the current 1-day interval when there was LOS."
+    ::= { cSdslSturPerfDataEntry 17 }
+
+cSdslSturPerfCurr1DayLOSQs OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds experienced by the
+        STU-R in the current 1-day interval when there was LOSQ."
+    ::= { cSdslSturPerfDataEntry 18 }
+
+cSdslSturPerfCurr1DayCVs OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations
+        experienced by the STU-R in the current 1-day interval."
+    ::= { cSdslSturPerfDataEntry 19 }
+
+cSdslSturPerfCurr1DayESs OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the STU-R in the current 1-day interval."
+    ::= { cSdslSturPerfDataEntry 20 }
+
+cSdslSturPerfCurr1DaySESs OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the STU-R in the current 1-day interval."
+    ::= { cSdslSturPerfDataEntry 21 }
+
+cSdslSturPerfCurr1DayUASs OBJECT-TYPE
+    SYNTAX      SdslPerfCurrDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of unavailable seconds
+        experienced by the STU-R in the current 1-day interval."
+    ::= { cSdslSturPerfDataEntry 22 }
+
+cSdslSturPerfPrev1DayMoniSecs OBJECT-TYPE
+    SYNTAX      Integer32 (0..86400)
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The amount of time in the previous 1-day interval over which
+        the performance monitoring information is actually counted.
+        This value will be the same as the interval duration except
+        in a situation where performance monitoring data could not be
+        collected for any reason."
+    ::= { cSdslSturPerfDataEntry 23 }
+
+cSdslSturPerfPrev1DayLOSs OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds in the current
+        1-day interval when the STU-R experienced LOS."
+    ::= { cSdslSturPerfDataEntry 24 }
+
+cSdslSturPerfPrev1DayLOSQs OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds in the previous
+        1-day interval when the STU-R experienced LOSQ."
+    ::= { cSdslSturPerfDataEntry 25 }
+
+cSdslSturPerfPrev1DayCVs OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations 
+        experienced by the STU-R in the previous 1-day interval."
+    ::= { cSdslSturPerfDataEntry 26 }
+
+cSdslSturPerfPrev1DayESs OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the STU-R in the previous 1-day interval."
+    ::= { cSdslSturPerfDataEntry 27 }
+
+cSdslSturPerfPrev1DaySESs OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the STU-R in the previous 1-day interval."
+    ::= { cSdslSturPerfDataEntry 28 }
+
+cSdslSturPerfPrev1DayUASs OBJECT-TYPE
+    SYNTAX      SdslPerfPrevDayCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of unavailable seconds
+        experienced by the STU-R in the previous 1-day interval."
+    ::= { cSdslSturPerfDataEntry 29 }
+
+-- SDSL STU-C Performance Data Interval Table
+
+cSdslStucIntervalTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CSdslStucIntervalEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains physical-layer statistics intervals for
+        STU-C class devices supported by the system.  The interval
+	tables are modeled after RFC 2493, Textual Conventions for 
+	MIB Modules Using Performance History Based on 15 Minute 
+	Intervals, RFC 2493"
+
+    REFERENCE
+
+	"Tesink, K., Textual Conventions for MIB Modules Using
+        Performance History Based on 15 Minute Intervals, RFC 2493,
+        January 1999."
+
+    ::= { ciscoSdslLineMIBObjects 8 }
+
+cSdslStucIntervalEntry OBJECT-TYPE
+    SYNTAX      CSdslStucIntervalEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A 15-miute interval of physical-layer statistics for a STU-C
+        class device supported by the system.  There exists up to 96
+        entries for each ifEntry with an ifType of sdsl(96)."
+    INDEX       { ifIndex, cSdslStucIntervalNumber }
+    ::= { cSdslStucIntervalTable 1 }
+
+CSdslStucIntervalEntry ::= SEQUENCE {
+    cSdslStucIntervalNumber     Integer32,
+    cSdslStucIntervalValidData  TruthValue,
+    cSdslStucIntervalLOSs       PerfIntervalCount,
+    cSdslStucIntervalLOSQs      PerfIntervalCount,
+    cSdslStucIntervalCVs        PerfIntervalCount,
+    cSdslStucIntervalESs        PerfIntervalCount,
+    cSdslStucIntervalSESs       PerfIntervalCount,
+    cSdslStucIntervalUASs       PerfIntervalCount,
+    cSdslStucIntervalInits      PerfIntervalCount,
+    cSdslStucIntervalUnavlRsrcs PerfIntervalCount
+}
+
+cSdslStucIntervalNumber OBJECT-TYPE
+    SYNTAX      Integer32 (1..96)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The interval in which the statistics were collected, where the
+        value of 1 represents the most recent interval, and the value of
+        96 represents the interval collected 24 hours ago.  Intervals
+        2..96 are optional."
+    ::= { cSdslStucIntervalEntry 1 }
+
+cSdslStucIntervalValidData OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies whether the data for this interval
+        is valid."
+    ::= { cSdslStucIntervalEntry 2 }
+
+cSdslStucIntervalLOSs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds in the interval
+        when the STU-C experienced LOS."
+    ::= { cSdslStucIntervalEntry 3 }
+
+cSdslStucIntervalLOSQs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds in the interval
+        when the STU-C experienced LOSQ."
+    ::= { cSdslStucIntervalEntry 4 }
+
+cSdslStucIntervalCVs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations 
+        experienced by the STU-C in the interval."
+    ::= { cSdslStucIntervalEntry 5 }
+
+cSdslStucIntervalESs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the STU-C in the interval."
+    ::= { cSdslStucIntervalEntry 6 }
+
+cSdslStucIntervalSESs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the STU-C in the interval."
+    ::= { cSdslStucIntervalEntry 7 }
+
+cSdslStucIntervalUASs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of unavailable seconds
+        experienced by the STU-C in the interval."
+    ::= { cSdslStucIntervalEntry 8 }
+
+cSdslStucIntervalInits OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of line initializations
+        attempted by the STU-C in the interval."
+    ::= { cSdslStucIntervalEntry 9 }
+
+cSdslStucIntervalUnavlRsrcs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of packets discarded on the
+	STU-C due to unavailable resources, such as lack of buffer 
+	space in the interval."
+    ::= { cSdslStucIntervalEntry 10 }
+
+-- SDSL STU-R Perforamnce Data Interval Table
+
+cSdslSturIntervalTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CSdslSturIntervalEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains physical-layer statistics intervals for
+        STU-R class devices supported by the system.  The interval
+	tables are modeled after RFC 2493, Textual Conventions for 
+	MIB Modules Using Performance History Based on 15 Minute 
+	Intervals, RFC 2493"
+
+--      Note to implementor:
+--      If the implementation does not support remote management
+--      of STU-R class devices, then the agent must respond with
+--      the appropriate error indicating that the instance does not
+--      exist; that is, 'noSuchName' in response to a SNMPv1 get
+--      request, and 'noSuchInstance' in response to a SNMPv2 get
+--      request.
+
+    REFERENCE
+
+	"Tesink, K., Textual Conventions for MIB Modules Using
+        Performance History Based on 15 Minute Intervals, RFC 2493,
+        January 1999."
+
+    ::= { ciscoSdslLineMIBObjects 9 }
+
+cSdslSturIntervalEntry OBJECT-TYPE
+    SYNTAX      CSdslSturIntervalEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A 15-miute interval of physical-layer statistics for a STU-R
+        class device supported by the system.  There exists up to 96
+        entries for each ifEntry with an ifType of sdsl(96)."
+    INDEX       { ifIndex, cSdslSturIntervalNumber }
+    ::= { cSdslSturIntervalTable 1 }
+
+CSdslSturIntervalEntry ::= SEQUENCE {
+    cSdslSturIntervalNumber     Integer32,
+    cSdslSturIntervalLOSs       PerfIntervalCount,
+    cSdslSturIntervalLOSQs      PerfIntervalCount,
+    cSdslSturIntervalCVs        PerfIntervalCount,
+    cSdslSturIntervalESs        PerfIntervalCount,
+    cSdslSturIntervalSESs       PerfIntervalCount,
+    cSdslSturIntervalUASs       PerfIntervalCount,
+    cSdslSturIntervalValidData  TruthValue
+}
+
+cSdslSturIntervalNumber OBJECT-TYPE
+    SYNTAX      Integer32 (1..96)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The interval in which the statistics were collected, where the
+        value of 1 represents the most recent interval, and the value of
+        96 represents the interval collected 24 hours ago.  Intervals
+        2..96 are optional."
+    ::= { cSdslSturIntervalEntry 1 }
+
+cSdslSturIntervalValidData OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies whether the data for this interval
+        is valid."
+    ::= { cSdslSturIntervalEntry 2 }
+
+cSdslSturIntervalLOSs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds in the interval
+        when the STU-R experienced LOS."
+    ::= { cSdslSturIntervalEntry 3 }
+
+cSdslSturIntervalLOSQs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of seconds in the interval
+        when the STU-R experienced LOSQ."
+    ::= { cSdslSturIntervalEntry 4 }
+
+cSdslSturIntervalCVs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of coding violations 
+        experienced by the STU-R in the interval."
+    ::= { cSdslSturIntervalEntry 5 }
+
+cSdslSturIntervalESs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of errored seconds
+        experienced by the STU-R in the interval."
+    ::= { cSdslSturIntervalEntry 6 }
+
+cSdslSturIntervalSESs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of severely errored seconds
+        experienced by the STU-R in the interval."
+    ::= { cSdslSturIntervalEntry 7 }
+
+cSdslSturIntervalUASs OBJECT-TYPE
+    SYNTAX      PerfIntervalCount
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of unavailable seconds
+        experienced by the STU-R in the interval."
+    ::= { cSdslSturIntervalEntry 8 }
+
+-- SDSL Line Configuration Profile Table
+
+cSdslLineConfProfileTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CSdslLineConfProfileEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table extends the adslLineConfProfileTable and contains
+        enterprise-specific SDSL line configuration information."
+    ::= { ciscoSdslLineMIBObjects 14 }
+
+cSdslLineConfProfileEntry OBJECT-TYPE
+    SYNTAX      CSdslLineConfProfileEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A configuration profile containing enterprise-specific SDSL
+        line configuration information."
+    INDEX       { IMPLIED adslLineConfProfileName }
+    ::= { cSdslLineConfProfileTable 1 }
+
+CSdslLineConfProfileEntry ::= SEQUENCE {
+     cSdslLineMaxRate      Integer32,
+     cSdslLineFramingMode  INTEGER,
+     cSdslStucTargetSnrMgn Integer32,
+     cSdslStucMaxSnrMgn    Integer32,
+     cSdslStucMinSnrMgn    Integer32,
+     cSdslStucOutputPwr    Integer32,
+     cSdslShdslLineMaxRate INTEGER,
+     cSdslStucPsdMaskType  INTEGER,
+     cSdslStucAnnex        INTEGER,
+     cSdslLineEquipmentType INTEGER,
+     cSdslLineAutoRateEnable TruthValue,
+     cSdslStucThresholdSnrMgn Integer32,
+     cSdslSturAnnex        INTEGER
+}
+
+cSdslLineMaxRate OBJECT-TYPE
+    SYNTAX      Integer32 (144000 |
+                           272000 |
+                           400000 |
+                           528000 |
+                           784000 |
+                          1040000 |
+                          1168000 |
+                          1552000 |
+                          2064000 |
+                          2320000 )
+    UNITS       "bps"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the desired line rate which the STU-C
+        will attempt to train at."
+    DEFVAL      { 784000 }
+    ::= { cSdslLineConfProfileEntry 1 }
+
+cSdslLineFramingMode OBJECT-TYPE
+    SYNTAX      INTEGER {
+        none(1),            -- no frame format
+        other(2),           --
+        hdsl(3),            -- HDSL frame format for SDSL interaces
+        gShdsl(4),          -- G.SHDSL frame format for G.SHDSL
+        hdsl2(5),           -- HDSL2 frame format for HDSL2 interfaces
+        ds1(6)              -- DS1 frame format for HDSL2 interfaces
+    }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the desired Transmission Convergence
+        framing structure being used by the interface."
+    ::= { cSdslLineConfProfileEntry 2 }
+
+
+cSdslStucTargetSnrMgn OBJECT-TYPE
+    SYNTAX      Integer32 (0..310)
+    UNITS       "tenth dB"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the target SNR margin.  This is the
+        desired noise margin the STU-C must achieve with a BER of
+        10-7 or better to successfully complete training. The value 
+	for this object must be in multiples of 10. The specified 
+	value will be rounded down to the nearest valid tenth dB 
+	level if the value is not in multiples of 10."
+    DEFVAL      { 0 }
+    ::= { cSdslLineConfProfileEntry 3 }
+
+cSdslStucMaxSnrMgn OBJECT-TYPE
+    SYNTAX      Integer32 (0..310)
+    UNITS       "tenth dB"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the maximum acceptable SNR margin.
+        If the noise margin exceeds this level, then the STU-C should
+        attempt to reduce its power output to optimize its operation. 
+	The value for this object must be in multiples of 10. The 
+	specified value will be rounded down to the nearest valid 
+	tenth dB level if the value is not in multiples of 10."
+    DEFVAL      { 90 }
+    ::= { cSdslLineConfProfileEntry 4 }
+
+cSdslStucMinSnrMgn OBJECT-TYPE
+    SYNTAX      Integer32 (0..310)
+    UNITS       "tenth dB"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the minimum acceptable SNR margin.
+        If the noise margin falls below this level, the STU-C will
+        retrain. The value for this object must be in multiples of 10. 
+	The specified value will be rounded down to the nearest valid 
+	tenth dB level if the value is not in multiples of 10."
+    DEFVAL      { 0 }
+    ::= { cSdslLineConfProfileEntry 5 }
+
+cSdslStucOutputPwr OBJECT-TYPE
+    SYNTAX      Integer32 (0..310)
+    UNITS       "tenth dBm"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the transmit power level used by
+        the STU-C. The value for this object must be in multiples 
+	of 10. The specified value will be rounded down to the 
+	nearest valid tenth dB level if the value is not in 
+	multiples of 10."
+    DEFVAL      { 130 }
+    ::= { cSdslLineConfProfileEntry 6 }
+
+cSdslShdslLineMaxRate OBJECT-TYPE
+    SYNTAX      INTEGER { r2376000(2376000),
+                          r2312000(2312000),
+                          r2056000(2056000),
+                          r1552000(1552000),
+                          r1544000(1544000),
+                          r1160000(1160000),
+                          r1032000(1032000),
+                           r784000(784000),
+                           r776000(776000),
+                           r520000(520000),
+                           r392000(392000),
+                           r264000(264000),
+                           r200000(200000),
+                           r136000(136000),
+                            r72000(72000) }
+    UNITS       "bps"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the desired line rate at which the 
+	G.shdsl STU-C will attempt to train."
+    REFERENCE
+        "ITU Draft G.Shdsl, Single-Pair High Speed Digital Subscriber
+         Line(SHDSL) Transceivers"
+    DEFVAL      { r776000 }
+    ::= { cSdslLineConfProfileEntry 7 }
+
+cSdslStucPsdMaskType OBJECT-TYPE
+    SYNTAX      INTEGER {
+        symmetric(1),           
+        asymmetric(2)
+    }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the PSD mask type for the transceiver. 
+	For all values of the cSdslShdslLineMaxRate, the symmetric PSD 
+	masktype is selectable. Asymmetric mask is only selectable for 
+	the following rates: 776000, 784000, 1552000, 2056000, 2312000."
+    DEFVAL      { symmetric }
+    ::= { cSdslLineConfProfileEntry 8 }
+
+cSdslStucAnnex OBJECT-TYPE
+    SYNTAX      INTEGER {
+        annexA(1),           
+        annexB(2)
+    }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the operating conditions for the port 
+         of G.shdsl CO equipment . Annex A is optimized for conditions 
+        typically encountered within the North American network,whereas
+        Annex B is optimized for conditions typically encountered 
+        within the European network."
+    DEFVAL      { annexA }
+    ::= { cSdslLineConfProfileEntry 9 }
+
+cSdslLineEquipmentType     OBJECT-TYPE
+    SYNTAX      INTEGER {
+        stuR(1),
+        stuC(2)
+    }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the type of the STU device ,either 
+	STU-C or STU-R"
+    DEFVAL      { stuR }
+    ::= { cSdslLineConfProfileEntry 10 }
+
+cSdslLineAutoRateEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies whether the device uses the rate 
+	adaptive training mode."
+    DEFVAL      { false }
+    ::= { cSdslLineConfProfileEntry 11 }
+
+cSdslStucThresholdSnrMgn OBJECT-TYPE
+    SYNTAX      Integer32 (0..310)
+    UNITS       "tenth dB"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the SNR margin threshold.  An 
+	appropriate alarm should be generated when the difference 
+	between the actual SNR and the SNR required to maintain BER 
+	of 10E-7 is less than this value. The value for this object 
+	must be in multiples of 10. The specified value will be 
+	rounded down to the nearest valid tenth dB level if the 
+	value is not in multiples of 10.
+
+	If the agent implements the CISCO-ENTITY-ALARM-MIB, the alarm
+	generated should be through the mechanism defined by the
+	CISCO-ENTITY-ALARM-MIB. Furthermore, the default severity
+	of this alarm should be 'minor'."
+    DEFVAL      { 30 }
+    ::= { cSdslLineConfProfileEntry 12 }
+
+cSdslSturAnnex OBJECT-TYPE
+    SYNTAX      INTEGER {
+        annexA(1),           
+        annexB(2)
+    }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the operating conditions for the port 
+        of G.shdsl CPE equipment. Annex A is optimized for conditions 
+        typically encountered within the North American network,whereas
+        Annex B is optimized for conditions typically encountered 
+        within the European network."
+    DEFVAL      { annexA }
+    ::= { cSdslLineConfProfileEntry 13 }
+
+-- Alarm Configuration Profile Table
+
+cSdslLineAlarmConfProfileTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CSdslLineAlarmConfProfileEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table extends the adslLineAlarmConfProfileTable and
+        contains enterprise-specific SDSL line configuration information
+        pertaining to alarms."
+    ::= { ciscoSdslLineMIBObjects 15 }
+
+cSdslLineAlarmConfProfileEntry OBJECT-TYPE
+    SYNTAX      CSdslLineAlarmConfProfileEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A configuration profile containing enterprise-specific SDSL
+        line configuration information pertaining to alarms"
+    INDEX       { IMPLIED adslLineAlarmConfProfileName }
+    ::= { cSdslLineAlarmConfProfileTable 1 }
+
+CSdslLineAlarmConfProfileEntry ::= SEQUENCE {
+    cSdslStucThreshMinRate   Integer32,
+    cSdslStucThreshMinSnrMgn Integer32
+}
+
+cSdslStucThreshMinRate OBJECT-TYPE
+    SYNTAX      Integer32 (0..310)
+    UNITS       "bps"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the line rate threshold.  When the
+        agent observes the line rate fall below this value, an
+        appropriate alarm should be generated.
+
+        The default value for this object should be the value of
+        the cSdslLineMaxRate object.
+
+        If the agent implements the CISCO-ENTITY-ALARM-MIB, the
+        alarm generated should be through the mechanism defined by
+        the CISCO-ENTITY-ALARM-MIB.  Furthermore, the default
+        severity of this alarm should be 'minor'."
+    ::= { cSdslLineAlarmConfProfileEntry 1 }
+
+cSdslStucThreshMinSnrMgn OBJECT-TYPE
+    SYNTAX      Integer32 (0..310)
+    UNITS       "tenth dB"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the SNR margin threshold.  When the
+        agent observes the received SNR margin fall below this value,
+        an appropriate alarm should be generated.
+
+        If the agent implements the CISCO-ENTITY-ALARM-MIB, the alarm
+        generated should be through the mechanism defined by the
+        CISCO-ENTITY-ALARM-MIB.  Furthermore, the default severity
+        of this alarm should be 'minor'."
+    DEFVAL      { 30 }
+    ::= { cSdslLineAlarmConfProfileEntry 2 }
+
+-- MIB Notification Definitions
+
+ciscoSdslLineMIBNotificationsPrefix OBJECT IDENTIFIER ::= 
+    { ciscoSdslLineMIB 2 }
+
+ciscoSdslLineMIBNotifications       OBJECT IDENTIFIER ::= 
+    { ciscoSdslLineMIBNotificationsPrefix 0 }
+
+-- MIB Conformance Statements
+
+ciscoSdslLineMIBConformance OBJECT IDENTIFIER ::= 
+    { ciscoSdslLineMIB 3 }
+
+ciscoSdslLineMIBCompliances OBJECT IDENTIFIER ::= 
+    { ciscoSdslLineMIBConformance 1 }
+
+ciscoSdslLineMIBGroups      OBJECT IDENTIFIER ::= 
+    { ciscoSdslLineMIBConformance 2 }
+
+-- Compliance
+
+ciscoSdslLineMIBStucCompliance MODULE-COMPLIANCE
+    STATUS deprecated
+    DESCRIPTION
+        "The compliance statement for entities that implement the
+        CISCO-SDSL-LINE-MIB.  Implementation of this MIB is mandatory
+        for any platform that supports one or more SDSL line
+        interfaces. This specification is replaced by 
+        ciscoSdslLineMIBStucComplianceRev1"
+
+    MODULE -- this module
+        MANDATORY-GROUPS {
+            cSdslStucBasicGroup,
+            cSdslStucPMCounterGroup
+        }
+
+        GROUP       cSdslStucRateAdaptiveGroup
+        DESCRIPTION
+            "The implementation of this group is optional.  However,
+            this statement recommends the implementation of this group
+            if the STU-C supports rate adaptation."
+
+        GROUP       cSdslSturGroup
+        DESCRIPTION
+            "The implementation of this group is optional.  However,
+            this statement recommends the implementation of this group
+            if the STU-C and STU-R support a remote management
+            capability."
+
+        GROUP       cSdslStucPM15MinIntervalGroup
+        DESCRIPTION
+            "The implementation of this group is optional."
+
+        GROUP       cSdslStucPM1DayIntervalGroup
+        DESCRIPTION
+            "The implementation of this group is optional."
+
+        GROUP       cSdslSturPMCounterGroup
+        DESCRIPTION
+            "The implementation of this group is optional. However,
+            this statement recommends the implementation of this group
+            if the STU-C and STU-R support a remote management
+            capability."
+
+        GROUP       cSdslSturPM15MinIntervalGroup
+        DESCRIPTION
+            "The implementation of this group is optional."
+
+        GROUP       cSdslSturPM1DayIntervalGroup
+        DESCRIPTION
+            "The implementation of this group is optional."
+
+        GROUP       cSdslStucAlarmConfProfileGroup
+        DESCRIPTION
+            "The implementation of this group is optional.  If the agent
+            implements the CISCO-ENTITY-ALARM-MIB, then this statement
+            strongly discourages the implementation of this group.
+            Rather the agent should define alarm types for physical
+            entities of the cevPortSdsl2b1q vendor type corresponding
+            to the conditions described by cSdslStucThreshMinRate
+            and cSdslStucThreshMinSnrMgn."
+
+        OBJECT      cSdslLineConfProfile
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Read-only access is applicable only when implementing
+            static profiles."
+
+        OBJECT      cSdslLineAlarmConfProfile
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Read-only access is applicable only when implementing
+            static profiles."
+
+        OBJECT      cSdslStucThreshMinRate
+        MIN-ACCESS  read-write
+        DESCRIPTION
+            "Read-write access is application when implementing static
+            profiles."
+
+        OBJECT      cSdslStucThreshMinSnrMgn
+        MIN-ACCESS  read-write
+        DESCRIPTION
+            "Read-write access is application when implementing static
+            profiles."
+
+    ::= { ciscoSdslLineMIBCompliances 1 }
+
+ciscoSdslLineMIBSturCompliance MODULE-COMPLIANCE
+    STATUS deprecated
+    DESCRIPTION
+        "The compliance statement for entities that implement the
+        CISCO-SDSL-LINE-MIB and manage SDSL STU-R class devices.
+        Implementation of this MIB is mandatory for any platform
+        that supports one or more SDSL line interfaces. This 
+        specification is replaced by 
+        ciscoSdslLineMIBSturComplianceRev1."
+
+    MODULE -- this module
+        MANDATORY-GROUPS {
+            cSdslSturBasicGroup,
+            cSdslSturPMCounterGroup
+        }
+
+        GROUP       cSdslSturPM15MinIntervalGroup
+        DESCRIPTION
+            "The implementation of this group is optional."
+
+        GROUP       cSdslSturPM1DayIntervalGroup
+        DESCRIPTION
+            "The implementation of this group is optional."
+
+    ::= { ciscoSdslLineMIBCompliances 2 }
+
+ciscoSdslLineMIBStucComplianceRev1 MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+        "The compliance statement for entities that implement the
+        CISCO-SDSL-LINE-MIB.  Implementation of this MIB is mandatory
+        for any platform that supports one or more SDSL line
+        interfaces."
+
+    MODULE -- this module
+        MANDATORY-GROUPS {
+            cSdslStucBasicGroupRev1,
+            cSdslStucPMCounterGroup
+        }
+
+        GROUP       cSdslStucRateAdaptiveGroup
+        DESCRIPTION
+            "The implementation of this group is optional.  However,
+            this statement recommends the implementation of this group
+            if the STU-C supports rate adaptation."
+
+        GROUP       cSdslSturGroup
+        DESCRIPTION
+            "The implementation of this group is optional.  However,
+            this statement recommends the implementation of this group
+            if the STU-C and STU-R support a remote management
+            capability."
+
+        GROUP       cSdslStucPM15MinIntervalGroup
+        DESCRIPTION
+            "The implementation of this group is optional."
+
+        GROUP       cSdslStucPM1DayIntervalGroup
+        DESCRIPTION
+            "The implementation of this group is optional."
+
+        GROUP       cSdslSturPMCounterGroup
+        DESCRIPTION
+            "The implementation of this group is optional. However,
+            this statement recommends the implementation of this group
+            if the STU-C and STU-R support a remote management
+            capability."
+
+        GROUP       cSdslSturPM15MinIntervalGroup
+        DESCRIPTION
+            "The implementation of this group is optional."
+
+        GROUP       cSdslSturPM1DayIntervalGroup
+        DESCRIPTION
+            "The implementation of this group is optional."
+
+        GROUP       cSdslStucAlarmConfProfileGroup
+        DESCRIPTION
+            "The implementation of this group is optional.  If the agent
+            implements the CISCO-ENTITY-ALARM-MIB, then this statement
+            strongly discourages the implementation of this group.
+            Rather the agent should define alarm types for physical
+            entities of the cevPortSdsl2b1q vendor type corresponding
+            to the conditions described by cSdslStucThreshMinRate
+            and cSdslStucThreshMinSnrMgn."
+
+        OBJECT      cSdslLineConfProfile
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Read-only access is applicable only when implementing
+            static profiles."
+
+        OBJECT      cSdslLineAlarmConfProfile
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Read-only access is applicable only when implementing
+            static profiles."
+
+        OBJECT      cSdslStucThreshMinRate
+        MIN-ACCESS  read-write
+        DESCRIPTION
+            "Read-write access is application when implementing static
+            profiles."
+
+        OBJECT      cSdslStucThreshMinSnrMgn
+        MIN-ACCESS  read-write
+        DESCRIPTION
+            "Read-write access is application when implementing static
+            profiles."
+
+    ::= { ciscoSdslLineMIBCompliances 3 }
+
+ciscoSdslLineMIBSturComplianceRev1 MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+        "The compliance statement for entities that implement the
+        CISCO-SDSL-LINE-MIB and manage SDSL STU-R class devices.
+        Implementation of this MIB is mandatory for any platform
+        that supports one or more SDSL line interfaces."
+
+    MODULE -- this module
+        MANDATORY-GROUPS {
+            cSdslSturBasicGroupRev1,
+            cSdslSturPMCounterGroup
+        }
+
+        GROUP       cSdslSturPM15MinIntervalGroup
+        DESCRIPTION
+            "The implementation of this group is optional."
+
+        GROUP       cSdslSturPM1DayIntervalGroup
+        DESCRIPTION
+            "The implementation of this group is optional."
+
+    ::= { ciscoSdslLineMIBCompliances 4 }
+
+-- Units of Conformance
+
+cSdslStucBasicGroup OBJECT-GROUP
+    OBJECTS {
+        cSdslLineCoding,
+        cSdslLineFraming,
+        cSdslLineSpecific,
+        cSdslLineConfProfile,
+        cSdslLineAlarmConfProfile,
+        cSdslStucInvSerialNumber,
+        cSdslStucInvVendorId,
+        cSdslStucInvVersionNumber,
+        cSdslStucState,
+        cSdslStucDefect,
+        cSdslStucCurrRate,
+        cSdslStucCurrSnrMgn,
+        cSdslStucCurrGain,
+        cSdslStucCurrOutputPwr,
+        cSdslStucCurrAtn,
+        cSdslLineMaxRate,
+        cSdslLineFramingMode,
+        cSdslStucTargetSnrMgn,
+        cSdslStucOutputPwr
+    }
+    STATUS deprecated
+    DESCRIPTION
+        "A collection of managed objects defining the basic operation
+        of an STU-C (i.e., no rate adaptation). This specification 
+        is replaced by cSdslStucBasicGroupRev1."
+    ::= { ciscoSdslLineMIBGroups 1 }
+
+cSdslSturBasicGroup OBJECT-GROUP
+    OBJECTS {
+        cSdslLineCoding,
+        cSdslLineFraming,
+        cSdslLineSpecific,
+        cSdslSturInvSerialNumber,
+        cSdslSturInvVendorId,
+        cSdslSturInvVersionNumber,
+        cSdslSturState,
+        cSdslSturDefect,
+        cSdslSturCurrRate,
+        cSdslSturCurrSnrMgn,
+        cSdslSturCurrGain,
+        cSdslSturCurrOutputPwr,
+	cSdslSturCurrAtn
+    }
+    STATUS deprecated
+    DESCRIPTION
+        "A collection of managed objects defining the basic operation
+ of an STU-R.This specification is replaced by cSdslSturBasicGroupRev1"
+    ::= { ciscoSdslLineMIBGroups 2 }
+
+cSdslSturGroup OBJECT-GROUP
+    OBJECTS {
+        cSdslSturInvSerialNumber,
+        cSdslSturInvVendorId,
+        cSdslSturInvVersionNumber,
+        cSdslSturState,
+        cSdslSturDefect,
+        cSdslSturCurrRate,
+        cSdslSturCurrSnrMgn,
+        cSdslSturCurrGain,
+        cSdslSturCurrOutputPwr
+    }
+    STATUS deprecated
+    DESCRIPTION
+        "A collection of managed objects defining the capability to
+        remotely manage a STU-R. This is replaced by cSdslSturGroupRev1."
+    ::= { ciscoSdslLineMIBGroups 3 }
+
+cSdslStucPMCounterGroup OBJECT-GROUP
+    OBJECTS {
+        cSdslStucPerfLOSs,
+        cSdslStucPerfLOSQs,
+        cSdslStucPerfCVs,
+        cSdslStucPerfESs,
+        cSdslStucPerfSESs,
+        cSdslStucPerfUASs,
+        cSdslStucPerfInits,
+	cSdslStucUnavailRsrcs
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining basic near-end
+        performance monitoring capability."
+    ::= { ciscoSdslLineMIBGroups 4 }
+
+cSdslStucPM15MinIntervalGroup OBJECT-GROUP
+    OBJECTS {
+        cSdslStucPerfValidIntervals,
+        cSdslStucPerfInvalidIntervals,
+        cSdslStucPerfCurr15MinTimeElapse,
+        cSdslStucPerfCurr15MinLOSs,
+        cSdslStucPerfCurr15MinLOSQs,
+        cSdslStucPerfCurr15MinCVs,
+        cSdslStucPerfCurr15MinESs,
+        cSdslStucPerfCurr15MinSESs,
+        cSdslStucPerfCurr15MinUASs,
+        cSdslStucPerfCurr15MinInits,
+        cSdslStucPerfCurr15MinUnavlRsrcs,
+        cSdslStucIntervalValidData,
+        cSdslStucIntervalLOSs,
+        cSdslStucIntervalLOSQs,
+        cSdslStucIntervalCVs,
+        cSdslStucIntervalESs,
+        cSdslStucIntervalSESs,
+        cSdslStucIntervalUASs,
+        cSdslStucIntervalInits,
+	cSdslStucIntervalUnavlRsrcs
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining near-end performance
+        data collection capability using 15-minute intervals."
+    ::= { ciscoSdslLineMIBGroups 5 }
+
+cSdslStucPM1DayIntervalGroup OBJECT-GROUP
+    OBJECTS {
+        cSdslStucPerfCurr1DayTimeElapsed,
+        cSdslStucPerfCurr1DayLOSs,
+        cSdslStucPerfCurr1DayLOSQs,
+        cSdslStucPerfCurr1DayCVs,
+        cSdslStucPerfCurr1DayESs,
+        cSdslStucPerfCurr1DaySESs,
+        cSdslStucPerfCurr1DayUASs,
+        cSdslStucPerfCurr1DayInits,
+	cSdslStucPerfCurr1DayUnavlRsrcs,
+        cSdslStucPerfPrev1DayMoniSecs,
+        cSdslStucPerfPrev1DayLOSs,
+        cSdslStucPerfPrev1DayLOSQs,
+        cSdslStucPerfPrev1DayCVs,
+        cSdslStucPerfPrev1DayESs,
+        cSdslStucPerfPrev1DaySESs,
+        cSdslStucPerfPrev1DayUASs,
+        cSdslStucPerfPrev1DayInits,
+        cSdslStucPerfPrev1DayUnavlRsrcs
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining near-end performance
+        data collection capability using 1-day intervals."
+    ::= { ciscoSdslLineMIBGroups 6 }
+
+cSdslSturPMCounterGroup OBJECT-GROUP
+    OBJECTS {
+        cSdslSturPerfLOSs,
+        cSdslSturPerfLOSQs,
+        cSdslSturPerfCVs,
+        cSdslSturPerfESs,
+        cSdslSturPerfSESs,
+        cSdslSturPerfUASs
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining basic far-end
+        performance monitoring capability."
+    ::= { ciscoSdslLineMIBGroups 7 }
+
+cSdslSturPM15MinIntervalGroup OBJECT-GROUP
+    OBJECTS {
+        cSdslSturPerfValidIntervals,
+        cSdslSturPerfInvalidIntervals,
+        cSdslSturPerfCurr15MinTimeElapse,
+        cSdslSturPerfCurr15MinLOSs,
+        cSdslSturPerfCurr15MinLOSQs,
+        cSdslSturPerfCurr15MinCVs,
+        cSdslSturPerfCurr15MinESs,
+        cSdslSturPerfCurr15MinSESs,
+        cSdslSturPerfCurr15MinUASs,
+        cSdslSturIntervalLOSs,
+        cSdslSturIntervalLOSQs,
+        cSdslSturIntervalCVs,
+        cSdslSturIntervalESs,
+        cSdslSturIntervalSESs,
+        cSdslSturIntervalUASs,
+        cSdslSturIntervalValidData
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining far-end performance
+        data collection capability using 15-minute intervals."
+    ::= { ciscoSdslLineMIBGroups 8 }
+
+cSdslSturPM1DayIntervalGroup OBJECT-GROUP
+    OBJECTS {
+        cSdslSturPerfCurr1DayTimeElapsed,
+        cSdslSturPerfCurr1DayLOSs,
+        cSdslSturPerfCurr1DayLOSQs,
+        cSdslSturPerfCurr1DayCVs,
+        cSdslSturPerfCurr1DayESs,
+        cSdslSturPerfCurr1DaySESs,
+        cSdslSturPerfCurr1DayUASs,
+        cSdslSturPerfPrev1DayMoniSecs,
+        cSdslSturPerfPrev1DayLOSs,
+        cSdslSturPerfPrev1DayLOSQs,
+        cSdslSturPerfPrev1DayCVs,
+        cSdslSturPerfPrev1DayESs,
+        cSdslSturPerfPrev1DaySESs,
+        cSdslSturPerfPrev1DayUASs
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining far-end performance
+        data collection capability using 1-day intervals."
+    ::= { ciscoSdslLineMIBGroups 9 }
+
+cSdslStucRateAdaptiveGroup OBJECT-GROUP
+    OBJECTS {
+        cSdslStucCurrRate,
+        cSdslStucMaxSnrMgn,
+        cSdslStucMinSnrMgn,
+        cSdslStucThreshMinRate
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining rate adaptive
+        operation of an STU-C."
+    ::= { ciscoSdslLineMIBGroups 10 }
+
+cSdslStucAlarmConfProfileGroup OBJECT-GROUP
+    OBJECTS {
+        cSdslStucThreshMinRate,
+        cSdslStucThreshMinSnrMgn
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of traps generated by the agent to signal
+        threshold alarms."
+    ::= { ciscoSdslLineMIBGroups 11 }
+
+cSdslStucBasicGroupRev1 OBJECT-GROUP
+    OBJECTS {
+        cSdslLineCoding,
+        cSdslLineFraming,
+        cSdslLineSpecific,
+        cSdslLineConfProfile,
+        cSdslLineAlarmConfProfile,
+        cSdslStucInvSerialNumber,
+        cSdslStucInvVendorId,
+        cSdslStucInvVersionNumber,
+        cSdslStucState,
+        cSdslStucDefect,
+        cSdslStucCurrRate,
+        cSdslStucCurrSnrMgn,
+        cSdslStucCurrGain,
+        cSdslStucCurrOutputPwr,
+        cSdslStucCurrAtn,
+        cSdslLineMaxRate,
+        cSdslLineFramingMode,
+        cSdslStucTargetSnrMgn,
+        cSdslStucMaxSnrMgn,
+        cSdslStucMinSnrMgn,
+        cSdslStucOutputPwr,
+	cSdslShdslLineMaxRate,
+	cSdslStucPsdMaskType,
+	cSdslStucAnnex,
+	cSdslLineEquipmentType,
+	cSdslLineAutoRateEnable,
+	cSdslStucThresholdSnrMgn
+    }
+    STATUS deprecated
+    DESCRIPTION
+        "A collection of managed objects defining the basic operation
+        of an STU-C. This specification is replaced by 
+        cSdslStucBasicGroupRev2."
+    ::= { ciscoSdslLineMIBGroups 12 }
+
+cSdslSturBasicGroupRev1 OBJECT-GROUP
+    OBJECTS {
+        cSdslLineCoding,
+        cSdslLineFraming,
+        cSdslSturInvSerialNumber,
+        cSdslSturInvVendorId,
+        cSdslSturInvVersionNumber,
+        cSdslSturState,
+        cSdslSturDefect,
+        cSdslSturCurrRate,
+        cSdslSturCurrSnrMgn,
+        cSdslSturCurrGain,
+        cSdslSturCurrOutputPwr,
+	cSdslSturCurrAtn,
+	cSdslShdslLineMaxRate,
+	cSdslLineEquipmentType,
+	cSdslLineAutoRateEnable,
+        cSdslSturAnnex
+    }
+    STATUS deprecated
+    DESCRIPTION
+        "A collection of managed objects defining the basic operation
+        of an STU-R. This specification is replaced by 
+        cSdslSturBasicGroupRev2"
+    ::= { ciscoSdslLineMIBGroups 13 }
+
+cSdslStucBasicGroupRev2 OBJECT-GROUP
+    OBJECTS {
+        cSdslLineCoding,
+        cSdslLineFraming,
+        cSdslLineSpecific,
+        cSdslLineConfProfile,
+        cSdslLineAlarmConfProfile,
+        cSdslStucInvSerialNumber,
+        cSdslStucInvVendorId,
+        cSdslStucInvVersionNumber,
+        cSdslStucState,
+        cSdslStucDefect,
+        cSdslStucCurrRate,
+        cSdslStucCurrSnrMgn,
+        cSdslStucCurrGainRev,
+        cSdslStucCurrOutputPwr,
+        cSdslStucCurrAtn,
+        cSdslLineMaxRate,
+        cSdslLineFramingMode,
+        cSdslStucTargetSnrMgn,
+        cSdslStucMaxSnrMgn,
+        cSdslStucMinSnrMgn,
+        cSdslStucOutputPwr,
+	cSdslShdslLineMaxRate,
+	cSdslStucPsdMaskType,
+	cSdslStucAnnex,
+	cSdslLineEquipmentType,
+	cSdslLineAutoRateEnable,
+	cSdslStucThresholdSnrMgn
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining the basic operation
+        of an STU-C."
+    ::= { ciscoSdslLineMIBGroups 14 }
+
+cSdslSturBasicGroupRev2 OBJECT-GROUP
+    OBJECTS {
+        cSdslLineCoding,
+        cSdslLineFraming,
+        cSdslSturInvSerialNumber,
+        cSdslSturInvVendorId,
+        cSdslSturInvVersionNumber,
+        cSdslSturState,
+        cSdslSturDefect,
+        cSdslSturCurrRate,
+        cSdslSturCurrSnrMgn,
+        cSdslSturCurrGainRev,
+        cSdslSturCurrOutputPwr,
+	cSdslSturCurrAtn,
+	cSdslShdslLineMaxRate,
+	cSdslLineEquipmentType,
+	cSdslLineAutoRateEnable,
+        cSdslSturAnnex
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining the basic operation
+        of an STU-R."
+    ::= { ciscoSdslLineMIBGroups 15 }
+
+cSdslSturGroupRev1 OBJECT-GROUP
+    OBJECTS {
+        cSdslSturInvSerialNumber,
+        cSdslSturInvVendorId,
+        cSdslSturInvVersionNumber,
+        cSdslSturState,
+        cSdslSturDefect,
+        cSdslSturCurrRate,
+        cSdslSturCurrSnrMgn,
+        cSdslSturCurrGainRev,
+        cSdslSturCurrOutputPwr
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining the capability to
+        remotely manage a STU-R."
+    ::= { ciscoSdslLineMIBGroups 16 }
+
+END 
+
+
+
+
+
+

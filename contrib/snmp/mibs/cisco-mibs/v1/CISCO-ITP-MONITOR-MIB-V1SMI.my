@@ -1,0 +1,614 @@
+-- MIB file created 07-Nov-2004 15:50:13, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ITP-MONITOR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ITP-MONITOR-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+    InetPortNumber
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    TruthValue
+            FROM SNMPv2-TC-v1
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoItpmMIB OBJECT IDENTIFIER ::= { ciscoMgmt 379 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200407200000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems, Inc
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-ss7@cisco.com
+--  Descr
+--    The MIB for providing information related to 
+--     monitoring SS7 links. 
+--     
+--     This information can be used to manage the state
+--     of software used to collect all packets transported
+--     and received over a SS7 link.
+--     
+--     Abbreviations:
+--       MSU   - Message Signalling Unit
+--       MTP   - Message Transport Protocol
+--       SS7   - System  No. 7 (SS7) Network
+--  RevDate
+--    200407200000Z
+--  RevDescr
+--    Add support for notification when connection
+--     to server changes states.
+--  RevDate
+--    200310310000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoItpmMIBNotifs OBJECT IDENTIFIER ::= { ciscoItpmMIB 0 }
+ciscoItpmMIBObjects OBJECT IDENTIFIER ::= { ciscoItpmMIB 1 }
+ciscoItpmMIBConform OBJECT IDENTIFIER ::= { ciscoItpmMIB 2 }
+cItpmConn       OBJECT IDENTIFIER ::= { ciscoItpmMIBObjects 1 }
+cItpmLink       OBJECT IDENTIFIER ::= { ciscoItpmMIBObjects 2 }
+ciscoItpmMIBCompliances OBJECT IDENTIFIER ::= { ciscoItpmMIBConform 1 }
+ciscoItpmMIBGroups OBJECT IDENTIFIER ::= { ciscoItpmMIBConform 2 }
+
+cItpmConnTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CItpmConnTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides information on connections used 
+         to collect information on SS7 links.  Information in 
+         this table can be used to customize connection 
+         parameters.  In addition, this table provides 
+         measurements and status information for each 
+         connection."
+    ::= { cItpmConn 1 }
+
+cItpmConnTableEntry OBJECT-TYPE
+    SYNTAX CItpmConnTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cItpmConnTable table."
+    INDEX { cItpmConnPortNumber }
+    ::= { cItpmConnTable 1 }
+
+CItpmConnTableEntry ::= SEQUENCE {
+    cItpmConnPortNumber InetPortNumber,
+    cItpmConnKeepAlive Gauge,
+    cItpmConnMaxQDepth Gauge,
+    cItpmConnCongOnset Gauge,
+    cItpmConnCongAbate Gauge,
+    cItpmConnRcvWindowSize Gauge,
+    cItpmConnFastStart TruthValue,
+    cItpmConnQueueDepth Gauge,
+    cItpmConnMonitorState INTEGER,
+    cItpmConnCongestion TruthValue,
+    cItpmConnCongCounts Counter
+    }
+
+cItpmConnPortNumber OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The port number used to establish TCP connection."
+    ::= { cItpmConnTableEntry 1 }
+
+cItpmConnKeepAlive OBJECT-TYPE
+    SYNTAX Gauge(0..60000)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the keepalive time value in milliseconds.  
+         Keepalive packets are sent between the monitor and the 
+         remote server as a mechanism to ensure the TCP session 
+         is active and detect session failure in a timely manner.  
+         During periods of idle monitor traffic, the monitor will 
+         send a keepalive packet to the remote server at the 
+         specified interval.  The monitor also expects to receive 
+         a keepalive packet from the remote server at the same 
+         interval.  If the monitor does not receive a 
+         keepalive packet from the remote server in two times the 
+         keep alive value, the monitor will close the TCP 
+         session.  The value of zero disables the keep alive 
+         processing."
+    DEFVAL { 5000 }
+    ::= { cItpmConnTableEntry 2 }
+
+cItpmConnMaxQDepth OBJECT-TYPE
+    SYNTAX Gauge(10..100000)
+--  Units
+--    packets
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of packets that can be queued for 
+         transmission.  If the monitor cannot send a TCP packet 
+         immediately, the packet will be queued for retransmit.  
+         This object defines the maximum number of TCP packets
+         that may be queued for retransmit.  Once the number of
+         TCP packets on the queue reaches the value specified by
+         this object, additional TCP packets will be 
+         dropped."
+    DEFVAL { 100 }
+    ::= { cItpmConnTableEntry 3 }
+
+cItpmConnCongOnset OBJECT-TYPE
+    SYNTAX Gauge(100..100000)
+--  Units
+--    packets
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Threshold used to mark onset of congestion.
+         When the cItpmConnQueueDepth object reaches value
+         specified by this object the connection will 
+         considered congested. It will remain congested until
+         the cItpmConnQueueDepth object drops below the value
+         specified by the cItpmConnCongAbate object."
+    ::= { cItpmConnTableEntry 4 }
+
+cItpmConnCongAbate OBJECT-TYPE
+    SYNTAX Gauge(0..100000)
+--  Units
+--    packets
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Threshold used to mark end of congestion.
+         When the cItpmConnQueueDepth object drops below the
+         value specified by this object the connection will 
+         exit congestion."
+    ::= { cItpmConnTableEntry 5 }
+
+cItpmConnRcvWindowSize OBJECT-TYPE
+    SYNTAX Gauge(100..1000000)
+--  Units
+--    bytes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The size of TCP receive window.  This object
+         defines the number of outstanding (unacknowledged)
+         bytes that the ITP monitor can receive on TCP 
+         connection."
+    DEFVAL { 200000 }
+    ::= { cItpmConnTableEntry 6 }
+
+cItpmConnFastStart OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Defines the fast-start option for establishing TCP 
+         connectivity as follows.
+          
+         'true'   - FastStart is enabled. 
+         'false'  - FastStart is disabled.
+        
+         Normally, after the TCP session with the remote server 
+         is established, the monitor will not send MSUs from the 
+         monitored links to the server until the server responds 
+         to the first keepalive.  
+        
+         This mechanism prevents the ITP from over-running the 
+         server until the TCP session and receive window sizes
+         are fully established.  
+         
+         Configuration of fast-start overrides this mechanism and 
+         allows the ITP to start sending MSUs to the server 
+         immediately after the TCP session is established.  
+        
+         Caution should be used with the fast-start configuration 
+         as MSUs may be lost until the TCP session server and 
+         receive window sizes are fully established. "
+    DEFVAL { false }
+    ::= { cItpmConnTableEntry 7 }
+
+cItpmConnQueueDepth OBJECT-TYPE
+    SYNTAX Gauge(0..100000)
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets queued for transmission. The
+         maximum value is specified by the cItpmConnMaxQDepth
+         object."
+    ::= { cItpmConnTableEntry 8 }
+
+cItpmConnMonitorState OBJECT-TYPE
+    SYNTAX INTEGER {
+        active(1),
+        inactive(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The state of the connection as follows.
+         'active'  - connection is transmitting SS7 link
+                     traffic to server.
+                     
+         'inactive'  - connection is not transmitting SS7 link
+                     traffic to server."
+    ::= { cItpmConnTableEntry 9 }
+
+cItpmConnCongestion OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Congestion indicator for connection as follows. 
+         'true'   - connection is congested. 
+         'false'  - connection not congested.
+        
+         Congestion onset occurs when the cItpmConnQueueDepth 
+         object reaches the maximum allowed value specified by 
+         the cItpmConnMaxQDepth object.  
+         
+         Congestion abate occurs when the cItpmConnQueueDepth
+         object reaches the maximum allowed value specified by 
+         the cItpmConnMaxQDepth object. "
+    ::= { cItpmConnTableEntry 10 }
+
+cItpmConnCongCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    occurences
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times the connection has entered 
+        congestion."
+    ::= { cItpmConnTableEntry 11 }
+
+cItpmLinkTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CItpmLinkTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides information and measurements 
+         on the monitored SS7 links per connection.  This table
+         shares the cItpmConnPortNumber index with the 
+         cItpmConnTable."
+    ::= { cItpmConn 2 }
+
+cItpmLinkTableEntry OBJECT-TYPE
+    SYNTAX CItpmLinkTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cItpmLinkTable table."
+    INDEX { cItpmConnPortNumber, cItpmLinkNumber }
+    ::= { cItpmLinkTable 1 }
+
+CItpmLinkTableEntry ::= SEQUENCE {
+    cItpmLinkNumber Gauge,
+    cItpmLinkDescription SnmpAdminString,
+    cItpmLinkSlotNumber Gauge,
+    cItpmLinkStatus INTEGER,
+    cItpmLinkRcvdMsus Counter,
+    cItpmLinkRcvdMsuDrops Counter,
+    cItpmLinkRcvdMsuRate Gauge,
+    cItpmLinkRcvdBitsRate Gauge,
+    cItpmLinkSentMsus Counter,
+    cItpmLinkSentMsuDrops Counter,
+    cItpmLinkSentMsuRate Gauge,
+    cItpmLinkSentBitsRate Gauge
+    }
+
+cItpmLinkNumber OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the secondary index for 
+         objects in the cItpmLinkTable table. A unique  
+         number is assigned to each link when it is 
+         assigned to a connection."
+    ::= { cItpmLinkTableEntry 1 }
+
+cItpmLinkDescription OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..128))
+--    Rsyntax OCTET STRING(SIZE(0..128))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Brief customer defined description."
+    ::= { cItpmLinkTableEntry 2 }
+
+cItpmLinkSlotNumber OBJECT-TYPE
+    SYNTAX Gauge(0..32767)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The slot number support interface used to collect 
+         SS7 link traffic."
+    ::= { cItpmLinkTableEntry 3 }
+
+cItpmLinkStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        active(1),
+        inactive(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The state of the monitored SS7 Link as follows.
+         'active'    - SS7 link is available for monitoring.
+         'inactive'  - SS7 link is unavailable for monitoring."
+    ::= { cItpmLinkTableEntry 4 }
+
+cItpmLinkRcvdMsus OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    MSUs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of MSUs received on SS7 Link."
+    ::= { cItpmLinkTableEntry 5 }
+
+cItpmLinkRcvdMsuDrops OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    MSUs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of MSUs that were received on SS7 Link
+         and were dropped due to congestion."
+    ::= { cItpmLinkTableEntry 6 }
+
+cItpmLinkRcvdMsuRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    MSUs per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of MSUs received on SS7 Link per second."
+    ::= { cItpmLinkTableEntry 7 }
+
+cItpmLinkRcvdBitsRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bits received on SS7 Link per second."
+    ::= { cItpmLinkTableEntry 8 }
+
+cItpmLinkSentMsus OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    MSUs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of MSUs sent on SS7 Link."
+    ::= { cItpmLinkTableEntry 9 }
+
+cItpmLinkSentMsuDrops OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    MSUs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of MSUs that were sent on SS7 Link
+         and were dropped due to congestion."
+    ::= { cItpmLinkTableEntry 10 }
+
+cItpmLinkSentMsuRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    MSUs per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of MSUs sent on SS7 Link per second."
+    ::= { cItpmLinkTableEntry 11 }
+
+cItpmLinkSentBitsRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bits per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bits sent on SS7 Link per second."
+    ::= { cItpmLinkTableEntry 12 }
+
+cItpmCongestionNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The ITP monitor congestion States notification 
+        truth value.                
+        
+        'true'  Indicates that cItpmCongestionNotifEnabled
+                notification is to be generated when the state
+                changes. That is, the notification generation 
+                is enabled.
+        'false' Indicates that cItpmCongestionNotifEnabled
+                notification generation is disabled."
+    DEFVAL { false }
+    ::= { ciscoItpmMIBObjects 3 }
+
+cItpmMonitorStateNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The ITP monitor state notification truth value.
+        
+         'true'  - Indicates that ciscoItpMonitorState notification
+                   is to be generated when the state of connection 
+                   changes. That is, the notification generation is
+                   enabled.
+        
+         'false' - Indicates that ciscoItpMonitorState notification
+                   generation is disabled."
+    DEFVAL { false }
+    ::= { ciscoItpmMIBObjects 4 }
+
+ciscoItpMonitorCongestion TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoItpmMIB
+    VARIABLES {
+        cItpmConnCongestion }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The notification generated when a connection 
+         enters or exits congestion state.  The value of 
+         cItpmConnCongestion indicates new state."
+    ::= 1
+
+ciscoItpMonitorState TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoItpmMIB
+    VARIABLES {
+        cItpmConnMonitorState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The notification generated when a connection 
+         changes states.  The value of 
+         cItpmConnMonitorState indicates new state."
+    ::= 2
+
+ciscoItpmConnGroup OBJECT IDENTIFIER ::= { ciscoItpmMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    ITP Monitor connection group.
+--  objects
+--    cItpmCongestionNotifEnabled, cItpmConnKeepAlive, 
+--    cItpmConnMaxQDepth, cItpmConnCongOnset, cItpmConnCongAbate, 
+--    cItpmConnRcvWindowSize, cItpmConnFastStart, 
+--    cItpmConnQueueDepth, cItpmConnMonitorState, 
+--    cItpmConnCongestion, cItpmConnCongCounts
+
+ciscoItpmLinkGroup OBJECT IDENTIFIER ::= { ciscoItpmMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    ITP Monitor SS7 Link group
+--  objects
+--    cItpmLinkDescription, cItpmLinkSlotNumber, cItpmLinkStatus, 
+--    cItpmLinkRcvdMsus, cItpmLinkRcvdMsuDrops, 
+--    cItpmLinkRcvdMsuRate, cItpmLinkRcvdBitsRate, 
+--    cItpmLinkSentMsus, cItpmLinkSentMsuDrops, 
+--    cItpmLinkSentMsuRate, cItpmLinkSentBitsRate
+
+ciscoItpmConnGroupRev1 OBJECT IDENTIFIER ::= { ciscoItpmMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    ITP Monitor connection group
+--  objects
+--    cItpmCongestionNotifEnabled, cItpmMonitorStateNotifEnabled, 
+--    cItpmConnKeepAlive, cItpmConnMaxQDepth, cItpmConnCongOnset, 
+--    cItpmConnCongAbate, cItpmConnRcvWindowSize, 
+--    cItpmConnFastStart, cItpmConnQueueDepth, 
+--    cItpmConnMonitorState, cItpmConnCongestion, 
+--    cItpmConnCongCounts
+
+ciscoItpmNotificationsGroup OBJECT IDENTIFIER ::= { ciscoItpmMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    ITP Monitor notification objects.
+--  notifications
+--    ciscoItpMonitorCongestion
+
+ciscoItpmNotificationsGroupRev1 OBJECT IDENTIFIER ::= { ciscoItpmMIBGroups 5 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    ITP Monitor notification objects.
+--  notifications
+--    ciscoItpMonitorCongestion, ciscoItpMonitorState
+
+ciscoItpmMIBCompliance OBJECT IDENTIFIER ::= { ciscoItpmMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--     the CISCO-ITP-MONITOR-MIB.my MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoItpmConnGroup
+--   MandGroup
+--    ciscoItpmLinkGroup
+--   MandGroup
+--    ciscoItpmNotificationsGroup
+
+ciscoItpmMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoItpmMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--     the CISCO-ITP-MONITOR-MIB.my MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoItpmConnGroupRev1
+--   MandGroup
+--    ciscoItpmLinkGroup
+--   MandGroup
+--    ciscoItpmNotificationsGroupRev1
+
+
+END
+

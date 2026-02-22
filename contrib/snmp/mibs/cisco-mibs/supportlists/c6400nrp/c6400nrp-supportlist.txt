@@ -1,0 +1,294 @@
+================================================================================
+
+Cisco 6400 UAC NRP1 MIB Support List
+
+================================================================================
+
+MIBs Supported in Cisco IOS Release 12.1 DC
+
+ATM-MIB.my 
+BGP4-MIB.my 
+BRIDGE-MIB.my (v1) 
+CISCO-AAL5-MIB.my 
+CISCO-ATM-EXT-MIB.my 
+CISCO-BUS-MIB.my 
+CISCO-CAR-MIB.my 
+CISCO-CDP-MIB.my 
+CISCO-CIRCUIT-INTERFACE-MIB.my 
+CISCO-CLASS-BASED-QOS-MIB.my 
+CISCO-CONFIG-COPY-MIB.my 
+CISCO-CONFIG-MAN-MIB.my 
+CISCO-DSL-PROVISION-MIB.my 
+CISCO-FRAME-RELAY-MIB.my 
+CISCO-IETF-ATM2-PVCTRAP-MIB.my 
+CISCO-IMAGE-MIB.my 
+CISCO-IP-STAT-MIB.my 
+CISCO-IPMROUTE-MIB.my 
+CISCO-LEC-DATA-VCC-MIB.my 
+CISCO-LEC-EXT-MIB.my 
+CISCO-LECS-MIB.my 
+CISCO-LES-MIB.my 
+CISCO-MEMORY-POOL-MIB.my 
+CISCO-NTP-MIB.my 
+CISCO-PING-MIB.my 
+CISCO-QUEUE-MIB.my 
+CISCO-RTTMON-MIB.my 
+CISCO-SNAPSHOT-MIB.my 
+CISCO-SYSLOG-MIB.my 
+CISCO-TCP-MIB.my 
+CISCO-VPDN-MGMT-EXT-MIB.my 
+CISCO-VPDN-MGMT-MIB.my 
+CISCO-VSIMASTER-MIB.my 
+DOT12-IF-MIB.my 
+ETHERLIKE-MIB.my (v1) 
+IF-MIB.my 
+IGMP-MIB.my 
+INT-SERV-GUARANTEED-MIB.my 
+INT-SERV-MIB.my 
+IPMROUTE-MIB.my 
+LAN-EMULATION-CLIENT-MIB.my 
+MSDP-MIB.my 
+OLD-CISCO-CHASSIS-MIB.my (v1) 
+OLD-CISCO-CPU-MIB.my (v1) 
+OLD-CISCO-INTERFACES-MIB.my (v1) 
+OLD-CISCO-IP-MIB.my (v1) 
+OLD-CISCO-MEMORY-MIB.my (v1) 
+OLD-CISCO-SYSTEM-MIB.my (v1) 
+OLD-CISCO-TCP-MIB.my (v1) 
+PIM-MIB.my 
+RFC1213-MIB.my (v1) 
+RFC1253-MIB.my (v1) 
+RFC1315-MIB.my (v1) 
+RFC1381-MIB.my (v1) 
+RFC1382-MIB.my (v1) 
+RSVP-MIB.my 
+SNMPv2-MIB.my 
+TCP-MIB.my 
+UDP-MIB.my 
+
+MIBs added in Cisco IOS Release 12.1(5)DC
+
+None 
+
+MIBs deleted in Cisco IOS Release 12.1(5)DC
+
+None 
+
+MIBs added in Cisco IOS Release 12.1(4)DC
+
+BGP4-MIB.my 
+BRIDGE-MIB.my (v1) 
+CISCO-CAR-MIB.my 
+CISCO-CIRCUIT-INTERFACE-MIB.my 
+CISCO-CONFIG-COPY-MIB.my 
+CISCO-FRAME-RELAY-MIB.my 
+CISCO-IP-STAT-MIB.my 
+CISCO-IPMROUTE-MIB.my 
+CISCO-LEC-EXT-MIB.my 
+CISCO-QUEUE-MIB.my 
+CISCO-RTTMON-MIB.my 
+CISCO-SNAPSHOT-MIB.my 
+CISCO-VSIMASTER-MIB.my 
+ETHERLIKE-MIB.my (v1) 
+IGMP-MIB.my 
+INT-SERV-GUARANTEED-MIB.my 
+INT-SERV-MIB.my 
+IPMROUTE-MIB.my 
+OLD-CISCO-IP-MIB.my (v1) 
+OLD-CISCO-TCP-MIB.my (v1) 
+PIM-MIB.my 
+RFC1253-MIB.my (v1) 
+RFC1315-MIB.my (v1) 
+RFC1381-MIB.my (v1) 
+RFC1382-MIB.my (v1) 
+RSVP-MIB.my 
+  
+
+MIBs deleted in Cisco IOS Release 12.1(4)DC
+
+CISCO-COMPRESSION-SERVICE-ADAPTER-MIB.my 
+CISCO-FLASH-MIB.my 
+  
+
+MIBs added in Cisco IOS Release 12.1(3)DC
+
+None 
+
+MIBs deleted in Cisco IOS Release 12.1(3)DC
+
+None 
+
+
+
+--------------------------------------------------------------------------------
+
+MIBs Supported in Cisco IOS Release 12.0 DC
+
+ATM-MIB.my 
+CISCO-AAL5-MIB.my 
+CISCO-ATM-EXT-MIB.my 
+CISCO-BUS-MIB.my 
+CISCO-CDP-MIB.my 
+CISCO-COMPRESSION-SERVICE-ADAPTER-MIB.my 
+CISCO-CONFIG-MAN-MIB.my 
+CISCO-DSL-PROVISION-MIB.my 
+CISCO-FLASH-MIB.my 
+CISCO-IETF-ATM2-PVCTRAP-MIB.my 
+CISCO-IMAGE-MIB.my 
+CISCO-LEC-DATA-VCC-MIB.my 
+CISCO-LECS-MIB.my 
+CISCO-LES-MIB.my 
+CISCO-MEMORY-POOL-MIB.my 
+CISCO-PING-MIB.my 
+CISCO-SYSLOG-MIB.my 
+CISCO-TCP-MIB.my 
+CISCO-VPDN-MGMT-EXT-MIB.my 
+CISCO-VPDN-MGMT-MIB.my 
+DOT12-IF-MIB.my 
+IF-MIB.my 
+LAN-EMULATION-CLIENT-MIB.my 
+OLD-CISCO-CHASSIS-MIB.my (v1) 
+OLD-CISCO-CPU-MIB.my (v1) 
+OLD-CISCO-INTERFACES-MIB.my (v1) 
+OLD-CISCO-MEMORY-MIB.my (v1) 
+OLD-CISCO-SYSTEM-MIB.my (v1) 
+RFC1213-MIB.my (v1) 
+RFC1398-MIB.my (v1) 
+SNMPv2-MIB.my 
+TCP-MIB.my 
+UDP-MIB.my 
+
+MIBs added in Cisco IOS Release 12.0(7)DC
+
+None 
+
+MIBs deleted in Cisco IOS Release 12.0(7)DC
+
+None 
+
+================================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+================================================================================
+
+Cisco 6400 UAC NRP2 MIB Support List
+
+================================================================================
+
+
+MIBs Supported in Cisco IOS Release 12.1 DC
+
+ATM-MIB.my 
+BGP4-MIB.my 
+BRIDGE-MIB.my (v1) 
+CISCO-AAL5-MIB.my 
+CISCO-ATM-EXT-MIB.my 
+CISCO-BUS-MIB.my 
+CISCO-CAR-MIB.my 
+CISCO-CDP-MIB.my 
+CISCO-CIRCUIT-INTERFACE-MIB.my 
+CISCO-CLASS-BASED-QOS-MIB.my 
+CISCO-CONFIG-COPY-MIB.my 
+CISCO-CONFIG-MAN-MIB.my 
+CISCO-FRAME-RELAY-MIB.my 
+CISCO-IETF-ATM2-PVCTRAP-MIB.my 
+CISCO-IMAGE-MIB.my 
+CISCO-IP-STAT-MIB.my 
+CISCO-IPMROUTE-MIB.my 
+CISCO-LEC-DATA-VCC-MIB.my 
+CISCO-LEC-EXT-MIB.my 
+CISCO-LECS-MIB.my 
+CISCO-LES-MIB.my 
+CISCO-MEMORY-POOL-MIB.my 
+CISCO-NTP-MIB.my 
+CISCO-PING-MIB.my 
+CISCO-QUEUE-MIB.my 
+CISCO-RTTMON-MIB.my 
+CISCO-SNAPSHOT-MIB.my 
+CISCO-SYSLOG-MIB.my 
+CISCO-TCP-MIB.my 
+CISCO-VPDN-MGMT-EXT-MIB.my 
+CISCO-VPDN-MGMT-MIB.my 
+CISCO-VSIMASTER-MIB.my 
+DOT12-IF-MIB.my 
+ETHERLIKE-MIB.my (v1) 
+IF-MIB.my 
+IGMP-MIB.my 
+INT-SERV-GUARANTEED-MIB.my 
+INT-SERV-MIB.my 
+IPMROUTE-MIB.my 
+LAN-EMULATION-CLIENT-MIB.my 
+MSDP-MIB.my 
+OLD-CISCO-CHASSIS-MIB.my (v1) 
+OLD-CISCO-CPU-MIB.my (v1) 
+OLD-CISCO-INTERFACES-MIB.my (v1) 
+OLD-CISCO-IP-MIB.my (v1) 
+OLD-CISCO-MEMORY-MIB.my (v1) 
+OLD-CISCO-SYSTEM-MIB.my (v1) 
+OLD-CISCO-TCP-MIB.my (v1) 
+PIM-MIB.my 
+RFC1213-MIB.my (v1) 
+RFC1253-MIB.my (v1) 
+RFC1315-MIB.my (v1) 
+RFC1381-MIB.my (v1) 
+RFC1382-MIB.my (v1) 
+RSVP-MIB.my 
+SNMP-FRAMEWORK-MIB.my 
+SNMP-PROXY-MIB.my 
+SNMP-TARGET-MIB.my 
+SNMP-USM-MIB.my 
+SNMP-VACM-MIB.my 
+SNMPv2-MIB.my 
+TCP-MIB.my 
+UDP-MIB.my 
+
+MIBs added in Cisco IOS Release 12.1(5)DC
+
+None 
+
+MIBs deleted in Cisco IOS Release 12.1(5)DC
+
+None 
+
+MIBs added in Cisco IOS Release 12.1(4)DC
+
+None 
+
+MIBs deleted in Cisco IOS Release 12.1(4)DC
+
+None 
+
+MIBs added in Cisco IOS Release 12.1(3)DC
+
+None 
+
+MIBs deleted in Cisco IOS Release 12.1(3)DC
+
+None 
+
+MIBs added in Cisco IOS Release 12.1(2)DC
+
+None 
+
+MIBs deleted in Cisco IOS Release 12.1(2)DC
+
+None 
+
+================================================================================

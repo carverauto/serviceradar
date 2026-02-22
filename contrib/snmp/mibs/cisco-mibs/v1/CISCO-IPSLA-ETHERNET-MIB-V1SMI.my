@@ -1,0 +1,2907 @@
+-- MIB file created 13-Nov-2006 16:14:51, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IPSLA-ETHERNET-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IPSLA-ETHERNET-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TimeStamp, StorageType, RowStatus
+            FROM SNMPv2-TC-v1
+    VlanId
+            FROM Q-BRIDGE-MIB
+    Dot1agCfmMaintDomainNameType, Dot1agCfmMaintDomainName
+            FROM IEEE8021-CFM-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    Layer2Cos
+            FROM CISCO-TC
+    rttMonCtrlAdminIndex
+            FROM CISCO-RTTMON-MIB
+    RttResponseSense, RttMonRttType, RttMonReactVar, 
+    RttMonCtrlIndex, RttMonIdLst
+            FROM CISCO-RTTMON-TC-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoIpSlaEthernetMIB OBJECT IDENTIFIER ::= { ciscoMgmt 585 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200602080000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems, Inc.
+--    Customer Service 
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA 95134
+--    
+--    Tel:    +1 800 553 NETS
+--    Email:  cs-ipsla@cisco.com
+--  Descr
+--    This MIB module consists of two parts.
+--    
+--    1) Auto-Ethernet-CFM Control:
+--      |== ipslaEthernetGrpCtrlTable
+--      |== ipslaEthernetGrpReactTable
+--    
+--    2) ethernetJitter Stats:
+--      |== ipslaEtherJitterLatestStatsTable
+--      |== ipslaEtherJitterAggStatsTable
+--    
+--    The first part defines a mechanism to manage IP SLA 
+--    Auto-Ethernet-CFM operation.  
+--    
+--    IP SLA is a capability which utilizes active monitoring for 
+--    network perfomance.  It can be used for network 
+--    troubleshooting, network assessment and health monitoring.
+--    
+--    IEEE 802.1ag defines Connection Fault Management (CFM) for 
+--    Ethernet layer.  CFM can be used to detect, isolate and report
+--    the connectivity faults, and allows discovery and verification 
+--    of the path through briges and LANs.  
+--    
+--    Auto-Ethernet-CFM operation integrates the capabilities of 
+--    IP SLA and IEEE 802.1ag.  It's capable of discovering all the
+--    existing MEPs in a specified VLAN within a specified 
+--    maintenance domain.  After which, it creates, configures, and 
+--    schedules an IP SLA operation for each MEP automatically.
+--    
+--    IP SLA currently supports two types of operations for 
+--    end-to-end Ethernet connectivity - 'ethernetPing' and 
+--    'ethernetJitter'.
+--    
+--    'ethernetPing' can be used to monitor the connectivity and
+--    measure RTT by sending the regular 802.1ag loopback frame
+--    to a particular MEP.
+--    
+--    'ethernetJitter' can be used to measure metrics such as 
+--    RTT, Jitter, frame loss, one-way latency by sending multiple 
+--    enhanced CFM frames at specified interval to a particular MEP.
+--    
+--    Without Auto-Ethernet-CFM operation, the two types of operations
+--    can also be created, configured, and scheduled manually through 
+--    CISCO-RTTMON-MIB by specifing the target MEP's identifier 
+--    in addition to the VLAN and Maitenance Domain.
+--    
+--    With Auto-Ethernet-CFM operation, the two types of operations
+--    will be created automatically.  The Auto-Ethernet-CFM will pass
+--    all the values specified in this module to the corresponding 
+--    objects in CISCO-RTTMON-MIB for each MEP discovered.
+--    
+--       CISCO-IPSLA-ETHERNET-MIB         CISCO-RTTMON-MIB
+--    
+--      ipslaEthernetGrpCtrlTable     -> rttMonCtrlAdminTable
+--                                   |
+--                                    -> rttMonEchoAdminTable 
+--    
+--      ipslaEthernetGrpReactTable    -> rttMonReactTable
+--    
+--    The second part defines a collection of statistics resulting 
+--    from 'ethernetJitter' operation created either manually or 
+--    automatically.
+--    
+--    
+--    Glossary:
+--      CFM - Connection Fault Management 
+--      DSAP - Domain Service Access Point: A member of a set of 
+--          SAPs at which a Maintenance Domain is capable of 
+--          offering connectivity to systems outside the Maintenance 
+--          Domain.
+--      IP SLA - Cisco IOS IP Service Level Agreements
+--      IP SLA operation - Refers to the 'ethernetPing' or 
+--          'ethernetJitter' operation supported by IP SLA.  
+--      MEP - Maintenance association End Point: An actively managed 
+--          CFM entity, associated with a specific DSAP of a 
+--          service instance, which can generate and receive CFM 
+--          PDUs and track any responses.  
+--      maintenance domain - The network or the part of the network 
+--          for which faults in connectivity are to be managed.  
+--          The boundary of a Maintenance Domain is defined by a set 
+--          of DSAPs, each of which can become a point of connectivity
+--          to a service instance.
+--      Maintenance Domain Name - The identifier, unique over the 
+--          domain for which CFM is to protect against accidental 
+--          concatenation of service instances, of a particular 
+--          Maintenance Domain.
+--      RTT - Round Trip Time
+--      SAP - Service Access Point at which a service is offered.
+--      service instance - A service instance is a set of SAPs, 
+--          selected from among the DSAPs defining a Maintenance 
+--          Domain, such that a Data.Request primitive presented 
+--          to one SAP can result in a Data.Indication primitive 
+--          occurring at one or more of the other SAPs in the set.  
+--          It corresponds to a VLAN.
+--      TLV - Stands for Type, Length, Value, and denotes a method of
+--          encoding variable-length and/or optional information in a
+--          PDU.  TLVs are not aligned to any particular word or octet
+--          boundary.  TLVs follow each other with no padding between 
+--          TLVs.
+--      VLAN - Virtual Local Area Network: A subset of the active 
+--          topology of a Bridged Local Area Network.  Associated 
+--          with each VLAN is a VLAN Identifier.
+--    
+--    REFERENCE:
+--        IEEE 802.1ag Draft 6.0 'Virtual Briged Local Area Networks 
+--         - Amendments 5: Connectivity Fault Management' July 2006 
+--  RevDate
+--    200602080000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoIpSlaEthernetMIBNotifs OBJECT IDENTIFIER ::= { ciscoIpSlaEthernetMIB 0 }
+ciscoIpSlaEthernetMIBObjects OBJECT IDENTIFIER ::= { ciscoIpSlaEthernetMIB 1 }
+ipslaEthernetGrpCtrl OBJECT IDENTIFIER ::= { ciscoIpSlaEthernetMIBObjects 1 }
+ipslaEthernetStats OBJECT IDENTIFIER ::= { ciscoIpSlaEthernetMIBObjects 2 }
+ipslaEthernetLatestOper OBJECT IDENTIFIER ::= { ciscoIpSlaEthernetMIBObjects 3 }
+ciscoIpSlaEthernetMIBConform OBJECT IDENTIFIER ::= { ciscoIpSlaEthernetMIB 2 }
+ciscoIpSlaEthernetCompliances OBJECT IDENTIFIER ::= { ciscoIpSlaEthernetMIBConform 1 }
+ciscoIpSlaEthernetMIBGroups OBJECT IDENTIFIER ::= { ciscoIpSlaEthernetMIBConform 2 }
+
+ipslaEthernetGrpCtrlTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF IpslaEthernetGrpCtrlEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains Auto-Ethernet-CFM control data.  When a
+        row transition to the 'active' state, the IP SLA agent will
+        discover all the MEPs inside the specified VLAN and maintenance
+        domain and create IP SLA ethernet operations based on the
+        value of ipslaEthernetGrpCtrlRttType for each MEP.
+        
+        All the values in this table will be passed to the corresponding
+        objects in the rttMonCtrlAdminTable and rttMonEchoAdminTable of 
+        CISCO-RTTMON-MIB so that each IP SLA Ethernet operation will 
+        have the same configuration as specified for Auto-Ethernet-CFM.
+        
+        - Objects in this table       - Corresponding objects in 
+                                            rttMonCtrlAdminTable
+        ipslaEthernetGrpCtrlStatus     rttMonCtrlAdminStatus 
+        ipslaEthernetGrpCtrlRttType    rttMonCtrlAdminRttType 
+        ipslaEthernetGrpCtrlOwner      rttMonCtrlAdminOwner 
+        ipslaEthernetGrpCtrlTag        rttMonCtrlAdminTag 
+        ipslaEthernetGrpCtrlThreshold  rttMonCtrlAdminThreshold
+        ipslaEthernetGrpCtrlTimeout    rttMonCtrlAdminTimeout 
+        
+        - Objects in this table       - Corresponding objects in 
+                                            rttMonEchoAdminTable
+        ipslaEthernetGrpCtrlVLAN        rttMonEchoAdminTargetVLAN 
+        ipslaEthernetGrpCtrlDomainName  rttMonEchoAdminTargetDomainName
+        ipslaEthernetGrpCtrlReqDataSize rttMonEchoAdminPktDataRequestSize
+        ipslaEthernetGrpCtrlCOS         rttMonEchoAdminEthernetCOS
+        ipslaEthernetGrpCtrlInterval   rttMonEchoAdminInterval
+        ipslaEthernetGrpCtrlNumFrames  rttMonEchoAdminNumPackets"
+    ::= { ipslaEthernetGrpCtrl 1 }
+
+ipslaEthernetGrpCtrlEntry OBJECT-TYPE
+    SYNTAX IpslaEthernetGrpCtrlEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of objects that define a conceptual
+        Auto-Ethernet-CFM control row.
+        
+        The following objects must be specified in order to create this 
+        conceptual row.
+         - ipslaEthernetGrpCtrlStatus
+         - ipslaEthernetGrpCtrlRttType
+        
+        The following objects must be specified in order to activate this
+        conceptual row.
+         - ipslaEthernetGrpCtrlVLAN
+         - ipslaEthernetGrpCtrlDomainName
+         - ipslaEthernetGrpSchedulePeriod
+         - ipslaEthernetGrpScheduleRttStartTime
+        
+        This conceptual row can be delete at any time by set the
+        ipslaEthernetGrpCtrlStatus to 'destroy'.  When this row is
+        deleted, All the IP SLA operations created by this row will
+        be destroyed."
+    INDEX { ipslaEthernetGrpCtrlIndex }
+    ::= { ipslaEthernetGrpCtrlTable 1 }
+
+IpslaEthernetGrpCtrlEntry ::= SEQUENCE {
+    ipslaEthernetGrpCtrlIndex RttMonCtrlIndex,
+    ipslaEthernetGrpCtrlStatus RowStatus,
+    ipslaEthernetGrpCtrlStorageType StorageType,
+    ipslaEthernetGrpCtrlRttType RttMonRttType,
+    ipslaEthernetGrpCtrlOwner SnmpAdminString,
+    ipslaEthernetGrpCtrlTag SnmpAdminString,
+    ipslaEthernetGrpCtrlThreshold Gauge,
+    ipslaEthernetGrpCtrlTimeout Gauge,
+    ipslaEthernetGrpCtrlProbeList RttMonIdLst,
+    ipslaEthernetGrpCtrlVLAN VlanId,
+    ipslaEthernetGrpCtrlDomainNameType Dot1agCfmMaintDomainNameType,
+    ipslaEthernetGrpCtrlDomainName Dot1agCfmMaintDomainName,
+    ipslaEthernetGrpCtrlReqDataSize Gauge,
+    ipslaEthernetGrpCtrlMPIDExLst RttMonIdLst,
+    ipslaEthernetGrpCtrlCOS Layer2Cos,
+    ipslaEthernetGrpCtrlInterval Gauge,
+    ipslaEthernetGrpCtrlNumFrames Gauge,
+    ipslaEthernetGrpScheduleRttStartTime TimeTicks,
+    ipslaEthernetGrpSchedulePeriod Gauge,
+    ipslaEthernetGrpScheduleFrequency Gauge
+    }
+
+ipslaEthernetGrpCtrlIndex OBJECT-TYPE
+    SYNTAX RttMonCtrlIndex
+--    Rsyntax Gauge(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates a row in the ipslaEthernetGrpCtrlTable.
+        
+        This value is a pseudo-random number selected by the management
+        station when creating a row via the
+        ipslaEthernetGrpCtrlStatus object.
+        For easy management, user can select range of numbers for
+        different maintenance domain.  
+        For instance, the ipslaEthernetGrpCtrlIndex 1-100 will be
+        used for Domain_A, 101-200 will be used for Domain_B.      
+        
+        If the pseudo-random number is already in use an
+        'inconsistentValue' return code will be returned when set
+        operation is attempted."
+    ::= { ipslaEthernetGrpCtrlEntry 1 }
+
+ipslaEthernetGrpCtrlStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the status of Auto-Ethernet-CFM
+        control row.
+        
+        Following objects must be specified in order for this object to
+        become active.
+          - ipslaEthernetGrpCtrlRttType
+          - ipslaEthernetGrpCtrlVLAN
+          - ipslaEthernetGrpCtrlDomainName
+          - ipslaEthernetGrpSchedulePeriod
+          - ipslaEthernetGrpScheduleRttStartTime
+        All other objects can assume default values.
+        
+        The following objects cannot be modified after creating the
+        Auto-Ethernet-CFM conceptual row.
+         - ipslaEthernetGrpCtrlRttType
+         - ipslaEthernetGrpCtrlVLAN
+         - ipslaEthernetGrpCtrlDomainName
+        
+        The following objects can be modified even after creating the
+        Auto-Ethernet-CFM conceptual row by setting this object to
+        'notInService'
+         - All other writable objects in ipslaEthernetGrpCtrlTable except
+           ipslaEthernetGrpCtrlRttType, ipslaEthernetGrpCtrlVLAN
+           and ipslaEthernetGrpCtrlDomainName.
+         - Objects in the ipslaEthernetGrpScheduleTable.
+        
+        The following objects can be modified as needed without setting
+        this object to 'notInService' even after creating the
+        Auto-Ethernet-CFM conceptual row.
+         - Objects in ipslaEthernetGrpReactTable.
+        
+        This object can be set to 'destroy' from any value at any
+        time.  When this object is set to 'destroy' it will stop and
+        destroy all the IP SLA operations created by this 
+        Auto-Ethernet-CFM before destroying Auto-Ethernet-CFM
+        control row."
+    ::= { ipslaEthernetGrpCtrlEntry 2 }
+
+ipslaEthernetGrpCtrlStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies how the SNMP entity stores the data
+        contained by the corresponding conceptual row.  
+        
+        This object can be set to either 'volatile' or 'nonVolatile'.
+        Other values are not applicable for this conceptual row and
+        are not supported."
+    DEFVAL { volatile }
+    ::= { ipslaEthernetGrpCtrlEntry 3 }
+
+ipslaEthernetGrpCtrlRttType OBJECT-TYPE
+    SYNTAX RttMonRttType
+--    Rsyntax INTEGER {
+--        echo(1),
+--        pathEcho(2),
+--        fileIO(3),
+--        script(4),
+--        udpEcho(5),
+--        tcpConnect(6),
+--        http(7),
+--        dns(8),
+--        jitter(9),
+--        dlsw(10),
+--        dhcp(11),
+--        ftp(12),
+--        voip(13),
+--        rtp(14),
+--        lspGroup(15),
+--        icmpjitter(16),
+--        lspPing(17),
+--        lspTrace(18),
+--        ethernetPing(19),
+--        ethernetJitter(20),
+--        lspPingPseudowire(21)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of IP SLA operation to be created by this
+        Auto-Ethernet-CFM.
+        
+        This value can only be set to type 'ethernetPing' and 
+        'ethernetJitter'.
+        
+        'ethernetPing' operation sends the regular 802.1ag loopback 
+        frame to the target MEP to monitor the connectivity and perform 
+        delay analysis.  
+        
+        'ethernetJitter'sends multiple enhanced CFM frames at a 
+        specified interval to the target MEP to measure metrics such as 
+        RTT, jitter, frame loss, one-way latency and so on. 
+        
+        This value must be set before setting any other
+        parameter configuration of an Auto-Ethernet-CFM."
+    ::= { ipslaEthernetGrpCtrlEntry 4 }
+
+ipslaEthernetGrpCtrlOwner OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string which used by a managing application to identify
+        the entity that created this Auto-Ethernet-CFM."
+    DEFVAL { "" }
+    ::= { ipslaEthernetGrpCtrlEntry 5 }
+
+ipslaEthernetGrpCtrlTag OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string which used by a managing application to identify
+        the target VLAN and maintenance domain of this 
+        Auto-Ethernet-CFM."
+    DEFVAL { "" }
+    ::= { ipslaEthernetGrpCtrlEntry 6 }
+
+ipslaEthernetGrpCtrlThreshold OBJECT-TYPE
+    SYNTAX Gauge(0..2147483647)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the threshold value of a particular
+        object.
+        
+        This value will be examined for each IP SLA operations
+        created by the Auto-Ethernet-CFM.
+        
+        For 'ethernetPing', if the value of 
+        rttMonLatestRttOperCompletionTime is greater than this
+        value, the 'overThreshold' will be reported through
+        rttMonLatestRttOperSense defined in CISCO-RTTMON-MIB.
+        
+        For 'ethernetJitter', if the value of 
+        ipslaEtherJitterLatestAvgJitter value is greater than this
+        value, the 'overThreshold' will be reported through
+        ipslaEtherJitterLatestSense defined this module."
+    DEFVAL { 5000 }
+    ::= { ipslaEthernetGrpCtrlEntry 7 }
+
+ipslaEthernetGrpCtrlTimeout OBJECT-TYPE
+    SYNTAX Gauge(0..604800000)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the duration to wait for an IP SLA operation
+        created by this Auto-Ethernet-CFM to complete.
+        
+        For 'ethernetPing', if the value of 
+        rttMonLatestRttOperCompletionTime is greater than this
+        value, the 'timeout' will be reported through
+        rttMonLatestRttOperSense defined in CISCO-RTTMON-MIB.
+        
+        For 'ethernetJitter', if all the frames sent to target MEP
+        have not been recievied within this duration, the 'timeout'
+        will be reported through ipslaEtherJitterLatestSense 
+        defined this module.
+        
+        The value of this object cannot be set to a value which would
+        specify a duration exceeding ipslaEthernetGrpScheduleFrequency."
+    DEFVAL { 5000 }
+    ::= { ipslaEthernetGrpCtrlEntry 8 }
+
+ipslaEthernetGrpCtrlProbeList OBJECT-TYPE
+    SYNTAX RttMonIdLst
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the identifiers of the IP SLA
+        operations that are created by the Auto-Ethernet-CFM.
+        
+        The identifier will be stored in rttMonCtrlAdminIndex defined
+        in CISCO-RTTMON-MIB for each IP SLA operation."
+    ::= { ipslaEthernetGrpCtrlEntry 9 }
+
+ipslaEthernetGrpCtrlVLAN OBJECT-TYPE
+    SYNTAX VlanId
+--    Rsyntax INTEGER(1..4094)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the identifier of VLAN for which
+        the Auto-Ethernet-CFM operation will be used.
+        
+        It is an unique identifier for a service instance within 
+        a Maintenance Domain specified by ipslaEthernetGrpCtrlDomainName.
+        
+        The Auto-Ethernet-CFM will find all the MEPs participating 
+        in this VLAN and create IP SLA operations for each MEP 
+        corresponding to value specified in ipslaEthernetGrpCtrlRttType."
+    ::= { ipslaEthernetGrpCtrlEntry 10 }
+
+ipslaEthernetGrpCtrlDomainNameType OBJECT-TYPE
+    SYNTAX Dot1agCfmMaintDomainNameType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        ieeeReserved0(0),
+--        none(1),
+--        dnsLikeName(2),
+--        macAddressAndUint(3),
+--        charString(4),
+--        ieeeReserved5(5),
+--        ieeeReserved6(6),
+--        ieeeReserved7(7),
+--        ieeeReserved8(8),
+--        ieeeReserved9(9),
+--        ieeeReserved10(10),
+--        ieeeReserved11(11),
+--        ieeeReserved12(12),
+--        ieeeReserved13(13),
+--        ieeeReserved14(14),
+--        ieeeReserved15(15),
+--        ieeeReserved16(16),
+--        ieeeReserved17(17),
+--        ieeeReserved18(18),
+--        ieeeReserved19(19),
+--        ieeeReserved20(20),
+--        ieeeReserved21(21),
+--        ieeeReserved22(22),
+--        ieeeReserved23(23),
+--        ieeeReserved24(24),
+--        ieeeReserved25(25),
+--        ieeeReserved26(26),
+--        ieeeReserved27(27),
+--        ieeeReserved28(28),
+--        ieeeReserved29(29),
+--        ieeeReserved30(30),
+--        ieeeReserved31(31),
+--        ituReserved32(32),
+--        ituReserved33(33),
+--        ituReserved34(34),
+--        ituReserved35(35),
+--        ituReserved36(36),
+--        ituReserved37(37),
+--        ituReserved38(38),
+--        ituReserved39(39),
+--        ituReserved40(40),
+--        ituReserved41(41),
+--        ituReserved42(42),
+--        ituReserved43(43),
+--        ituReserved44(44),
+--        ituReserved45(45),
+--        ituReserved46(46),
+--        ituReserved47(47),
+--        ituReserved48(48),
+--        ituReserved49(49),
+--        ituReserved50(50),
+--        ituReserved51(51),
+--        ituReserved52(52),
+--        ituReserved53(53),
+--        ituReserved54(54),
+--        ituReserved55(55),
+--        ituReserved56(56),
+--        ituReserved57(57),
+--        ituReserved58(58),
+--        ituReserved59(59),
+--        ituReserved60(60),
+--        ituReserved61(61),
+--        ituReserved62(62),
+--        ituReserved63(63),
+--        ieeeReserved64(64),
+--        ieeeReserved65(65),
+--        ieeeReserved66(66),
+--        ieeeReserved67(67),
+--        ieeeReserved68(68),
+--        ieeeReserved69(69),
+--        ieeeReserved70(70),
+--        ieeeReserved71(71),
+--        ieeeReserved72(72),
+--        ieeeReserved73(73),
+--        ieeeReserved74(74),
+--        ieeeReserved75(75),
+--        ieeeReserved76(76),
+--        ieeeReserved77(77),
+--        ieeeReserved78(78),
+--        ieeeReserved79(79),
+--        ieeeReserved80(80),
+--        ieeeReserved81(81),
+--        ieeeReserved82(82),
+--        ieeeReserved83(83),
+--        ieeeReserved84(84),
+--        ieeeReserved85(85),
+--        ieeeReserved86(86),
+--        ieeeReserved87(87),
+--        ieeeReserved88(88),
+--        ieeeReserved89(89),
+--        ieeeReserved90(90),
+--        ieeeReserved91(91),
+--        ieeeReserved92(92),
+--        ieeeReserved93(93),
+--        ieeeReserved94(94),
+--        ieeeReserved95(95),
+--        ieeeReserved96(96),
+--        ieeeReserved97(97),
+--        ieeeReserved98(98),
+--        ieeeReserved99(99),
+--        ieeeReserved100(100),
+--        ieeeReserved101(101),
+--        ieeeReserved102(102),
+--        ieeeReserved103(103),
+--        ieeeReserved104(104),
+--        ieeeReserved105(105),
+--        ieeeReserved106(106),
+--        ieeeReserved107(107),
+--        ieeeReserved108(108),
+--        ieeeReserved109(109),
+--        ieeeReserved110(110),
+--        ieeeReserved111(111),
+--        ieeeReserved112(112),
+--        ieeeReserved113(113),
+--        ieeeReserved114(114),
+--        ieeeReserved115(115),
+--        ieeeReserved116(116),
+--        ieeeReserved117(117),
+--        ieeeReserved118(118),
+--        ieeeReserved119(119),
+--        ieeeReserved120(120),
+--        ieeeReserved121(121),
+--        ieeeReserved122(122),
+--        ieeeReserved123(123),
+--        ieeeReserved124(124),
+--        ieeeReserved125(125),
+--        ieeeReserved126(126),
+--        ieeeReserved127(127),
+--        ieeeReserved128(128),
+--        ieeeReserved129(129),
+--        ieeeReserved130(130),
+--        ieeeReserved131(131),
+--        ieeeReserved132(132),
+--        ieeeReserved133(133),
+--        ieeeReserved134(134),
+--        ieeeReserved135(135),
+--        ieeeReserved136(136),
+--        ieeeReserved137(137),
+--        ieeeReserved138(138),
+--        ieeeReserved139(139),
+--        ieeeReserved140(140),
+--        ieeeReserved141(141),
+--        ieeeReserved142(142),
+--        ieeeReserved143(143),
+--        ieeeReserved144(144),
+--        ieeeReserved145(145),
+--        ieeeReserved146(146),
+--        ieeeReserved147(147),
+--        ieeeReserved148(148),
+--        ieeeReserved149(149),
+--        ieeeReserved150(150),
+--        ieeeReserved151(151),
+--        ieeeReserved152(152),
+--        ieeeReserved153(153),
+--        ieeeReserved154(154),
+--        ieeeReserved155(155),
+--        ieeeReserved156(156),
+--        ieeeReserved157(157),
+--        ieeeReserved158(158),
+--        ieeeReserved159(159),
+--        ieeeReserved160(160),
+--        ieeeReserved161(161),
+--        ieeeReserved162(162),
+--        ieeeReserved163(163),
+--        ieeeReserved164(164),
+--        ieeeReserved165(165),
+--        ieeeReserved166(166),
+--        ieeeReserved167(167),
+--        ieeeReserved168(168),
+--        ieeeReserved169(169),
+--        ieeeReserved170(170),
+--        ieeeReserved171(171),
+--        ieeeReserved172(172),
+--        ieeeReserved173(173),
+--        ieeeReserved174(174),
+--        ieeeReserved175(175),
+--        ieeeReserved176(176),
+--        ieeeReserved177(177),
+--        ieeeReserved178(178),
+--        ieeeReserved179(179),
+--        ieeeReserved180(180),
+--        ieeeReserved181(181),
+--        ieeeReserved182(182),
+--        ieeeReserved183(183),
+--        ieeeReserved184(184),
+--        ieeeReserved185(185),
+--        ieeeReserved186(186),
+--        ieeeReserved187(187),
+--        ieeeReserved188(188),
+--        ieeeReserved189(189),
+--        ieeeReserved190(190),
+--        ieeeReserved191(191),
+--        ieeeReserved192(192),
+--        ieeeReserved193(193),
+--        ieeeReserved194(194),
+--        ieeeReserved195(195),
+--        ieeeReserved196(196),
+--        ieeeReserved197(197),
+--        ieeeReserved198(198),
+--        ieeeReserved199(199),
+--        ieeeReserved200(200),
+--        ieeeReserved201(201),
+--        ieeeReserved202(202),
+--        ieeeReserved203(203),
+--        ieeeReserved204(204),
+--        ieeeReserved205(205),
+--        ieeeReserved206(206),
+--        ieeeReserved207(207),
+--        ieeeReserved208(208),
+--        ieeeReserved209(209),
+--        ieeeReserved210(210),
+--        ieeeReserved211(211),
+--        ieeeReserved212(212),
+--        ieeeReserved213(213),
+--        ieeeReserved214(214),
+--        ieeeReserved215(215),
+--        ieeeReserved216(216),
+--        ieeeReserved217(217),
+--        ieeeReserved218(218),
+--        ieeeReserved219(219),
+--        ieeeReserved220(220),
+--        ieeeReserved221(221),
+--        ieeeReserved222(222),
+--        ieeeReserved223(223),
+--        ieeeReserved224(224),
+--        ieeeReserved225(225),
+--        ieeeReserved226(226),
+--        ieeeReserved227(227),
+--        ieeeReserved228(228),
+--        ieeeReserved229(229),
+--        ieeeReserved230(230),
+--        ieeeReserved231(231),
+--        ieeeReserved232(232),
+--        ieeeReserved233(233),
+--        ieeeReserved234(234),
+--        ieeeReserved235(235),
+--        ieeeReserved236(236),
+--        ieeeReserved237(237),
+--        ieeeReserved238(238),
+--        ieeeReserved239(239),
+--        ieeeReserved240(240),
+--        ieeeReserved241(241),
+--        ieeeReserved242(242),
+--        ieeeReserved243(243),
+--        ieeeReserved244(244),
+--        ieeeReserved245(245),
+--        ieeeReserved246(246),
+--        ieeeReserved247(247),
+--        ieeeReserved248(248),
+--        ieeeReserved249(249),
+--        ieeeReserved250(250),
+--        ieeeReserved251(251),
+--        ieeeReserved252(252),
+--        ieeeReserved253(253),
+--        ieeeReserved254(254),
+--        ieeeReserved255(255)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of maintenance domain name
+        to be used by the Auto-Ethernet-CFM operation.
+        
+        This object can only be set to the following values:
+          'none'(1) 
+          'charString'(4)
+        Other values are not supported.
+        Value 'none' means that the ipslaEthernetGrpCtrlDomainName
+        has not been specified."
+    DEFVAL { none }
+    ::= { ipslaEthernetGrpCtrlEntry 11 }
+
+ipslaEthernetGrpCtrlDomainName OBJECT-TYPE
+    SYNTAX Dot1agCfmMaintDomainName
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the maintenance domain name
+        to be used by the Auto-Ethernet-CFM operation.
+        
+        The Auto-Ethernet-CFM operation discovers all the MEPs 
+        participating in the VLAN specified by ipslaEthernetGrpCtrlVLAN 
+        within this maintenance domain and create IP SLA operations 
+        for each MEP corresponding to value specified in 
+        ipslaEthernetGrpCtrlRttType.
+        
+        As long as the value of this object is specified, the value of 
+        ipslaEthernetGrpCtrlDomainNameType must be set to 'charString'."
+    ::= { ipslaEthernetGrpCtrlEntry 12 }
+
+ipslaEthernetGrpCtrlReqDataSize OBJECT-TYPE
+    SYNTAX Gauge(0..1400)
+--  Units
+--    octets
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the padding that needs to be inserted
+        into each ethernet frame of the IP SLA operation.
+        
+        The total ethernet frame size of the IP SLA operation is:
+        
+        CFM_header + TLVs + si_length + dm_length + padding size 
+        
+        where dm_length = number of octets of the maintenance domain name
+              si_length = number of octets of the service instance name
+              CFM_header = 8 octets
+              TLVs = 60 octets for 'ethernetPing' 
+                     45 octets for 'ethernetJitter' 
+        
+        If the total frame size exceeds 1500, only 1500 will be 
+        sent to the target MEP."
+    DEFVAL { 0 }
+    ::= { ipslaEthernetGrpCtrlEntry 13 }
+
+ipslaEthernetGrpCtrlMPIDExLst OBJECT-TYPE
+    SYNTAX RttMonIdLst
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the identifiers of the MEPs that will
+        be excluded when create IP SLA operations by Auto-Ethernet-CFM
+        operation."
+    ::= { ipslaEthernetGrpCtrlEntry 14 }
+
+ipslaEthernetGrpCtrlCOS OBJECT-TYPE
+    SYNTAX Layer2Cos
+--    Rsyntax INTEGER(0..7)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the Class Of Service field in an
+        Ethernet frame header."
+    DEFVAL { 0 }
+    ::= { ipslaEthernetGrpCtrlEntry 15 }
+
+ipslaEthernetGrpCtrlInterval OBJECT-TYPE
+    SYNTAX Gauge(1..60000)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This value specifies the inter-frame delay between Ethernet
+        frames that need to be transmitted to the target MEPs.
+        
+        This object is applicable to 'ethernetJitter' operation only."
+    DEFVAL { 20 }
+    ::= { ipslaEthernetGrpCtrlEntry 16 }
+
+ipslaEthernetGrpCtrlNumFrames OBJECT-TYPE
+    SYNTAX Gauge(1..60000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This value specifies the number of Ethernet frames that need
+        to be transmitted to the target MEPs.  
+        
+        This object is applicable to 'ethernetJitter' operation only."
+    DEFVAL { 10 }
+    ::= { ipslaEthernetGrpCtrlEntry 17 }
+
+ipslaEthernetGrpScheduleRttStartTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the time when this conceptual row
+        will become 'active'.  ipslaEthernetGrpSchedulePeriod object 
+        must be specified before setting this object.
+        
+        When sysUpTime equals this value, this object will
+        cause the conceptual Auto-Ethernet-CFM row transmit
+        to 'active'and start to discover the existing MEPs.  
+        Meanwhile the IP SLA operations will be created for 
+        each discovered MEP, and rttMonCtrlAdminStatus of each 
+        IP SLA operation will transmit to 'active'.
+        
+        If this object has value as 1, the conceptual Auto-Ethernet-CFM 
+        row will transmit to 'active' right now.
+        Value of 0 puts this conceptual row in pending state."
+    DEFVAL { 0 }
+    ::= { ipslaEthernetGrpCtrlEntry 18 }
+
+ipslaEthernetGrpSchedulePeriod OBJECT-TYPE
+    SYNTAX Gauge(1..604800)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the time duration over which all the IP SLA
+        operations created by the current Auto-Ethernet-CFM 
+        have to be scheduled.
+        
+        For instance, if there are three MEPs discovered, there
+        will be three IP SLA operations created.  If this object 
+        is set to 30, ipslaEthernetGrpScheduleRttStartTime is set 
+        to T, the start time of three operations will be
+        spreaded evenly within 30 seconds, i.e.  
+        
+        start time:    T+0 -------- T+9 ----------T+19
+                     operation1  operation2    operation3
+        
+        This object must be set first before setting
+        ipslaEthernetGrpScheduleRttStartTime."
+    ::= { ipslaEthernetGrpCtrlEntry 19 }
+
+ipslaEthernetGrpScheduleFrequency OBJECT-TYPE
+    SYNTAX Gauge(1..604800)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the duration between initiating each IP SLA
+        operation created by the Auto-Ethernet-CFM.
+        
+        Take above example, if the ipslaEthernetGrpScheduleFrequency
+        is set to 60, then the start time of each IP SLA operation
+        like:
+        
+        start time:      T+0 -------- T+9 ----------T+19-----
+                       operation1  operation2    operation3   
+        start again:   --T+60-------- T+69 ----------T+79--
+                       operation1  operation2    operation3   
+        start 3rd time:--T+120-------- T+129 ----------T+139--
+                        operation1  operation2    operation3   
+        
+        This object cannot be set to a value which would be a
+        shorter duration than ipslaEthernetGrpCtrlTimeout.
+        The default value of this object is the value set to
+        ipslaEthernetGrpSchedulePeriod.  
+        
+        This value will be passed to rttMonCtrlAdminFrequency for 
+        all the IP SLA operations created by the Auto-Ethernet-CFM."
+    ::= { ipslaEthernetGrpCtrlEntry 20 }
+
+ipslaEthernetGrpReactTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF IpslaEthernetGrpReactEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table that contains the reaction configurations for
+        Auto-Ethernet-CFM operation.
+        
+        The reaction configuration specifies the network perfomance
+        parameter needs to be monitored, the threshold for the parameter,
+        the type of threshold violation that will trigger a reaction, 
+        and how to react upon a threshold being violated.
+        
+        This allows for proactive monitoring in an environment where 
+        user can be alerted to potential network problems, rather than 
+        having to manually examine data.   
+        
+        Each conceptual row in ipslaEthernetGrpReactTable corresponds 
+        to a reaction configured for a corresponding Auto-Ethernet-CFM
+        operation.
+        
+        Each Auto-Ethernet-CFM operation can have multiple parameters
+        monitored and hence there can be multiple reaction configuration
+        rows for a particular Auto-Ethernet-CFM operation.
+        
+        The reaction configurations in this table for a particular
+        Auto-Ethernet-CFM operation will be passed to the 
+        corresponding objects in rttMonReactTable of CISCO-RTTMON-MIB 
+        for all the IP SLA operations created by this Auto-Ethernet-CFM.
+        This makes the IP SLA operation capable of reacting to certain 
+        measured network condition such as long round trip delay, 
+        big jitter, etc., by generating a notification to a network 
+        management application based on defined thresholds.
+        
+        - Objects in this table             - Corresponding objects in
+                                              rttMonReactTable
+        ipslaEthernetGrpReactConfigIndex      rttMonReactConfigIndex
+        ipslaEthernetGrpReactVar              rttMonReactVar
+        ipslaEthernetGrpReactThresholdType    rttMonReactThresholdType
+        ipslaEthernetGrpReactThresholdRising  rttMonReactThresholdRising
+        ipslaEthernetGrpReactThresholdFalling rttMonReactThresholdFalling
+        ipslaEthernetGrpReactThresholdCountX  rttMonReactThresholdCountX
+        ipslaEthernetGrpReactThresholdCountY  rttMonReactThresholdCountY
+        ipslaEthernetGrpReactActionType       rttMonReactActionType
+        ipslaEthernetGrpReactStatus           rttMonReactStatus
+        
+        This table is coupled with ipslaEthernetGrpCtrlTable.  When an
+        entry in the ipslaEthernetGrpCtrlTable is destroyed, the 
+        corresponding entries in this table will be destroyed too."
+    ::= { ipslaEthernetGrpCtrl 2 }
+
+ipslaEthernetGrpReactEntry OBJECT-TYPE
+    SYNTAX IpslaEthernetGrpReactEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of objects that define a conceptual
+        Auto-Ethernet-CFM reaction configuration row.
+        
+        In order to create this conceptual row,
+        ipslaEthernetGrpReactStatus must be set to 'createAndGo' and 
+        ipslaEthernetGrpReactVar must be specified.
+        
+        This conceptual row can be deleted at any time by set 
+        ipslaEthernetGrpReactStatus to 'destroy'.  When this row is
+        deleted, the corresponding reaction configuration of all the 
+        IP SLA operations are deleted."
+    INDEX { ipslaEthernetGrpCtrlIndex, ipslaEthernetGrpReactConfigIndex }
+    ::= { ipslaEthernetGrpReactTable 1 }
+
+IpslaEthernetGrpReactEntry ::= SEQUENCE {
+    ipslaEthernetGrpReactConfigIndex RttMonCtrlIndex,
+    ipslaEthernetGrpReactStatus RowStatus,
+    ipslaEthernetGrpReactStorageType StorageType,
+    ipslaEthernetGrpReactVar RttMonReactVar,
+    ipslaEthernetGrpReactThresholdType INTEGER,
+    ipslaEthernetGrpReactThresholdRising Gauge,
+    ipslaEthernetGrpReactThresholdFalling Gauge,
+    ipslaEthernetGrpReactThresholdCountX Gauge,
+    ipslaEthernetGrpReactThresholdCountY Gauge,
+    ipslaEthernetGrpReactActionType INTEGER
+    }
+
+ipslaEthernetGrpReactConfigIndex OBJECT-TYPE
+    SYNTAX RttMonCtrlIndex
+--    Rsyntax Gauge(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object along with ipslaEthernetGrpCtrlEntry identifies
+        a particular reaction-configuration for a particular 
+        Auto-Ethernet-CFM operation.
+        
+        This is a pseudo-random number selected by the management
+        station when creating a row via the ipslaEthernetGrpReactStatus.
+        If the pseudo-random number is already in use an
+        'inconsistentValue' return code will be returned when
+        set operation is attempted."
+    ::= { ipslaEthernetGrpReactEntry 1 }
+
+ipslaEthernetGrpReactStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects specifies the status of the conceptual
+        Auto-Ethernet-CFM reaction control row.  Only 'createAndGo' 
+        and 'destroy' operations are permitted on the row.
+        
+        In order for this object to become 'active',
+        ipslaEthernetGrpReactVar must be defined.
+        All other objects assume the default value.
+        
+        When this object is in 'active' state, all the writable objects
+        except ipslaEthernetGrpReactVar can be modified.
+        
+        When this object moves to 'active' state, the rttMonReactStatus
+        of the individual IP SLA operations moves to 'active' state, thus
+        the performance parameter specified in the reaction configuration
+        is monitored for each IP SLA operation and the notifications are 
+        generated when the threshold violation takes place.
+        
+        This object can be set to 'destroy' from any value at any time.
+        When this object is set to 'destroy', the reaction configuration
+        of both Auto-Ethernet-CFM operation and IP SLA operations
+        are removed."
+    ::= { ipslaEthernetGrpReactEntry 2 }
+
+ipslaEthernetGrpReactStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies how the SNMP entity stores the data
+        contained by the corresponding conceptual row.
+        
+        This object can be set to either 'volatile' or 'nonVolatile'.
+        Other values are not applicable for this conceptual row and
+        are not supported."
+    DEFVAL { volatile }
+    ::= { ipslaEthernetGrpReactEntry 3 }
+
+ipslaEthernetGrpReactVar OBJECT-TYPE
+    SYNTAX RttMonReactVar
+--    Rsyntax INTEGER {
+--        rtt(1),
+--        jitterSDAvg(2),
+--        jitterDSAvg(3),
+--        packetLossSD(4),
+--        packetLossDS(5),
+--        mos(6),
+--        timeout(7),
+--        connectionLoss(8),
+--        verifyError(9),
+--        jitterAvg(10),
+--        icpif(11),
+--        packetMIA(12),
+--        packetLateArrival(13),
+--        packetOutOfSequence(14),
+--        maxOfPositiveSD(15),
+--        maxOfNegativeSD(16),
+--        maxOfPositiveDS(17),
+--        maxOfNegativeDS(18),
+--        iaJitterDS(19),
+--        frameLossDS(20),
+--        mosLQDS(21),
+--        mosCQDS(22),
+--        rFactorDS(23),
+--        successivePacketLoss(24),
+--        maxOfLatencyDS(25),
+--        maxOfLatencySD(26),
+--        latencyDSAvg(27),
+--        latencySDAvg(28),
+--        packetLoss(29),
+--        iaJitterSD(30),
+--        mosCQSD(31),
+--        rFactorSD(32)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the performance parameter that will
+        be monitored by the IP SLA operations which are created 
+        via Auto-Ethernet-CFM operation.   
+        
+        The performance parameters that are valid to both 
+        'ethernetJitter' and 'ethernetPing' include:
+            - 'connectionLoss'
+            - 'rtt'
+            - 'timeout'
+        
+        The performance parameters that are only valid to 
+        'ethernetJitter' include:
+            - 'jitterSDAvg'
+            - 'jitterDSAvg'
+            - 'jitterAvg'
+            - 'maxOfPositiveSD'
+            - 'maxOfNegativeSD'
+            - 'maxOfPositiveDS'
+            - 'maxOfNegativeDS'
+            - 'packetLateArrival'
+            - 'packetLossDS'
+            - 'packetLossSD'
+            - 'packetOutOfSequence'
+            - 'packetMIA'"
+    ::= { ipslaEthernetGrpReactEntry 4 }
+
+ipslaEthernetGrpReactThresholdType OBJECT-TYPE
+    SYNTAX INTEGER {
+        never(1),
+        immediate(2),
+        consecutive(3),
+        xOfy(4),
+        average(5)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of threshold violation that
+        will trigger an notification.
+        
+        The notification will be sent accordingly only when the object 
+        rttMonReactOccurred which is defined in CISCO-RTTMON-MIB for IP 
+        SLA operation is set to 'true' or 'false'.
+        
+        
+        'never'     - rttMonReactOccurred is never set
+        
+        'immediate' - rttMonReactOccurred is set to 'true' when the
+                     value of parameter for which reaction is
+                     configured ( e.g.  rtt, jitterAvg) violates the 
+                     threshold.
+        
+                     Conversely, rttMonReactOccurred is set to 'false'
+                     when the parameter ( e.g.  rtt, jitterAvg) is below 
+                     the threshold limits.
+        
+        'consecutive'- rttMonReactOccurred is set to true when the value
+                     of parameter for which reaction is configured
+                     ( e.g.  rtt, jitterAvg) violates the threshold for 
+                     configured consecutive times.
+        
+                     Conversely, rttMonReactOccurred is set to false
+                     when the value of parameter ( e.g.  rtt, jitterAvg)
+                     is below the threshold limits for the same number 
+                     of consecutive operations.
+        
+        'xOfy'     - rttMonReactOccurred is set to true when x
+                     ( as specified by 
+                     ipslaEthernetGrpReactThresholdCountX )
+                     out of the last y ( as specified by
+                     ipslaEthernetGrpReactThresholdCountY ) times the 
+                     value of parameter for which the reaction is 
+                     configured ( e.g.  rtt, jitterAvg) violates the 
+                     threshold.
+        
+                     Conversely, it is set to false when x, out of the
+                     last y times the value of parameter ( e.g.  rtt, 
+                     jitterAvg) is below the threshold limits.
+        
+        'average'  - rttMonReactOccurred is set to true when the
+                     average (ipslaEthernetGrpReactThresholdCountX 
+                     times ) value of parameter for which reaction is
+                     configured ( e.g.  rtt, jitterAvg) violates the 
+                     threshold condition.
+        
+                     Conversely, it is set to false when the average 
+                     value of parameter ( e.g.  rtt, jitterAvg)."
+    DEFVAL { never }
+    ::= { ipslaEthernetGrpReactEntry 5 }
+
+ipslaEthernetGrpReactThresholdRising OBJECT-TYPE
+    SYNTAX Gauge(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the higher threshold limit.
+        If the value of monitored parameter ( e.g rtt, jitterAvg, 
+        packetLossSD etc ) rises above this limit and if the condition 
+        specified in ipslaEthernetGrpReactThresholdType are satisfied, 
+        a notification is generated.
+        
+        Default value of ipslaEthernetGrpReactThresholdRising for
+        'rtt' is 5000.
+        'jitterAvg' is 100.
+        'jitterSDAvg' is 100.
+        'jitterDSAvg' is 100.
+        'maxOfPositiveSD' is 10000.
+        'maxOfNegativeSD' is 10000.
+        'maxOfPositiveDS' is 10000.
+        'maxOfNegativeDS' is 10000.
+        'packetLossSD' is 10000.
+        'packetLossDS' is 10000.
+        'packetMIA' is 10000.
+        'packetLateArrival' is 10000.
+        'packetOutOfSequence' is 10000.
+        
+        This object is not applicable if the ipslaEthernetGrpReactVar 
+        is 'timeout' or 'connectionLoss'.  For 'timeout' and 
+        'connectionLoss', the default value will be 0."
+    ::= { ipslaEthernetGrpReactEntry 6 }
+
+ipslaEthernetGrpReactThresholdFalling OBJECT-TYPE
+    SYNTAX Gauge(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the lower threshold limit.
+        If the value of monitored parameter ( e.g rtt, jitterAvg, 
+        packetLossSD etc ) falls below this limit and if the condition 
+        specified in ipslaEthernetGrpReactThresholdType are satisfied, 
+        a notification is generated.
+        
+        Default value of ipslaEthernetGrpReactThresholdFalling for
+        'rtt' is 3000.
+        'jitterAvg' is 100.
+        'jitterSDAvg' is 100.
+        'jitterDSAvg' is 100.
+        'maxOfPositiveSD' is 10000.
+        'maxOfNegativeSD' is 10000.
+        'maxOfPositiveDS' is 10000.
+        'maxOfNegativeDS' is 10000.
+        'packetLossSD' is 10000.
+        'packetLossDS' is 10000.
+        'packetMIA' is 10000.
+        'packetLateArrival' is 10000.
+        'packetOutOfSequence' is 10000.
+        
+        This object is not applicable if the ipslaEthernetGrpReactVar 
+        is 'timeout' or 'connectionLoss'.  For 'timeout' and 
+        'connectionLoss', the default value will be 0."
+    ::= { ipslaEthernetGrpReactEntry 7 }
+
+ipslaEthernetGrpReactThresholdCountX OBJECT-TYPE
+    SYNTAX Gauge(1..16)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If ipslaEthernetGrpReactThresholdType value is 'xOfy', this
+        object specifies the 'x' value.
+        
+        If ipslaEthernetGrpReactThresholdType value is 'consecutive',
+        this object specifies the number of consecutive occurrences
+        that needs threshold violation before setting 
+        rttMonReactOccurred as 'true'.
+        
+        If ipslaEthernetGrpReactThresholdType value is 'average', 
+        this object specifies the number of samples that needs be 
+        considered for calculating average.  
+        
+        This object has no meaning if ipslaEthernetGrpReactThresholdType
+        has value of 'never' and 'immediate'."
+    DEFVAL { 5 }
+    ::= { ipslaEthernetGrpReactEntry 8 }
+
+ipslaEthernetGrpReactThresholdCountY OBJECT-TYPE
+    SYNTAX Gauge(1..16)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the 'y' value of the xOfy condition
+        if ipslaEthernetGrpReactThresholdType is 'xOfy'.
+        
+        For other values of ipslaEthernetGrpReactThresholdType, this 
+        object is not applicable."
+    DEFVAL { 5 }
+    ::= { ipslaEthernetGrpReactEntry 9 }
+
+ipslaEthernetGrpReactActionType OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        notification(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies what type of reaction to generate
+        if an IP SLA operation violates one of the watched
+        conditions (specified in ipslaEthernetGrpReactVar):
+            'none'         - no reaction is generated.
+            'notification' - a notification is generated."
+    DEFVAL { none }
+    ::= { ipslaEthernetGrpReactEntry 10 }
+
+ipslaEtherJitterLatestStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF IpslaEtherJitterLatestStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The 'ethernetJitter' operation sends out frames at the
+        frequency specified by rttMonCtrlAdminFrequency.  
+        This table contains the statistics calculated for the 
+        latest sent frames.
+        
+        Each conceptual row in this table corresponds to an 
+        'ethernetJitter' operation defined in rttMonCtrlAdminTable 
+        and has same index as rttMonCtrlAdminTable."
+    ::= { ipslaEthernetLatestOper 1 }
+
+ipslaEtherJitterLatestStatsEntry OBJECT-TYPE
+    SYNTAX IpslaEtherJitterLatestStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of objects that record the latest Ethernet jitter
+        operation.
+        
+        An entry is created only when the following 
+        objects are valid.  
+        - rttMonCtrlAdminRttType
+        - rttMonEchoAdminProtocol
+        
+        The entry will start to collect data when rttMonCtrlAdminStatus 
+        is in 'active' state.  The entry will be removed when the 
+        rttMonCtrlAdminStatus is changed to 'destroy' state."
+    INDEX { rttMonCtrlAdminIndex }
+    ::= { ipslaEtherJitterLatestStatsTable 1 }
+
+IpslaEtherJitterLatestStatsEntry ::= SEQUENCE {
+    ipslaEtherJitterLatestNumRTT Gauge,
+    ipslaEtherJitterLatestRTTSum Gauge,
+    ipslaEtherJitterLatestRTTSum2 Gauge,
+    ipslaEtherJitterLatestRTTMin Gauge,
+    ipslaEtherJitterLatestRTTMax Gauge,
+    ipslaEtherJitterLatestMinPosSD Gauge,
+    ipslaEtherJitterLatestMaxPosSD Gauge,
+    ipslaEtherJitterLatestNumPosSD Gauge,
+    ipslaEtherJitterLatestSumPosSD Gauge,
+    ipslaEtherJitterLatestSum2PosSD Gauge,
+    ipslaEtherJitterLatestMinNegSD Gauge,
+    ipslaEtherJitterLatestMaxNegSD Gauge,
+    ipslaEtherJitterLatestNumNegSD Gauge,
+    ipslaEtherJitterLatestSumNegSD Gauge,
+    ipslaEtherJitterLatestSum2NegSD Gauge,
+    ipslaEtherJitterLatestMinPosDS Gauge,
+    ipslaEtherJitterLatestMaxPosDS Gauge,
+    ipslaEtherJitterLatestNumPosDS Gauge,
+    ipslaEtherJitterLatestSumPosDS Gauge,
+    ipslaEtherJitterLatestSum2PosDS Gauge,
+    ipslaEtherJitterLatestMinNegDS Gauge,
+    ipslaEtherJitterLatestMaxNegDS Gauge,
+    ipslaEtherJitterLatestNumNegDS Gauge,
+    ipslaEtherJitterLatestSumNegDS Gauge,
+    ipslaEtherJitterLatestSum2NegDS Gauge,
+    ipslaEtherJitterLatestFrmLossSD Gauge,
+    ipslaEtherJitterLatestFrmLossDS Gauge,
+    ipslaEtherJitterLatestFrmOutSeq Gauge,
+    ipslaEtherJitterLatestFrmMIA Gauge,
+    ipslaEtherJitterLatestFrmSkipped Gauge,
+    ipslaEtherJitterLatestSense RttResponseSense,
+    ipslaEtherJitterLatestFrmLateA Gauge,
+    ipslaEtherJitterLatestMinSucFrmL Gauge,
+    ipslaEtherJitterLatestMaxSucFrmL Gauge,
+    ipslaEtherJitterLatestOWSumSD Gauge,
+    ipslaEtherJitterLatestOWSum2SD Gauge,
+    ipslaEtherJitterLatestOWMinSD Gauge,
+    ipslaEtherJitterLatestOWMaxSD Gauge,
+    ipslaEtherJitterLatestOWSumDS Gauge,
+    ipslaEtherJitterLatestOWSum2DS Gauge,
+    ipslaEtherJitterLatestOWMinDS Gauge,
+    ipslaEtherJitterLatestOWMaxDS Gauge,
+    ipslaEtherJitterLatestNumOW Gauge,
+    ipslaEtherJitterLatestAvgJitter Gauge,
+    ipslaEtherJitterLatestAvgSDJ Gauge,
+    ipslaEtherJitterLatestAvgDSJ Gauge,
+    ipslaEtherJitterLatestOWAvgSD Gauge,
+    ipslaEtherJitterLatestOWAvgDS Gauge,
+    ipslaEtherJitterLatestIAJOut Gauge,
+    ipslaEtherJitterLatestIAJIn Gauge,
+    ipslaEtherJLatestFrmUnProcessed Gauge
+    }
+
+ipslaEtherJitterLatestNumRTT OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RTT's that were successfully measured."
+    ::= { ipslaEtherJitterLatestStatsEntry 1 }
+
+ipslaEtherJitterLatestRTTSum OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of RTT's that are successfully measured.
+        The number of successfully measured RTT is 
+        stored in ipslaEtherJitterLatestNumRTT."
+    ::= { ipslaEtherJitterLatestStatsEntry 2 }
+
+ipslaEtherJitterLatestRTTSum2 OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of RTT's that are successfully measured."
+    ::= { ipslaEtherJitterLatestStatsEntry 3 }
+
+ipslaEtherJitterLatestRTTMin OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of RTT's that were successfully measured."
+    ::= { ipslaEtherJitterLatestStatsEntry 4 }
+
+ipslaEtherJitterLatestRTTMax OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of RTT's that were successfully measured."
+    ::= { ipslaEtherJitterLatestStatsEntry 5 }
+
+ipslaEtherJitterLatestMinPosSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of all positive jitter values for frames sent
+        from source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 6 }
+
+ipslaEtherJitterLatestMaxPosSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of all positive jitter values for frames sent
+        from source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 7 }
+
+ipslaEtherJitterLatestNumPosSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of all positive jitter values for frames
+        sent from source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 8 }
+
+ipslaEtherJitterLatestSumPosSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of all positive jitter values for frames sent
+        source to destination.  The number of such values
+        is stored in ipslaEtherJitterLatestNumPosSD."
+    ::= { ipslaEtherJitterLatestStatsEntry 9 }
+
+ipslaEtherJitterLatestSum2PosSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of square of all positive jitter values for
+        frames sent from source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 10 }
+
+ipslaEtherJitterLatestMinNegSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of absolute values of all negative jitter values
+        for frames sent from source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 11 }
+
+ipslaEtherJitterLatestMaxNegSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of absolute values of all negative jitter values
+        for frames sent from source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 12 }
+
+ipslaEtherJitterLatestNumNegSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of all negative jitter values for frames
+        sent from source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 13 }
+
+ipslaEtherJitterLatestSumNegSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of all negative jitter values for frames sent
+        from source to destination.  The number of such values
+        is stored in ipslaEtherJitterLatestNumNegSD."
+    ::= { ipslaEtherJitterLatestStatsEntry 14 }
+
+ipslaEtherJitterLatestSum2NegSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of square of all negative jitter values for
+        frames sent from source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 15 }
+
+ipslaEtherJitterLatestMinPosDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of all positive jitter values for frames sent
+        from destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 16 }
+
+ipslaEtherJitterLatestMaxPosDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of all positive jitter values for frames sent
+        from destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 17 }
+
+ipslaEtherJitterLatestNumPosDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of all positive jitter values for frames
+        sent from destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 18 }
+
+ipslaEtherJitterLatestSumPosDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of all positive jitter values for frames sent
+        from destination to source.  The number of such values
+        is stored in ipslaEtherJitterLatestNumPosDS."
+    ::= { ipslaEtherJitterLatestStatsEntry 19 }
+
+ipslaEtherJitterLatestSum2PosDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of all positive jitter values for
+        frames sent from destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 20 }
+
+ipslaEtherJitterLatestMinNegDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of all negative jitter values for frames sent
+        from destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 21 }
+
+ipslaEtherJitterLatestMaxNegDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of all negative jitter values for frames sent
+        from destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 22 }
+
+ipslaEtherJitterLatestNumNegDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of all negative jitter values for frames
+        sent from destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 23 }
+
+ipslaEtherJitterLatestSumNegDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of all negative jitter values for frames sent
+        from destination to source.  The number of such values
+        is stored in ipslaEtherJitterLatestNumNegDS."
+    ::= { ipslaEtherJitterLatestStatsEntry 24 }
+
+ipslaEtherJitterLatestSum2NegDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of all negative jitter values for
+        frames sent from destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 25 }
+
+ipslaEtherJitterLatestFrmLossSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames lost when sent from source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 26 }
+
+ipslaEtherJitterLatestFrmLossDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames lost when sent from destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 27 }
+
+ipslaEtherJitterLatestFrmOutSeq OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames arrived out of sequence."
+    ::= { ipslaEtherJitterLatestStatsEntry 28 }
+
+ipslaEtherJitterLatestFrmMIA OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames that are lost for which we cannot determine
+        the direction."
+    ::= { ipslaEtherJitterLatestStatsEntry 29 }
+
+ipslaEtherJitterLatestFrmSkipped OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames in the operation that could not be
+        initiated due to an internal error."
+    ::= { ipslaEtherJitterLatestStatsEntry 30 }
+
+ipslaEtherJitterLatestSense OBJECT-TYPE
+    SYNTAX RttResponseSense
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        other(0),
+--        ok(1),
+--        disconnected(2),
+--        overThreshold(3),
+--        timeout(4),
+--        busy(5),
+--        notConnected(6),
+--        dropped(7),
+--        sequenceError(8),
+--        verifyError(9),
+--        applicationSpecific(10),
+--        dnsServerTimeout(11),
+--        tcpConnectTimeout(12),
+--        httpTransactionTimeout(13),
+--        dnsQueryError(14),
+--        httpError(15),
+--        error(16),
+--        mplsLspEchoTxError(17),
+--        mplsLspUnreachable(18),
+--        mplsLspMalformedReq(19),
+--        mplsLspReachButNotFEC(20)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An application specific sense code for the completion status."
+    ::= { ipslaEtherJitterLatestStatsEntry 31 }
+
+ipslaEtherJitterLatestFrmLateA OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames that arrived after the timeout."
+    ::= { ipslaEtherJitterLatestStatsEntry 32 }
+
+ipslaEtherJitterLatestMinSucFrmL OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum number of frames that are dropped
+        successively."
+    ::= { ipslaEtherJitterLatestStatsEntry 33 }
+
+ipslaEtherJitterLatestMaxSucFrmL OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of frames that are dropped
+        successively."
+    ::= { ipslaEtherJitterLatestStatsEntry 34 }
+
+ipslaEtherJitterLatestOWSumSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of one way trip time from source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 35 }
+
+ipslaEtherJitterLatestOWSum2SD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of one way trip time from source to
+        destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 36 }
+
+ipslaEtherJitterLatestOWMinSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of all one way trip time from
+        source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 37 }
+
+ipslaEtherJitterLatestOWMaxSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of all one way trip time from
+        source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 38 }
+
+ipslaEtherJitterLatestOWSumDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of one way trip time from destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 39 }
+
+ipslaEtherJitterLatestOWSum2DS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of one way trip time from
+        destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 40 }
+
+ipslaEtherJitterLatestOWMinDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of all one way trip time from
+        destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 41 }
+
+ipslaEtherJitterLatestOWMaxDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of all one way trip time from
+        destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 42 }
+
+ipslaEtherJitterLatestNumOW OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of successful one way trip time measurements."
+    ::= { ipslaEtherJitterLatestStatsEntry 43 }
+
+ipslaEtherJitterLatestAvgJitter OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The average of positive and negative jitter values
+        in Source-to-Destination and Destination-to-Source
+        direction."
+    ::= { ipslaEtherJitterLatestStatsEntry 44 }
+
+ipslaEtherJitterLatestAvgSDJ OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The average of positive and negative jitter values
+        from source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 45 }
+
+ipslaEtherJitterLatestAvgDSJ OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The average of positive and negative jitter values
+        from destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 46 }
+
+ipslaEtherJitterLatestOWAvgSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The average one way trip time from source to destination."
+    ::= { ipslaEtherJitterLatestStatsEntry 47 }
+
+ipslaEtherJitterLatestOWAvgDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The average one way trip time from destination to source."
+    ::= { ipslaEtherJitterLatestStatsEntry 48 }
+
+ipslaEtherJitterLatestIAJOut OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Inter-arrival jitter (RFC 1889) at responder."
+    REFERENCE
+        "Refer to the following documents for the definition: 
+               RFC 1889, Section 6.3.1"
+    ::= { ipslaEtherJitterLatestStatsEntry 49 }
+
+ipslaEtherJitterLatestIAJIn OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Inter-arrival jitter (RFC 1889) at source."
+    REFERENCE
+        "Refer to the following documents for the definition: 
+               RFC 1889, Section 6.3.1"
+    ::= { ipslaEtherJitterLatestStatsEntry 50 }
+
+ipslaEtherJLatestFrmUnProcessed OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames in the operation that could not be
+        processed due to high CPU load."
+    ::= { ipslaEtherJitterLatestStatsEntry 51 }
+
+ipslaEtherJitterAggStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF IpslaEtherJitterAggStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The 'ethernetJitter' statistics table contains summarized
+        information of the results for a conceptual control
+        row.  A rolling accumulated history of this information
+        is maintained in a series of hourly 'group(s)'.
+        
+        When ipslaEtherJAggStatsStartTimeId groups exceeds 
+        the rttMonStatisticsAdminNumHourGroups value, the 
+        oldest corresponding hourly group will be deleted and will 
+        be replaced with the new ipslaEtherJAggStatsStartTimeId 
+        hourly group."
+    ::= { ipslaEthernetStats 1 }
+
+ipslaEtherJitterAggStatsEntry OBJECT-TYPE
+    SYNTAX IpslaEtherJitterAggStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This entry contains the objects which accumulate the
+        results of a series of 'ethernetJitter' operations
+        over a 60 minute time period or a time period stored
+        in rttMonScheduleAdminRttLife, whichever is smaller.
+        
+        An entry is created only if when the following
+        objects are valid.
+        - rttMonCtrlAdminRttType
+        - rttMonEchoAdminProtocol
+        
+        The entry will start to collect data when rttMonCtrlAdminStatus
+        is in 'active' state.  The entry will be removed when the
+        rttMonCtrlAdminStatus is changed to 'destroy' state."
+    INDEX { rttMonCtrlAdminIndex, ipslaEtherJAggStatsStartTimeId }
+    ::= { ipslaEtherJitterAggStatsTable 1 }
+
+IpslaEtherJitterAggStatsEntry ::= SEQUENCE {
+    ipslaEtherJAggStatsStartTimeId TimeStamp,
+    ipslaEtherJAggMeasuredCmpletions Counter,
+    ipslaEtherJAggMeasuredOvThrshlds Counter,
+    ipslaEtherJAggMeasuredNumRTTs Counter,
+    ipslaEtherJAggMeasuredRTTSums Counter,
+    ipslaEtherJAggMeasuredRTTSum2Ls Counter,
+    ipslaEtherJAggMeasuredRTTSum2Hs Counter,
+    ipslaEtherJAggMeasuredRTTMin Gauge,
+    ipslaEtherJAggMeasuredRTTMax Gauge,
+    ipslaEtherJAggMeasuredMinPosSD Gauge,
+    ipslaEtherJAggMeasuredMaxPosSD Gauge,
+    ipslaEtherJAggMeasuredNumPosSDs Counter,
+    ipslaEtherJAggMeasuredSumPosSDs Counter,
+    ipslaEtherJAggMeasuredSum2PSDLs Counter,
+    ipslaEtherJAggMeasuredSum2PSDHs Counter,
+    ipslaEtherJAggMeasuredMinNegSD Gauge,
+    ipslaEtherJAggMeasuredMaxNegSD Gauge,
+    ipslaEtherJAggMeasuredNumNegSDs Counter,
+    ipslaEtherJAggMeasuredSumNegSDs Counter,
+    ipslaEtherJAggMeasuredSum2NSDLs Counter,
+    ipslaEtherJAggMeasuredSum2NSDHs Counter,
+    ipslaEtherJAggMeasuredMinPosDS Gauge,
+    ipslaEtherJAggMeasuredMaxPosDS Gauge,
+    ipslaEtherJAggMeasuredNumPosDSes Counter,
+    ipslaEtherJAggMeasuredSumPosDSes Counter,
+    ipslaEtherJAggMeasuredSum2PDSLs Counter,
+    ipslaEtherJAggMeasuredSum2PDSHs Counter,
+    ipslaEtherJAggMeasuredMinNegDS Gauge,
+    ipslaEtherJAggMeasuredMaxNegDS Gauge,
+    ipslaEtherJAggMeasuredNumNegDSes Counter,
+    ipslaEtherJAggMeasuredSumNegDSes Counter,
+    ipslaEtherJAggMeasuredSum2NDSLs Counter,
+    ipslaEtherJAggMeasuredSum2NDSHs Counter,
+    ipslaEtherJAggMeasuredFrmLossSDs Counter,
+    ipslaEtherJAggMeasuredFrmLssDSes Counter,
+    ipslaEtherJAggMeasuredFrmOutSeqs Counter,
+    ipslaEtherJAggMeasuredFrmMIAes Counter,
+    ipslaEtherJAggMeasuredFrmSkippds Counter,
+    ipslaEtherJAggMeasuredErrors Counter,
+    ipslaEtherJAggMeasuredBusies Counter,
+    ipslaEtherJAggMeasuredOWSumSDs Counter,
+    ipslaEtherJAggMeasuredOWSum2SDLs Counter,
+    ipslaEtherJAggMeasuredOWSum2SDHs Counter,
+    ipslaEtherJAggMeasuredOWMinSD Gauge,
+    ipslaEtherJAggMeasuredOWMaxSD Gauge,
+    ipslaEtherJAggMeasuredOWSumDSes Counter,
+    ipslaEtherJAggMeasuredOWSum2DSLs Counter,
+    ipslaEtherJAggMeasuredOWSum2DSHs Counter,
+    ipslaEtherJAggMeasuredOWMinDS Gauge,
+    ipslaEtherJAggMeasuredOWMaxDS Gauge,
+    ipslaEtherJAggMeasuredNumOWs Counter,
+    ipslaEtherJAggMeasuredAvgJ Gauge,
+    ipslaEtherJAggMeasuredAvgJSD Gauge,
+    ipslaEtherJAggMeasuredAvgJDS Gauge,
+    ipslaEtherJAggMinSucFrmLoss Gauge,
+    ipslaEtherJAggMaxSucFrmLoss Gauge,
+    ipslaEtherJAggMeasuredIAJOut Gauge,
+    ipslaEtherJAggMeasuredIAJIn Gauge,
+    ipslaEtherJAggMeasuredFrmLateAs Counter,
+    ipslaEtherJAggMeasuredFrmUnPrcds Counter
+    }
+
+ipslaEtherJAggStatsStartTimeId OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime at the time when this
+        row was created."
+    ::= { ipslaEtherJitterAggStatsEntry 1 }
+
+ipslaEtherJAggMeasuredCmpletions OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    completions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Ethernet jitter operations that have completed
+        successfully."
+    ::= { ipslaEtherJitterAggStatsEntry 2 }
+
+ipslaEtherJAggMeasuredOvThrshlds OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    operations
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Ethernet jitter operations that violate
+        jitterAvg threshold which is defined in RttMonReactVar."
+    ::= { ipslaEtherJitterAggStatsEntry 3 }
+
+ipslaEtherJAggMeasuredNumRTTs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of RTTs that are successfully measured."
+    ::= { ipslaEtherJitterAggStatsEntry 4 }
+
+ipslaEtherJAggMeasuredRTTSums OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of RTTs that are successfully measured for this
+        ipslaEtherJAggMeasuredStartTimeId hourly group.  The number
+        of the successfully measured RTT is stored in the
+        ipslaEtherJAggMeasuredNumRTTs."
+    ::= { ipslaEtherJitterAggStatsEntry 5 }
+
+ipslaEtherJAggMeasuredRTTSum2Ls OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of RTTs that are successfully measured
+        (low order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 6 }
+
+ipslaEtherJAggMeasuredRTTSum2Hs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of RTTs that are successfully measured
+        (high order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 7 }
+
+ipslaEtherJAggMeasuredRTTMin OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of RTTs that were successfully measured."
+    ::= { ipslaEtherJitterAggStatsEntry 8 }
+
+ipslaEtherJAggMeasuredRTTMax OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of RTTs that were successfully measured."
+    ::= { ipslaEtherJitterAggStatsEntry 9 }
+
+ipslaEtherJAggMeasuredMinPosSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of absolute values of all positive jitter values
+        for frames sent from source to destination."
+    ::= { ipslaEtherJitterAggStatsEntry 10 }
+
+ipslaEtherJAggMeasuredMaxPosSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of absolute values of all positive jitter values
+        for frames sent from source to destination."
+    ::= { ipslaEtherJitterAggStatsEntry 11 }
+
+ipslaEtherJAggMeasuredNumPosSDs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of all positive jitter values for frames
+        sent from source to destination."
+    ::= { ipslaEtherJitterAggStatsEntry 12 }
+
+ipslaEtherJAggMeasuredSumPosSDs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of all positive jitter values for frames sent
+        from source to destination.  The number of such values
+        is stored in ipslaEtherJAggMeasuredNumPosSDs."
+    ::= { ipslaEtherJitterAggStatsEntry 13 }
+
+ipslaEtherJAggMeasuredSum2PSDLs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of square of all positive jitter values for frames
+        sent from source to destination (low order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 14 }
+
+ipslaEtherJAggMeasuredSum2PSDHs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of square of all positive jitter values for frames
+        sent from source to destination (high order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 15 }
+
+ipslaEtherJAggMeasuredMinNegSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of all negative jitter values for frames sent
+        from source to destination."
+    ::= { ipslaEtherJitterAggStatsEntry 16 }
+
+ipslaEtherJAggMeasuredMaxNegSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of all negative jitter values for frames sent
+        from source to destination."
+    ::= { ipslaEtherJitterAggStatsEntry 17 }
+
+ipslaEtherJAggMeasuredNumNegSDs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of all negative jitter values for frames
+        sent from source to destination."
+    ::= { ipslaEtherJitterAggStatsEntry 18 }
+
+ipslaEtherJAggMeasuredSumNegSDs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of all negative jitter values for frames sent
+        from source to destination.  The number of such values
+        is stored in ipslaEtherJAggMeasuredNumNegSDs."
+    ::= { ipslaEtherJitterAggStatsEntry 19 }
+
+ipslaEtherJAggMeasuredSum2NSDLs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of square of all negative jitter values for
+        frames sent from source to destination (low order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 20 }
+
+ipslaEtherJAggMeasuredSum2NSDHs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of square of all negative jitter values for
+        frames sent from source to destination (high order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 21 }
+
+ipslaEtherJAggMeasuredMinPosDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of all positive jitter values for frames sent
+        from destination to source."
+    ::= { ipslaEtherJitterAggStatsEntry 22 }
+
+ipslaEtherJAggMeasuredMaxPosDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of all positive jitter values for frames sent
+        from destination to source."
+    ::= { ipslaEtherJitterAggStatsEntry 23 }
+
+ipslaEtherJAggMeasuredNumPosDSes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of all positive jitter values for frames
+        sent from destination to source."
+    ::= { ipslaEtherJitterAggStatsEntry 24 }
+
+ipslaEtherJAggMeasuredSumPosDSes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of all positive jitter values for frames sent
+        from destination to source.  The number of such values
+        is stored in ipslaEtherJAggMeasuredNumPosDSes."
+    ::= { ipslaEtherJitterAggStatsEntry 25 }
+
+ipslaEtherJAggMeasuredSum2PDSLs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of all positive jitter values for
+        frames sent from destination to source (low order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 26 }
+
+ipslaEtherJAggMeasuredSum2PDSHs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of all positive jitter values for
+        frames sent from destination to source (high order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 27 }
+
+ipslaEtherJAggMeasuredMinNegDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of all negative jitter values for frames sent
+        from destination to source."
+    ::= { ipslaEtherJitterAggStatsEntry 28 }
+
+ipslaEtherJAggMeasuredMaxNegDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of all negative jitter values for frames sent
+        from destination to source."
+    ::= { ipslaEtherJitterAggStatsEntry 29 }
+
+ipslaEtherJAggMeasuredNumNegDSes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of all negative jitter values for frames
+        sent from destination to source."
+    ::= { ipslaEtherJitterAggStatsEntry 30 }
+
+ipslaEtherJAggMeasuredSumNegDSes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of all negative jitter values for frames sent
+        from destination to source.  The number of such values
+        is stored in ipslaEtherJAggMeasuredNumNegDSes."
+    ::= { ipslaEtherJitterAggStatsEntry 31 }
+
+ipslaEtherJAggMeasuredSum2NDSLs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of all negative jitter values for
+        frames sent from destination to source (low order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 32 }
+
+ipslaEtherJAggMeasuredSum2NDSHs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of all negative jitter values for
+        frames sent from destination to source (high order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 33 }
+
+ipslaEtherJAggMeasuredFrmLossSDs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of lost frames when sent from source to destination."
+    ::= { ipslaEtherJitterAggStatsEntry 34 }
+
+ipslaEtherJAggMeasuredFrmLssDSes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of lost frames when sent from destination to source."
+    ::= { ipslaEtherJitterAggStatsEntry 35 }
+
+ipslaEtherJAggMeasuredFrmOutSeqs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames arrived out of sequence."
+    ::= { ipslaEtherJitterAggStatsEntry 36 }
+
+ipslaEtherJAggMeasuredFrmMIAes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames that are lost for which we cannot determine
+        the direction."
+    ::= { ipslaEtherJitterAggStatsEntry 37 }
+
+ipslaEtherJAggMeasuredFrmSkippds OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames that are skipped per operation because
+        the router could not send the packet out."
+    ::= { ipslaEtherJitterAggStatsEntry 38 }
+
+ipslaEtherJAggMeasuredErrors OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    errors
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of occasions when an Ethernet jitter operation could
+        not be initiated because of an internal error."
+    ::= { ipslaEtherJitterAggStatsEntry 39 }
+
+ipslaEtherJAggMeasuredBusies OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    busies
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of occasions when an Ethernet jitter operation could
+        not be initiated because a previous Ethernet jitter operation 
+        has not been completed."
+    ::= { ipslaEtherJitterAggStatsEntry 40 }
+
+ipslaEtherJAggMeasuredOWSumSDs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of one way trip time from source to destination."
+    ::= { ipslaEtherJitterAggStatsEntry 41 }
+
+ipslaEtherJAggMeasuredOWSum2SDLs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of one way trip time from source to
+        destination (low order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 42 }
+
+ipslaEtherJAggMeasuredOWSum2SDHs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of one way trip time from source to
+        destination (high order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 43 }
+
+ipslaEtherJAggMeasuredOWMinSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of all one way trip time from source to
+        destination."
+    ::= { ipslaEtherJitterAggStatsEntry 44 }
+
+ipslaEtherJAggMeasuredOWMaxSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of all one way trip time from source to
+        destination."
+    ::= { ipslaEtherJitterAggStatsEntry 45 }
+
+ipslaEtherJAggMeasuredOWSumDSes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of one way trip time from destination to source."
+    ::= { ipslaEtherJitterAggStatsEntry 46 }
+
+ipslaEtherJAggMeasuredOWSum2DSLs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of one way trip time from destination
+        to source (low order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 47 }
+
+ipslaEtherJAggMeasuredOWSum2DSHs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of squares of one way trip time from destination
+        to source (high order 32 bits)."
+    ::= { ipslaEtherJitterAggStatsEntry 48 }
+
+ipslaEtherJAggMeasuredOWMinDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum of all one way trip time from destination
+        to source."
+    ::= { ipslaEtherJitterAggStatsEntry 49 }
+
+ipslaEtherJAggMeasuredOWMaxDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum of all one way trip time from destination
+        to source."
+    ::= { ipslaEtherJitterAggStatsEntry 50 }
+
+ipslaEtherJAggMeasuredNumOWs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of one way trip time that are successfully
+        measured."
+    ::= { ipslaEtherJitterAggStatsEntry 51 }
+
+ipslaEtherJAggMeasuredAvgJ OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The average of positive and negative jitter
+        values for source-to-destination and 
+        destination-to-source direction."
+    ::= { ipslaEtherJitterAggStatsEntry 52 }
+
+ipslaEtherJAggMeasuredAvgJSD OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The average of positive and negative jitter
+        values in source-to-destination direction."
+    ::= { ipslaEtherJitterAggStatsEntry 53 }
+
+ipslaEtherJAggMeasuredAvgJDS OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The average of positive and negative jitter
+        values in destination-to-source direction."
+    ::= { ipslaEtherJitterAggStatsEntry 54 }
+
+ipslaEtherJAggMinSucFrmLoss OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum number of frames that are dropped
+        successively."
+    ::= { ipslaEtherJitterAggStatsEntry 55 }
+
+ipslaEtherJAggMaxSucFrmLoss OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of frames that are dropped
+        successively."
+    ::= { ipslaEtherJitterAggStatsEntry 56 }
+
+ipslaEtherJAggMeasuredIAJOut OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Inter-arrival jitter (RFC 1889) at responder"
+    REFERENCE
+        "Refer to the following documents for the definition: 
+               RFC 1889, Section 6.3.1"
+    ::= { ipslaEtherJitterAggStatsEntry 57 }
+
+ipslaEtherJAggMeasuredIAJIn OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Inter-arrival jitter (RFC 1889) at sender"
+    REFERENCE
+        "Refer to the following documents for the definition: 
+               RFC 1889, Section 6.3.1"
+    ::= { ipslaEtherJitterAggStatsEntry 58 }
+
+ipslaEtherJAggMeasuredFrmLateAs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames that arrived after the timeout."
+    ::= { ipslaEtherJitterAggStatsEntry 59 }
+
+ipslaEtherJAggMeasuredFrmUnPrcds OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    frames
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of frames that arrived but could not be
+        processed due to the internal error."
+    ::= { ipslaEtherJitterAggStatsEntry 60 }
+
+ciscoIpSlaEthernetAutoGroup OBJECT IDENTIFIER ::= { ciscoIpSlaEthernetMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that were added to support
+--    Auto-Ethernet-CFM.
+--  objects
+--    ipslaEthernetGrpCtrlStatus, ipslaEthernetGrpCtrlStorageType, 
+--    ipslaEthernetGrpCtrlRttType, ipslaEthernetGrpCtrlOwner, 
+--    ipslaEthernetGrpCtrlTag, ipslaEthernetGrpCtrlThreshold, 
+--    ipslaEthernetGrpCtrlTimeout, ipslaEthernetGrpCtrlProbeList, 
+--    ipslaEthernetGrpCtrlVLAN, ipslaEthernetGrpCtrlDomainNameType, 
+--    ipslaEthernetGrpCtrlDomainName, 
+--    ipslaEthernetGrpCtrlReqDataSize, 
+--    ipslaEthernetGrpCtrlMPIDExLst, ipslaEthernetGrpCtrlCOS, 
+--    ipslaEthernetGrpCtrlInterval, ipslaEthernetGrpCtrlNumFrames, 
+--    ipslaEthernetGrpReactStatus, ipslaEthernetGrpReactStorageType, 
+--    ipslaEthernetGrpReactVar, ipslaEthernetGrpReactThresholdType, 
+--    ipslaEthernetGrpReactThresholdRising, 
+--    ipslaEthernetGrpReactThresholdFalling, 
+--    ipslaEthernetGrpReactThresholdCountX, 
+--    ipslaEthernetGrpReactThresholdCountY, 
+--    ipslaEthernetGrpReactActionType, 
+--    ipslaEthernetGrpScheduleRttStartTime, 
+--    ipslaEthernetGrpSchedulePeriod, 
+--    ipslaEthernetGrpScheduleFrequency
+
+ciscoIpSlaEthernetStatsGroup OBJECT IDENTIFIER ::= { ciscoIpSlaEthernetMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of statistics objects related to
+--    Ethernet Jitter Probe.
+--  objects
+--    ipslaEtherJitterLatestNumRTT, ipslaEtherJitterLatestRTTSum, 
+--    ipslaEtherJitterLatestRTTSum2, ipslaEtherJitterLatestRTTMin, 
+--    ipslaEtherJitterLatestRTTMax, ipslaEtherJitterLatestMinPosSD, 
+--    ipslaEtherJitterLatestMaxPosSD, 
+--    ipslaEtherJitterLatestNumPosSD, 
+--    ipslaEtherJitterLatestSumPosSD, 
+--    ipslaEtherJitterLatestSum2PosSD, 
+--    ipslaEtherJitterLatestMinNegSD, 
+--    ipslaEtherJitterLatestMaxNegSD, 
+--    ipslaEtherJitterLatestNumNegSD, 
+--    ipslaEtherJitterLatestSumNegSD, 
+--    ipslaEtherJitterLatestSum2NegSD, 
+--    ipslaEtherJitterLatestMinPosDS, 
+--    ipslaEtherJitterLatestMaxPosDS, 
+--    ipslaEtherJitterLatestNumPosDS, 
+--    ipslaEtherJitterLatestSumPosDS, 
+--    ipslaEtherJitterLatestSum2PosDS, 
+--    ipslaEtherJitterLatestMinNegDS, 
+--    ipslaEtherJitterLatestMaxNegDS, 
+--    ipslaEtherJitterLatestNumNegDS, 
+--    ipslaEtherJitterLatestSumNegDS, 
+--    ipslaEtherJitterLatestSum2NegDS, 
+--    ipslaEtherJitterLatestFrmLossSD, 
+--    ipslaEtherJitterLatestFrmLossDS, 
+--    ipslaEtherJitterLatestFrmOutSeq, ipslaEtherJitterLatestFrmMIA, 
+--    ipslaEtherJitterLatestFrmSkipped, ipslaEtherJitterLatestSense, 
+--    ipslaEtherJitterLatestFrmLateA, 
+--    ipslaEtherJitterLatestMinSucFrmL, 
+--    ipslaEtherJitterLatestMaxSucFrmL, 
+--    ipslaEtherJitterLatestOWSumSD, ipslaEtherJitterLatestOWSum2SD, 
+--    ipslaEtherJitterLatestOWMinSD, ipslaEtherJitterLatestOWMaxSD, 
+--    ipslaEtherJitterLatestOWSumDS, ipslaEtherJitterLatestOWSum2DS, 
+--    ipslaEtherJitterLatestOWMinDS, ipslaEtherJitterLatestOWMaxDS, 
+--    ipslaEtherJitterLatestNumOW, ipslaEtherJitterLatestAvgJitter, 
+--    ipslaEtherJitterLatestAvgSDJ, ipslaEtherJitterLatestAvgDSJ, 
+--    ipslaEtherJitterLatestOWAvgSD, ipslaEtherJitterLatestOWAvgDS, 
+--    ipslaEtherJitterLatestIAJOut, ipslaEtherJitterLatestIAJIn, 
+--    ipslaEtherJLatestFrmUnProcessed, 
+--    ipslaEtherJAggMeasuredCmpletions, 
+--    ipslaEtherJAggMeasuredOvThrshlds, 
+--    ipslaEtherJAggMeasuredNumRTTs, ipslaEtherJAggMeasuredRTTSums, 
+--    ipslaEtherJAggMeasuredRTTSum2Ls, 
+--    ipslaEtherJAggMeasuredRTTSum2Hs, ipslaEtherJAggMeasuredRTTMin, 
+--    ipslaEtherJAggMeasuredRTTMax, ipslaEtherJAggMeasuredMinPosSD, 
+--    ipslaEtherJAggMeasuredMaxPosSD, 
+--    ipslaEtherJAggMeasuredNumPosSDs, 
+--    ipslaEtherJAggMeasuredSumPosSDs, 
+--    ipslaEtherJAggMeasuredSum2PSDLs, 
+--    ipslaEtherJAggMeasuredSum2PSDHs, 
+--    ipslaEtherJAggMeasuredMinNegSD, 
+--    ipslaEtherJAggMeasuredMaxNegSD, 
+--    ipslaEtherJAggMeasuredNumNegSDs, 
+--    ipslaEtherJAggMeasuredSumNegSDs, 
+--    ipslaEtherJAggMeasuredSum2NSDLs, 
+--    ipslaEtherJAggMeasuredSum2NSDHs, 
+--    ipslaEtherJAggMeasuredMinPosDS, 
+--    ipslaEtherJAggMeasuredMaxPosDS, 
+--    ipslaEtherJAggMeasuredNumPosDSes, 
+--    ipslaEtherJAggMeasuredSumPosDSes, 
+--    ipslaEtherJAggMeasuredSum2PDSLs, 
+--    ipslaEtherJAggMeasuredSum2PDSHs, 
+--    ipslaEtherJAggMeasuredMinNegDS, 
+--    ipslaEtherJAggMeasuredMaxNegDS, 
+--    ipslaEtherJAggMeasuredNumNegDSes, 
+--    ipslaEtherJAggMeasuredSumNegDSes, 
+--    ipslaEtherJAggMeasuredSum2NDSLs, 
+--    ipslaEtherJAggMeasuredSum2NDSHs, 
+--    ipslaEtherJAggMeasuredFrmLossSDs, 
+--    ipslaEtherJAggMeasuredFrmLssDSes, 
+--    ipslaEtherJAggMeasuredFrmOutSeqs, 
+--    ipslaEtherJAggMeasuredFrmMIAes, 
+--    ipslaEtherJAggMeasuredFrmSkippds, 
+--    ipslaEtherJAggMeasuredErrors, ipslaEtherJAggMeasuredBusies, 
+--    ipslaEtherJAggMeasuredOWSumSDs, 
+--    ipslaEtherJAggMeasuredOWSum2SDLs, 
+--    ipslaEtherJAggMeasuredOWSum2SDHs, 
+--    ipslaEtherJAggMeasuredOWMinSD, ipslaEtherJAggMeasuredOWMaxSD, 
+--    ipslaEtherJAggMeasuredOWSumDSes, 
+--    ipslaEtherJAggMeasuredOWSum2DSLs, 
+--    ipslaEtherJAggMeasuredOWSum2DSHs, 
+--    ipslaEtherJAggMeasuredOWMinDS, ipslaEtherJAggMeasuredOWMaxDS, 
+--    ipslaEtherJAggMeasuredNumOWs, ipslaEtherJAggMeasuredAvgJ, 
+--    ipslaEtherJAggMeasuredAvgJSD, ipslaEtherJAggMeasuredAvgJDS, 
+--    ipslaEtherJAggMinSucFrmLoss, ipslaEtherJAggMaxSucFrmLoss, 
+--    ipslaEtherJAggMeasuredIAJOut, ipslaEtherJAggMeasuredIAJIn, 
+--    ipslaEtherJAggMeasuredFrmLateAs, 
+--    ipslaEtherJAggMeasuredFrmUnPrcds
+
+ciscoIpSlaEthernetCompliance OBJECT IDENTIFIER ::= { ciscoIpSlaEthernetCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for
+--    (1) Ethernet Jitter operation and statistics
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoIpSlaEthernetAutoGroup
+--   MandGroup
+--    ciscoIpSlaEthernetStatsGroup
+
+
+END
+

@@ -1,0 +1,539 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-LSMAINT-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- LSMAINT management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-LSMAINT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsLsConfigIssues,
+    CucsLsmaintAckChangeDetails,
+    CucsLsmaintAckChanges,
+    CucsLsmaintAckDisr,
+    CucsLsmaintChangeMode,
+    CucsPolicyPolicyOwner,
+    CucsTrigAckChangeDetails,
+    CucsTrigAckChanges,
+    CucsTrigAckMode,
+    CucsTrigAckOperState,
+    CucsTrigAckPrevOperState,
+    CucsTrigAdminState,
+    CucsTrigStorageAckMode,
+    CucsTrigTrigState,
+    CucsTrigTrigger
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsLsmaintObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        LSMAINT management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 28 }
+
+cucsLsmaintAckTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsmaintAckEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack managed object table"
+    ::= { cucsLsmaintObjects 1 }
+
+cucsLsmaintAckEntry OBJECT-TYPE
+    SYNTAX           CucsLsmaintAckEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsmaintAckTable table."
+    INDEX { cucsLsmaintAckInstanceId }
+    ::= { cucsLsmaintAckTable 1 }
+
+CucsLsmaintAckEntry ::= SEQUENCE {
+    cucsLsmaintAckInstanceId                                         CucsManagedObjectId,
+    cucsLsmaintAckDn                                                 CucsManagedObjectDn,
+    cucsLsmaintAckRn                                                 SnmpAdminString,
+    cucsLsmaintAckAcked                                              DateAndTime,
+    cucsLsmaintAckAckedBy                                            SnmpAdminString,
+    cucsLsmaintAckAdminState                                         CucsTrigAdminState,
+    cucsLsmaintAckChangeBy                                           SnmpAdminString,
+    cucsLsmaintAckChanges                                            CucsTrigAckChanges,
+    cucsLsmaintAckDescr                                              SnmpAdminString,
+    cucsLsmaintAckDisr                                               CucsTrigAckDisr,
+    cucsLsmaintAckIntId                                              SnmpAdminString,
+    cucsLsmaintAckModified                                           DateAndTime,
+    cucsLsmaintAckName                                               SnmpAdminString,
+    cucsLsmaintAckOperState                                          CucsTrigAckOperState,
+    cucsLsmaintAckScheduler                                          SnmpAdminString,
+    cucsLsmaintAckChangeDetails                                      CucsTrigAckChangeDetails,
+    cucsLsmaintAckChangeMode                                         CucsLsmaintChangeMode,
+    cucsLsmaintAckConfigIssues                                       CucsLsConfigIssues,
+    cucsLsmaintAckOldPnDn                                            SnmpAdminString,
+    cucsLsmaintAckDeploymentMode                                     CucsTrigAckMode,
+    cucsLsmaintAckAutoDelete                                         TruthValue,
+    cucsLsmaintAckIgnoreCap                                          TruthValue,
+    cucsLsmaintAckOperScheduler                                      SnmpAdminString,
+    cucsLsmaintAckPolicyLevel                                        Gauge32,
+    cucsLsmaintAckPolicyOwner                                        CucsPolicyPolicyOwner,
+    cucsLsmaintAckPrevOperState                                      CucsTrigAckOperState,
+    cucsLsmaintAckPropAcl                                            Unsigned64,
+    cucsLsmaintAckTriggerConfigState                                 CucsTrigTrigState,
+    cucsLsmaintAckAnalyzeImpactChangeDetails                         CucsTrigAckChangeDetails,
+    cucsLsmaintAckAnalyzeImpactChanges                               CucsTrigAckChanges,
+    cucsLsmaintAckCheckApplyConfigCookie                             SnmpAdminString
+}
+
+cucsLsmaintAckInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsmaintAckEntry 1 }
+
+cucsLsmaintAckDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:dn managed object property"
+    ::= { cucsLsmaintAckEntry 2 }
+
+cucsLsmaintAckRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:rn managed object property"
+    ::= { cucsLsmaintAckEntry 3 }
+
+cucsLsmaintAckAcked OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:acked managed object property"
+    ::= { cucsLsmaintAckEntry 4 }
+
+cucsLsmaintAckAckedBy OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:ackedBy managed object property"
+    ::= { cucsLsmaintAckEntry 5 }
+
+cucsLsmaintAckAdminState OBJECT-TYPE
+    SYNTAX       CucsTrigAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:adminState managed object property"
+    ::= { cucsLsmaintAckEntry 6 }
+
+cucsLsmaintAckChangeBy OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:changeBy managed object property"
+    ::= { cucsLsmaintAckEntry 7 }
+
+cucsLsmaintAckChanges OBJECT-TYPE
+    SYNTAX       CucsTrigAckChanges
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:changes managed object property"
+    ::= { cucsLsmaintAckEntry 8 }
+
+cucsLsmaintAckDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:descr managed object property"
+    ::= { cucsLsmaintAckEntry 9 }
+
+cucsLsmaintAckDisr OBJECT-TYPE
+    SYNTAX       CucsTrigAckDisr
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:disr managed object property"
+    ::= { cucsLsmaintAckEntry 10 }
+
+cucsLsmaintAckIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:intId managed object property"
+    ::= { cucsLsmaintAckEntry 11 }
+
+cucsLsmaintAckModified OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:modified managed object property"
+    ::= { cucsLsmaintAckEntry 12 }
+
+cucsLsmaintAckName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:name managed object property"
+    ::= { cucsLsmaintAckEntry 13 }
+
+cucsLsmaintAckOperState OBJECT-TYPE
+    SYNTAX       CucsTrigAckOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:operState managed object property"
+    ::= { cucsLsmaintAckEntry 14 }
+
+cucsLsmaintAckScheduler OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:scheduler managed object property"
+    ::= { cucsLsmaintAckEntry 15 }
+
+cucsLsmaintAckChangeDetails OBJECT-TYPE
+    SYNTAX       CucsTrigAckChangeDetails
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:changeDetails managed object property"
+    ::= { cucsLsmaintAckEntry 16 }
+
+cucsLsmaintAckChangeMode OBJECT-TYPE
+    SYNTAX       CucsLsmaintChangeMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:changeMode managed object property"
+    ::= { cucsLsmaintAckEntry 17 }
+
+cucsLsmaintAckConfigIssues OBJECT-TYPE
+    SYNTAX       CucsLsConfigIssues
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:configIssues managed object property"
+    ::= { cucsLsmaintAckEntry 18 }
+
+cucsLsmaintAckOldPnDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:oldPnDn managed object property"
+    ::= { cucsLsmaintAckEntry 19 }
+
+cucsLsmaintAckDeploymentMode OBJECT-TYPE
+    SYNTAX       CucsTrigAckMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:deploymentMode managed object property"
+    ::= { cucsLsmaintAckEntry 20 }
+
+cucsLsmaintAckAutoDelete OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:autoDelete managed object property"
+    ::= { cucsLsmaintAckEntry 21 }
+
+cucsLsmaintAckIgnoreCap OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:ignoreCap managed object property"
+    ::= { cucsLsmaintAckEntry 22 }
+
+cucsLsmaintAckOperScheduler OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:operScheduler managed object property"
+    ::= { cucsLsmaintAckEntry 23 }
+
+cucsLsmaintAckPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:policyLevel managed object property"
+    ::= { cucsLsmaintAckEntry 24 }
+
+cucsLsmaintAckPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:policyOwner managed object property"
+    ::= { cucsLsmaintAckEntry 25 }
+
+cucsLsmaintAckPrevOperState OBJECT-TYPE
+    SYNTAX       CucsTrigAckOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:prevOperState managed object property"
+    ::= { cucsLsmaintAckEntry 26 }
+
+cucsLsmaintAckPropAcl OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:propAcl managed object property"
+    ::= { cucsLsmaintAckEntry 27 }
+
+cucsLsmaintAckTriggerConfigState OBJECT-TYPE
+    SYNTAX       CucsTrigTrigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:triggerConfigState managed object property"
+    ::= { cucsLsmaintAckEntry 28 }
+
+cucsLsmaintAckAnalyzeImpactChangeDetails OBJECT-TYPE
+    SYNTAX       CucsTrigAckChangeDetails
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:analyzeImpactChangeDetails
+        managed object property"
+    ::= { cucsLsmaintAckEntry 29 }
+
+cucsLsmaintAckAnalyzeImpactChanges OBJECT-TYPE
+    SYNTAX       CucsTrigAckChanges
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:analyzeImpactChanges managed
+        object property"
+    ::= { cucsLsmaintAckEntry 30 }
+
+cucsLsmaintAckCheckApplyConfigCookie OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:Ack:checkApplyConfigCookie managed
+        object property"
+    ::= { cucsLsmaintAckEntry 31 }
+
+cucsLsmaintMaintPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsmaintMaintPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy managed object table"
+    ::= { cucsLsmaintObjects 2 }
+
+cucsLsmaintMaintPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsLsmaintMaintPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsmaintMaintPolicyTable table."
+    INDEX { cucsLsmaintMaintPolicyInstanceId }
+    ::= { cucsLsmaintMaintPolicyTable 1 }
+
+CucsLsmaintMaintPolicyEntry ::= SEQUENCE {
+    cucsLsmaintMaintPolicyInstanceId                                 CucsManagedObjectId,
+    cucsLsmaintMaintPolicyDn                                         CucsManagedObjectDn,
+    cucsLsmaintMaintPolicyRn                                         SnmpAdminString,
+    cucsLsmaintMaintPolicyUptimeDisr                                 CucsLsmaintMaintPolicyUptimeDisr,
+    cucsLsmaintMaintPolicySchedName                                  SnmpAdminString,
+    cucsLsmaintMaintPolicyDescr                                      SnmpAdminString,
+    cucsLsmaintMaintPolicyName                                       SnmpAdminString,
+    cucsLsmaintMaintPolicyIntId                                      SnmpAdminString,
+    cucsLsmaintMaintPolicyOperSchedName                              SnmpAdminString,
+    cucsLsmaintMaintPolicyPolicyLevel                                Gauge32,
+    cucsLsmaintMaintPolicyPolicyOwner                                CucsPolicyPolicyOwner,
+    cucsLsmaintMaintPolicyTriggerConfig                              CucsTrigTrigger,
+    cucsLsmaintMaintPolicySoftShutdownTimer                          TimeIntervalSec,
+    cucsLsmaintMaintPolicyDataDisr                                   CucsTrigStorageAckMode
+}
+
+cucsLsmaintMaintPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsmaintMaintPolicyEntry 1 }
+
+cucsLsmaintMaintPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy:dn managed object property"
+    ::= { cucsLsmaintMaintPolicyEntry 2 }
+
+cucsLsmaintMaintPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy:rn managed object property"
+    ::= { cucsLsmaintMaintPolicyEntry 3 }
+
+cucsLsmaintMaintPolicyUptimeDisr OBJECT-TYPE
+    SYNTAX       CucsLsmaintMaintPolicyUptimeDisr
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy:uptimeDisr managed object property"
+    ::= { cucsLsmaintMaintPolicyEntry 4 }
+
+cucsLsmaintMaintPolicySchedName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy:schedName managed object property"
+    ::= { cucsLsmaintMaintPolicyEntry 5 }
+
+cucsLsmaintMaintPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy:descr managed object property"
+    ::= { cucsLsmaintMaintPolicyEntry 6 }
+
+cucsLsmaintMaintPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy:name managed object property"
+    ::= { cucsLsmaintMaintPolicyEntry 7 }
+
+cucsLsmaintMaintPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy:intId managed object property"
+    ::= { cucsLsmaintMaintPolicyEntry 8 }
+
+cucsLsmaintMaintPolicyOperSchedName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy:operSchedName managed
+        object property"
+    ::= { cucsLsmaintMaintPolicyEntry 9 }
+
+cucsLsmaintMaintPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy:policyLevel managed
+        object property"
+    ::= { cucsLsmaintMaintPolicyEntry 10 }
+
+cucsLsmaintMaintPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy:policyOwner managed
+        object property"
+    ::= { cucsLsmaintMaintPolicyEntry 11 }
+
+cucsLsmaintMaintPolicyTriggerConfig OBJECT-TYPE
+    SYNTAX       CucsTrigTrigger
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy:triggerConfig managed
+        object property"
+    ::= { cucsLsmaintMaintPolicyEntry 12 }
+
+cucsLsmaintMaintPolicySoftShutdownTimer OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy:softShutdownTimer
+        managed object property"
+    ::= { cucsLsmaintMaintPolicyEntry 13 }
+
+cucsLsmaintMaintPolicyDataDisr OBJECT-TYPE
+    SYNTAX       CucsTrigStorageAckMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsmaint:MaintPolicy:dataDisr managed object property"
+    ::= { cucsLsmaintMaintPolicyEntry 14 }
+
+END

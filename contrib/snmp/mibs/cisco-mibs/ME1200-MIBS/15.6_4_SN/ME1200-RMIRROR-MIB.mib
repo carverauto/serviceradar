@@ -1,0 +1,423 @@
+-- *****************************************************************
+-- RMIRROR-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-RMIRROR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200Unsigned16 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200RmirrorMib MODULE-IDENTITY
+    LAST-UPDATED "201405080000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of Rmirror"
+    REVISION    "201405080000Z"
+    DESCRIPTION
+        "Fix smilint issue on enum type name"
+    REVISION    "201405070000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 120 }
+
+
+ME1200RmirrorMirrorType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of mirror traffic."
+    SYNTAX      INTEGER { none(0), tx(1), rx(2), both(3) }
+
+ME1200RmirrorPortType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of port."
+    SYNTAX      INTEGER { none(0), intermediate(1), destination(2), reflector(3) }
+
+ME1200RmirrorSwitchType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the switch type in rmirror function."
+    SYNTAX      INTEGER { mirror(0), source(1), intermediate(2), destination(3) }
+
+me1200RmirrorMibObjects OBJECT IDENTIFIER
+    ::= { me1200RmirrorMib 1 }
+
+me1200RmirrorCapabilities OBJECT IDENTIFIER
+    ::= { me1200RmirrorMibObjects 1 }
+
+me1200RmirrorCapabilitiesReflectorPortSupport OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Indicate if reflector port is configurable or not. true(1) means
+         supported. false(2) means not supported."
+    ::= { me1200RmirrorCapabilities 1 }
+
+me1200RmirrorCapabilitiesCpuMirrorSupport OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Indicate if mirroring CPU traffic is supported or not. true(1) means
+         supported. false(2) means not supported."
+    ::= { me1200RmirrorCapabilities 2 }
+
+me1200RmirrorConfig OBJECT IDENTIFIER
+    ::= { me1200RmirrorMibObjects 2 }
+
+me1200RmirrorConfigSessionTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200RmirrorConfigSessionEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of global configuration per session"
+    ::= { me1200RmirrorConfig 1 }
+
+me1200RmirrorConfigSessionEntry OBJECT-TYPE
+    SYNTAX      ME1200RmirrorConfigSessionEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each session has a set of parameters"
+    INDEX       { me1200RmirrorConfigSessionSessionId }
+    ::= { me1200RmirrorConfigSessionTable 1 }
+
+ME1200RmirrorConfigSessionEntry ::= SEQUENCE {
+    me1200RmirrorConfigSessionSessionId   Integer32,
+    me1200RmirrorConfigSessionMode    TruthValue,
+    me1200RmirrorConfigSessionSwitchType      ME1200RmirrorSwitchType,
+    me1200RmirrorConfigSessionVid     ME1200Unsigned16
+}
+
+me1200RmirrorConfigSessionSessionId OBJECT-TYPE
+    SYNTAX      Integer32 (1..1)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Session ID."
+    ::= { me1200RmirrorConfigSessionEntry 1 }
+
+me1200RmirrorConfigSessionMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable the mirror or Remote Mirroring function. true(1) is to
+         enable the function. false(2) is to disable it."
+    ::= { me1200RmirrorConfigSessionEntry 2 }
+
+me1200RmirrorConfigSessionSwitchType OBJECT-TYPE
+    SYNTAX      ME1200RmirrorSwitchType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Switch type in rmirror. mirror(0) means to do the mirror function on
+         the device. source(1) means the device acts as source node for monitor
+         flow. intermediate(2) means the device acts as forwarding node for
+         monitor flow. The object is to forward traffic from source switch to
+         destination switch. destination(3) means the device acts as end node
+         for moniot flow."
+    ::= { me1200RmirrorConfigSessionEntry 3 }
+
+me1200RmirrorConfigSessionVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16 (1..4096)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN ID points out where the monitor packet will copy to."
+    ::= { me1200RmirrorConfigSessionEntry 4 }
+
+me1200RmirrorConfigSessionSourceCpuTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200RmirrorConfigSessionSourceCpuEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of source CPU configuration per session"
+    ::= { me1200RmirrorConfig 2 }
+
+me1200RmirrorConfigSessionSourceCpuEntry OBJECT-TYPE
+    SYNTAX      ME1200RmirrorConfigSessionSourceCpuEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each session has a set of parameters"
+    INDEX       { me1200RmirrorConfigSessionSourceCpuSessionId, me1200RmirrorConfigSessionSourceCpuSwitchId }
+    ::= { me1200RmirrorConfigSessionSourceCpuTable 1 }
+
+ME1200RmirrorConfigSessionSourceCpuEntry ::= SEQUENCE {
+    me1200RmirrorConfigSessionSourceCpuSessionId      Integer32,
+    me1200RmirrorConfigSessionSourceCpuSwitchId   Integer32,
+    me1200RmirrorConfigSessionSourceCpuMirrorType     ME1200RmirrorMirrorType
+}
+
+me1200RmirrorConfigSessionSourceCpuSessionId OBJECT-TYPE
+    SYNTAX      Integer32 (1..1)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Session ID."
+    ::= { me1200RmirrorConfigSessionSourceCpuEntry 1 }
+
+me1200RmirrorConfigSessionSourceCpuSwitchId OBJECT-TYPE
+    SYNTAX      Integer32 (1..16)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of switch."
+    ::= { me1200RmirrorConfigSessionSourceCpuEntry 2 }
+
+me1200RmirrorConfigSessionSourceCpuMirrorType OBJECT-TYPE
+    SYNTAX      ME1200RmirrorMirrorType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Mirror type on packets to/from CPU. none(0) means no mirror. tx(1) is
+         to monitor the packets sent from CPU. rx(2) is to monitor the packets
+         sent to CPU. both(3) is to monitor all packets sent from and to CPU.
+         Some platforms do not support CPU mirror. Refer to CpuMirrorSupport in
+         rmirrorCapabilities."
+    ::= { me1200RmirrorConfigSessionSourceCpuEntry 3 }
+
+me1200RmirrorConfigSessionSourceVlanTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200RmirrorConfigSessionSourceVlanEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of source VLAN configuration per session"
+    ::= { me1200RmirrorConfig 3 }
+
+me1200RmirrorConfigSessionSourceVlanEntry OBJECT-TYPE
+    SYNTAX      ME1200RmirrorConfigSessionSourceVlanEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each session has a set of parameters"
+    INDEX       { me1200RmirrorConfigSessionSourceVlanSessionId, me1200RmirrorConfigSessionSourceVlanIfIndex }
+    ::= { me1200RmirrorConfigSessionSourceVlanTable 1 }
+
+ME1200RmirrorConfigSessionSourceVlanEntry ::= SEQUENCE {
+    me1200RmirrorConfigSessionSourceVlanSessionId     Integer32,
+    me1200RmirrorConfigSessionSourceVlanIfIndex   ME1200InterfaceIndex,
+    me1200RmirrorConfigSessionSourceVlanMode      TruthValue
+}
+
+me1200RmirrorConfigSessionSourceVlanSessionId OBJECT-TYPE
+    SYNTAX      Integer32 (1..1)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Session ID."
+    ::= { me1200RmirrorConfigSessionSourceVlanEntry 1 }
+
+me1200RmirrorConfigSessionSourceVlanIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of VLAN."
+    ::= { me1200RmirrorConfigSessionSourceVlanEntry 2 }
+
+me1200RmirrorConfigSessionSourceVlanMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable monitor per VLAN. true(1) is to enable the function.
+         false(2) is to disable it."
+    ::= { me1200RmirrorConfigSessionSourceVlanEntry 3 }
+
+me1200RmirrorConfigSessionSourcePortTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200RmirrorConfigSessionSourcePortEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of source port configuration per session"
+    ::= { me1200RmirrorConfig 4 }
+
+me1200RmirrorConfigSessionSourcePortEntry OBJECT-TYPE
+    SYNTAX      ME1200RmirrorConfigSessionSourcePortEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each session has a set of parameters"
+    INDEX       { me1200RmirrorConfigSessionSourcePortSessionId, me1200RmirrorConfigSessionSourcePortIfIndex }
+    ::= { me1200RmirrorConfigSessionSourcePortTable 1 }
+
+ME1200RmirrorConfigSessionSourcePortEntry ::= SEQUENCE {
+    me1200RmirrorConfigSessionSourcePortSessionId     Integer32,
+    me1200RmirrorConfigSessionSourcePortIfIndex   ME1200InterfaceIndex,
+    me1200RmirrorConfigSessionSourcePortMirrorType    ME1200RmirrorMirrorType
+}
+
+me1200RmirrorConfigSessionSourcePortSessionId OBJECT-TYPE
+    SYNTAX      Integer32 (1..1)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Session ID."
+    ::= { me1200RmirrorConfigSessionSourcePortEntry 1 }
+
+me1200RmirrorConfigSessionSourcePortIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of physical port."
+    ::= { me1200RmirrorConfigSessionSourcePortEntry 2 }
+
+me1200RmirrorConfigSessionSourcePortMirrorType OBJECT-TYPE
+    SYNTAX      ME1200RmirrorMirrorType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Mirror type on frames to/from port. none(0) means no mirror. tx(1) is
+         to monitor the packets sent from the port. rx(2) is to monitor the
+         packets sent to the port. both(3) is to monitor all packets sent from
+         and to the port."
+    ::= { me1200RmirrorConfigSessionSourcePortEntry 3 }
+
+me1200RmirrorConfigSessionPortTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200RmirrorConfigSessionPortEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of port configuration per session"
+    ::= { me1200RmirrorConfig 5 }
+
+me1200RmirrorConfigSessionPortEntry OBJECT-TYPE
+    SYNTAX      ME1200RmirrorConfigSessionPortEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each session has a set of parameters"
+    INDEX       { me1200RmirrorConfigSessionPortSessionId, me1200RmirrorConfigSessionPortIfIndex }
+    ::= { me1200RmirrorConfigSessionPortTable 1 }
+
+ME1200RmirrorConfigSessionPortEntry ::= SEQUENCE {
+    me1200RmirrorConfigSessionPortSessionId   Integer32,
+    me1200RmirrorConfigSessionPortIfIndex     ME1200InterfaceIndex,
+    me1200RmirrorConfigSessionPortType    ME1200RmirrorPortType
+}
+
+me1200RmirrorConfigSessionPortSessionId OBJECT-TYPE
+    SYNTAX      Integer32 (1..1)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Session ID."
+    ::= { me1200RmirrorConfigSessionPortEntry 1 }
+
+me1200RmirrorConfigSessionPortIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of physical port."
+    ::= { me1200RmirrorConfigSessionPortEntry 2 }
+
+me1200RmirrorConfigSessionPortType OBJECT-TYPE
+    SYNTAX      ME1200RmirrorPortType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Type of port in rmirror function. none(0) means no mirror.
+         intermediate(1) means the port to be a forwarding port. destination(2)
+         means the port to be an end port. reflector(3) means the port to be a
+         reflector port."
+    ::= { me1200RmirrorConfigSessionPortEntry 3 }
+
+me1200RmirrorMibConformance OBJECT IDENTIFIER
+    ::= { me1200RmirrorMib 2 }
+
+me1200RmirrorMibCompliances OBJECT IDENTIFIER
+    ::= { me1200RmirrorMibConformance 1 }
+
+me1200RmirrorMibGroups OBJECT IDENTIFIER
+    ::= { me1200RmirrorMibConformance 2 }
+
+me1200RmirrorCapabilitiesInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200RmirrorCapabilitiesReflectorPortSupport, 
+                  me1200RmirrorCapabilitiesCpuMirrorSupport }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200RmirrorMibGroups 1 }
+
+me1200RmirrorConfigSessionTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200RmirrorConfigSessionMode, 
+                  me1200RmirrorConfigSessionSwitchType, 
+                  me1200RmirrorConfigSessionVid }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200RmirrorMibGroups 2 }
+
+me1200RmirrorConfigSessionSourceCpuTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200RmirrorConfigSessionSourceCpuMirrorType }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200RmirrorMibGroups 3 }
+
+me1200RmirrorConfigSessionSourceVlanTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200RmirrorConfigSessionSourceVlanMode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200RmirrorMibGroups 4 }
+
+me1200RmirrorConfigSessionSourcePortTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200RmirrorConfigSessionSourcePortMirrorType }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200RmirrorMibGroups 5 }
+
+me1200RmirrorConfigSessionPortTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200RmirrorConfigSessionPortType }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200RmirrorMibGroups 6 }
+
+me1200RmirrorMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200RmirrorCapabilitiesInfoGroup, 
+                  me1200RmirrorConfigSessionTableInfoGroup, 
+                  me1200RmirrorConfigSessionSourceCpuTableInfoGroup, 
+                  me1200RmirrorConfigSessionSourceVlanTableInfoGroup, 
+                  me1200RmirrorConfigSessionSourcePortTableInfoGroup, 
+                  me1200RmirrorConfigSessionPortTableInfoGroup }
+
+    ::= { me1200RmirrorMibCompliances 1 }
+
+END

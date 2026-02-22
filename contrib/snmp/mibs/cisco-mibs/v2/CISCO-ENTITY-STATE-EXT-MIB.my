@@ -1,0 +1,452 @@
+-- *****************************************************************
+-- CISCO-ENTITY-STATE-EXT-MIB.my
+--   
+-- Cisco Extension to ENTITY-STATE-MIB (RFC4268)
+--   
+-- June 2010, Anirban Karmakar
+-- 
+-- Copyright (c) 2010 by cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-ENTITY-STATE-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    EntityStandbyStatus
+        FROM ENTITY-STATE-TC-MIB
+    entStateAlarm,
+    entStateStandby,
+    entStateEntry
+        FROM ENTITY-STATE-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoEntityStateExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "201006160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Postal: Cisco Systems, Inc.
+            170 West Tasman Drive
+            San Jose, CA 95134-1706
+            USA
+
+            Tel: +1 408 526 4000
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is a Cisco Specific extension of ENTITY-STATE-MIB
+        specified in RFC 4268.
+
+        This MIB module is to add objects which provide additional
+        information related to entity states. 
+
+        This MIB define notifications which are generated when a 
+        entity undergoes a redundancy switchover."
+    REVISION        "201006160000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 747 }
+
+
+ciscoEntityStateExtMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoEntityStateExtMIB 0 }
+
+ciscoEntityStateExtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoEntityStateExtMIB 1 }
+
+ciscoEntityStateExtMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoEntityStateExtMIB 2 }
+
+-- ciscoEntStateExtTable
+
+ceStateExtTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CeStateExtEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An extension of the entStateTable, defined in
+        ENTITY-STATE-MIB (rfc 4268) providing additional
+        information and control objects for the entities 
+        listed in the table."
+    ::= { ciscoEntityStateExtMIBObjects 1 }
+
+ceStateExtEntry OBJECT-TYPE
+    SYNTAX          CeStateExtEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An ciscoEntStateExtTable entry lists objects
+        for providing any additional information for
+        entities.
+
+        A row in this table is present for every row in
+        entStateEntry."
+    AUGMENTS           { entStateEntry  } 
+    ::= { ceStateExtTable 1 }
+
+CeStateExtEntry ::= SEQUENCE {
+        ceStateExtPrevStandbyState         EntityStandbyStatus,
+        ceStateExtSwitchoverNotifEnable    INTEGER,
+        ceStateExtStandbyStatusNotifEnable INTEGER,
+        ceStateExtOperNotifEnable          INTEGER
+}
+
+ceStateExtPrevStandbyState OBJECT-TYPE
+    SYNTAX          EntityStandbyStatus
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the standby state of this
+        entity prior to transitioning to its present 
+        standby state." 
+    ::= { ceStateExtEntry 1 }
+
+ceStateExtSwitchoverNotifEnable OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        followsGlobal(1),
+                        disabled(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A control object to enable/disable
+        ceStateExtStandbySwitchover notification for each entity.
+        followsGlobal(1): The ceStateExtStandbySwitchover
+                          notification for this entity is 
+                          enabled/disabled based on the value of 
+                          ceStateExtGlobalSwitchoverNotifEnable 
+                          object. 
+        disabled(2):      The ceStateExtStandbySwitchover
+                          notification is disbaled for this entity.
+
+        The truth table below explains how the value of 
+        ceStateExtSwitchoverNotifEnable and 
+        ceStateExtGlobalSwitchoverNotifEnable controls the 
+        the generation of this notification for each entity.
+
+        F = followsGlobal, D = Disabled, E = Enabled
+        local_flag =  ceStateExtOperNotifEnable
+        global_flag = ceStateExtGlobalOperNotifEnable
+
+        local_flag  global_flag   outcome_per_entity
+        ---------------------------------------------
+          D            E            D
+          D            D            D
+          F            E            E
+          F            D            D"
+    DEFVAL          { followsGlobal } 
+    ::= { ceStateExtEntry 2 }
+
+ceStateExtStandbyStatusNotifEnable OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        followsGlobal(1),
+                        disabled(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A control object to enable/disable
+        ceStateExtStandbyStatusChange notification for each
+        entity.
+        followsGlobal(1): The ceStateExtStandbyStatusChange 
+                          notification for this entity is 
+                          enabled/disabled based on the value of
+                          ceStateExtGlobalStandbyStatusNotifEnable
+                          object. 
+        disabled(2):      The ceStateExtStandbyStatusChange 
+                          notification is disabled for this entity.
+
+        The truth table below explains how the value of
+        ceStateExtStandbyStatusNotifEnable and
+        ceStateExtGlobalStandbyStatusNotifEnable controls 
+        the generation of this notification for each entity.
+
+        F = followsGlobal, D = Disabled, E = Enabled
+        local_flag =  ceStateExtOperNotifEnable
+        global_flag = ceStateExtGlobalOperNotifEnable
+
+        local_flag  global_flag   outcome_per_entity
+        ---------------------------------------------
+          D            E            D
+          D            D            D
+          F            E            E
+          F            D            D"
+    DEFVAL          { followsGlobal } 
+    ::= { ceStateExtEntry 3 }
+
+ceStateExtOperNotifEnable OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        followsGlobal(1),
+                        disabled(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A control object to enable/disable the
+        entStateOperEnabled and entStateOperDisabled
+        notifications (defined in ENTITY-STATE-MIB module)
+        for this entity.
+        followsGlobal(1): The entStateOperEnabled and
+                          entStateOperDisabled notifications
+                          for this entity are enabled/disabled 
+                          based on the value of 
+                          ceStateExtGlobalOperNotifEnable object.
+        disabled(2):      The entStateOperEnabled and 
+                          entStateOperDisabled notifications are
+                          disabled for this entity.
+
+        The truth table below explains how the value of 
+        ceStateExtOperNotifEnable and 
+        ceStateExtGlobalOperNotifEnable controls the 
+        generation of this notification for each entity.
+
+        F = followsGlobal, D = Disabled, E = Enabled
+        local_flag =  ceStateExtOperNotifEnable
+        global_flag = ceStateExtGlobalOperNotifEnable
+
+        local_flag  global_flag   outcome_per_entity
+        ---------------------------------------------
+          D            E            D
+          D            D            D
+          F            E            E
+          F            D            D"
+    DEFVAL          { followsGlobal } 
+    ::= { ceStateExtEntry 4 }
+ 
+
+ciscoEntityStateExtNotifControl  OBJECT IDENTIFIER
+    ::= { ciscoEntityStateExtMIBObjects 2 }
+
+
+ceStateExtGlobalSwitchoverNotifEnable OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enabled(1),
+                        disabled(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A control object to enable/disable
+        ceStateExtStandbySwitchover notification at the
+        system level.
+
+        This object should hold any of the below values.
+        enabled(1) - The notif is enabled globally for the system
+        disabled(2)- The notif is disabled globally for the system
+
+        If the value of this object is 'disabled', then
+        the ceStateExtStandbySwitchover notification
+        will not be generated from the system. If the value of
+        this object is 'enabled', then the generation of this 
+        notification for an entity will depend on the value of
+        ceStateExtSwitchoverNotifEnable object for that entity."
+    DEFVAL          { disabled } 
+    ::= { ciscoEntityStateExtNotifControl 1 }
+
+ceStateExtGlobalStandbyStatusNotifEnable OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enabled(1),
+                        disabled(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A control object to enable/disable
+        ceStateExtStandbyStatusChange notification
+        at the system level.
+
+        This object should hold any of the below values.
+        enabled(1) - The notif is enabled globally for the system
+        disabled(2)- The notif is disabled globally for the system
+
+        If the value of this object is 'disabled', then
+        the ceStateExtStandbyStatusChange notification
+        will not be generated from the system. If the value of
+        this object is 'enabled', then the generation of this 
+        notification for an entity will depend on the value of 
+        ceStateExtStandbyStatusNotifEnable object for that entity."
+    DEFVAL          { disabled } 
+    ::= { ciscoEntityStateExtNotifControl 2 }
+
+ceStateExtGlobalOperNotifEnable OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enabled(1),
+                        disabled(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A control object to enable/disable
+        entStateOperEnabled and entStateOperDisabled
+        notifications at the system level.
+
+        This object should hold any of the below values.
+        enabled(1) - The notif is enabled globally for the system
+        disabled(2)- The notif is disabled globally for the system
+
+        If the value of this object is 'disabled',
+        then the ceStateOperEnabled and ceStateOperDisabled
+        notifications will not be generated from the system.
+        If the value of this object is 'enabled', then the 
+        generation of this notification for an entity will depend 
+        on the value of ceStateExtOperNotifEnable object for that 
+        entity."
+    DEFVAL          { disabled } 
+    ::= { ciscoEntityStateExtNotifControl 3 }
+
+-- Entity State Extension notifications
+
+ceStateExtStandbySwitchover NOTIFICATION-TYPE
+    OBJECTS         {
+                        entStateAlarm,
+                        entStateStandby
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated after a switchover
+        indicating the change of the entStandbyState to 
+        providingService from standbyHot/standbyCold for
+        the entity which took over as active."
+   ::= { ciscoEntityStateExtMIBNotifs 1 }
+
+ceStateExtStandbyStatusChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        entStateAlarm,
+                        entStateStandby,
+                        ceStateExtPrevStandbyState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated to indicate a change
+        in an entity's standby status. The previous standby state
+        is indicated by the included value of 
+        ceStateExtPrevStandbyState."
+   ::= { ciscoEntityStateExtMIBNotifs 2 }
+-- conformance information
+
+ciscoEntStateExtMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoEntityStateExtMIBConform 1 }
+
+ciscoEntStateExtMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoEntityStateExtMIBConform 2 }
+
+
+-- compliance statements
+
+ciscoEntStateExtMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for implementations of the
+        CISCO-ENTITY-STATE-EXT-MIB."
+    MODULE          -- this module
+    GROUP           ciscoEntStateExtNotifObjectsGroup
+    DESCRIPTION
+        "This group is mandatory for nodes supporting the
+        ciscoEntStateExtStatusNotifGroup."
+
+    GROUP           ciscoEntStateExtNotifControlGroup
+    DESCRIPTION
+        "This group is optional and should be supported
+        for providing the ability to enable/disable the
+        notifications defined in this MIB module and 
+        ENTITY-STATE-MIB for each entity."
+
+    GROUP           ciscoEntStateExtSwitchoverNotifGroup
+    DESCRIPTION
+        "This group is optional. All nodes may not be able
+        to generate notifications indicating a switchover."
+
+    GROUP           ciscoEntStateExtStatusNotifGroup
+    DESCRIPTION
+        "This group is optional. All nodes may not be
+        able to generate notifications for entity standby
+        state transitions."
+
+    OBJECT          ceStateExtSwitchoverNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Implementations may choose not to allow the value
+        to be changed."
+
+    OBJECT          ceStateExtStandbyStatusNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Implementations may choose not to allow the value
+        to be changed."
+
+    OBJECT          ceStateExtOperNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Implementations may choose not to allow the value
+        to be changed."
+
+    OBJECT          ceStateExtGlobalSwitchoverNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Implementations may choose not to allow the value
+        to be changed."
+
+    OBJECT          ceStateExtGlobalStandbyStatusNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Implementations may choose not to allow the value
+        to be changed."
+
+    OBJECT          ceStateExtGlobalOperNotifEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Implementations may choose not to allow the value
+        to be changed."
+    ::= { ciscoEntStateExtMIBCompliances 1 }
+
+-- units of conformance
+
+ciscoEntStateExtNotifObjectsGroup OBJECT-GROUP
+    OBJECTS         { ceStateExtPrevStandbyState }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects for this MIB module."
+    ::= { ciscoEntStateExtMIBGroups 1 }
+
+ciscoEntStateExtNotifControlGroup OBJECT-GROUP
+    OBJECTS         {
+                        ceStateExtSwitchoverNotifEnable,
+                        ceStateExtStandbyStatusNotifEnable,
+                        ceStateExtOperNotifEnable,
+                        ceStateExtGlobalSwitchoverNotifEnable,
+                        ceStateExtGlobalStandbyStatusNotifEnable,
+                        ceStateExtGlobalOperNotifEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of notification control objects for
+        this MIB module."
+    ::= { ciscoEntStateExtMIBGroups 2 }
+
+ciscoEntStateExtSwitchoverNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ceStateExtStandbySwitchover }
+    STATUS          current
+    DESCRIPTION
+        "The collection of notification generated by this MIB module
+        reporting a switchover."
+    ::= { ciscoEntStateExtMIBGroups 3 }
+
+ciscoEntStateExtStatusNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ceStateExtStandbyStatusChange }
+    STATUS          current
+    DESCRIPTION
+        "The collection of notification generated by this MIB module
+        reporting the standby state transitions for entities."
+    ::= { ciscoEntStateExtMIBGroups 4 }
+
+END

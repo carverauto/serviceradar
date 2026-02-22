@@ -1,0 +1,482 @@
+-- MIB file created 18-Sep-2009 10:14:50, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-OSPF-TRAP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-OSPF-TRAP-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ospfRouterId, ospfAreaId, ospfIfIpAddress, ospfAddressLessIf, 
+    ospfLsdbAreaId, ospfVirtIfAreaId, ospfVirtIfNeighbor, 
+    ospfNbrRtrId, ospfLsdbLsid, ospfLsdbRouterId
+            FROM OSPF-MIB
+    cospfAreaNssaTranslatorState, cospfShamLinkAreaId, 
+    cospfLsdbType, cospfShamLinkLocalIpAddress, 
+    cospfShamLinkNeighborId, cospfShamLinkState, 
+    cospfShamLinksAreaId, cospfShamLinksLocalIpAddr, 
+    cospfShamLinksRemoteIpAddr, cospfShamLinksState, 
+    cospfShamLinkNbrArea, cospfShamLinkNbrIpAddr, 
+    cospfShamLinkNbrIpAddrType, cospfShamLinksLocalIpAddrType, 
+    cospfShamLinksRemoteIpAddrType, cospfShamLinkNbrRtrId, 
+    cospfShamLinkNbrState
+            FROM CISCO-OSPF-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoOspfTrapMIB OBJECT IDENTIFIER ::= { ciscoExperiment 101 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200307180000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-ospf@cisco.com
+--  Descr
+--    This MIB module describes new/modified notification
+--     objects/events, which are defined in the latest
+--     version for OSPF MIB IETF draft
+--     draftietf-ospf-mib-update-05.txt. Support for OSPF 
+--     Sham link is also added
+--  RevDate
+--    200307180000Z
+--  RevDescr
+--    +Deprecated cospfShamLinkStateChange.
+--     +Added cospfShamLinksStateChange.
+--     +Added cospfShamLinkNbrStateChange.
+--     +Added cospfShamLinkConfigError.
+--     +Added cospfShamLinkAuthFailure.
+--     +Added cospfShamLinkRxBadPacket.
+--     +Added cospfShamLinkTxRetransmit.
+--     +Fixed indentation and spelling.
+--  RevDate
+--    200302270000Z
+--  RevDescr
+--    Initial version of the MIB module.
+
+ciscoOspfTrapMIBNotifs OBJECT IDENTIFIER ::= { ciscoOspfTrapMIB 0 }
+ciscoOspfTrapMIBObjects OBJECT IDENTIFIER ::= { ciscoOspfTrapMIB 1 }
+ciscoOspfTrapMIBConform OBJECT IDENTIFIER ::= { ciscoOspfTrapMIB 2 }
+cospfTrapControl OBJECT IDENTIFIER ::= { ciscoOspfTrapMIBObjects 1 }
+ciscoOspfTrapMIBGroups OBJECT IDENTIFIER ::= { ciscoOspfTrapMIBConform 1 }
+ciscoOspfTrapMIBCompliances OBJECT IDENTIFIER ::= { ciscoOspfTrapMIBConform 2 }
+
+cospfSetTrap OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   ifConfigError(0)
+        --   virtIfConfigError(1)
+        --   retransmit(2)
+        --   virtRetransmit(3)
+        --   originateLsa(4)
+        --   originateMaxAgeLsa(5)
+        --   nssaTranslatorStatusChange(6)
+        --   shamLinkStateChange(7)
+        --   shamLinkNbrStateChange(8)
+        --   shamLinkConfigError(9)
+        --   shamLinkAuthFailure(10)
+        --   shamLinkRxBadPacket(11)
+        --   shamLinkTxRetransmit(12)
+        --   shamLinksStateChange(13)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An octet string serving as a bit  map  for
+        the trap events defined by the OSPF traps in 
+        this MIB. This object is used to enable and  
+        disable  specific OSPF   traps   where  a  1  
+        in  the  corresponding bit  field represents 
+        enabled."
+    ::= { cospfTrapControl 1 }
+
+cospfConfigErrorType OBJECT-TYPE
+    SYNTAX INTEGER {
+        badVersion(1),
+        areaMismatch(2),
+        unknownNbmaNbr(3),
+        unknownVirtualNbr(4),
+        authTypeMismatch(5),
+        authFailure(6),
+        netMaskMismatch(7),
+        helloIntervalMismatch(8),
+        deadIntervalMismatch(9),
+        optionMismatch(10),
+        mtuMismatch(11),
+        noError(12),
+        unknownShamLinkNbr(13)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Potential types of configuration conflicts.
+        Used  by the cospfConfigError and cospfConfigVirtError
+        traps. When the last value of a trap
+        using this object is needed, but no traps of
+        that type have been sent, this value pertaining
+        to this object should be returned as noError."
+    ::= { cospfTrapControl 2 }
+
+cospfPacketType OBJECT-TYPE
+    SYNTAX INTEGER {
+        hello(1),
+        dbDescript(2),
+        lsReq(3),
+        lsUpdate(4),
+        lsAck(5),
+        nullPacket(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "OSPF packet types. When the last value of a trap
+        using this object is needed, but no traps of
+        that type have been sent, this value pertaining
+        to this object should be returned as nullPacket."
+    ::= { cospfTrapControl 3 }
+
+cospfPacketSrc OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of an inbound packet that can-
+        not be identified by a neighbor instance. When
+        the last value of a trap using this object is
+        needed, but no traps of that type have been sent,
+        this value pertaining to this object should
+        be returned as 0.0.0.0."
+    ::= { cospfTrapControl 4 }
+
+cospfIfConfigError TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, ospfIfIpAddress, ospfAddressLessIf, 
+        cospfPacketSrc, cospfConfigErrorType, cospfPacketType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cospfIfConfigError  trap  signifies  that  a
+        packet  with mismatched parameter MTU has been 
+        received on a non-virtual interface  from  a  
+        router."
+    ::= 1
+
+cospfVirtIfConfigError TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, ospfVirtIfAreaId, ospfVirtIfNeighbor, 
+        cospfConfigErrorType, cospfPacketType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cospfVirtIfConfigError  trap  signifies  that  a
+        packet  with mismatched parameter MTU has been received
+        on a virtual interface  from  a router."
+    ::= 2
+
+cospfTxRetransmit TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, ospfIfIpAddress, ospfAddressLessIf, 
+        ospfNbrRtrId, cospfPacketType, cospfLsdbType, ospfLsdbLsid, 
+        ospfLsdbRouterId }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cospfTxRetransmit  trap  signifies  than  an
+        OSPF  packet, which has been associated with 
+        an Opaque LSA LSDB Entry, has  been retransmitted 
+        on a non-virtual interface."
+    ::= 3
+
+cospfVirtIfTxRetransmit TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, ospfVirtIfAreaId, ospfVirtIfNeighbor, 
+        cospfPacketType, cospfLsdbType, ospfLsdbLsid, 
+        ospfLsdbRouterId }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cospfVirtTxRetransmit  trap  signifies  than  an
+        OSPF  packet, which has been associated with 
+        an Opaque LSA LSDB Entry, has  been retransmitted 
+        on a non-virtual interface."
+    ::= 4
+
+cospfOriginateLsa TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, ospfLsdbAreaId, cospfLsdbType, ospfLsdbLsid, 
+        ospfLsdbRouterId }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cospfOriginateLsa trap signifies that a  new
+        Opaque LSA  has  been originated by this router.
+        This trap should not be invoked for simple refreshes
+        of  LSAs  (which happesn every 30 minutes), but
+        instead will only be invoked  when  an  LSA  is
+        (re)originated due to a topology change.  Additionally, 
+        this trap does not include LSAs  that
+        are  being  flushed  because  they have reached
+        MaxAge."
+    ::= 5
+
+cospfMaxAgeLsa TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, ospfLsdbAreaId, cospfLsdbType, ospfLsdbLsid, 
+        cospfLsdbType, ospfLsdbRouterId }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cospfMaxAgeLsa trap signifies  that  one  of
+        the Opaque LSAs in the router's link-state database 
+        has aged to MaxAge."
+    ::= 6
+
+cospfNssaTranslatorStatusChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, ospfAreaId, cospfAreaNssaTranslatorState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cospfNssaTranslatorStatusChange trap indicates that there
+        has been a change in the router's ability to translate OSPF
+        type-7 LSAs into OSPF type-5 LSAs. This trap should be
+        generated when the Translator Status transitions from or to
+        any defined status on a per area basis."
+    ::= 7
+
+cospfShamLinkStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, cospfShamLinkAreaId, 
+        cospfShamLinkLocalIpAddress, cospfShamLinkNeighborId, 
+        cospfShamLinkState }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "A ospfShamLinkStateChange trap signifies that 
+        there has been a change in the state of a Sham
+        Link OSPF interface. This trap should  be  generated
+        when  the interface state regresses from  Point-to-Point
+        to Down or progresses to Down to Point-to-Point. This
+        trap has been deprecated by cospfShamLinksStateChange."
+    ::= 8
+
+cospfShamLinksStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, cospfShamLinksAreaId, 
+        cospfShamLinksLocalIpAddrType, cospfShamLinksLocalIpAddr, 
+        cospfShamLinksRemoteIpAddrType, cospfShamLinksRemoteIpAddr, 
+        cospfShamLinksState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ospfShamLinkStateChange trap signifies that 
+        there has been a change in the state of a Sham
+        Link OSPF interface. This trap should  be  generated
+        when  the interface state regresses from  Point-to-Point
+        to Down or progresses  to  Down to Point-to-Point."
+    ::= 14
+
+cospfShamLinkNbrStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, cospfShamLinkNbrArea, 
+        cospfShamLinksLocalIpAddrType, cospfShamLinksLocalIpAddr, 
+        cospfShamLinkNbrIpAddrType, cospfShamLinkNbrIpAddr, 
+        cospfShamLinkNbrRtrId, cospfShamLinkNbrState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cospfShamLinkNbrStateChange trap signifies that
+        there has been a change in the state of a sham link
+        OSPF neighbor. This trap should be generated when 
+        the neighbor state regresses (e.g., goes from 
+        Attempt or Full to 1-Way or Down) or progresses to
+        a terminal state (e.g., Full)."
+    ::= 9
+
+cospfShamLinkConfigError TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, cospfShamLinksAreaId, 
+        cospfShamLinksLocalIpAddrType, cospfShamLinksLocalIpAddr, 
+        cospfShamLinksRemoteIpAddrType, cospfShamLinksRemoteIpAddr, 
+        cospfConfigErrorType, cospfPacketType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cospfShamLinkConfigError signifies that a packet 
+        has been received on a sham link from a router whose
+        configuration parameters conflict with this router's
+        configuration parameters."
+    ::= 10
+
+cospfShamLinkAuthFailure TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, cospfShamLinksAreaId, 
+        cospfShamLinksLocalIpAddrType, cospfShamLinksLocalIpAddr, 
+        cospfShamLinksRemoteIpAddrType, cospfShamLinksRemoteIpAddr, 
+        cospfConfigErrorType, cospfPacketType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cospfShamLinkAuthFailure trap signifies that a 
+        packet has been received on a sham link from a router
+        whose authentication key or authentication type conflicts
+        with this router's authentication key and authentication 
+        type."
+    ::= 11
+
+cospfShamLinkRxBadPacket TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, cospfShamLinksAreaId, 
+        cospfShamLinksLocalIpAddrType, cospfShamLinksLocalIpAddr, 
+        cospfShamLinksRemoteIpAddrType, cospfShamLinksRemoteIpAddr, 
+        cospfPacketType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cospfShamLinkRxBadPacket trap signifies that an OSPF
+        packet has been received on a sham link that cannot be 
+        parsed."
+    ::= 12
+
+cospfShamLinkTxRetransmit TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoOspfTrapMIB
+    VARIABLES {
+        ospfRouterId, cospfShamLinksAreaId, 
+        cospfShamLinksLocalIpAddrType, cospfShamLinksLocalIpAddr, 
+        cospfShamLinksRemoteIpAddrType, cospfShamLinksRemoteIpAddr, 
+        cospfPacketType, cospfLsdbType, ospfLsdbLsid, 
+        ospfLsdbRouterId }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cospfShamLinkTxRetransmit trap signifies that an 
+        OSPF packet has been retransmitted on a sham link. All 
+        packets that may be retransmitted are associated with an 
+        LSDB entry. The LS type, LS ID, and Router ID are used 
+        identify the LSDB entry."
+    ::= 13
+
+ciscoOspfTrapControlGroup OBJECT IDENTIFIER ::= { ciscoOspfTrapMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These objects are required to control traps
+--    from OSPF systems.
+--  objects
+--    cospfSetTrap, cospfConfigErrorType, cospfPacketType, 
+--    cospfPacketSrc
+
+ciscoOspfTrapEventGroup OBJECT IDENTIFIER ::= { ciscoOspfTrapMIBGroups 1 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A grouping of OSPF Trap Events, as specified
+--    in NOTIFICATION-TYPE constructs. This has been
+--    deprecated by ciscoOspfTrapEventGroupRev1.
+--  notifications
+--    cospfIfConfigError, cospfVirtIfConfigError, cospfTxRetransmit, 
+--    cospfVirtIfTxRetransmit, cospfOriginateLsa, cospfMaxAgeLsa, 
+--    cospfNssaTranslatorStatusChange, cospfShamLinkStateChange
+
+ciscoOspfTrapEventGroupRev1 OBJECT IDENTIFIER ::= { ciscoOspfTrapMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A grouping of OSPF Trap Events, as specified
+--    in NOTIFICATION-TYPE constructs.
+--  notifications
+--    cospfIfConfigError, cospfVirtIfConfigError, cospfTxRetransmit, 
+--    cospfVirtIfTxRetransmit, cospfOriginateLsa, cospfMaxAgeLsa, 
+--    cospfNssaTranslatorStatusChange, cospfShamLinksStateChange, 
+--    cospfShamLinkNbrStateChange, cospfShamLinkConfigError, 
+--    cospfShamLinkAuthFailure, cospfShamLinkRxBadPacket, 
+--    cospfShamLinkTxRetransmit
+
+ciscoOspfTrapMIBCompliance OBJECT IDENTIFIER ::= { ciscoOspfTrapMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statements for the Cisco OSPF TRAP
+--    MIB. These statements are deprecated by
+--    ciscoOspfTrapMIBComplianceRev1.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoOspfTrapEventGroup
+--   MandGroup
+--    ciscoOspfTrapControlGroup
+--   ObjVar
+--    cospfConfigErrorType
+--   ObjVar
+--    cospfPacketType
+--   ObjVar
+--    cospfPacketSrc
+
+ciscoOspfTrapMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoOspfTrapMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statements for the Cisco OSPF TRAP
+--    MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoOspfTrapEventGroupRev1
+--   MandGroup
+--    ciscoOspfTrapControlGroup
+--   ObjVar
+--    cospfConfigErrorType
+--   ObjVar
+--    cospfPacketType
+--   ObjVar
+--    cospfPacketSrc
+
+
+END
+

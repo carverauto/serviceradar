@@ -1,0 +1,76 @@
+-- *****************************************************************
+-- CISCO-SWITCH-RATE-LIMITER-CAPABILITY.my:
+-- CISCO-SWITCH-RATE-LIMITER-MIB AGENT-CAPABILITIES
+--   
+-- July 2011, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2011 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SWITCH-RATE-LIMITER-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSwitchRateLimiterCapability MODULE-IDENTITY
+    LAST-UPDATED    "201107270000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-SWITCH-RATE-LIMITER-MIB."
+    REVISION        "201107270000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 606 }
+
+
+
+ciscoRateLimiterCapNxOSV05R0201PN7k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 5.2(1) on Nexus 7000
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-RATE-LIMITER-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-RATE-LIMITER-MIB
+    INCLUDES        {
+                        csrlRateLimiterClassGroup,
+                        csrlGlobalRateLimiterGroup,
+                        csrlLocalRateLimiterGroup
+                    }
+    VARIATION       csrlGlobalRateLimiterConfigured
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csrlLocalRateLimiterConfigured
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoSwitchRateLimiterCapability 1 }
+
+END
+
+
+
+
+

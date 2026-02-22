@@ -1,0 +1,1215 @@
+--------------------------------------------------------------------
+-- CISCO ATM2 MIB
+--
+-- August 1997, Karthik Ramachandran
+--
+-- Copyright (c) 1997-1998 by cisco Systems, Inc.
+-- All rights reserved.
+-------------------------------------------------------------------
+   CISCO-ATM2-MIB DEFINITIONS ::= BEGIN
+
+   IMPORTS
+         MODULE-IDENTITY, 
+         OBJECT-TYPE,
+         Counter32                    FROM SNMPv2-SMI
+         MODULE-COMPLIANCE, 
+         OBJECT-GROUP                 FROM SNMPv2-CONF
+         ciscoExperiment              FROM CISCO-SMI
+         ifIndex                      FROM IF-MIB
+         atmInterfaceConfEntry        FROM ATM-MIB;  -- RFC 1695
+
+
+   ciscoAtm2MIB MODULE-IDENTITY
+        LAST-UPDATED "9803040000Z"
+        ORGANIZATION "Cisco Systems, Inc."
+        CONTACT-INFO
+              "       Cisco Systems
+                      Customer Service
+ 
+              Postal: 170 W Tasman Drive
+                       San Jose, CA  95134
+                       USA
+ 
+                 Tel: +1 800 553-NETS
+ 
+              E-mail: cs-atm@cisco.com"
+ 
+         DESCRIPTION
+               "This MIB Module is a supplement to the
+                ATM-MIB [1]. It is an adaptation of a 
+		portion of the ATOMMIB supplemental MIB."
+         REVISION        "9803040000Z"
+         DESCRIPTION
+            "Added VPI/VCI range objects from supplemental
+             ATOMMIB"
+         ::= { ciscoExperiment 23 }
+
+    ciscoatm2MIBObjects  OBJECT IDENTIFIER ::= {ciscoAtm2MIB 1}
+
+
+
+
+-- This CISCO-ATM2-MIB Module consists of the following tables:
+       --      1. ciscoatmSigStatTable
+       --      2. ciscoatmSigSupportTable
+       --      3. ciscoatmInterfaceExtTable
+--
+-- 1. ATM Interface Signalling Statistics Table
+--
+
+
+   ciscoatmSigStatTable       OBJECT-TYPE
+                  SYNTAX       SEQUENCE OF CiscoatmSigStatEntry
+                  MAX-ACCESS   not-accessible
+                  STATUS       current
+                  DESCRIPTION
+                   "This table contains ATM interface signalling monitoring
+                    , one entry per ATM signalling interface."
+                  ::= { ciscoatm2MIBObjects 1 }
+ 
+   ciscoatmSigStatEntry         OBJECT-TYPE
+                  SYNTAX         CiscoatmSigStatEntry
+                  MAX-ACCESS     not-accessible
+                  STATUS         current
+                  DESCRIPTION
+                   "This list contains signalling statistics variables."
+                  INDEX { ifIndex }
+                  ::= { ciscoatmSigStatTable  1}
+ 
+   CiscoatmSigStatEntry    ::= SEQUENCE  {
+                  ciscoatmSigSSCOPConEvents        Counter32,
+                  ciscoatmSigSSCOPErrdPdus         Counter32,
+                  ciscoatmSigDetectSetupAttempts   Counter32,
+                  ciscoatmSigEmitSetupAttempts    Counter32,
+                  ciscoatmSigDetectUnavailRoutes         Counter32,
+                  ciscoatmSigEmitUnavailRoutes         Counter32,
+                  ciscoatmSigDetectUnavailResrcs         Counter32,
+                  ciscoatmSigEmitUnavailResrcs         Counter32,
+                  ciscoatmSigDetectCldPtyEvents          Counter32,
+                  ciscoatmSigEmitCldPtyEvents          Counter32,
+                  ciscoatmSigDetectMsgErrors             Counter32,
+                  ciscoatmSigEmitMsgErrors             Counter32,
+                  ciscoatmSigDetectClgPtyEvents          Counter32,
+                  ciscoatmSigEmitClgPtyEvents          Counter32,
+                  ciscoatmSigDetectTimerExpireds         Counter32,
+                  ciscoatmSigEmitTimerExpireds         Counter32,
+                  ciscoatmSigDetectRestarts              Counter32,
+                  ciscoatmSigEmitRestarts              Counter32,
+                  ciscoatmSigInEstabls             Counter32,
+                  ciscoatmSigOutEstabls            Counter32
+                       }
+ 
+   ciscoatmSigSSCOPConEvents   OBJECT-TYPE
+                  SYNTAX            Counter32
+                  MAX-ACCESS        read-only
+                  STATUS            current
+                  DESCRIPTION
+                    "SSCOP Connection Events Counter.  This
+                    counter counts the sum of the following errors:
+ 
+                    1) SSCOP Connection Disconnect Counter
+ 
+                    The abnormal occurrence of this event is
+                    characterized by the expiry of Timer_NO_RESPONSE.
+                    (This event is communicated to the layer management
+                    with MAA-ERROR code P.  See ITU-T Q.2110 [13].)
+ 
+                    2) SSCOP Connection Initiation Failure
+ 
+                    This condition indicates the inability to establish
+                    an SSCOP connection.  This event occurs whenever the
+                    number of expiries of the connection control timer
+                    (Timer_CC) exceeds the MaxCC or upon receipt of a
+                    connection reject message BGREJ PDU.  (This event is
+                    communicated to layer management with MAA-ERROR
+                    code O.  See ITU-T Q.2110.)
+ 
+                    3) SSCOP Connection Re-Establ/Resynch
+ 
+                    This event occurs upon receipt of a BGN PDU or RESYNC
+                    PDU."
+                 ::= { ciscoatmSigStatEntry 5}
+ 
+  ciscoatmSigSSCOPErrdPdus   OBJECT-TYPE
+                 SYNTAX           Counter32
+                 MAX-ACCESS       read-only
+                 STATUS           current
+                 DESCRIPTION
+                   "SSCOP Errored PDUs Counter.  This counter counts the
+                   sum of the following errors:
+ 
+                   1) Invalid PDUs.
+                      These are defined in SSCOP and consist of PDUs
+                      with incorrect length (MAA-ERROR code U),
+                      undefined PDU type code or not 32-bit aligned.
+ 
+                   2) PDUs that result in MAA error codes and are
+                      discarded
+                      See Errors A-M and Q-T defined in ITU-T Q.2110 [13]."
+ 
+                ::= { ciscoatmSigStatEntry 6 }
+ 
+  ciscoatmSigDetectSetupAttempts    OBJECT-TYPE
+                SYNTAX            Counter32
+                MAX-ACCESS        read-only
+                STATUS            current
+                DESCRIPTION
+                  "Call Setup Attempts Counter.  This counter counts
+                  the number of call setup attempts(both successful
+                  and unsuccessful) detected on this interface."
+               ::= { ciscoatmSigStatEntry 7 }
+ 
+  ciscoatmSigEmitSetupAttempts    OBJECT-TYPE
+               SYNTAX            Counter32
+               MAX-ACCESS        read-only
+               STATUS            current
+               DESCRIPTION
+                 "Call Setup Attempts Counter.  This counter counts the
+                 number of call setup attempts(both successful and
+                 unsuccessful) transmitted on this interface."
+               ::= { ciscoatmSigStatEntry 8 }
+ 
+  ciscoatmSigDetectUnavailRoutes    OBJECT-TYPE
+               SYNTAX            Counter32
+               MAX-ACCESS        read-only
+               STATUS            current
+               DESCRIPTION
+                 "Number of Route Unavailability detected on this
+                 interface. This counter is incremented when a RELEASE,
+                 RELEASE COMPLETE (only when not preceded by a RELEASE
+                 mesg for the same call), ADD PARTY REJECT, or STATUS
+                 message that contains one of the following cause code
+                 values is received (Note: These cause values apply to
+                 both UNI3.0 and UNI3.1):
+ 
+                 Cause Value            Meaning
+ 
+                    1            unallocated (unassigned) number
+                    2            no route to specified transit network
+                    3            no route to destination
+                    88           incompatible destination
+ 
+                 NOTE:  For this counter, RELEASE COMPLETE
+                 messages that are a reply to a previous RELEASE
+                 message and contain the same cause value, are
+                 redundant (for counting purposes) and should not
+                 be counted."
+               ::= { ciscoatmSigStatEntry 9 }
+ 
+  ciscoatmSigEmitUnavailRoutes    OBJECT-TYPE
+               SYNTAX            Counter32
+               MAX-ACCESS        read-only
+               STATUS            current
+               DESCRIPTION
+                 "Number of Route Unavailability transmitted from this
+                 interface. This counter is incremented when a RELEASE,
+                 RELEASE COMPLETE (only when not preceded by a RELEASE
+                 mesg for the same call), ADD PARTY REJECT, or STATUS
+                 message that contains one of the following cause code
+                 values is transmitted (Note: These cause values apply
+                 to both UNI3.0 and UNI3.1):
+ 
+                 Cause Value            Meaning
+ 
+                    1            unallocated (unassigned) number
+                    2            no route to specified transit network
+                    3            no route to destination
+ 
+                 NOTE:  For this counter, RELEASE COMPLETE
+                 messages that are a reply to a previous RELEASE
+                 message and contain the same cause value, are
+                 redundant (for counting purposes) and should not
+                 be counted."
+               ::= { ciscoatmSigStatEntry 10 }
+ 
+  ciscoatmSigDetectUnavailResrcs     OBJECT-TYPE
+               SYNTAX             Counter32
+               MAX-ACCESS         read-only
+               STATUS             current
+               DESCRIPTION
+                 "Number of Resource Unavailability detected on this
+                 interfrace.  This counter is incremented when a
+                 RELEASE, RELEASE COMPLETE (only when not preceded by a
+                 RELEASE mesg for the same call), ADD PARTY REJECT, or
+                 STATUS message that contains one of the following cause
+                 code values is received (Note: These cause values apply
+                 to both UNI3.0 and UNI3.1 unless otherwise stated):
+ 
+                 Cause Value          Meaning
+ 
+                    35          requested VPCI/VCI not available
+                    37          user cell rate not available (UNI3.1
+                                only)
+                    38          network out of order
+                    41          temporary failure
+                    45          no VPCI/VCI available
+                    47          resource unavailable, unspecified
+                    49          Quality of Service unavailable
+                    51          user cell rate not available (UNI3.0
+                                only)
+                    58          bearer capability not presently
+                                available
+                    63          Service or option not available,
+                                unspecified
+                    92          too many pending add party requests
+ 
+                 NOTE:  For this counter, RELEASE COMPLETE
+                 messages that are a reply to a previous RELEASE
+                 message and contain the same cause value, are
+                 redundant (for counting purposes) and should not
+                 be counted."
+ 
+               ::= { ciscoatmSigStatEntry 11 }
+ 
+  ciscoatmSigEmitUnavailResrcs     OBJECT-TYPE
+               SYNTAX             Counter32
+               MAX-ACCESS         read-only
+               STATUS             current
+               DESCRIPTION
+                 "Number of Resource Unavailability transmitted from
+                 this interfrace.  This counter is incremented when a
+                 RELEASE, RELEASE COMPLETE (only when not preceded by a
+                 RELEASE mesg for the same call), ADD PARTY REJECT, or
+                 STATUS message that contains one of the following cause
+                 code values is transmitted (Note: These cause values
+                 apply to both UNI3.0 and UNI3.1 unless otherwise
+                 stated):
+ 
+                 Cause Value          Meaning
+ 
+                    35          requested VPCI/VCI not available
+                    37          user cell rate not available (UNI3.1
+                                only)
+                    38          network out of order
+                    41          temporary failure
+                    45          no VPCI/VCI available
+                    47          resource unavailable, unspecified
+                    49          Quality of Service unavailable
+                    51          user cell rate not available (UNI3.0
+                                only)
+                    58          bearer capability not presently
+                                available
+                    63          Service or option not available,
+                                unspecified
+                    92          too many pending add party requests
+ 
+                 NOTE:  For this counter, RELEASE COMPLETE
+                 messages that are a reply to a previous RELEASE
+                 message and contain the same cause value, are
+                 redundant (for counting purposes) and should not
+                 be counted."
+ 
+               ::= { ciscoatmSigStatEntry 12 }
+ 
+  ciscoatmSigDetectCldPtyEvents     OBJECT-TYPE
+               SYNTAX               Counter32
+               MAX-ACCESS           read-only
+               STATUS               current
+               DESCRIPTION
+                 "Number of Called Party Responsible For Unsuccessful
+                 Call detected on this interface. This counter is
+                 incremented when a RELEASE, RELEASE COMPLETE (only when
+                 not preceded by a RELEASE mesg for the same call), ADD
+                 PARTY REJECT, or STATUS message that contains one of
+                 the following cause code values is received (Note:
+                 These cause values apply to both UNI3.0 and UNI3.1):
+ 
+                 Cause Value         Meaning
+ 
+                    17           user busy
+                    18           no user responding
+                    21           call rejected
+                    22           number changed
+                    23           user rejects all calls with calling
+                                 line id restriction (CLIR)
+                    27           destination out of order
+                    31           normal, unspecified
+                    88           incompatible destination
+ 
+                 NOTE:  For this counter, RELEASE COMPLETE
+                 messages that are a reply to a previous RELEASE
+                 message and contain the same cause value, are
+                 redundant (for counting purposes) and should not
+                 be counted.
+ 
+                 Note: Cause Value #30 'response to STATUS ENQUIRY'
+                 was not included in this memo since it did not apply
+                 to a hard failure."
+               ::= { ciscoatmSigStatEntry 13 }
+ 
+  ciscoatmSigEmitCldPtyEvents     OBJECT-TYPE
+               SYNTAX               Counter32
+               MAX-ACCESS           read-only
+               STATUS               current
+               DESCRIPTION
+                 "Number of Called Party Responsible For Unsuccessful Call
+                 transmitted from this interface. This counter is
+                 incremented when a RELEASE, RELEASE COMPLETE (only
+                 when not preceded by a RELEASE mesg for the same call),
+                 ADD PARTY REJECT, or STATUS message that contains one
+                 of the following cause code values is
+                 transmitted (Note: These cause values apply to both
+                 UNI3.0 and UNI3.1):
+ 
+                 Cause Value         Meaning
+ 
+                    17           user busy
+                    18           no user responding
+                    21           call rejected
+                    22           number changed
+                    23           user rejects all calls with calling
+                                 line id restriction (CLIR)
+                    27           destination out of order
+                    31           normal, unspecified
+                    88           incompatible destination
+ 
+                 NOTE:  For this counter, RELEASE COMPLETE
+                 messages that are a reply to a previous RELEASE
+                 message and contain the same cause value, are
+                 redundant (for counting purposes) and should not
+                 be counted.
+ 
+                 Note: Cause Value #30 'response to STATUS ENQUIRY'
+                 was not included in this memo since it did not apply
+                 to a hard failure."
+               ::= { ciscoatmSigStatEntry 14 }
+ 
+  ciscoatmSigDetectMsgErrors    OBJECT-TYPE
+               SYNTAX           Counter32
+               MAX-ACCESS       read-only
+               STATUS           current
+               DESCRIPTION
+                 "Number of Incorrect Messages detected on this
+                 interface.  The Incorrect Messages Counter reflects any
+                 sort of incorrect information in a message.  This
+                 includes:
+ 
+                 - RELEASE, RELEASE COMPLETE, ADD PARTY REJECT,
+                   and STATUS messages transmitted, that contain any of
+                   the Cause values listed below.
+ 
+                 - Ignored messages.  These messages are dropped
+                   because the message was so damaged that it could
+                   not be further processed.  A list of dropped
+                   messages is compiled below:
+ 
+                    1.  Message with invalid protocol discriminator
+ 
+                    2.  Message with errors in the call reference I.E.
+                         - Bits 5-8 of the first octet not equal to
+                           '0000'
+                         - Bits 1-4 of the first octet indicating a
+                           length other than 3 octets
+                         - RELEASE COMPLETE message received with a
+                           call reference that does not relate to a
+                           call active or in progress
+                         - SETUP message received with call reference
+                           flag incorrectly set to 1
+                         - SETUP message received with a call
+                           reference for a call that is already
+                           active or in progress.
+ 
+                    3.  Message too short
+ 
+ 
+                 The following cause values are monitored by this
+                 counter (Note: These cause values apply to both UNI3.0
+                 and UNI3.1 unless otherwise stated):
+ 
+                 Cause Value     Meaning
+ 
+                    10     VPCI/VCI unacceptable (UNI3.0 only)
+                    36     VPCI/VCI assignment failure (UNI3.1 only)
+                    81     invalid call reference value
+                    82     identified channel does not exist
+                    89     invalid endpoint reference
+                    96     mandatory information element is missing
+                    97     message type non-existent or not
+                           implemented
+                    99     information element non-existent or not
+                           implemented
+                    100    invalid information element contents
+                    101    message not compatible with call state
+                    104    incorrect message length
+                    111    protocol error, unspecified
+ 
+                    NOTE:  For this counter, RELEASE COMPLETE
+                    messages that are a reply to a previous RELEASE
+                    message and contain the same cause value, are
+                    redundant (for counting purposes) and should not
+                    be counted."
+               ::= { ciscoatmSigStatEntry 15 }
+ 
+  ciscoatmSigEmitMsgErrors    OBJECT-TYPE
+               SYNTAX           Counter32
+               MAX-ACCESS       read-only
+               STATUS           current
+               DESCRIPTION
+                 "Number of Incorrect Messages detected on this
+                 interface.  The Incorrect Messages Counter reflects any
+                 sort of incorrect information in a message.  This
+                 includes:
+ 
+ 
+                 - RELEASE, RELEASE COMPLETE, ADD PARTY REJECT,
+                   and STATUS messages transmitted or
+                   received, that contain any of the Cause values
+                   listed below.
+ 
+                 - Ignored messages.  These messages are dropped
+                   because the message was so damaged that it could
+                   not be further processed.  A list of dropped
+                   messages is compiled below:
+ 
+                    1.  Message with invalid protocol discriminator
+ 
+                    2.  Message with errors in the call reference I.E.
+                         - Bits 5-8 of the first octet not equal to
+                           '0000'
+                         - Bits 1-4 of the first octet indicating a
+                           length other than 3 octets
+                         - RELEASE COMPLETE message received with a
+                           call reference that does not relate to a
+                           call active or in progress
+                         - SETUP message received with call reference
+                           flag incorrectly set to 1
+                         - SETUP message received with a call
+                           reference for a call that is already
+                           active or in progress.
+ 
+                    3.  Message too short
+ 
+ 
+                 The following cause values are monitored by this
+                 counter (Note: These cause values apply to both UNI3.0
+                 and UNI3.1 unless otherwise stated):
+ 
+                 Cause Value     Meaning
+ 
+                    10     VPCI/VCI unacceptable (UNI3.0 only)
+                    36     VPCI/VCI assignment failure (UNI3.1 only)
+                    81     invalid call reference value
+                    82     identified channel does not exist
+                    89     invalid endpoint reference
+                    96     mandatory information element is missing
+                    97     message type non-existent or not
+                           implemented
+                    99     information element non-existent or not
+                           implemented
+                    100    invalid information element contents
+                    101    message not compatible with call state
+                    104    incorrect message length
+                    111    protocol error, unspecified
+ 
+                    NOTE:  For this counter, RELEASE COMPLETE
+                    messages that are a reply to a previous RELEASE
+                    message and contain the same cause value, are
+                    redundant (for counting purposes) and should not
+                    be counted."
+               ::= { ciscoatmSigStatEntry 16 }
+ 
+  ciscoatmSigDetectClgPtyEvents    OBJECT-TYPE
+               SYNTAX           Counter32
+               MAX-ACCESS       read-only
+               STATUS           current
+               DESCRIPTION
+                 "Number of Calling Party Events detected on this
+                 interface.  This counter monitors error events that
+                 occur due to the originating user doing something
+                 wrong. This counter is incremented when a RELEASE,
+                 RELEASE COMPLETE (only when not preceded by a RELEASE
+                 mesg for the same call), ADD PARTY REJECT, or STATUS
+                 message that contains one of the following cause code
+                 values is received (Note: These cause values apply to
+                 both UNI3.0 and UNI3.1):
+ 
+                 Cause Value     Meaning
+ 
+                    28     invalid number format (address incomplete)
+                    43     access information discarded
+                    57     bearer capability not authorized
+                    65     bearer capability not implemented
+                    73     unsupported combination of traffic
+                           parameters
+                    78     AAL parameters cannot be supported (UNI3.1
+                           only)
+                    91     invalid transit network selection
+                    93     AAL parameters cannot be supported (UNI3.0
+                           only)
+ 
+                    NOTE:  For this counter, RELEASE COMPLETE
+                    messages that are a reply to a previous RELEASE
+                    message and contain the same cause value, are
+                    redundant (for counting purposes) and should not
+                    be counted."
+               ::= { ciscoatmSigStatEntry 17 }
+ 
+   ciscoatmSigEmitClgPtyEvents    OBJECT-TYPE
+               SYNTAX           Counter32
+               MAX-ACCESS       read-only
+               STATUS           current
+               DESCRIPTION
+                 "Number of Calling Party Events transmitted from this
+                 interface.  This counter monitors error events that
+                 occur due to the originating user doing something
+                 wrong. This counter is incremented when a RELEASE,
+                 RELEASE COMPLETE (only when not preceded by a RELEASE
+                 mesg for the same call), ADD PARTY REJECT, or STATUS
+                 message that contains one of the following cause code
+                 values is transmitted (Note: These cause values apply
+                 to both UNI3.0 and UNI3.1):
+ 
+                 Cause Value     Meaning
+                    28     invalid number format (address incomplete)
+                    43     access information discarded
+                    57     bearer capability not authorized
+                    65     bearer capability not implemented
+                    73     unsupported combination of traffic
+                           parameters
+                    78     AAL parameters cannot be supported (UNI3.1
+                           only)
+                    91     invalid transit network selection
+                    93     AAL parameters cannot be supported (UNI3.0
+                           only)
+ 
+                    NOTE:  For this counter, RELEASE COMPLETE
+                    messages that are a reply to a previous RELEASE
+                    message and contain the same cause value, are
+                    redundant (for counting purposes) and should not
+                    be counted."
+               ::= { ciscoatmSigStatEntry 18 }
+ 
+   ciscoatmSigDetectTimerExpireds    OBJECT-TYPE
+               SYNTAX               Counter32
+               MAX-ACCESS           read-only
+               STATUS               current
+               DESCRIPTION
+                 "Number of Timer Expiries detected on this interface.
+                 The Timer Expiries Counter provides a count of network
+                 timer expiries, and to some extent, host or switch
+                 timer expiries.  The conditions for incrementing this
+                 counter are:
+                    - Expiry of any network timer
+ 
+                    - Receipt of a RELEASE or RELEASE COMPLETE
+                      message with Cause #102, 'recovery on
+                      timer expiry'.
+ 
+                 NOTE:  For this counter, RELEASE COMPLETE messages
+                 that are a reply to a previous RELEASE message and
+                 contain the same cause value, are redundant (for
+                 counting purposes) and should not be counted."
+ 
+               ::= { ciscoatmSigStatEntry 19 }
+ 
+   ciscoatmSigEmitTimerExpireds    OBJECT-TYPE
+               SYNTAX               Counter32
+               MAX-ACCESS           read-only
+               STATUS               current
+               DESCRIPTION
+                 "Number of Timer Expiries transmitted from this
+                 interface.  The Timer Expiries Counter provides a count
+                 of network timer expiries, and to some extent, host or
+                 switch timer expiries.  The conditions for incrementing
+                 this counter are:
+                    - Expiry of any network timer
+ 
+                    - Receipt of a RELEASE or RELEASE COMPLETE
+                      message with Cause #102, 'recovery on
+                      timer expiry'.
+ 
+                 NOTE:  For this counter, RELEASE COMPLETE messages
+                 that are a reply to a previous RELEASE message and
+                 contain the same cause value, are redundant (for
+                 counting purposes) and should not be counted."
+               ::= { ciscoatmSigStatEntry 20 }
+ 
+   ciscoatmSigDetectRestarts    OBJECT-TYPE
+               SYNTAX          Counter32
+               MAX-ACCESS      read-only
+               STATUS          current
+               DESCRIPTION
+                 "Number of Restart Activity errors detected on this
+                 interface.  The Restart Activity Counter provides a
+                 count of host, switch, or network restart activity.
+                 This counter is incremented when receiving a RESTART
+                 message."
+               ::= { ciscoatmSigStatEntry 21 }
+ 
+   ciscoatmSigEmitRestarts    OBJECT-TYPE
+               SYNTAX          Counter32
+               MAX-ACCESS      read-only
+               STATUS          current
+               DESCRIPTION
+                 "Number of Restart Activity errors transmitted from
+                 this interface.  The Restart Activity Counter provides
+                 a count of host, switch, or network restart activity.
+                 This counter is incremented when transmitting a RESTART
+                 message."
+               ::= { ciscoatmSigStatEntry 22 }
+ 
+ 
+   ciscoatmSigInEstabls    OBJECT-TYPE
+               SYNTAX          Counter32
+               MAX-ACCESS      read-only
+               STATUS          current
+               DESCRIPTION
+                 "Number of SVC VCCs established at this signalling
+                 entity for incoming connections."
+                  ::= { ciscoatmSigStatEntry 23 }
+ 
+    ciscoatmSigOutEstabls    OBJECT-TYPE
+              SYNTAX          Counter32
+               MAX-ACCESS      read-only
+               STATUS          current
+               DESCRIPTION
+                 "Number of SVC VCCs established at this signalling
+                 entity for outgoing connections."
+                  ::= { ciscoatmSigStatEntry 24 }
+ 
+
+
+
+
+-- 2. ATM Interface Signalling Support Table
+-- This table provides information to support
+-- the signalling process which is used to establish
+-- ATM Switched Virtual Connections (SVCs).
+
+    ciscoatmSigSupportTable       OBJECT-TYPE
+               SYNTAX       SEQUENCE OF CiscoatmSigSupportEntry
+               MAX-ACCESS   not-accessible
+               STATUS       current
+               DESCRIPTION
+                 "This table contains ATM local interface configuration
+                 parameters, one entry per ATM signalling interface."
+               ::= { ciscoatm2MIBObjects 2 }
+
+    ciscoatmSigSupportEntry         OBJECT-TYPE
+               SYNTAX         CiscoatmSigSupportEntry
+               MAX-ACCESS     not-accessible
+               STATUS         current
+               DESCRIPTION
+                 "This list contains signalling configuration parameters
+                 and state variables."
+               INDEX { ifIndex }
+               ::= { ciscoatmSigSupportTable  1}
+
+    CiscoatmSigSupportEntry    ::= SEQUENCE  {
+               ciscoatmSigSupportClgPtyNumDel   INTEGER,
+               ciscoatmSigSupportClgPtySubAddr  INTEGER,
+               ciscoatmSigSupportCldPtySubAddr  INTEGER,
+               ciscoatmSigSupportHiLyrInfo      INTEGER,
+               ciscoatmSigSupportLoLyrInfo      INTEGER,
+               ciscoatmSigSupportBlliRepeatInd  INTEGER,
+               ciscoatmSigSupportAALInfo        INTEGER,
+	       ciscoatmSigSupportUnknownIe	INTEGER
+                    }
+
+    ciscoatmSigSupportClgPtyNumDel     OBJECT-TYPE
+               SYNTAX        INTEGER  { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current
+               DESCRIPTION
+                 "This object indicates whether the Calling Party Number
+                 Information Element is transferred to the called party
+                 address.  The value of this object can be:
+                   - enabled(1)  This Information Element is transferred
+                                 to the called party
+
+                   - disabled(2) This Information Element is NOT
+                                 transferred to the called party."
+               ::= { ciscoatmSigSupportEntry 1 }
+
+    ciscoatmSigSupportClgPtySubAddr   OBJECT-TYPE
+               SYNTAX        INTEGER  { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current
+               DESCRIPTION
+                 "This object indicates whether to accept and transfer
+                 the Calling Party Subaddress Information Element from
+                 the calling party to the called party.  Calling party
+                 subaddress information shall only be transferred to the
+                 called party if calling party number delivery is
+                 enabled (i.e., atmSigSupportClgPtyNumDel =
+                 'enabled(1)'.  The value of this object can be:
+                   - enabled(1)  This Information Element is transferred
+                                 to the called party
+
+                   - disabled(2) This Information Element is NOT
+                                 transferred to the called party."
+               ::= { ciscoatmSigSupportEntry 2 }
+
+    ciscoatmSigSupportCldPtySubAddr    OBJECT-TYPE
+               SYNTAX        INTEGER  { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current
+               DESCRIPTION
+                 "This object indicates whether to accept, transfer, and
+                 deliver the Called Party Subaddress Information Element
+                 from the calling party to the called party.  The value
+                 of this object can be:
+                   - enabled(1)  This Information Element is transferred
+                                 to the called party
+
+                   - disabled(2) This Information Element is NOT
+                                 transferred to the called party."
+               ::= { ciscoatmSigSupportEntry 3 }
+
+    ciscoatmSigSupportHiLyrInfo     OBJECT-TYPE
+               SYNTAX        INTEGER  { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current
+               DESCRIPTION
+                 "This object indicates whether to accept, transfer, and
+                 deliver the Broadband High Layer Information Element
+                 from the calling party to the called party.  The value
+                 of this object can be:
+                   - enabled(1)  This Information Element is transferred
+                                 to the called party
+
+                   - disabled(2) This Information Element is NOT
+                                 transferred to the called party."
+               ::= { ciscoatmSigSupportEntry 4 }
+
+    ciscoatmSigSupportLoLyrInfo     OBJECT-TYPE
+               SYNTAX        INTEGER  { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current
+               DESCRIPTION
+                 "This object indicates whether to accept, transfer, and
+                 deliver the Broadband Low Layer Information Element
+                 from the calling party to the called party.  The value
+                 of this object can be:
+                   - enabled(1)  This Information Element is transferred
+                                 to the called party
+
+                   - disabled(2) This Information Element is NOT
+                                 transferred to the called party."
+               ::= { ciscoatmSigSupportEntry 5 }
+
+    ciscoatmSigSupportBlliRepeatInd      OBJECT-TYPE
+               SYNTAX        INTEGER  { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current
+               DESCRIPTION
+                 "This object indicates whether to accept, transfer, and
+                 deliver the Broadband Repeat Indicator with two or
+                 three instances of the Broadband Low Layer Information
+                 Element for low layer information selection from the
+                 calling party to the called party.  This object shall
+                 only be transferred if atmSigSupportLoLyrInfo =
+                 'enabled(1)'.  The value of this object can be:
+                   - enabled(1)  This Information Element is transferred
+                                 to the called party
+                   - disabled(2) This Information Element is NOT
+                                 transferred to the called party."
+               ::= { ciscoatmSigSupportEntry 6 }
+
+    ciscoatmSigSupportAALInfo     OBJECT-TYPE
+               SYNTAX        INTEGER  { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current
+               DESCRIPTION
+                 "This object indicates whether to accept, transfer, and
+                 deliver the ATM Adaptation Layer Parameters Information
+                 Element from the calling party to the called party.
+                 The value of this object can be:
+                   - enabled(1)  This Information Element is transferred
+                                 to the called party
+
+                   - disabled(2) This Information Element is NOT
+                                 transferred to the called party."
+               ::= { ciscoatmSigSupportEntry 7 }
+
+    ciscoatmSigSupportUnknownIe     OBJECT-TYPE
+               SYNTAX        INTEGER  { enabled(1), disabled(2) }
+               MAX-ACCESS    read-write
+               STATUS        current
+               DESCRIPTION
+                 "This object indicates whether to accept, transfer, and
+                 deliver the unknown Information Element from the
+		 calling party to the called party, when the IE instruction 
+		 field flag is set to zero.When the IE action flag is set to 
+		 one, the IE action indicator should be followed regardless 
+		 of this configuration. 
+                 The value of this object can be:
+                   - enabled(1)  This Information Element is transferred
+                                 to the called party
+ 
+                   - disabled(2) This Information Element is NOT
+                                 transferred to the called party."
+               ::= { ciscoatmSigSupportEntry 8 }
+
+
+
+
+-- 3. ATM Interface Configuration Extension table
+-- Since ciscoatmInterfaceExtTable implements only a
+-- part of atmInterfaceExtTable from Supplemental ATOMMIB,
+-- only objects 16 through 21 are here
+
+    ciscoatmInterfaceExtTable    OBJECT-TYPE
+        SYNTAX       SEQUENCE OF CiscoatmInterfaceExtEntry
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+            "This table contains ATM interface configuration 
+            not defined in the atmInterfaceConfTable from the
+            ATM-MIB. This table has information on the VPI/VCI
+            range."
+        ::= { ciscoatm2MIBObjects 3 }
+
+    ciscoatmInterfaceExtEntry    OBJECT-TYPE
+        SYNTAX       CiscoatmInterfaceExtEntry
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+            "An entry extends the atmInterfaceConfEntry defined
+            in ATM-MIB. Each entry corresponds to an ATM interface."
+        AUGMENTS { atmInterfaceConfEntry }
+        ::= { ciscoatmInterfaceExtTable 1 }
+      
+    CiscoatmInterfaceExtEntry    ::= SEQUENCE  {
+        ciscoatmInterfaceConfMaxSvpcVpi          INTEGER,
+        ciscoatmInterfaceCurrentMaxSvpcVpi       INTEGER,
+        ciscoatmInterfaceConfMaxSvccVpi          INTEGER,
+        ciscoatmInterfaceCurrentMaxSvccVpi       INTEGER,
+        ciscoatmInterfaceConfMinSvccVci          INTEGER,
+        ciscoatmInterfaceCurrentMinSvccVci       INTEGER
+    }
+
+    ciscoatmInterfaceConfMaxSvpcVpi    OBJECT-TYPE
+        SYNTAX       INTEGER  (0..255)
+        MAX-ACCESS   read-write
+        STATUS       current
+        DESCRIPTION
+            "The maximum VPI that the signalling stack on the ATM
+            interface is configured to support for allocation to
+            switched virtual path connections."
+        ::= { ciscoatmInterfaceExtEntry 16 }
+
+    ciscoatmInterfaceCurrentMaxSvpcVpi    OBJECT-TYPE
+        SYNTAX       INTEGER  (0..255)
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+            "The maximum VPI that the signalling stack on the ATM
+            interface may currently allocate to switched virtual
+            path connections.  This value is the minimum of
+            ciscoatmInterfaceConfMaxSvpcVpi, and the
+            ciscoatmInterfaceConfMaxSvpcVpi of the interface's 
+            UNI/NNI peer.
+
+            If the interface does not negotiate with its peer to
+            determine the maximum VPI that can be allocated to
+            SVPCs on the interface, then the value of this object
+            must equal ciscoatmInterfaceConfMaxSvpcVpi."
+        ::= { ciscoatmInterfaceExtEntry 17 }
+
+    ciscoatmInterfaceConfMaxSvccVpi    OBJECT-TYPE
+        SYNTAX       INTEGER  (0..255)
+        MAX-ACCESS   read-write
+        STATUS       current
+        DESCRIPTION
+            "The maximum VPI that the signalling stack on the ATM
+            interface is configured to support for allocation to
+            switched virtual channel connections."
+        ::= { ciscoatmInterfaceExtEntry 18 }
+
+    ciscoatmInterfaceCurrentMaxSvccVpi    OBJECT-TYPE
+        SYNTAX       INTEGER  (0..255)
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+            "The maximum VPI that the signalling stack on the ATM
+            interface may currently allocate to switched virtual
+            channel connections.  This value is the minimum of
+            ciscoatmInterfaceConfMaxSvccVpi, and the
+            ciscoatmInterfaceConfMaxSvccVpi of the interface's 
+            UNI/NNI peer.
+
+            If the interface does not negotiate with its peer to
+            determine the maximum VPI that can be allocated to
+            SVCCs on the interface, then the value of this object
+            must equal ciscoatmInterfaceConfMaxSvccVpi."
+        ::= { ciscoatmInterfaceExtEntry 19 }
+
+    ciscoatmInterfaceConfMinSvccVci    OBJECT-TYPE
+        SYNTAX       INTEGER  (32..4095)
+        MAX-ACCESS   read-write
+        STATUS       current
+        DESCRIPTION
+            "The minimum VCI that the signalling stack on the ATM
+            interface is configured to support for allocation to
+            switched virtual channel connections."
+        ::= { ciscoatmInterfaceExtEntry 20 }
+
+    ciscoatmInterfaceCurrentMinSvccVci    OBJECT-TYPE
+        SYNTAX       INTEGER  (32..4095)
+        MAX-ACCESS   read-only
+        STATUS       current
+        DESCRIPTION
+            "The minimum VCI that the signalling stack on the ATM
+            interface may currently allocate to switched virtual
+            channel connections.  This value is the maximum of
+            ciscoatmInterfaceConfMinSvccVci, and the
+            ciscoatmInterfaceConfMinSvccVci of the interface's 
+            UNI/NNI peer.
+
+            If the interface does not negotiate with its peer to
+            determine the minimum VCI that can be allocated to
+            SVCCs on the interface, then the value of this object
+            must equal ciscoatmInterfaceConfMinSvccVci."
+        ::= { ciscoatmInterfaceExtEntry 21 }
+
+ 
+
+-- ************************************************
+
+-- Conformance Information
+
+   ciscoatm2MIBConformance   OBJECT IDENTIFIER ::= {ciscoAtm2MIB 3}
+
+   ciscoatm2MIBGroups        OBJECT IDENTIFIER
+                            ::= {ciscoatm2MIBConformance 1}
+
+   ciscoatm2MIBCompliances   OBJECT IDENTIFIER
+                            ::= {ciscoatm2MIBConformance 2}
+
+-- Compliance Statements
+
+    ciscoatm2MIBCompliance   MODULE-COMPLIANCE
+               STATUS        obsolete -- superceded by ciscoatm2MIBCompliance2
+               DESCRIPTION
+                 "The compliance statement for SNMP entities which
+                 represent ATM interfaces.  The compliance statements
+                 are used to determine if a particular group or object
+                 applies to hosts, networks/switches, or both."
+
+               MODULE  -- this module
+
+                 MANDATORY-GROUPS  { ciscoAtmSwitchServcHostGroup }
+
+          GROUP      ciscoAtmSwitchServcGroup
+          DESCRIPTION
+                   "This group is mandatory for a Switch/Service that
+                 implements ATM interfaces."
+ 
+          -- Objects in the ATM Switch/Service/Host Group
+
+
+          OBJECT      ciscoatmSigSupportClgPtyNumDel
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+          OBJECT      ciscoatmSigSupportClgPtySubAddr
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+          OBJECT      ciscoatmSigSupportCldPtySubAddr
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+          OBJECT      ciscoatmSigSupportHiLyrInfo
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+          OBJECT      ciscoatmSigSupportLoLyrInfo
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+          OBJECT      ciscoatmSigSupportBlliRepeatInd
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+          OBJECT      ciscoatmSigSupportAALInfo
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+
+                      ::= { ciscoatm2MIBCompliances 1 }
+
+    ciscoatm2MIBCompliance2   MODULE-COMPLIANCE
+               STATUS         current
+               DESCRIPTION
+                 "The compliance statement for SNMP entities which
+                 represent ATM interfaces.  The compliance statements
+                 are used to determine if a particular group or object
+                 applies to hosts, networks/switches, or both."
+
+               MODULE  -- this module
+
+                 MANDATORY-GROUPS  { ciscoAtmSwitchServcHostGroup,
+                                     ciscoAtmSwitchServcHostGroup2 
+                                   }
+
+          GROUP      ciscoAtmSwitchServcGroup
+          DESCRIPTION
+                   "This group is mandatory for a Switch/Service that
+                 implements ATM interfaces."
+ 
+          -- Objects in the ATM Switch/Service/Host Group
+
+
+          OBJECT      ciscoatmSigSupportClgPtyNumDel
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+          OBJECT      ciscoatmSigSupportClgPtySubAddr
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+          OBJECT      ciscoatmSigSupportCldPtySubAddr
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+          OBJECT      ciscoatmSigSupportHiLyrInfo
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+          OBJECT      ciscoatmSigSupportLoLyrInfo
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+          OBJECT      ciscoatmSigSupportBlliRepeatInd
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+          OBJECT      ciscoatmSigSupportAALInfo
+          MIN-ACCESS  read-only
+          DESCRIPTION
+                   "Write access is not required. This parameter is
+                 required for ATM systems that support only a value of
+                 'disabled(2)' (i.e., the ATM systems does not support
+                 the feature associated with the parameter)."
+
+
+                      ::= { ciscoatm2MIBCompliances 2 }
+
+-- **********************************************
+
+-- Units of Conformance
+
+-- Mandatory for ATM hosts and switch/service providers
+
+      ciscoAtmSwitchServcHostGroup     OBJECT-GROUP
+
+                 OBJECTS {
+                     ciscoatmSigSSCOPConEvents,
+                     ciscoatmSigSSCOPErrdPdus,
+                     ciscoatmSigDetectSetupAttempts,
+                     ciscoatmSigEmitSetupAttempts,
+                     ciscoatmSigDetectUnavailRoutes,
+                     ciscoatmSigEmitUnavailRoutes,
+                     ciscoatmSigDetectUnavailResrcs,
+                     ciscoatmSigEmitUnavailResrcs,
+                     ciscoatmSigDetectCldPtyEvents,
+                     ciscoatmSigEmitCldPtyEvents,
+                     ciscoatmSigDetectMsgErrors,
+                     ciscoatmSigEmitMsgErrors,
+                     ciscoatmSigDetectClgPtyEvents,
+                     ciscoatmSigEmitClgPtyEvents,
+                     ciscoatmSigDetectTimerExpireds,
+                     ciscoatmSigEmitTimerExpireds,
+                     ciscoatmSigDetectRestarts,
+                     ciscoatmSigEmitRestarts,
+                     ciscoatmSigInEstabls,
+                     ciscoatmSigOutEstabls
+                 }
+                 STATUS    current
+                 DESCRIPTION
+                   "A collection of objects providing information
+                    for a Switch/Service/Host that implements
+                    ATM interfaces."
+                 ::= { ciscoatm2MIBGroups 1 }
+
+
+          ciscoAtmSwitchServcGroup     OBJECT-GROUP
+
+                 OBJECTS {
+                      ciscoatmSigSupportClgPtyNumDel,
+                      ciscoatmSigSupportClgPtySubAddr,
+                      ciscoatmSigSupportCldPtySubAddr,
+                      ciscoatmSigSupportHiLyrInfo,
+                      ciscoatmSigSupportLoLyrInfo,
+                      ciscoatmSigSupportBlliRepeatInd,
+                      ciscoatmSigSupportAALInfo,
+		      ciscoatmSigSupportUnknownIe
+                      }
+                 STATUS    current
+                 DESCRIPTION
+                   "A collection of objects providing information
+                    for a Switch/Service that implements ATM interfaces."
+                 ::= { ciscoatm2MIBGroups 3 }
+
+
+          ciscoAtmSwitchServcHostGroup2    OBJECT-GROUP
+              OBJECTS {
+                  ciscoatmInterfaceConfMaxSvpcVpi,
+                  ciscoatmInterfaceCurrentMaxSvpcVpi,
+                  ciscoatmInterfaceConfMaxSvccVpi,
+                  ciscoatmInterfaceCurrentMaxSvccVpi,
+                  ciscoatmInterfaceConfMinSvccVci,
+                  ciscoatmInterfaceCurrentMinSvccVci
+                  }
+              STATUS    current
+              DESCRIPTION
+                  "A collection of objects providing information 
+                  regarding VPI/VCI range for SVCCs and SVPCs for 
+                  a Switch/Service/Host that implements ATM 
+                  interfaces."
+              ::= { ciscoatm2MIBGroups 4 }
+END

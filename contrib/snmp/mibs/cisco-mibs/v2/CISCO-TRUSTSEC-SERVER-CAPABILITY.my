@@ -1,0 +1,246 @@
+-- *****************************************************************
+-- CISCO-TRUSTSEC-SERVER-CAPABILITY.my:
+-- Cisco CISCO-TRUSTSEC-SERVER-MIB AGENT-CAPABILITIES
+--   
+-- April 2009, Liwei Lue
+--   
+-- Copyright (c) 2009-2012 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-TRUSTSEC-SERVER-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoTrustSecServerCapability MODULE-IDENTITY
+    LAST-UPDATED    "201209070000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems, Inc
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+               Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-TRUSTSEC-SERVER-MIB."
+    REVISION        "201209070000Z"
+    DESCRIPTION
+        "Added capability statement ciscoTrustSecServerCapV15R0101SYPCat6k."
+    REVISION        "201010300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 596 }
+
+
+
+ciscoTrustSecServerCapV12R0250SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-TRUSTSEC-SERVER-MIB capabilities."
+
+    SUPPORTS        CISCO-TRUSTSEC-SERVER-MIB
+    INCLUDES        {
+                        ciscoTrustSecMIBServerConfigGroup,
+                        ciscoTrustSecMIBGlobalServerTestGroup,
+                        ciscoTrustSecMIBServerTestGroup,
+                        ciscoTrustSecMIBProvisionedServerGroup,
+                        ciscoTrustSecMIBDownloadServerListGroup,
+                        ciscoTrustSecMIBDownloadServerGroup
+                    }
+    VARIATION       ctsvAuthorizationList
+    SYNTAX          SnmpAdminString (SIZE (0..64))
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctsvServerDeadTime
+    SYNTAX          Unsigned32 (1..864000)
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctsvServerLoadBalanceBatchSize
+    SYNTAX          Unsigned32 (1..2147483647)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        Unable to set if the object value of
+        ctsvServerLoadBalanceMethod is 'none'."
+
+    VARIATION       ctsvUseSameProvisionedServer
+    DESCRIPTION
+        "Unable to set if the object value of
+        ctsvServerLoadBalanceMethod is 'none'."
+
+    VARIATION       ctsvAllServerTestDeadTime
+    SYNTAX          Unsigned32 (1..864000)
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctsvAllServerTestInterval
+    SYNTAX          Unsigned32 (1..14400)
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctsvServerTestEnabled
+    DESCRIPTION
+        "Setting a value which results ctsvServerTestEnabled,
+        ctsvServerTestDeadTime, and ctsvServerTestInterval
+        containing the same value as what are in
+        ctsvAllServerTestEnabled, ctsvAllServerTestDeadTime,
+        ctsvAllServerTestInterval is not allowed."
+
+    VARIATION       ctsvServerTestDeadTime
+    SYNTAX          Unsigned32 (1..864000)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        Setting a value which results ctsvServerTestEnabled,
+        ctsvServerTestDeadTime, and ctsvServerTestInterval
+        containing the same value as what are in
+        ctsvAllServerTestEnabled, ctsvAllServerTestDeadTime,
+        ctsvAllServerTestInterval is not allowed."
+
+    VARIATION       ctsvServerTestInterval
+    SYNTAX          Unsigned32 (1..14400)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        Setting a value which results ctsvServerTestEnabled,
+        ctsvServerTestDeadTime, and ctsvServerTestInterval
+        containing the same value as what are in
+        ctsvAllServerTestEnabled, ctsvAllServerTestDeadTime,
+        ctsvAllServerTestInterval is not allowed."
+
+    VARIATION       ctsvServerTestStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctsvServerTestRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    ::= { ciscoTrustSecServerCapability 1 }
+
+ciscoTrustSecServerCapV15R0101SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-TRUSTSEC-SERVER-MIB capabilities."
+
+    SUPPORTS        CISCO-TRUSTSEC-SERVER-MIB
+    INCLUDES        {
+                        ciscoTrustSecMIBServerConfigGroup,
+                        ciscoTrustSecMIBGlobalServerTestGroup,
+                        ciscoTrustSecMIBServerTestGroup,
+                        ciscoTrustSecMIBProvisionedServerGroup,
+                        ciscoTrustSecMIBDownloadServerListGroup,
+                        ciscoTrustSecMIBDownloadServerGroup,
+                        ciscoTrustSecServerMIBKeyWrapGroup,
+                        ciscoTrustSecServerMIBNotifsCtrlGroup,
+                        ciscoTrustSecServerMIBNotifsGroup,
+                        ciscoTrustSecServerMIBNotifsOnlyInfoGroup
+                    }
+    VARIATION       ctsvAuthorizationList
+    SYNTAX          SnmpAdminString (SIZE (0..64))
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctsvServerDeadTime
+    SYNTAX          Unsigned32 (1..864000)
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctsvServerLoadBalanceBatchSize
+    SYNTAX          Unsigned32 (1..2147483647)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        Unable to set if the object value of
+        ctsvServerLoadBalanceMethod is 'none'."
+
+    VARIATION       ctsvUseSameProvisionedServer
+    DESCRIPTION
+        "Unable to set if the object value of
+        ctsvServerLoadBalanceMethod is 'none'."
+
+    VARIATION       ctsvAllServerTestDeadTime
+    SYNTAX          Unsigned32 (1..864000)
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctsvAllServerTestInterval
+    SYNTAX          Unsigned32 (1..14400)
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       ctsvServerTestEnabled
+    DESCRIPTION
+        "Setting a value which results ctsvServerTestEnabled,
+        ctsvServerTestDeadTime, and ctsvServerTestInterval
+        containing the same value as what are in
+        ctsvAllServerTestEnabled, ctsvAllServerTestDeadTime,
+        ctsvAllServerTestInterval is not allowed."
+
+    VARIATION       ctsvServerTestDeadTime
+    SYNTAX          Unsigned32 (1..864000)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        Setting a value which results ctsvServerTestEnabled,
+        ctsvServerTestDeadTime, and ctsvServerTestInterval
+        containing the same value as what are in
+        ctsvAllServerTestEnabled, ctsvAllServerTestDeadTime,
+        ctsvAllServerTestInterval is not allowed."
+
+    VARIATION       ctsvServerTestInterval
+    SYNTAX          Unsigned32 (1..14400)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        Setting a value which results ctsvServerTestEnabled,
+        ctsvServerTestDeadTime, and ctsvServerTestInterval
+        containing the same value as what are in
+        ctsvAllServerTestEnabled, ctsvAllServerTestDeadTime,
+        ctsvAllServerTestInterval is not allowed."
+
+    VARIATION       ctsvServerTestStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       ctsvServerTestRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    ::= { ciscoTrustSecServerCapability 2 }
+
+END
+
+
+
+
+

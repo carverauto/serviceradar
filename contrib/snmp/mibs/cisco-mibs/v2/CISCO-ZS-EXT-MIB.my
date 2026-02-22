@@ -1,0 +1,551 @@
+-- *********************************************************************
+-- CISCO-ZS-EXT-MIB.my: Zone Server Ext MIB
+--
+-- July 2004 H K Vivek
+--
+-- Copyright (c) 2004 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+
+ 
+CISCO-ZS-EXT-MIB  DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE      FROM    SNMPv2-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP   FROM    SNMPv2-CONF
+        TEXTUAL-CONVENTION                FROM    SNMPv2-TC
+        ciscoMgmt                         FROM    CISCO-SMI
+        vsanIndex                         FROM    CISCO-VSAN-MIB;
+
+ciscoZsExtMIB  MODULE-IDENTITY
+        LAST-UPDATED  "200601030000Z"
+        ORGANIZATION  "Cisco Systems Inc."
+        CONTACT-INFO
+                "     Cisco Systems
+                      Customer Service
+                Postal: 170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel: +1 800 553 -NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+                "The MIB module for the management of zoning within 
+                 the framework of Cisco's Zoning Server (ZS) Archi-
+                 tecture which realizes the FC-GS4/SW3 requirements 
+                 for Zone Server. This MIB is an extension to the
+                 CISCO-ZS-MIB, which is for managing zoning
+                 conforming to FC-GS3/SW2. The FC-GS4 specification
+                 is Fibre-Channel - Generic Services - 4 T11/
+                 Project 1505-D/Rev 7.8. The SW3 specification is
+                 Fibre-Channel - Switch Fabric - 3 T11/Project 1508-
+                 D/Rev 6.6.
+
+                 GS4/SW3 allows zoning to operate in either basic
+                 or enhanced mode of operation. Basic mode is
+                 essentially GS3/SW2 compatible mode (as modelled
+                 by CISCO-ZS-MIB). Enhanced mode of operation
+                 provides additional capabilities. In enhanced mode
+                 of operation, all the configuration should be
+                 done within the scope of a session. 
+
+                 The current 'Running Configuration' on the local device
+                 for zone server is called the 'effective' database.
+                 When the first configuration command on the zone server
+                 data is received, a snapshot of the current 'effective 
+                 database' is taken on the local device. This 
+                 snapshot is called the 'copy' database. An implicit
+                 session is started by the Zone Server on the local 
+                 device and all subsequent SET operations take place
+                 in the context of this session. The 'copy' database
+                 is used for all further modifications in the
+                 session. There can be only one session active in the
+                 entire Fibre Channel fabric. The user who initiates
+                 the creation of this 'copy', is called the owner of
+                 session. When a session has been created on a device
+                 in the Fibre Channel fabric, if an attempt is made
+                 to start a session from any other device in the 
+                 fabric, it results in error.
+
+                 Once the modifications to the 'copy' are done, a 
+                 'commit' operation can be done. The 'commit' done
+                 on the local device, results in the local 'effective
+                 database' being overwritten with the 'copy' and
+                 then the new local 'effective database' is
+                 distributed to all other devices in the Fibre Channel
+                 fabric. The successful 'commit' operation also results
+                 in destroying the 'copy' on the local device. The
+                 'commit' can only be performed by the owner of the
+                 session. 
+
+                 The 'copy' can optionally be destroyed without any
+                 distribution. This can be done by performing a
+                 'clear' operation.
+
+                 Glossary of terms used in this MIB
+                 ----------------------------------
+
+                 VSAN - Virtual Storage Area Network."
+
+        REVISION "200601030000Z"
+        DESCRIPTION
+                "Added objects czseGlobalDefaultZoneBehaviour
+                 and czseGlobalPropagationMode."
+        REVISION "200408110000Z"
+        DESCRIPTION
+                "Initial version of this MIB."
+        ::= { ciscoMgmt 427 }
+
+
+ciscoZsExtMIBNotifs  OBJECT IDENTIFIER ::= { ciscoZsExtMIB 0 }
+ciscoZsExtMIBObjects OBJECT IDENTIFIER ::= { ciscoZsExtMIB 1 }
+ciscoZsExtMIBConform OBJECT IDENTIFIER ::= { ciscoZsExtMIB 2 }
+czseConfiguration  OBJECT IDENTIFIER
+                        ::= { ciscoZsExtMIBObjects 1 }
+czseStats          OBJECT IDENTIFIER
+                        ::= { ciscoZsExtMIBObjects 2 }
+
+
+-- Textual Conventions
+
+CzseSessOwnerType ::= TEXTUAL-CONVENTION
+        STATUS  current
+        DESCRIPTION
+                "Represents the type of owner of a GS4
+                 session.
+
+                 other - other type of owner.
+
+                 cli - Command Line Interface (CLI) is the owner.
+
+                 gs4client - Fibre Channel GS4 services client.
+
+                 snmp - SNMP is the owner."
+        SYNTAX  INTEGER {
+                   other(1),
+                   cli(2),
+                   gs4client(3),
+                   snmp(4)
+                }
+
+czseCapabilityTable OBJECT-TYPE
+        SYNTAX          SEQUENCE OF CzseCapabilityEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "This table lists the capabilities of the
+                 Zone Server on the local device. This
+                 information is maintained on a per VSAN
+                 basis."
+        ::= { czseConfiguration 1 }
+
+czseCapabilityEntry OBJECT-TYPE
+        SYNTAX          CzseCapabilityEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "An entry represents the capability of the
+                 Zone Server on the local device on a VSAN."
+        INDEX { vsanIndex }
+        ::= { czseCapabilityTable 1 }
+
+CzseCapabilityEntry ::= SEQUENCE {
+        czseCapabilityObject     BITS
+}
+
+czseCapabilityObject OBJECT-TYPE
+        SYNTAX          BITS {
+                          enhancedMode(0),
+                          zsetDb(1),
+                          dirAct(2),
+                          hardZoning(3)
+                        }
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+                "This bitmap represents the capability of the
+                 local Zone Server on this VSAN.
+
+                 If 'enhancedMode(0)' bit is set, the local
+                 Zone Server is capable of supporting enhanced
+                 Zoning mode of operation. If this bit is reset,
+                 it does not have this capability.
+
+                 If 'zsetDb(1)' bit is set, the local Zone Server
+                 supports maintaining of zoneset database. If this 
+                 bit is reset, the local Zone Server does not
+                 allow maintaining of zoneset database.
+
+                 If 'dirAct(2)' bit is set, the local Zone Server
+                 supports direct activation command. If this bit
+                 is reset, the local Zone Server does not support
+                 this.
+
+                 If 'hardZoning(3)' bit is set, the local Zone
+                 Server supports hard zoning. If this bit is reset,
+                 the local Zone Server does not support hard
+                 zoning."
+        REFERENCE "Fibre-Channel - Switch fabric - 3 T11/
+                   Project 1505-D/Rev 6.6 Section 6.1.22.4.4"
+        ::= { czseCapabilityEntry 1 }
+
+czseModeTable OBJECT-TYPE
+        SYNTAX          SEQUENCE OF CzseModeEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "A table containing information on the
+                 mode of operation of the zone server on
+                 all VSANs on the local device."
+        ::= { czseConfiguration 2 }
+
+czseModeEntry OBJECT-TYPE
+        SYNTAX          CzseModeEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "An entry represents the mode of operation
+                 of the local zone server on a VSAN. The mode
+                 can be modified on a VSAN and the outcome
+                 of the operation obtained."
+        INDEX { vsanIndex }
+        ::= { czseModeTable 1 }
+
+CzseModeEntry ::= SEQUENCE {
+        czseOperationMode         INTEGER,
+        czseOperationModeResult   INTEGER
+}
+
+czseOperationMode OBJECT-TYPE
+        SYNTAX          INTEGER {
+                          basic(1),
+                          enhanced(2)
+                        }
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+                "This object when set to 'basic(1)', results in
+                 the zone server operating in the basic mode
+                 as defined by FC-GS4 standards.
+
+                 This object when set to 'enhanced(2)', results in
+                 the zone server operating in the enhanced mode
+                 as defined by FC-GS4 standards.
+
+                 The local zone server can move to the enhanced
+                 mode of operation only if all devices in the
+                 Fibre Channel fabric are capable of working in 
+                 enhanced mode.
+                 Otherwise, the set operation trying to set this
+                 object to 'enhanced(2)' will fail."
+        REFERENCE "Fibre-Channel - Generic Services - 4 T11/
+                   Project 1505-D/Rev 7.8 Section 6.4.7.
+                   Fibre-Channel - Switch fabric - 3 T11/
+                   Project 1505-D/Rev 6.6 Section 10.6" 
+        DEFVAL { basic }
+        ::= { czseModeEntry 1 }
+
+czseOperationModeResult OBJECT-TYPE
+        SYNTAX          INTEGER {
+                           success(1),
+                           failure(2),
+                           inProgress(3)
+                        }
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+                "The outcome of setting the mode of operation of
+                 the local Zone Server on this VSAN."
+        ::= { czseModeEntry 2 }
+
+czseReadFrom OBJECT-TYPE
+        SYNTAX          INTEGER {
+                           effectiveDB(1),
+                           copyDB(2)
+                        }
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+                "This object specifies whether the management station
+                 wishes to read from the 'effective database' or from 
+                 the 'copy' database."
+        DEFVAL { effectiveDB }
+        ::= { czseConfiguration 3 }
+
+czseSessionTable OBJECT-TYPE
+        SYNTAX          SEQUENCE OF CzseSessionEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "A table containing information on sessions on 
+                 the local device on all VSANs. Operations are
+                 permitted on this table only when the zone server
+                 is running in 'enhanced' mode."
+        ::= { czseConfiguration 4 }
+
+czseSessionEntry OBJECT-TYPE
+        SYNTAX          CzseSessionEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "An entry contains information on the owner of
+                 a session on a VSAN. It also assists in performing
+                 commit/clear operations on the session."
+        INDEX { vsanIndex }
+        ::= { czseSessionTable 1 }
+
+CzseSessionEntry ::= SEQUENCE {
+        czseSessionOwnerType  CzseSessOwnerType,
+        czseSessionOwner      OCTET STRING,
+        czseSessionCntl       INTEGER,
+        czseSessionCntlResult INTEGER
+}
+
+czseSessionOwnerType OBJECT-TYPE
+        SYNTAX          CzseSessOwnerType
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+                "This object specifies the owner type
+                 for this session."
+        ::= { czseSessionEntry 1 }
+
+czseSessionOwner OBJECT-TYPE
+        SYNTAX          OCTET STRING (SIZE(0..64))
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+                "This object specifies the owner for this
+                 session.
+
+                 If the value of the corresponding instance
+                 of czseSessionOwnerType object is 'cli', this
+                 object will contain the user name of the CLI
+                 (Command Line Interface) user, who is the
+                 owner of the session on this VSAN.
+
+                 If the value of the corresponding instance
+                 of czseSessionOwnerType is 'gs4client', this
+                 object will contain the FCID of the GS4 
+                 management station, which is the owner of the
+                 session on this VSAN.
+
+                 If the value of the corresponding instance
+                 of czseSessionOwnerType is 'snmp', this object
+                 will contain the IP address of the management
+                 station, which is the owner of the session on
+                 this VSAN."
+        ::= { czseSessionEntry  2 }
+
+czseSessionCntl OBJECT-TYPE
+        SYNTAX          INTEGER {
+                          commitChanges(1),
+                          cleanup(2),
+                          noop(3)
+                        }
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+                "This object assists in committing or clearing
+                 the contents of the 'copy' database on this
+                 session.
+
+                 No action is taken if this object is set to
+                 'noop(3)'.
+
+                 The value of this object when read is always
+                 'noop(3)'.
+
+                 The above operation can only be performed by
+                 the owner of the session."
+        ::= { czseSessionEntry 3 }
+
+czseSessionCntlResult OBJECT-TYPE
+        SYNTAX          INTEGER {
+                           commitSuccess(1),
+                           commitFailure(2),
+                           inProgress(3)
+                        }
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+                "This object indicates the outcome of setting
+                 the corresponding instance of czseSessionCntl
+                 object to 'commitChanges(1)'."
+        ::= { czseSessionEntry 4 }
+
+czseMergeControlTable OBJECT-TYPE
+        SYNTAX          SEQUENCE OF CzseMergeControlEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "A table containing information on zone
+                 merge control policy on all VSANs in the
+                 entire fabric. Operations on this table
+                 are permitted only when the zone server
+                 is running in 'enhanced' mode."
+        ::= { czseConfiguration 5 }
+
+czseMergeControlEntry OBJECT-TYPE
+        SYNTAX          CzseMergeControlEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "An entry contains information on the
+                 Merge Control policy on a VSAN. The policy
+                 can be modified on a per VSAN basis by
+                 making use of czseMergeContolRestrict object."
+        REFERENCE "Fibre-Channel - Switch fabric - 3 T11/
+                   Project 1505-D/Rev 6.6 Section 10.5.2.2"
+        INDEX { vsanIndex }
+        ::= { czseMergeControlTable 1 }
+
+CzseMergeControlEntry ::= SEQUENCE {
+        czseMergeControlRestrict   INTEGER
+}
+
+czseMergeControlRestrict OBJECT-TYPE
+        SYNTAX         INTEGER {
+                         allow(1),
+                         restrict(2)
+                       }
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+                "This object controls the zone merge behavior.
+                 If this object is set to 'allow', then the merge
+                 takes place according to the merge rules.
+                 If this object is set to 'restrict', then if the
+                 merging databases are not exactly identical, the
+                 Inter-Switch Link (ISL) between the devices is
+                 isolated."
+        DEFVAL { allow }
+        ::= { czseMergeControlEntry 1 }
+
+czseGlobalDefaultZoneBehaviour OBJECT-TYPE
+        SYNTAX         INTEGER {
+                         permit(1),
+                         deny(2)
+                       }
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+                "This object represents the initial 
+                 value for default zone behaviour
+                 on a VSAN when it is created.
+
+                 If a VSAN were to be deleted and
+                 re-created again, the default zone
+                 behaviour will be set to the value
+                 specified for this object.
+
+                 The semantics of setting this object
+                 to 'permit' or 'deny' are described
+                 in the description for
+                 zoneDefaultZoneBehaviour object in
+                 CISCO-ZS-MIB.
+
+                 After a VSAN has been created, if
+                 the value for default zone behaviour
+                 for that VSAN has to be changed, the
+                 zoneDefaultZoneBehaviour object in
+                 CISCO-ZS-MIB has to be used."
+        DEFVAL { deny }
+        ::= { czseConfiguration 6 }
+
+czseGlobalPropagationMode OBJECT-TYPE
+        SYNTAX         INTEGER {
+                         fullZoneset(1),
+                         activeZoneset(2)
+                       }
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+                "This object represents the initial
+                 value for zone set propagation mode
+                 on a VSAN when it is created.
+
+                 If a VSAN were to be deleted and
+                 re-created again, the zone set 
+                 propagation mode will be set to the 
+                 value specified for this object.
+
+                 The semantics of setting this object
+                 to 'fullZoneset' or 'activeZoneset'
+                 are described in the description for
+                 zoneSetPropagationMode object in
+                 CISCO-ZS-MIB.
+
+                 After a VSAN has been created, if 
+                 the value for zone set propagation
+                 mode has to be changed for that
+                 particular VSAN, the
+                 zoneSetPropagationMode object
+                 in CISCO-ZS-MIB has to be used."
+        DEFVAL { activeZoneset }
+        ::= { czseConfiguration 7 }
+ 
+-- Conformance
+
+ciscoZsExtMIBCompliances OBJECT IDENTIFIER
+                       ::= { ciscoZsExtMIBConform 1 }
+
+ciscoZsExtMIBGroups      OBJECT IDENTIFIER
+                       ::= { ciscoZsExtMIBConform 2 }
+
+ciscoZsExtMIBCompliance MODULE-COMPLIANCE
+        STATUS   deprecated 
+               -- superceded by ciscoZsExtMIBComplianceRev1
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the Zone Server conforming to
+                 FC-GS4/SW3."
+        MODULE  MANDATORY-GROUPS {
+                     ciscoZsExtConfigGroup
+                }
+
+        ::= { ciscoZsExtMIBCompliances 1 }
+
+ciscoZsExtMIBComplianceRev1 MODULE-COMPLIANCE
+        STATUS   current
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the Zone Server conforming to
+                 FC-GS4/SW3."
+        MODULE  MANDATORY-GROUPS {
+                     ciscoZsExtConfigGroup,
+                     ciscoZsExtConfigGroupSup1
+                }
+
+        ::= { ciscoZsExtMIBCompliances 2 }
+
+ciscoZsExtConfigGroup OBJECT-GROUP
+        OBJECTS {
+            czseCapabilityObject,
+            czseOperationMode,
+            czseOperationModeResult,
+            czseReadFrom,
+            czseSessionOwnerType,
+            czseSessionOwner,
+            czseSessionCntl,
+            czseSessionCntlResult,
+            czseMergeControlRestrict
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of object(s) for configuring
+                 and displaying Zone Server conforming with
+                 FC-GS4/SW3."
+        ::= { ciscoZsExtMIBGroups 1 }
+
+ciscoZsExtConfigGroupSup1 OBJECT-GROUP
+        OBJECTS {
+            czseGlobalDefaultZoneBehaviour,
+            czseGlobalPropagationMode
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects for configuring
+                 global zoning policies."
+        ::= { ciscoZsExtMIBGroups 2 }
+
+END

@@ -1,0 +1,141 @@
+-- *****************************************************************
+-- CISCO-SYSAPPL-CAPABILITY.my: SYSAPPL-MIB AGENT-CAPABILITIES
+--   
+-- Copyright (c) 2007 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-SYSAPPL-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSysApplCapability MODULE-IDENTITY
+    LAST-UPDATED    "200709140000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for SYSAPPL-MIB"
+    REVISION        "200709140000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 999 }
+
+
+
+ciscoSysApplCapabilityCTSV120 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco TelePresence System (CTS) 1.2.0."
+    STATUS          current
+    DESCRIPTION
+        "SYSAPPL MIB capabilities"
+
+    SUPPORTS        SYSAPPL-MIB
+    INCLUDES        { 
+                        sysApplInstalledGroup,
+                        sysApplRunGroup
+                    }
+                    
+    VARIATION       sysApplInstallElmtName
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplInstallElmtType
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplInstallElmtDate
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplInstallElmtPath
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplInstallElmtSizeHigh
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplInstallElmtSizeLow
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplInstallElmtRole
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplInstallElmtModifyDate
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplInstallElmtCurSizeHigh
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplInstallElmtCurSizeLow
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplElmtPastRunInstallID
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplElmtPastRunTimeStarted
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplElmtPastRunTimeEnded
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+    
+    VARIATION       sysApplElmtPastRunName
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplElmtPastRunParameters
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplElmtPastRunCPU
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplElmtPastRunMemory
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+
+    VARIATION       sysApplElmtPastRunNumFiles
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+    
+    VARIATION       sysApplElmtPastRunUser
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+    
+    VARIATION       sysApplAgentPollInterval
+    ACCESS          read-only
+    DESCRIPTION     "Interval is always 0, and the information 
+                    is retrieved in real time"
+
+    ::= { ciscoSysApplCapability 1 }
+
+END
+
+
+

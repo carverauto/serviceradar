@@ -1,0 +1,220 @@
+-- *****************************************************************
+-- CISCO-SWITCH-HARDWARE-CAPACITY-CAPABILITY.my:
+-- Cisco CISCO-SWITCH-HARDWARE-CAPACITY-MIB AGENT-CAPABILITIES
+--   
+-- October 2008, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2008-2014 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SWITCH-HARDWARE-CAPACITY-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+cSwitchHwCapacityCapability MODULE-IDENTITY
+    LAST-UPDATED    "201403030001Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-SWITCH-HARDWARE-CAPACITY-MIB."
+    REVISION        "201403030001Z"
+    DESCRIPTION
+        "Add agent capability statement
+        cSwitchHwCapacityCapNxOSV06R0208PN7k."
+    REVISION        "201307260001Z"
+    DESCRIPTION
+        "Add agent capability statement
+        cSwitchHwCapacityCapNxOSV06R0202PN7k."
+    REVISION        "201307160001Z"
+    DESCRIPTION
+        "Add agent capability statement
+        cSwitchHwCapacityCapNxOSV06R0104PN7k."
+    REVISION        "201109280001Z"
+    DESCRIPTION
+        "Add agent capability statement
+        cSwitchHwCapacityCapV15R0001SYPCat6kSup2T."
+    REVISION        "200810290000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 572 }
+
+
+
+cSwitchHwCapacityCapV12R0233SXIPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-HARDWARE-CAPACITY-MIB
+        capabilities."
+
+    SUPPORTS        CISCO-SWITCH-HARDWARE-CAPACITY-MIB
+    INCLUDES        {
+                        cshcMacUsageGroup,
+                        cshcVpnCamUsageGroup,
+                        cshcFibTcamUsageGroup,
+                        cshcProtocolFibTcamUsageGroup,
+                        cshcAdjacencyUsageGroup,
+                        cshcForwardingLoadGroup,
+                        cshcModuleInterfaceDropsGroup,
+                        cshcInterfaceBufferGroup,
+                        cshcInternalChannelGroup,
+                        cshcCPURateLimiterResourcesGroup,
+                        cshcIcamResourcesGroup,
+                        cshcNetflowFlowMaskResourceGroup
+                    }
+    VARIATION       cshcCPURateLimiterNetworkLayer
+    SYNTAX          INTEGER  {
+                        layer2(1),
+                        layer3(2)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all
+        those defined at the time this clause
+        was written."
+
+    ::= { cSwitchHwCapacityCapability 1 }
+
+cSwitchHwCapacityCapV15R0001SYPCat6kSup2T AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY on Catalyst 6000/6500
+                         series devices with Supervisor 2T present."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-HARDWARE-CAPACITY-MIB
+        capabilities."
+
+    SUPPORTS        CISCO-SWITCH-HARDWARE-CAPACITY-MIB
+    INCLUDES        {
+                        cshcMacUsageGroup,
+                        cshcVpnCamUsageGroup,
+                        cshcFibTcamUsageGroup,
+                        cshcProtocolFibTcamUsageGroup,
+                        cshcAdjacencyUsageGroup,
+                        cshcForwardingLoadGroup,
+                        cshcModuleInterfaceDropsGroup,
+                        cshcInterfaceBufferGroup,
+                        cshcInternalChannelGroup,
+                        cshcCPURateLimiterResourcesGroup,
+                        cshcIcamResourcesGroup,
+                        cshcNetflowFlowMaskResourceGroup,
+                        cshcFibTcamUsageExtGroup
+                    }
+    VARIATION       cshcCPURateLimiterNetworkLayer
+    SYNTAX          INTEGER  {
+                        layer3(2),
+                        layer2Input(3),
+                        layer2Output(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    ::= { cSwitchHwCapacityCapability 2 }
+
+cSwitchHwCapacityCapNxOSV06R0104PN7k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.1(4) on Nexus 7000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-HARDWARE-CAPACITY-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-HARDWARE-CAPACITY-MIB
+    INCLUDES        {
+                        cshcMacUsageGroup,
+                        cshcMacUsageExtGroup,
+                        cshcProtocolFibTcamUsageGroup,
+                        cshcProtocolFibTcamUsageExtGroup,
+                        cshcAdjacencyResourceUsageGroup,
+                        cshcMetResourceUsageGroup,
+                        cshcForwardingLoadGroup,
+                        cshcModuleInterfaceDropsGroup,
+                        cshcModTopDropIfIndexListGroup,
+                        cshcInterfaceBufferGroup,
+                        cshcNetflowFlowResourceUsageGroup,
+                        cshcQosResourceUsageGroup
+                    }
+    VARIATION       cshcMacCollisions
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    ::= { cSwitchHwCapacityCapability 3 }
+
+cSwitchHwCapacityCapNxOSV06R0202PN7k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(2) on Nexus 7000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-HARDWARE-CAPACITY-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-HARDWARE-CAPACITY-MIB
+    INCLUDES        {
+                        cshcMacUsageGroup,
+                        cshcMacUsageExtGroup,
+                        cshcProtocolFibTcamUsageGroup,
+                        cshcProtocolFibTcamUsageExtGroup,
+                        cshcAdjacencyResourceUsageGroup,
+                        cshcMetResourceUsageGroup,
+                        cshcForwardingLoadGroup,
+                        cshcModuleInterfaceDropsGroup,
+                        cshcModTopDropIfIndexListGroup,
+                        cshcInterfaceBufferGroup,
+                        cshcInternalChannelGroup,
+                        cshcNetflowFlowResourceUsageGroup,
+                        cshcQosResourceUsageGroup
+                    }
+    VARIATION       cshcMacCollisions
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    ::= { cSwitchHwCapacityCapability 4 }
+
+cSwitchHwCapacityCapNxOSV06R0208PN7k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(8) on Nexus 7000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-HARDWARE-CAPACITY-MIB agent capabilities."
+
+    SUPPORTS        CISCO-SWITCH-HARDWARE-CAPACITY-MIB
+    INCLUDES        {
+                        cshcMacUsageGroup,
+                        cshcMacUsageExtGroup,
+                        cshcProtocolFibTcamUsageGroup,
+                        cshcProtocolFibTcamUsageExtGroup,
+                        cshcAdjacencyResourceUsageGroup,
+                        cshcMetResourceUsageGroup,
+                        cshcForwardingLoadGroup,
+                        cshcModuleInterfaceDropsGroup,
+                        cshcModTopDropIfIndexListGroup,
+                        cshcInterfaceBufferGroup,
+                        cshcInternalChannelGroup,
+                        cshcNetflowFlowResourceUsageGroup,
+                        cshcQosResourceUsageGroup,
+                        cshcProtocolFibTcamWidthTypeGroup
+                    }
+    VARIATION       cshcMacCollisions
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    ::= { cSwitchHwCapacityCapability 5 }
+
+END

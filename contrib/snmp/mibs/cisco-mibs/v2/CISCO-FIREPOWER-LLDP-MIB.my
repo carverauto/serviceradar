@@ -1,0 +1,153 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-LLDP-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- LLDP management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-LLDP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB;
+
+cfprLldpObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        LLDP management information model package"
+    ::= { ciscoFirepowerMIBObjects 45 }
+
+cfprLldpAcquiredTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprLldpAcquiredEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lldp:Acquired managed object table"
+    ::= { cfprLldpObjects 1 }
+
+cfprLldpAcquiredEntry OBJECT-TYPE
+    SYNTAX           CfprLldpAcquiredEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprLldpAcquiredTable table."
+    INDEX { cfprLldpAcquiredInstanceId }
+    ::= { cfprLldpAcquiredTable 1 }
+
+CfprLldpAcquiredEntry ::= SEQUENCE {
+    cfprLldpAcquiredInstanceId                                       CfprManagedObjectId,
+    cfprLldpAcquiredDn                                               CfprManagedObjectDn,
+    cfprLldpAcquiredRn                                               SnmpAdminString,
+    cfprLldpAcquiredAcqts                                            DateAndTime,
+    cfprLldpAcquiredChassisMac                                       MacAddress,
+    cfprLldpAcquiredPeerDn                                           SnmpAdminString,
+    cfprLldpAcquiredPortMac                                          MacAddress
+}
+
+cfprLldpAcquiredInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprLldpAcquiredEntry 1 }
+
+cfprLldpAcquiredDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lldp:Acquired:dn managed object property"
+    ::= { cfprLldpAcquiredEntry 2 }
+
+cfprLldpAcquiredRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lldp:Acquired:rn managed object property"
+    ::= { cfprLldpAcquiredEntry 3 }
+
+cfprLldpAcquiredAcqts OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lldp:Acquired:acqts managed object property"
+    ::= { cfprLldpAcquiredEntry 4 }
+
+cfprLldpAcquiredChassisMac OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lldp:Acquired:chassisMac managed object property"
+    ::= { cfprLldpAcquiredEntry 5 }
+
+cfprLldpAcquiredPeerDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lldp:Acquired:peerDn managed object property"
+    ::= { cfprLldpAcquiredEntry 6 }
+
+cfprLldpAcquiredPortMac OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lldp:Acquired:portMac managed object property"
+    ::= { cfprLldpAcquiredEntry 7 }
+
+END

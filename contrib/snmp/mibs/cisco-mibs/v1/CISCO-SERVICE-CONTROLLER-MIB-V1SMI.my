@@ -1,0 +1,462 @@
+-- MIB file created 03-Mar-2011 10:08:13, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SERVICE-CONTROLLER-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SERVICE-CONTROLLER-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    entPhysicalIndex
+            FROM ENTITY-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoServiceControllerMIB OBJECT IDENTIFIER ::= { ciscoMgmt 667 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201103030000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-excelsior-dev@cisco.com
+--  Descr
+--    This MIB module defines objects describing traffic controllers
+--    used by a service control entity.
+--    
+--    A service control entity is a network device which monitors and
+--    controls traffic. The service control enitity is used as a
+--    platform for different service control applications which may
+--    perform monitoring operations beyond packet counting and delve
+--    deeper into the contents of network traffic, such as deep packet
+--    inspection.
+--    It provides programmable stateful inspection of bidirectional
+--    traffic flows, maps these flows to users or subscribers, and can
+--    control traffic flow according to different attributes.
+--    
+--    A service control entity traffic controller can act as a rather
+--    simple policer or implement more complicated logic in
+--    controlling traffic, up to actual applicative attributes of the
+--    traffic itself.
+--    
+--    The global service controller is a controller component
+--    implemented by the service control entity, which acts as a
+--    rather simple policer for traffic transiting through the service
+--    control entity. A global service controller may be configured
+--    per service control entity interface with a configurable
+--    bandwidth limitation. The controller is responsible for the
+--    enforcement of the bandwith limitation configured in the service
+--    control entity.
+--    
+--    Aggregative global controller is a mechanism that allows 
+--    dynamic bandwidth allocation between two global controllers
+--    that reside on the same direction of two links. Regularly, a
+--    global controller is configured per physical port.
+--    When aggregative global controller is configured, the relevant 
+--    per-port global controllers are configured dynamically and 
+--    automatically by the aggregative global controller mechanism.
+--    
+--    Primary bandwidth controller controls the total of subscriber
+--    traffic and manage the number of bandwidth controller. 
+--    Its main properties are committed information rate, 
+--    peak information rate, and relative priority.
+--  RevDate
+--    201103030000Z
+--  RevDescr
+--    Added the following MIB tables:
+--    cscAggregativeGlobalControllersTable
+--    cscAggregativeGlobalControllersLinkTable
+--    
+--    Deprecated following MIB compliance: 
+--    ciscoServiceControlMIBCompliance
+--    
+--    Added the following new MIB compliance:
+--    ciscoServiceControlMIBComplianceRev1.
+--  RevDate
+--    200808040000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoServiceControlMIBObjects OBJECT IDENTIFIER ::= { ciscoServiceControllerMIB 0 }
+ciscoServiceControlMIBConform OBJECT IDENTIFIER ::= { ciscoServiceControllerMIB 1 }
+ciscoServiceControlMIBCompliances OBJECT IDENTIFIER ::= { ciscoServiceControlMIBConform 1 }
+ciscoServiceControlMIBObjectGroups OBJECT IDENTIFIER ::= { ciscoServiceControlMIBConform 2 }
+
+cscGlobalControllersTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CscGlobalControllersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains data for each global service controller in
+        the service control entity. The table has an expansion dependent
+        relationship on the entPhysicalTable, containing zero or more
+        rows for each physical entity."
+    ::= { ciscoServiceControlMIBObjects 1 }
+
+cscGlobalControllersEntry OBJECT-TYPE
+    SYNTAX CscGlobalControllersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This entry contains the operational data for the global service
+        controller associated with the service control entity identified
+        by its assigned entPhysicalIndex. Each entry uniquely identifies
+        a global controller by its index. The"
+    INDEX { entPhysicalIndex, cscGlobalControllersIndex }
+    ::= { cscGlobalControllersTable 1 }
+
+CscGlobalControllersEntry ::= SEQUENCE {
+    cscGlobalControllersIndex Gauge,
+    cscGlobalControllersId Gauge,
+    cscGlobalControllersDescription SnmpAdminString,
+    cscGlobalControllersBandwidthUnits INTEGER,
+    cscGlobalControllersBandwidth Gauge,
+    cscGlobalControllersUtilization Gauge
+    }
+
+cscGlobalControllersIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that
+        uniquely identifies a global service controller."
+    ::= { cscGlobalControllersEntry 1 }
+
+cscGlobalControllersId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the unique id assigned to this global
+        controller by the service control entity."
+    ::= { cscGlobalControllersEntry 2 }
+
+cscGlobalControllersDescription OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates a human readable string which is the name
+        associated with this global service controller."
+    ::= { cscGlobalControllersEntry 3 }
+
+cscGlobalControllersBandwidthUnits OBJECT-TYPE
+    SYNTAX INTEGER {
+        kbps(1),
+        mbps(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An enumerated value which identifies the units for
+        cscGlobalControllersBandwidth value, such as 'kbps' (kilobit per
+        second), 'mbps' (megabit per second), etc."
+    DEFVAL { kbps }
+    ::= { cscGlobalControllersEntry 4 }
+
+cscGlobalControllersBandwidth OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the bandwidth limitation for this global
+        controller to enforce. The units of
+        cscGlobalControllersBandwidth are indicated by the value of
+        cscGlobalControllersBandwidthUnits."
+    ::= { cscGlobalControllersEntry 5 }
+
+cscGlobalControllersUtilization OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    percent
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the percentage of utilized bandwidth
+        of the controller out of the configured bandwidth limitation by
+        the cscGlobalControllersBandwidth. For example, if
+        cscGlobalControllersBandwidth = 1000 kbps and
+        cscGlobalControllersUtilization = 65%, then the
+        current utilization of this controller is 650 kbps."
+    ::= { cscGlobalControllersEntry 6 }
+
+cscAggregativeGlobalControllersTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CscAggregativeGlobalControllersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the aggregative global controller associated
+        with the service controller entity."
+    ::= { ciscoServiceControlMIBObjects 2 }
+
+cscAggregativeGlobalControllersEntry OBJECT-TYPE
+    SYNTAX CscAggregativeGlobalControllersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This entry contains the operational data for the aggregative
+        global controller associated with the service control entity.
+        Each entry uniquely identifies an aggregative global controller
+        by its indices."
+    INDEX { cscAggregativeGlobalControllersSide, cscAggregativeGlobalControllersAgcId }
+    ::= { cscAggregativeGlobalControllersTable 1 }
+
+CscAggregativeGlobalControllersEntry ::= SEQUENCE {
+    cscAggregativeGlobalControllersSide INTEGER,
+    cscAggregativeGlobalControllersAgcId Gauge,
+    cscAggregativeGlobalControllersLimit Gauge,
+    cscAggregativeGlobalControllersRate Gauge
+    }
+
+cscAggregativeGlobalControllersSide OBJECT-TYPE
+    SYNTAX INTEGER {
+        subscriber(1),
+        network(2)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the direction of flow (subscriber side or
+        network side)."
+    ::= { cscAggregativeGlobalControllersEntry 1 }
+
+cscAggregativeGlobalControllersAgcId OBJECT-TYPE
+    SYNTAX Gauge(1..4096)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that
+        uniquely identifies an aggregative global controller."
+    ::= { cscAggregativeGlobalControllersEntry 2 }
+
+cscAggregativeGlobalControllersLimit OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    kbps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the bandwidth limit of an aggregative
+        global controller."
+    ::= { cscAggregativeGlobalControllersEntry 3 }
+
+cscAggregativeGlobalControllersRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    kbps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the bandwidth rate of an aggregative
+        global controller."
+    ::= { cscAggregativeGlobalControllersEntry 4 }
+
+cscAggregativeGlobalControllersLinkTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CscAggregativeGlobalControllersLinkEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides information regarding the aggregative
+        global controller related configuration per link."
+    ::= { ciscoServiceControlMIBObjects 3 }
+
+cscAggregativeGlobalControllersLinkEntry OBJECT-TYPE
+    SYNTAX CscAggregativeGlobalControllersLinkEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This entry contains the operational data for the aggregative
+        global controller associated with the service control
+        entity identified by its assigned link number. Each entry
+        uniquely identifies an aggregative global controller by its
+        indices.
+        The link on a service control engine joins subscriber side to
+        network side."
+    INDEX { cscAggregativeGlobalControllersLinkIndex, cscAggregativeGlobalControllersLinkSide, cscAggregativeGlobalControllersLinkAgcId }
+    ::= { cscAggregativeGlobalControllersLinkTable 1 }
+
+CscAggregativeGlobalControllersLinkEntry ::= SEQUENCE {
+    cscAggregativeGlobalControllersLinkIndex Gauge,
+    cscAggregativeGlobalControllersLinkSide INTEGER,
+    cscAggregativeGlobalControllersLinkAgcId Gauge,
+    cscAggregativeGlobalControllersLinkEnforcedRate Gauge,
+    cscAggregativeGlobalControllersCommittedInformationRate Gauge,
+    cscAggregativeGlobalControllersPeakInformationRate Gauge,
+    cscAggregativeGlobalControllersAssuranceLevel Gauge
+    }
+
+cscAggregativeGlobalControllersLinkIndex OBJECT-TYPE
+    SYNTAX Gauge(1..100)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that
+        uniquely identifies a link."
+    ::= { cscAggregativeGlobalControllersLinkEntry 1 }
+
+cscAggregativeGlobalControllersLinkSide OBJECT-TYPE
+    SYNTAX INTEGER {
+        subscriber(1),
+        network(2)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the direction of flow (subscriber side or
+        network side)."
+    ::= { cscAggregativeGlobalControllersLinkEntry 2 }
+
+cscAggregativeGlobalControllersLinkAgcId OBJECT-TYPE
+    SYNTAX Gauge(1..4096)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that
+        uniquely identifies an aggregative global controller."
+    ::= { cscAggregativeGlobalControllersLinkEntry 3 }
+
+cscAggregativeGlobalControllersLinkEnforcedRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    kbps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the enforced rate which is the rate that
+        each bandwidth controller, primary bandwidth controller seek to
+        attain, taking into account external constraints.
+        The types of external constraint are global controller,
+        physical port, primary bandwidth controller."
+    ::= { cscAggregativeGlobalControllersLinkEntry 4 }
+
+cscAggregativeGlobalControllersCommittedInformationRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    kbps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the committed information rate which is
+        the aggregate rate that the bandwidth controller is committed
+        to supply to its controlled flows. In all cases, the system
+        will do its utmost to ensure that committed rate is not harmed.
+        This cannot be guaranteed in cases of oversubscription of
+        committed rate in the system as a whole."
+    ::= { cscAggregativeGlobalControllersLinkEntry 5 }
+
+cscAggregativeGlobalControllersPeakInformationRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    kbps
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies peak information rate which is the
+        peak aggregate rate of the controlled flows. Aggregate rate
+        means the total bandwidth of all controlled flows."
+    ::= { cscAggregativeGlobalControllersLinkEntry 6 }
+
+cscAggregativeGlobalControllersAssuranceLevel OBJECT-TYPE
+    SYNTAX Gauge(1..10)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies assurance level which is the bandwidth
+        controller strength in the competition over bandwidth in case
+        of congestion. Assured level controls how fast Enforced rate
+        would decrease from peak information rate to committed
+        information rate as congestion builds, or increase from
+        committed information rate to peak information rate as
+        congestion decreases. 
+        A higher assured level ensures a higher enforced rate
+        compared to a similar bandwidth controller with a lower assured
+        level."
+    ::= { cscAggregativeGlobalControllersLinkEntry 7 }
+
+ciscoServiceControlMIBGlobalControllersObjectGroup OBJECT IDENTIFIER ::= { ciscoServiceControlMIBObjectGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is a collection of objects that describes the
+--    global controllers statistics for service control entity.
+--  objects
+--    cscGlobalControllersDescription, 
+--    cscGlobalControllersBandwidth, 
+--    cscGlobalControllersUtilization, 
+--    cscGlobalControllersBandwidthUnits, cscGlobalControllersId
+
+ciscoServiceControlAGCMIBObjectGroups OBJECT IDENTIFIER ::= { ciscoServiceControlMIBObjectGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group is a collection of objects that describes the
+--    aggregative global controller for service control entity.
+--  objects
+--    cscAggregativeGlobalControllersLimit, 
+--    cscAggregativeGlobalControllersRate, 
+--    cscAggregativeGlobalControllersLinkEnforcedRate, 
+--    cscAggregativeGlobalControllersPeakInformationRate, 
+--    cscAggregativeGlobalControllersCommittedInformationRate, 
+--    cscAggregativeGlobalControllersAssuranceLevel
+
+ciscoServiceControlMIBCompliance OBJECT IDENTIFIER ::= { ciscoServiceControlMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for SNMP entities that implement
+--    version 1 of the Cisco Service Controller MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoServiceControlMIBGlobalControllersObjectGroup
+
+ciscoServiceControlMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoServiceControlMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    This compliance statement specifies the minimal requirements an
+--    implementation must meet in order to claim full compliance with
+--    the definition of the CISCO-SERVICE-CONTROLLER-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoServiceControlMIBGlobalControllersObjectGroup
+--   MandGroup
+--    ciscoServiceControlAGCMIBObjectGroups
+--   ObjVar
+--    cscAggregativeGlobalControllersLimit
+--   ObjVar
+--    cscAggregativeGlobalControllersRate
+--   ObjVar
+--    cscAggregativeGlobalControllersLinkEnforcedRate
+--   ObjVar
+--    cscAggregativeGlobalControllersCommittedInformationRate
+--   ObjVar
+--    cscAggregativeGlobalControllersPeakInformationRate
+--   ObjVar
+--    cscAggregativeGlobalControllersAssuranceLevel
+
+
+END
+

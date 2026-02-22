@@ -1,0 +1,253 @@
+-- ********************************************************************
+-- CISCO-GPRS-GTP-CAPABILITY.my CISCO-GPRS-GTP-MIB AGENT-CAPABILITIES
+--
+-- June 2001, Jeyachitra Alagar
+--
+-- Copyright (c) 2000, 2001 by cisco Systems, Inc.
+-- All rights reserved.
+-- ********************************************************************
+
+CISCO-GPRS-GTP-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+cgprsGtpCapability MODULE-IDENTITY
+        LAST-UPDATED    "200112201600Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                        Postal: 170 West Tasman Drive
+                                San Jose, CA  95134
+                                USA
+                                Tel: +1 800 553-NETS
+
+                        E-mail: cs-gprs@cisco.com"
+        DESCRIPTION
+                "Agent capabilities for CISCO-GPRS-GTP-MIB"
+        REVISION        "200112201600Z"
+        DESCRIPTION
+                "Updated information for cgprsGtpDroppedPktsMonTime.
+                " 
+        REVISION        "200106051600Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 212 }
+
+cgprsGtpCapabilityV12R01 AGENT-CAPABILITIES
+        PRODUCT-RELEASE  "Cisco IOS 12.1"
+        STATUS           current
+        DESCRIPTION      "Cisco GPRS GTP MIB capabilities."
+        SUPPORTS         CISCO-GPRS-GTP-MIB
+        INCLUDES         {
+                          cgprsGtpGeneralConfigGroup,
+                          cgprsGtpGgsnConfigGroup,
+                          cgprsGtpGgsnStatusGroup
+                         }
+        VARIATION        cgprsGtpT3TunnelTimer
+        ACCESS           read-only
+        DESCRIPTION      "Write access is not supported."
+
+        VARIATION        cgprsGtpT3ResponseTimer
+        ACCESS           read-only
+        DESCRIPTION      "Write access is not supported."
+
+        VARIATION        cgprsGtpN3Request
+        ACCESS           read-only
+        DESCRIPTION      "Write access is not supported."
+
+
+        VARIATION        cgprsGtpN3BufferSize
+        ACCESS           read-only
+        DESCRIPTION      "Write access is not supported."
+
+        VARIATION        cgprsGtpEchoRequestTimer
+        ACCESS           read-only
+        DESCRIPTION      "Write access is not supported."
+ 
+        VARIATION        cgprsGtpGSNTotalBandwidthResrc
+        ACCESS           read-only 
+        DESCRIPTION      "Write access is not supported." 
+  
+        VARIATION        cgprsGtpMaxNumPDPCxts
+        ACCESS           read-only 
+        DESCRIPTION      "Write access is not supported." 
+  
+        VARIATION        cgprsGtpDroppedPktsMonTime
+        ACCESS           read-only 
+        DESCRIPTION      "Write access is not supported." 
+  
+        VARIATION        cgprsGtpNoRespToEchoNotifEnable
+        ACCESS           read-only 
+        DESCRIPTION      "Write access is not supported." 
+  
+        VARIATION        cgprsGtpPDPCxtActRejNotifEnable
+        ACCESS           read-only 
+        DESCRIPTION      "Write access is not supported." 
+  
+        VARIATION        cgprsGtpAPNAddrAllocMethodGlobDef
+        ACCESS           read-only 
+        DESCRIPTION      "Write access is not supported." 
+  
+        VARIATION        cgprsGtpChargingGWName
+        ACCESS           read-only 
+        DESCRIPTION      "Creation of new entries in
+                          cgprsGtpChargingGWTable is not supported.
+                          Write access is not supported too."
+
+        VARIATION        cgprsGtpChargingGWType
+        ACCESS           read-only 
+        DESCRIPTION      "Creation of new entries in
+                          cgprsGtpChargingGWTable is not supported.
+                          Write access is not supported too."
+
+        VARIATION        cgprsGtpChargingGWNotifEnable
+        ACCESS           read-only 
+        DESCRIPTION      "Creation of new entries in
+                          cgprsGtpChargingGWTable is not supported.
+                          Write access is not supported too."
+
+        VARIATION        cgprsGtpChargingGWRowStatus
+        ACCESS           read-only
+        DESCRIPTION      "Creation of new entries in
+                          cgprsGtpChargingGWTable is not supported.
+                          Write access is not supported too."
+
+        VARIATION        cgprsGtpAPNName
+        ACCESS           read-only 
+        DESCRIPTION      "Creation of new entries in cgprsGtpAPNTable
+                          is not supported. Write access is not
+                          supported too."
+
+        VARIATION        cgprsGtpAPNAddrAllocMethod
+        ACCESS           read-only 
+        DESCRIPTION      "Creation of new entries in cgprsGtpAPNTable
+                          is not supported. Write access is not
+                          supported too."
+
+        VARIATION        cgprsGtpAPNRowStatus
+        ACCESS           read-only 
+        DESCRIPTION      "Creation of new entries in cgprsGtpAPNTable
+                          is not supported. Write access is not
+                          supported too."
+
+        VARIATION        cgprsGtpGSNEchoFailedNotifCnt
+        ACCESS           not-implemented
+        DESCRIPTION      "This object is not supported."
+
+        VARIATION        cgprsGtpGSNPathRecoveredNotif
+        ACCESS           not-implemented
+        DESCRIPTION      "This object is not supported."
+
+        ::= { cgprsGtpCapability 1 }
+
+cgprsGtpCapabilityV12R02 AGENT-CAPABILITIES
+        PRODUCT-RELEASE  "Cisco IOS 12.2(7)"
+        STATUS           current
+        DESCRIPTION      "Cisco GPRS GTP MIB capabilities."
+        SUPPORTS         CISCO-GPRS-GTP-MIB
+        INCLUDES         {
+                          cgprsGtpGeneralConfigGroup,
+                          cgprsGtpGgsnConfigGroup,
+                          cgprsGtpGgsnStatusGroup
+                         }
+        VARIATION        cgprsGtpT3TunnelTimer
+        ACCESS           read-only
+        DESCRIPTION      "Write access is not supported."
+
+        VARIATION        cgprsGtpT3ResponseTimer
+        ACCESS           read-only
+        DESCRIPTION      "Write access is not supported."
+
+        VARIATION        cgprsGtpN3Request
+        ACCESS           read-only
+        DESCRIPTION      "Write access is not supported."
+
+        VARIATION        cgprsGtpN3BufferSize
+        ACCESS           read-only
+        DESCRIPTION      "Write access is not supported."
+
+        VARIATION        cgprsGtpEchoRequestTimer
+        ACCESS           read-only
+        DESCRIPTION      "Write access is not supported."
+ 
+        VARIATION        cgprsGtpGSNTotalBandwidthResrc
+        ACCESS           read-only 
+        DESCRIPTION      "Write access is not supported." 
+  
+        VARIATION        cgprsGtpMaxNumPDPCxts
+        ACCESS           read-only 
+        DESCRIPTION      "Write access is not supported." 
+  
+        VARIATION        cgprsGtpNoRespToEchoNotifEnable
+        ACCESS           read-only 
+        DESCRIPTION      "Write access is not supported." 
+  
+        VARIATION        cgprsGtpPDPCxtActRejNotifEnable
+        ACCESS           read-only 
+        DESCRIPTION      "Write access is not supported." 
+  
+        VARIATION        cgprsGtpAPNAddrAllocMethodGlobDef
+        ACCESS           read-only 
+        DESCRIPTION      "Write access is not supported." 
+  
+        VARIATION        cgprsGtpChargingGWName
+        ACCESS           read-only 
+        DESCRIPTION      "Creation of new entries in
+                          cgprsGtpChargingGWTable is not supported.
+                          Write access is not supported too."
+
+        VARIATION        cgprsGtpChargingGWType
+        ACCESS           read-only 
+        DESCRIPTION      "Creation of new entries in
+                          cgprsGtpChargingGWTable is not supported.
+                          Write access is not supported too."
+
+        VARIATION        cgprsGtpChargingGWNotifEnable
+        ACCESS           read-only 
+        DESCRIPTION      "Creation of new entries in
+                          cgprsGtpChargingGWTable is not supported.
+                          Write access is not supported too."
+
+        VARIATION        cgprsGtpChargingGWRowStatus
+        ACCESS           read-only
+        DESCRIPTION      "Creation of new entries in
+                          cgprsGtpChargingGWTable is not supported.
+                          Write access is not supported too."
+
+        VARIATION        cgprsGtpAPNName
+        ACCESS           read-only 
+        DESCRIPTION      "Creation of new entries in cgprsGtpAPNTable
+                          is not supported. Write access is not
+                          supported too."
+
+        VARIATION        cgprsGtpAPNAddrAllocMethod
+        ACCESS           read-only 
+        DESCRIPTION      "Creation of new entries in cgprsGtpAPNTable
+                          is not supported. Write access is not
+                          supported too."
+
+        VARIATION        cgprsGtpAPNRowStatus
+        ACCESS           read-only 
+        DESCRIPTION      "Creation of new entries in cgprsGtpAPNTable
+                          is not supported. Write access is not
+                          supported too."
+
+        VARIATION        cgprsGtpGSNEchoFailedNotifCnt
+        ACCESS           not-implemented
+        DESCRIPTION      "This object is not supported."
+
+        VARIATION        cgprsGtpGSNPathRecoveredNotif
+        ACCESS           not-implemented
+        DESCRIPTION      "This object is not supported."
+
+        ::= { cgprsGtpCapability 2 }
+
+END

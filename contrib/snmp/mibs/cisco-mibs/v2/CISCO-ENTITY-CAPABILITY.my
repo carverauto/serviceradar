@@ -1,0 +1,515 @@
+-- *****************************************************************
+-- ciscoEntityCapabilities MIB
+--   
+-- AGENT-CAPABILITIES mib for ENTITY-MIB
+--   
+-- June 2002, Subra Hegde
+--   
+-- Copyright(c) 2002-2014 by Cisco Systems Inc.
+--   
+-- *****************************************************************
+
+CISCO-ENTITY-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoEntityCapability MODULE-IDENTITY
+    LAST-UPDATED    "201404030000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com
+            cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The Agent Capabilities for ENTITY-MIB."
+    REVISION        "201404030000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoEntityCapNxOSV06R0201PMds."
+    REVISION        "201307190000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoEntityCapNxOSV06R0202PN7k."
+    REVISION        "200903240000Z"
+    DESCRIPTION
+        "Added ciscoEntityCapabilityGssV03R01
+        agent capabilities for Global Site 
+        Selector(GSS) release 3.1(0)."
+    REVISION        "200807030000Z"
+    DESCRIPTION
+        "Added ciscoEntityCapc4710aceVA1R700 agent
+        capabilities for ACE 4710 Application Control Engine 
+        Appliance.
+
+        Changed CISCO-ENTITY-MIB to ENTITY-MIB in the DESCRIPTION 
+        clause for ciscoEntityCapability.
+
+        Changed the SUPPORT clause for ciscoEntityCapabilityV2R00,
+        ciscoEntityCapV12R0111bEXCat6K, ciscoEntityCapV12R0214SXCat6K,
+        ciscoEntityCapCatOSV08R0101, ciscoEntityCapabilityV20CRS1,
+        ciscoEntityCapabilityACSWV03R000 agent capabilities to 
+        ENTITY-MIB from CISCO-ENTITY-MIB and modified the 
+        DESCRIPTION clause accordingly."
+    REVISION        "200611160000Z"
+    DESCRIPTION
+        "Added ciscoEntityCapabilityIOSXRV3R4 agent
+        capabilities for IOS XR 3.4"
+    REVISION        "200605260000Z"
+    DESCRIPTION
+        "Added ciscoEntityCapabilityACSWV03R000 agent
+        capabilities for Cisco Application Control 
+        Engine (ACE)."
+    REVISION        "200603240000Z"
+    DESCRIPTION
+        "Add VARIATION for the notification
+        entConfigChange in ciscoEntityCapCatOSV08R0101."
+    REVISION        "200602080000Z"
+    DESCRIPTION
+        "Added ciscoEntityCapabilityV20CRS1 Agent
+        capabilities for IOS XR release 2.0 CRS1"
+    REVISION        "200308120000Z"
+    DESCRIPTION
+        "Updated the ciscoEntityCapability OID with the one
+        assigned by CANA."
+    REVISION        "200308080000Z"
+    DESCRIPTION
+        "Added ciscoEntityCapV12R0111bEXCat6K
+        ciscoEntityCapV12R0214SXCat6K and
+        ciscoEntityCapCatOSV08R0101."
+    REVISION        "200206120000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 277 }
+
+
+
+ciscoEntityCapabilityV2R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "MGX8850 Release 2.00,
+                BPX SES Release 1.00"
+    STATUS          current
+    DESCRIPTION
+        "Agent capabilities for ENTITY-MIB."
+
+    SUPPORTS        ENTITY-MIB
+    INCLUDES        {
+                        entityPhysicalGroup,
+                        entityPhysical2Group
+                    }
+    VARIATION       entPhysicalName
+    DESCRIPTION
+        "This Object is set to one of the following
+        for entPhysicalClass = module(9)
+        * Slot Number for the Module
+        * Slot Number as seen in rear view of the
+        chassis for the line module(Back cards).
+        for entPhysicalClass = chassis(1)
+        * Chassis number(Shelf number)"
+
+    VARIATION       entPhysicalMfgName
+    DESCRIPTION
+        "This Object is set to PCB Part Number
+        800 Level if applicable. It contains
+        a zero-length string if 800 level
+        is not applicable."
+
+    VARIATION       entPhysicalModelName
+    DESCRIPTION
+        "This Object is set to PCB Part Number
+        73 Level if applicable. It contains
+        a zero-length string if 73 Level is not
+        applicable."
+
+    VARIATION       entPhysicalAssetID
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoEntityCapability 1 }
+
+ciscoEntityCapV12R0111bEXCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(11b)EX on Catalyst 6000/6500
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "ENTITY-MIB capabilities."
+
+    SUPPORTS        ENTITY-MIB
+    INCLUDES        {
+                        entityPhysicalGroup,
+                        entityLogicalGroup,
+                        entityMappingGroup,
+                        entityGeneralGroup,
+                        entityNotificationsGroup
+                    }
+    VARIATION       entLPPhysicalIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       entAliasMappingIdentifier
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoEntityCapability 2 }
+
+ciscoEntityCapV12R0214SXCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(14)SX on Catalyst 6000/6500
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "ENTITY-MIB capabilities."
+
+    SUPPORTS        ENTITY-MIB
+    INCLUDES        {
+                        entityPhysicalGroup,
+                        entityLogicalGroup,
+                        entityMappingGroup,
+                        entityGeneralGroup,
+                        entityNotificationsGroup,
+                        entityPhysical2Group,
+                        entityLogical2Group
+                    }
+    VARIATION       entPhysicalSerialNum
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       entLPPhysicalIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoEntityCapability 3 }
+
+ciscoEntityCapCatOSV08R0101 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1)."
+    STATUS          current
+    DESCRIPTION
+        "ENTITY-MIB capabilities."
+
+    SUPPORTS        ENTITY-MIB
+    INCLUDES        {
+                        entityPhysicalGroup,
+                        entityMappingGroup,
+                        entityGeneralGroup,
+                        entityNotificationsGroup,
+                        entityPhysical2Group
+                    }
+    VARIATION       entPhysicalSerialNum
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       entPhysicalAssetID
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       entLPPhysicalIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       entConfigChange
+    DESCRIPTION
+        "This notification has no varbind object
+        defined in ENTITY-MIB. However the instance
+        value of entLastChangeTime is appended to
+        it."
+
+    ::= { ciscoEntityCapability 4 }
+
+ciscoEntityCapabilityV20CRS1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS XR 2.0 for CRS-1"
+    STATUS          current
+    DESCRIPTION
+        "ENTITY-MIB capabilities for
+        IOS XR release 2.0"
+
+    SUPPORTS        ENTITY-MIB
+    INCLUDES        {
+                        entityLogical2Group,
+                        entityPhysical2Group,
+                        entityGeneralGroup,
+                        entityPhysicalGroup,
+                        entityNotificationsGroup
+                    }
+    VARIATION       entLogicalType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entLogicalTAddress
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entLogicalTDomain
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    ::= { ciscoEntityCapability 5 }
+
+ciscoEntityCapabilityACSWV03R000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0"
+    STATUS          current
+    DESCRIPTION
+        "ENTITY-MIB capabilities for ACSW 3.0"
+
+    SUPPORTS        ENTITY-MIB
+    INCLUDES        {
+                        entityPhysicalGroup,
+                        entityPhysical2Group
+                    }
+    VARIATION       entPhysicalSerialNum
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       entPhysicalAlias
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entPhysicalAssetID
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    ::= { ciscoEntityCapability 6 }
+
+ciscoEntityCapabilityIOSXRV3R4 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS XR 3.4 for CRS-1"
+    STATUS          current
+    DESCRIPTION
+        "ENTITY-MIB capabilities for
+        IOS XR release 3.4"
+
+    SUPPORTS        ENTITY-MIB
+    INCLUDES        {
+                        entityLogical2Group,
+                        entityPhysical2Group,
+                        entityGeneralGroup,
+                        entityPhysicalGroup,
+                        entityNotificationsGroup,
+                        entityMappingGroup
+                    }
+    VARIATION       entLogicalType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entLogicalTAddress
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entLogicalTDomain
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    ::= { ciscoEntityCapability 7 }
+
+ciscoEntityCapc4710aceVA1R700 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7) for 
+                    ACE 4710 Application Control Engine Appliance."
+    STATUS          current
+    DESCRIPTION
+        "ENTITY-MIB capabilities for ACSW A1(7)"
+
+    SUPPORTS        ENTITY-MIB
+    INCLUDES        {
+                        entityPhysicalGroup,
+                        entityPhysical2Group
+                    }
+    VARIATION       entPhysicalSerialNum
+    ACCESS          read-only
+    DESCRIPTION
+        "Create operation not allowed."
+
+    VARIATION       entPhysicalAlias
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entPhysicalAssetID
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    ::= { ciscoEntityCapability 8 }
+
+ciscoEntityCapabilityGssV03R01 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Global Site Selector(GSS) 3.1(0)"
+    STATUS          current
+    DESCRIPTION
+        "ENTITY-MIB capabilities for GSS 3.1(0)"
+
+    SUPPORTS        ENTITY-MIB
+    INCLUDES        {
+                        entityPhysicalGroup,
+                        entityPhysical2Group
+                    }
+    VARIATION       entPhysicalVendorType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entPhysicalContainedIn
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entPhysicalClass
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entPhysicalParentRelPos
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entPhysicalFirmwareRev
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entPhysicalSerialNum
+    ACCESS          read-only
+    DESCRIPTION
+        "Write operation not allowed."
+
+    VARIATION       entPhysicalMfgName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entPhysicalAlias
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entPhysicalAssetID
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    VARIATION       entPhysicalIsFRU
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported in
+        the current MIB Implementation."
+
+    ::= { ciscoEntityCapability 9 }
+
+ciscoEntityCapNxOSV06R0202PN7k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(2) on Nexus 7000
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "ENTITY-MIB capabilities capabilities."
+
+    SUPPORTS        ENTITY-MIB
+    INCLUDES        {
+                        entityPhysicalGroup,
+                        entityPhysical2Group,
+                        entityMappingGroup,
+                        entityGeneralGroup,
+                        entityNotificationsGroup
+                    }
+    VARIATION       entPhysicalSerialNum
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       entPhysicalAlias
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       entPhysicalAssetID
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       entLPPhysicalIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoEntityCapability 10 }
+
+ciscoEntityCapNxOSV06R0201PMds AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(1) on MDS 9000
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "ENTITY-MIB capabilities capabilities."
+
+    SUPPORTS        ENTITY-MIB
+    INCLUDES        {
+                        entityPhysicalGroup,
+                        entityPhysical2Group,
+                        entityMappingGroup,
+                        entityGeneralGroup,
+                        entityNotificationsGroup
+                    }
+    VARIATION       entPhysicalSerialNum
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       entPhysicalAlias
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       entPhysicalAssetID
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       entLPPhysicalIndex
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoEntityCapability 11 }
+END

@@ -1,0 +1,133 @@
+-- *****************************************************************
+-- CISCO-HC-ALARM-CAPABILITY.my:
+-- Cisco HC-ALARM-MIB AGENT-CAPABILITIES
+--   
+-- March 2004, Thomas Wu
+--   
+-- Copyright (c) 2004, 2008 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-HC-ALARM-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    OwnerString
+        FROM RMON-MIB
+    StorageType
+        FROM SNMPv2-TC
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoHcAlarmCapability MODULE-IDENTITY
+    LAST-UPDATED    "200808050000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of HC-ALARM-MIB."
+    REVISION        "200808050000Z"
+    DESCRIPTION
+        "Added capability statement ciscoHcAlarmCapNXOSV04R0101."
+    REVISION        "200403220000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 398 }
+
+
+
+ciscoHcAlarmCapCatOSV08R0401 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.4(1)."
+    STATUS          current
+    DESCRIPTION
+        "HC-ALARM-MIB capabilities."
+
+    SUPPORTS        HC-ALARM-MIB
+    INCLUDES        {
+                        hcAlarmControlGroup,
+                        hcAlarmCapabilitiesGroup,
+                        hcAlarmNotificationsGroup
+                    }
+    VARIATION       hcAlarmOwner
+    SYNTAX          OwnerString (SIZE (1..20))
+    DESCRIPTION
+        "Implementation only supports
+        1 to 20 octets."
+
+    VARIATION       hcAlarmStorageType
+    SYNTAX          StorageType {
+                        volatile(2),
+                        nonVolatile(3)
+                    }
+    DESCRIPTION
+        "Implementation only supports
+        volatile(2) and nonVolatile(3)."
+
+    ::= { ciscoHcAlarmCapability 1 }
+
+ciscoHcAlarmCapNXOSV04R0101 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 4.1(1) on MDS9000 Storage Switches."
+    STATUS          current
+    DESCRIPTION
+        "HC-RMON-MIB capabilities."
+
+    SUPPORTS        HC-ALARM-MIB
+    INCLUDES        {
+                        hcAlarmControlGroup,
+                        hcAlarmCapabilitiesGroup,
+                        hcAlarmNotificationsGroup
+                    }
+    VARIATION       hcRisingAlarm
+--    NOTIFICATION-TYPE
+--    OBJECTS  { hcAlarmVariable,
+--               hcAlarmSampleType,
+--               hcAlarmAbsValue,
+--               hcAlarmValueStatus,
+--               hcAlarmRisingThreshAbsValueLo,
+--               hcAlarmRisingThreshAbsValueHi,
+--               hcAlarmRisingThresholdValStatus,
+--               hcAlarmRisingEventIndex,
+--               ifDescr }
+    DESCRIPTION
+        "In addition to the regular varbinds, the
+        instance values of ifDescr is appended
+        to this notification."
+
+    VARIATION       hcFallingAlarm
+--    NOTIFICATION-TYPE
+--    OBJECTS  { hcAlarmVariable,
+--               hcAlarmSampleType,
+--               hcAlarmAbsValue,
+--               hcAlarmValueStatus,
+--               hcAlarmRisingThreshAbsValueLo,
+--               hcAlarmRisingThreshAbsValueHi,
+--               hcAlarmRisingThresholdValStatus,
+--               hcAlarmRisingEventIndex,
+--               ifDescr }
+    DESCRIPTION
+        "In addition to the regular varbinds, the
+        instance values of ifDescr is appended
+        to this notification."
+
+    ::= { ciscoHcAlarmCapability 2 }
+
+END
+
+
+
+
+
+

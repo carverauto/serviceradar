@@ -1,0 +1,770 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-EXTMGMT-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- EXTMGMT management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-EXTMGMT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApAaaConfigState,
+    CfprApExtmgmtArpTargetsMaxDeadlineTimeout,
+    CfprApExtmgmtArpTargetsNumberOfArpRequests,
+    CfprApExtmgmtGatewayPingMaxDeadlineTimeout,
+    CfprApExtmgmtGatewayPingNumberOfPingRequests,
+    CfprApExtmgmtIfMonPolicyAdminState,
+    CfprApExtmgmtIfMonPolicyMonitorMechanism,
+    CfprApExtmgmtIfType,
+    CfprApExtmgmtMiiStatusMaxRetryCount,
+    CfprApExtmgmtMiiStatusRetryInterval,
+    CfprApExtmgmtNdiscTargetsMaxDeadlineTimeout,
+    CfprApExtmgmtNdiscTargetsNumberOfNdiscRequests,
+    CfprApNetworkIfStatus,
+    CfprApNetworkLocale,
+    CfprApNetworkPortRole,
+    CfprApNetworkPortType,
+    CfprApNetworkSwitchId,
+    CfprApNetworkTransport,
+    CfprApPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApExtmgmtObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        EXTMGMT management information model package"
+    ::= { ciscoFirepowerApMIBObjects 23 }
+
+cfprApExtmgmtArpTargetsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtmgmtArpTargetsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:ArpTargets managed object table"
+    ::= { cfprApExtmgmtObjects 1 }
+
+cfprApExtmgmtArpTargetsEntry OBJECT-TYPE
+    SYNTAX           CfprApExtmgmtArpTargetsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtmgmtArpTargetsTable table."
+    INDEX { cfprApExtmgmtArpTargetsInstanceId }
+    ::= { cfprApExtmgmtArpTargetsTable 1 }
+
+CfprApExtmgmtArpTargetsEntry ::= SEQUENCE {
+    cfprApExtmgmtArpTargetsInstanceId                                CfprApManagedObjectId,
+    cfprApExtmgmtArpTargetsDn                                        CfprApManagedObjectDn,
+    cfprApExtmgmtArpTargetsRn                                        SnmpAdminString,
+    cfprApExtmgmtArpTargetsConfigState                               CfprApAaaConfigState,
+    cfprApExtmgmtArpTargetsConfigStatusMessage                       SnmpAdminString,
+    cfprApExtmgmtArpTargetsMaxDeadlineTimeout                        CfprApExtmgmtArpTargetsMaxDeadlineTimeout,
+    cfprApExtmgmtArpTargetsNumberOfArpRequests                       CfprApExtmgmtArpTargetsNumberOfArpRequests,
+    cfprApExtmgmtArpTargetsTargetIp1                                 InetAddressIPv4,
+    cfprApExtmgmtArpTargetsTargetIp2                                 InetAddressIPv4,
+    cfprApExtmgmtArpTargetsTargetIp3                                 InetAddressIPv4
+}
+
+cfprApExtmgmtArpTargetsInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtmgmtArpTargetsEntry 1 }
+
+cfprApExtmgmtArpTargetsDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:ArpTargets:dn managed object property"
+    ::= { cfprApExtmgmtArpTargetsEntry 2 }
+
+cfprApExtmgmtArpTargetsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:ArpTargets:rn managed object property"
+    ::= { cfprApExtmgmtArpTargetsEntry 3 }
+
+cfprApExtmgmtArpTargetsConfigState OBJECT-TYPE
+    SYNTAX       CfprApAaaConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:ArpTargets:configState
+        managed object property"
+    ::= { cfprApExtmgmtArpTargetsEntry 4 }
+
+cfprApExtmgmtArpTargetsConfigStatusMessage OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:ArpTargets:configStatusMessage
+        managed object property"
+    ::= { cfprApExtmgmtArpTargetsEntry 5 }
+
+cfprApExtmgmtArpTargetsMaxDeadlineTimeout OBJECT-TYPE
+    SYNTAX       CfprApExtmgmtArpTargetsMaxDeadlineTimeout
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:ArpTargets:maxDeadlineTimeout
+        managed object property"
+    ::= { cfprApExtmgmtArpTargetsEntry 6 }
+
+cfprApExtmgmtArpTargetsNumberOfArpRequests OBJECT-TYPE
+    SYNTAX       CfprApExtmgmtArpTargetsNumberOfArpRequests
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:ArpTargets:numberOfArpRequests
+        managed object property"
+    ::= { cfprApExtmgmtArpTargetsEntry 7 }
+
+cfprApExtmgmtArpTargetsTargetIp1 OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:ArpTargets:targetIp1 managed
+        object property"
+    ::= { cfprApExtmgmtArpTargetsEntry 8 }
+
+cfprApExtmgmtArpTargetsTargetIp2 OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:ArpTargets:targetIp2 managed
+        object property"
+    ::= { cfprApExtmgmtArpTargetsEntry 9 }
+
+cfprApExtmgmtArpTargetsTargetIp3 OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:ArpTargets:targetIp3 managed
+        object property"
+    ::= { cfprApExtmgmtArpTargetsEntry 10 }
+
+cfprApExtmgmtGatewayPingTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtmgmtGatewayPingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:GatewayPing managed object table"
+    ::= { cfprApExtmgmtObjects 2 }
+
+cfprApExtmgmtGatewayPingEntry OBJECT-TYPE
+    SYNTAX           CfprApExtmgmtGatewayPingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtmgmtGatewayPingTable table."
+    INDEX { cfprApExtmgmtGatewayPingInstanceId }
+    ::= { cfprApExtmgmtGatewayPingTable 1 }
+
+CfprApExtmgmtGatewayPingEntry ::= SEQUENCE {
+    cfprApExtmgmtGatewayPingInstanceId                               CfprApManagedObjectId,
+    cfprApExtmgmtGatewayPingDn                                       CfprApManagedObjectDn,
+    cfprApExtmgmtGatewayPingRn                                       SnmpAdminString,
+    cfprApExtmgmtGatewayPingMaxDeadlineTimeout                       CfprApExtmgmtGatewayPingMaxDeadlineTimeout,
+    cfprApExtmgmtGatewayPingNumberOfPingRequests                     CfprApExtmgmtGatewayPingNumberOfPingRequests
+}
+
+cfprApExtmgmtGatewayPingInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtmgmtGatewayPingEntry 1 }
+
+cfprApExtmgmtGatewayPingDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:GatewayPing:dn managed object property"
+    ::= { cfprApExtmgmtGatewayPingEntry 2 }
+
+cfprApExtmgmtGatewayPingRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:GatewayPing:rn managed object property"
+    ::= { cfprApExtmgmtGatewayPingEntry 3 }
+
+cfprApExtmgmtGatewayPingMaxDeadlineTimeout OBJECT-TYPE
+    SYNTAX       CfprApExtmgmtGatewayPingMaxDeadlineTimeout
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:GatewayPing:maxDeadlineTimeout
+        managed object property"
+    ::= { cfprApExtmgmtGatewayPingEntry 4 }
+
+cfprApExtmgmtGatewayPingNumberOfPingRequests OBJECT-TYPE
+    SYNTAX       CfprApExtmgmtGatewayPingNumberOfPingRequests
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:GatewayPing:numberOfPingRequests
+        managed object property"
+    ::= { cfprApExtmgmtGatewayPingEntry 5 }
+
+cfprApExtmgmtIfTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtmgmtIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If managed object table"
+    ::= { cfprApExtmgmtObjects 3 }
+
+cfprApExtmgmtIfEntry OBJECT-TYPE
+    SYNTAX           CfprApExtmgmtIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtmgmtIfTable table."
+    INDEX { cfprApExtmgmtIfInstanceId }
+    ::= { cfprApExtmgmtIfTable 1 }
+
+CfprApExtmgmtIfEntry ::= SEQUENCE {
+    cfprApExtmgmtIfInstanceId                                        CfprApManagedObjectId,
+    cfprApExtmgmtIfDn                                                CfprApManagedObjectDn,
+    cfprApExtmgmtIfRn                                                SnmpAdminString,
+    cfprApExtmgmtIfEpDn                                              SnmpAdminString,
+    cfprApExtmgmtIfFailReportCount                                   Gauge32,
+    cfprApExtmgmtIfFltAggr                                           Unsigned64,
+    cfprApExtmgmtIfId                                                CfprApNetworkSwitchId,
+    cfprApExtmgmtIfIfRole                                            CfprApNetworkPortRole,
+    cfprApExtmgmtIfIfType                                            CfprApNetworkPortType,
+    cfprApExtmgmtIfLastOperStateReport                               CfprApNetworkIfStatus,
+    cfprApExtmgmtIfLocale                                            CfprApNetworkLocale,
+    cfprApExtmgmtIfName                                              SnmpAdminString,
+    cfprApExtmgmtIfOperState                                         CfprApNetworkIfStatus,
+    cfprApExtmgmtIfPeerDn                                            SnmpAdminString,
+    cfprApExtmgmtIfTransport                                         CfprApNetworkTransport,
+    cfprApExtmgmtIfType                                              CfprApExtmgmtIfType
+}
+
+cfprApExtmgmtIfInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtmgmtIfEntry 1 }
+
+cfprApExtmgmtIfDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:dn managed object property"
+    ::= { cfprApExtmgmtIfEntry 2 }
+
+cfprApExtmgmtIfRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:rn managed object property"
+    ::= { cfprApExtmgmtIfEntry 3 }
+
+cfprApExtmgmtIfEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:epDn managed object property"
+    ::= { cfprApExtmgmtIfEntry 4 }
+
+cfprApExtmgmtIfFailReportCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:failReportCount managed
+        object property"
+    ::= { cfprApExtmgmtIfEntry 5 }
+
+cfprApExtmgmtIfFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:fltAggr managed object property"
+    ::= { cfprApExtmgmtIfEntry 6 }
+
+cfprApExtmgmtIfId OBJECT-TYPE
+    SYNTAX       CfprApNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:id managed object property"
+    ::= { cfprApExtmgmtIfEntry 7 }
+
+cfprApExtmgmtIfIfRole OBJECT-TYPE
+    SYNTAX       CfprApNetworkPortRole
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:ifRole managed object property"
+    ::= { cfprApExtmgmtIfEntry 8 }
+
+cfprApExtmgmtIfIfType OBJECT-TYPE
+    SYNTAX       CfprApNetworkPortType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:ifType managed object property"
+    ::= { cfprApExtmgmtIfEntry 9 }
+
+cfprApExtmgmtIfLastOperStateReport OBJECT-TYPE
+    SYNTAX       CfprApNetworkIfStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:lastOperStateReport
+        managed object property"
+    ::= { cfprApExtmgmtIfEntry 10 }
+
+cfprApExtmgmtIfLocale OBJECT-TYPE
+    SYNTAX       CfprApNetworkLocale
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:locale managed object property"
+    ::= { cfprApExtmgmtIfEntry 11 }
+
+cfprApExtmgmtIfName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:name managed object property"
+    ::= { cfprApExtmgmtIfEntry 12 }
+
+cfprApExtmgmtIfOperState OBJECT-TYPE
+    SYNTAX       CfprApNetworkIfStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:operState managed object property"
+    ::= { cfprApExtmgmtIfEntry 13 }
+
+cfprApExtmgmtIfPeerDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:peerDn managed object property"
+    ::= { cfprApExtmgmtIfEntry 14 }
+
+cfprApExtmgmtIfTransport OBJECT-TYPE
+    SYNTAX       CfprApNetworkTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:transport managed object property"
+    ::= { cfprApExtmgmtIfEntry 15 }
+
+cfprApExtmgmtIfType OBJECT-TYPE
+    SYNTAX       CfprApExtmgmtIfType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:If:type managed object property"
+    ::= { cfprApExtmgmtIfEntry 16 }
+
+cfprApExtmgmtIfMonPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtmgmtIfMonPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:IfMonPolicy managed object table"
+    ::= { cfprApExtmgmtObjects 4 }
+
+cfprApExtmgmtIfMonPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprApExtmgmtIfMonPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtmgmtIfMonPolicyTable table."
+    INDEX { cfprApExtmgmtIfMonPolicyInstanceId }
+    ::= { cfprApExtmgmtIfMonPolicyTable 1 }
+
+CfprApExtmgmtIfMonPolicyEntry ::= SEQUENCE {
+    cfprApExtmgmtIfMonPolicyInstanceId                               CfprApManagedObjectId,
+    cfprApExtmgmtIfMonPolicyDn                                       CfprApManagedObjectDn,
+    cfprApExtmgmtIfMonPolicyRn                                       SnmpAdminString,
+    cfprApExtmgmtIfMonPolicyAdminState                               CfprApExtmgmtIfMonPolicyAdminState,
+    cfprApExtmgmtIfMonPolicyDescr                                    SnmpAdminString,
+    cfprApExtmgmtIfMonPolicyEnableHAFailover                         TruthValue,
+    cfprApExtmgmtIfMonPolicyIntId                                    SnmpAdminString,
+    cfprApExtmgmtIfMonPolicyMaxFailReportCount                       Gauge32,
+    cfprApExtmgmtIfMonPolicyMonitorMechanism                         CfprApExtmgmtIfMonPolicyMonitorMechanism,
+    cfprApExtmgmtIfMonPolicyName                                     SnmpAdminString,
+    cfprApExtmgmtIfMonPolicyPolicyLevel                              Gauge32,
+    cfprApExtmgmtIfMonPolicyPolicyOwner                              CfprApPolicyPolicyOwner,
+    cfprApExtmgmtIfMonPolicyPollInterval                             Gauge32
+}
+
+cfprApExtmgmtIfMonPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtmgmtIfMonPolicyEntry 1 }
+
+cfprApExtmgmtIfMonPolicyDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:IfMonPolicy:dn managed object property"
+    ::= { cfprApExtmgmtIfMonPolicyEntry 2 }
+
+cfprApExtmgmtIfMonPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:IfMonPolicy:rn managed object property"
+    ::= { cfprApExtmgmtIfMonPolicyEntry 3 }
+
+cfprApExtmgmtIfMonPolicyAdminState OBJECT-TYPE
+    SYNTAX       CfprApExtmgmtIfMonPolicyAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:IfMonPolicy:adminState
+        managed object property"
+    ::= { cfprApExtmgmtIfMonPolicyEntry 4 }
+
+cfprApExtmgmtIfMonPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:IfMonPolicy:descr managed
+        object property"
+    ::= { cfprApExtmgmtIfMonPolicyEntry 5 }
+
+cfprApExtmgmtIfMonPolicyEnableHAFailover OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:IfMonPolicy:enableHAFailover
+        managed object property"
+    ::= { cfprApExtmgmtIfMonPolicyEntry 6 }
+
+cfprApExtmgmtIfMonPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:IfMonPolicy:intId managed
+        object property"
+    ::= { cfprApExtmgmtIfMonPolicyEntry 7 }
+
+cfprApExtmgmtIfMonPolicyMaxFailReportCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:IfMonPolicy:maxFailReportCount
+        managed object property"
+    ::= { cfprApExtmgmtIfMonPolicyEntry 8 }
+
+cfprApExtmgmtIfMonPolicyMonitorMechanism OBJECT-TYPE
+    SYNTAX       CfprApExtmgmtIfMonPolicyMonitorMechanism
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:IfMonPolicy:monitorMechanism
+        managed object property"
+    ::= { cfprApExtmgmtIfMonPolicyEntry 9 }
+
+cfprApExtmgmtIfMonPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:IfMonPolicy:name managed object property"
+    ::= { cfprApExtmgmtIfMonPolicyEntry 10 }
+
+cfprApExtmgmtIfMonPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:IfMonPolicy:policyLevel
+        managed object property"
+    ::= { cfprApExtmgmtIfMonPolicyEntry 11 }
+
+cfprApExtmgmtIfMonPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:IfMonPolicy:policyOwner
+        managed object property"
+    ::= { cfprApExtmgmtIfMonPolicyEntry 12 }
+
+cfprApExtmgmtIfMonPolicyPollInterval OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:IfMonPolicy:pollInterval
+        managed object property"
+    ::= { cfprApExtmgmtIfMonPolicyEntry 13 }
+
+cfprApExtmgmtMiiStatusTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtmgmtMiiStatusEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:MiiStatus managed object table"
+    ::= { cfprApExtmgmtObjects 5 }
+
+cfprApExtmgmtMiiStatusEntry OBJECT-TYPE
+    SYNTAX           CfprApExtmgmtMiiStatusEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtmgmtMiiStatusTable table."
+    INDEX { cfprApExtmgmtMiiStatusInstanceId }
+    ::= { cfprApExtmgmtMiiStatusTable 1 }
+
+CfprApExtmgmtMiiStatusEntry ::= SEQUENCE {
+    cfprApExtmgmtMiiStatusInstanceId                                 CfprApManagedObjectId,
+    cfprApExtmgmtMiiStatusDn                                         CfprApManagedObjectDn,
+    cfprApExtmgmtMiiStatusRn                                         SnmpAdminString,
+    cfprApExtmgmtMiiStatusMaxRetryCount                              CfprApExtmgmtMiiStatusMaxRetryCount,
+    cfprApExtmgmtMiiStatusRetryInterval                              CfprApExtmgmtMiiStatusRetryInterval
+}
+
+cfprApExtmgmtMiiStatusInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtmgmtMiiStatusEntry 1 }
+
+cfprApExtmgmtMiiStatusDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:MiiStatus:dn managed object property"
+    ::= { cfprApExtmgmtMiiStatusEntry 2 }
+
+cfprApExtmgmtMiiStatusRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:MiiStatus:rn managed object property"
+    ::= { cfprApExtmgmtMiiStatusEntry 3 }
+
+cfprApExtmgmtMiiStatusMaxRetryCount OBJECT-TYPE
+    SYNTAX       CfprApExtmgmtMiiStatusMaxRetryCount
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:MiiStatus:maxRetryCount
+        managed object property"
+    ::= { cfprApExtmgmtMiiStatusEntry 4 }
+
+cfprApExtmgmtMiiStatusRetryInterval OBJECT-TYPE
+    SYNTAX       CfprApExtmgmtMiiStatusRetryInterval
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:MiiStatus:retryInterval
+        managed object property"
+    ::= { cfprApExtmgmtMiiStatusEntry 5 }
+
+cfprApExtmgmtNdiscTargetsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtmgmtNdiscTargetsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:NdiscTargets managed object table"
+    ::= { cfprApExtmgmtObjects 6 }
+
+cfprApExtmgmtNdiscTargetsEntry OBJECT-TYPE
+    SYNTAX           CfprApExtmgmtNdiscTargetsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtmgmtNdiscTargetsTable table."
+    INDEX { cfprApExtmgmtNdiscTargetsInstanceId }
+    ::= { cfprApExtmgmtNdiscTargetsTable 1 }
+
+CfprApExtmgmtNdiscTargetsEntry ::= SEQUENCE {
+    cfprApExtmgmtNdiscTargetsInstanceId                              CfprApManagedObjectId,
+    cfprApExtmgmtNdiscTargetsDn                                      CfprApManagedObjectDn,
+    cfprApExtmgmtNdiscTargetsRn                                      SnmpAdminString,
+    cfprApExtmgmtNdiscTargetsConfigState                             CfprApAaaConfigState,
+    cfprApExtmgmtNdiscTargetsConfigStatusMessage                     SnmpAdminString,
+    cfprApExtmgmtNdiscTargetsIpv6Target1                             InetAddressIPv6,
+    cfprApExtmgmtNdiscTargetsIpv6Target2                             InetAddressIPv6,
+    cfprApExtmgmtNdiscTargetsIpv6Target3                             InetAddressIPv6,
+    cfprApExtmgmtNdiscTargetsMaxDeadlineTimeout                      CfprApExtmgmtNdiscTargetsMaxDeadlineTimeout,
+    cfprApExtmgmtNdiscTargetsNumberOfNdiscRequests                   CfprApExtmgmtNdiscTargetsNumberOfNdiscRequests
+}
+
+cfprApExtmgmtNdiscTargetsInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtmgmtNdiscTargetsEntry 1 }
+
+cfprApExtmgmtNdiscTargetsDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:NdiscTargets:dn managed object property"
+    ::= { cfprApExtmgmtNdiscTargetsEntry 2 }
+
+cfprApExtmgmtNdiscTargetsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:NdiscTargets:rn managed object property"
+    ::= { cfprApExtmgmtNdiscTargetsEntry 3 }
+
+cfprApExtmgmtNdiscTargetsConfigState OBJECT-TYPE
+    SYNTAX       CfprApAaaConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:NdiscTargets:configState
+        managed object property"
+    ::= { cfprApExtmgmtNdiscTargetsEntry 4 }
+
+cfprApExtmgmtNdiscTargetsConfigStatusMessage OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:NdiscTargets:configStatusMessage
+        managed object property"
+    ::= { cfprApExtmgmtNdiscTargetsEntry 5 }
+
+cfprApExtmgmtNdiscTargetsIpv6Target1 OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:NdiscTargets:ipv6Target1
+        managed object property"
+    ::= { cfprApExtmgmtNdiscTargetsEntry 6 }
+
+cfprApExtmgmtNdiscTargetsIpv6Target2 OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:NdiscTargets:ipv6Target2
+        managed object property"
+    ::= { cfprApExtmgmtNdiscTargetsEntry 7 }
+
+cfprApExtmgmtNdiscTargetsIpv6Target3 OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:NdiscTargets:ipv6Target3
+        managed object property"
+    ::= { cfprApExtmgmtNdiscTargetsEntry 8 }
+
+cfprApExtmgmtNdiscTargetsMaxDeadlineTimeout OBJECT-TYPE
+    SYNTAX       CfprApExtmgmtNdiscTargetsMaxDeadlineTimeout
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:NdiscTargets:maxDeadlineTimeout
+        managed object property"
+    ::= { cfprApExtmgmtNdiscTargetsEntry 9 }
+
+cfprApExtmgmtNdiscTargetsNumberOfNdiscRequests OBJECT-TYPE
+    SYNTAX       CfprApExtmgmtNdiscTargetsNumberOfNdiscRequests
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extmgmt:NdiscTargets:numberOfNdiscRequests
+        managed object property"
+    ::= { cfprApExtmgmtNdiscTargetsEntry 10 }
+
+END

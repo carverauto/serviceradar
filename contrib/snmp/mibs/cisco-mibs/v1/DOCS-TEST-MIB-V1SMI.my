@@ -1,0 +1,151 @@
+-- MIB file created 24-Mar-2009 12:26:54, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+DOCS-TEST-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "DOCS-TEST-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    enterprises
+            FROM SNMPv2-SMI-v1
+    TruthValue
+            FROM SNMPv2-TC-v1
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+docsTestMIB OBJECT IDENTIFIER ::= { clabProjDocsis 12 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    0203150000Z
+--  OrgName
+--    DOCSIS 2.0 ATP Working Group
+--  ContactInfo
+--            David Raftus
+--     Postal: Terayon Canada Ltd
+--             340 Terry Fox Drive, Suite 202
+--             Ottawa Ontario
+--             Canada
+--     Phone:  +1 613 592 1052
+--     E-mail: david.raftus@terayon.com
+--    
+--     DOCSIS 2.0 ATP Working Group
+--     General Discussion: docsis-20@cablelabs.com,
+--     docsis-20-atp@cablelabs.com
+--  Descr
+--    This is the MIB Module supporting programmable test features
+--     for DOCSIS 2.0 compliant Cable Modems (CM) and Cable Modem
+--     Termination Systems (CMTS).
+
+cableLabs       OBJECT IDENTIFIER ::= { enterprises 4491 }
+clabFunction    OBJECT IDENTIFIER ::= { cableLabs 1 }
+clabFuncMib2    OBJECT IDENTIFIER ::= { clabFunction 1 }
+clabFuncProprietary OBJECT IDENTIFIER ::= { clabFunction 2 }
+clabProject     OBJECT IDENTIFIER ::= { cableLabs 2 }
+clabProjDocsis  OBJECT IDENTIFIER ::= { clabProject 1 }
+clabProjPacketCable OBJECT IDENTIFIER ::= { clabProject 2 }
+clabProjOpenCable OBJECT IDENTIFIER ::= { clabProject 3 }
+clabProjCableHome OBJECT IDENTIFIER ::= { clabProject 4 }
+docsTestMibObjects OBJECT IDENTIFIER ::= { docsTestMIB 1 }
+docsTestBaseObjects OBJECT IDENTIFIER ::= { docsTestMibObjects 1 }
+docsTestSetupObjects OBJECT IDENTIFIER ::= { docsTestMibObjects 2 }
+docsTestConformance OBJECT IDENTIFIER ::= { docsTestMIB 2 }
+docsTestCompliances OBJECT IDENTIFIER ::= { docsTestConformance 1 }
+docsTestGroups  OBJECT IDENTIFIER ::= { docsTestConformance 2 }
+
+docsTestCapability OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the ability of this device to support the
+         programmable features identified by the TYPE field from
+         the CM/CMTS TLV table in [17].
+         Each octet within this octet string represents eight tests.
+         For example, the first octet represents tests one through eight
+         (with the msb representing test one) as identified by the TYPE
+         field."
+    ::= { docsTestBaseObjects 1 }
+
+docsTestStatus OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the current operating status of tests initiated
+         through the docsTestSetupObjects. The octet representation is
+         identical to that used by docsTestCapability. A bit representation
+         of one indicates that a test is currently active, while zero
+         indicates the test is inactive or has completed."
+    ::= { docsTestBaseObjects 2 }
+
+docsTestType OBJECT-TYPE
+    SYNTAX INTEGER(0..1023)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Corresponds to the TYPE field from the CM/CMTS TLV Table
+         in [17]. The default value of zero indicates
+         no test has yet been initiated.
+         A WrongValueError should be returned in response to a write
+         request for a test not supported by the device. A read request
+         will return the docsTestType value last successfully written,
+         whether that test is active or inactive."
+    DEFVAL { 0 }
+    ::= { docsTestSetupObjects 1 }
+
+docsTestData OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The OCTET STRING length and value correspond to the
+         LENGTH and VALUE fields from the CM/CMTS TLV
+         Table in [17]. A read request will return the
+         docsTestData value last successfully written, whether that test
+         is active or inactive."
+    ::= { docsTestSetupObjects 2 }
+
+docsTestEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Used to initiate or stop the tests setup through the docsTestType
+         and docsTestData objects.
+         A CommitFailedError should be returned in response to a TRUE
+         Write request if the values in docsTestType and docsTestData are
+         incompatible, or a test could not be initiated for any other
+         reason."
+    ::= { docsTestSetupObjects 3 }
+
+docsTestGroup OBJECT IDENTIFIER ::= { docsTestGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Group of objects implemented in both Cable Modems and
+--     Cable Modem Termination Systems.
+--  objects
+--    docsTestCapability, docsTestStatus, docsTestType, 
+--    docsTestData, docsTestEnable
+
+docsTestBasicCompliance OBJECT IDENTIFIER ::= { docsTestCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for devices that implement
+--     the DOCSIS compliant programmable test features.
+--  Module
+--    >>current<<
+--   MandGroup
+--    docsTestGroup
+
+
+END
+

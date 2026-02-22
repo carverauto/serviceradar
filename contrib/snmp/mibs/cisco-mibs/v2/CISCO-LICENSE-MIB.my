@@ -1,0 +1,996 @@
+-- *********************************************************************
+-- ciscoLicenseMIB
+--
+-- June 2003, Zafar Khalid 
+--
+-- Copyright (c) 2003, 2004 by Cisco Systems, Inc.
+-- All rights reserved. 
+--
+-- *********************************************************************
+
+ 
+CISCO-LICENSE-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    Integer32, Unsigned32,
+    Counter32, Gauge32,
+    OBJECT-TYPE                 FROM SNMPv2-SMI
+
+    TEXTUAL-CONVENTION,
+    AutonomousType,
+    DateAndTime,DisplayString   FROM SNMPv2-TC
+
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP                FROM SNMPv2-CONF
+
+    EntPhysicalIndexOrZero      FROM CISCO-TC
+
+    ciscoMgmt                   FROM CISCO-SMI
+
+    SnmpAdminString             FROM SNMP-FRAMEWORK-MIB;
+ 
+ciscoLicenseMIB   MODULE-IDENTITY
+    LAST-UPDATED  "200401310000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO "Cisco Systems
+                  Customer Service
+ 
+                  Postal: 170 W Tasman Drive
+                  San Jose, CA  95134
+                  USA
+
+                  Tel: +1 800 553-NETS
+ 
+                  E-mail: cs-wanatm@cisco.com
+                 "
+    DESCRIPTION
+        "This MIB module provides objects to view the features
+         and services that are licensed to run on a system (usually
+         a network entity), and an inventory of the licenses for
+         these features and services. The inventory of the licenses
+         is kept in a license pool which is a repository of
+         the installed licenses.
+         
+         This MIB does not provide any object to facilitate the 
+         installation or addition of licenses in the license pool.
+
+         The licenses are used to perform specific services, and
+         are used by, but not limited to, the physical entities. 
+         The meaningful entities which can use licenses to perform
+         specific services include: module(9), or chassis(3) as 
+         defined in RFC 2737.
+
+         As an example, some of the services/features that can be 
+         licensed include (but not limited to) the following :
+
+             - Single Service. Only one of: ATM, FR, or CES
+               (Circuit Emulation Service).
+             - Multi Service.  More than one of: ATM, FR, or CES. 
+             - IMA (Inverse Multiplexing over ATM).
+             - MFR (Multilink Frame Relay).
+             - Channelization.
+  
+         As an example of implementation, all licenses can be kept in
+         the license pool owned by a chassis, while licenseable
+         services are performed by service modules plugged into that 
+         chassis. In order to provide licenseable services/features, 
+         the service modules use/consume appropriate licenses from the 
+         license pool owned by the chassis.
+        "
+
+    REVISION "200401310000Z"
+    DESCRIPTION
+        "Added following enums to LicenseType:
+             multilink(10)
+             ppp(11)
+        "
+
+    REVISION "200306060000Z"
+    DESCRIPTION
+        "Initial version of the mib module."
+    ::= { ciscoMgmt 359 }
+ 
+celMIBNotifications  OBJECT IDENTIFIER ::= { ciscoLicenseMIB 0 }
+celMIBObjects        OBJECT IDENTIFIER ::= { ciscoLicenseMIB 1 }
+
+celGeneral           OBJECT IDENTIFIER ::= { celMIBObjects 1 }
+
+-- ---------------------------------------------------------------------
+-- textual conventions
+-- ---------------------------------------------------------------------
+
+
+LicenseType ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+      "This defines a licenseable feature: 
+
+       unknown(1)              The license type can not be determined.
+
+       none(2)                 No license is granted for any 
+                               licenseable feature/service.
+
+       reserved(3)             This is special restricted license.
+
+       singleService(4)        Only one of following services: 
+                               ATM, FR (FrameRelay), or CES (Circuit
+                               emulation service).
+
+       multiService(5)         More than one of: ATM, FR, CES.
+
+       channelization (6)      Channelization.
+
+       ima(7)                  Inverse multiplexing over ATM.
+
+       mfr(8)                  Multilink Frame Relay.
+
+       rateControl(9)          Rate-Control (Cisco Foresight 
+                               and/or ABR).
+
+       multilink(10)           Multilink features such as: 
+                               Inverse Multiplexing over ATM (IMA), 
+                               Multilink Frame Relay (MFR). 
+ 
+       ppp(11)                 Point-to-point protocols (PPP), such as:
+                               Multilink Point-to-point Protocol(MLPPP),
+                               PPP Multiplexing (PPPMux).
+       "
+    SYNTAX  INTEGER {
+                   unknown                (1),
+                   none                   (2),
+                   reserved               (3),
+                   singleService          (4),
+                   multiService           (5),
+                   channelization         (6),
+                   ima                    (7),
+                   mfr                    (8),
+                   rateControl            (9),
+                   multilink              (10),
+                   ppp                    (11)
+            }
+
+-- ---------------------------------------------------------------------
+--  License Configuration/Installation History Table
+-- ---------------------------------------------------------------------
+
+celLicenseConfigHistoryTable  OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CelLicenseConfigHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "This table keeps track of the license installation history.
+        Each time licenses are installed, a record is made in one of
+        the entries in this table.
+
+        When licensed features are applicable to physical entities, 
+        this table contains entries showing various licenseable 
+        vendor-specific hardware entities represented by the object
+        celLicenseEntityVendorType, the corresponding license
+        serial numbers (if any), and license update time-stamp, and 
+        license update sequence numbers.
+
+        When licensed features are not applicable to a physical 
+        entity, the object celLicenseEntityVendorType is set to NULL.
+
+        Each time a new entry is made in this table, the total
+        number of installed licenses is updated in the table 
+        celPoolLicenseTable in the appropriate entry. If the 
+        necessary entry in the table celPoolLicenseTable does not 
+        exist, it is created.
+
+        The implementations may choose to implement the table in 
+        circular fashion by limiting the number of entries in the 
+        table. In this case the oldest entry is overwritten by the
+        latest. The object celLicenseConfigHistoryIndex always
+        increase monotonically and indicates how many times the
+        licenses have been installed.
+       "
+    ::= { celGeneral 1}
+
+celLicenseConfigHistoryEntry  OBJECT-TYPE
+    SYNTAX      CelLicenseConfigHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "An entry in ceLicenseConfigHistoryTable. Each entry contains 
+        objects showing: reference to the vendor-specific hardware
+        (if applicable), the license serial number, and license update
+        time-stamp, the license update sequence number.
+       "
+    INDEX { celLicenseConfigIndex }
+    ::= { celLicenseConfigHistoryTable 1 }
+
+CelLicenseConfigHistoryEntry ::=
+    SEQUENCE {
+        celLicenseConfigIndex         Unsigned32,
+        celLicenseEntityVendorType    AutonomousType,
+        celLicenseSerialNumber        SnmpAdminString,
+        celLicenseInstallEntitySerNum SnmpAdminString,
+        celLicenseUpdateTimeStamp     DateAndTime,
+        celLicenseConfigHistoryIndex  Counter32,
+        celLicenseUpdateSequenceNum   Counter32,
+        celLicenseUpdateMethod        SnmpAdminString
+    }
+
+
+celLicenseConfigIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..4294967295)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "A unique running value greater than 0, used as index 
+        into the table. The values of this index are assigned
+        contiguously starting normally from 1.
+       "
+    ::= { celLicenseConfigHistoryEntry 1 }
+
+celLicenseEntityVendorType   OBJECT-TYPE
+    SYNTAX      AutonomousType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "This represents vendor-specific hardware type of a physical
+        entity which can use one or more licenses to provide licensed
+        services or features. 
+
+        If no vendor-specific registration identifier exists for
+        this object, or the value is unknown by this agent,
+        then the value { 0 0 } is returned. 
+       "
+    ::= { celLicenseConfigHistoryEntry 2 }
+
+celLicenseSerialNumber  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "A textual representation of the license serial number, if any.
+        Value contained in this object is optional, and if not used,
+        it should be zero length string.
+       "
+    ::= { celLicenseConfigHistoryEntry 3 }
+
+celLicenseInstallEntitySerNum  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "A textual representation of the serial number of the physical
+        entity (if applicable) from where the license installation
+        took place.
+
+        Value contained in this object is optional, and if not used,
+        it should be zero length string.
+       "
+    ::= { celLicenseConfigHistoryEntry 4 }
+
+celLicenseUpdateTimeStamp OBJECT-TYPE
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "This represents the time-stamp when the licenses, usable by 
+        the corresponding vendor-specific hardware, were upgraded or 
+        modified.   
+       "
+    ::= { celLicenseConfigHistoryEntry 5 }
+
+celLicenseConfigHistoryIndex OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "This value shows the license update sequence number recorded in
+        the license pool. Each time licenses are updated or installed,
+        this object is incremented. If the table size is limited and
+        circular, this number may be different from the running index
+        celLicenseConfigIndex.
+
+        This value is greater than zero.
+       " 
+    ::= { celLicenseConfigHistoryEntry 6 }
+
+celLicenseUpdateSequenceNum OBJECT-TYPE
+    SYNTAX      Counter32 
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "This value shows the license update sequence number as
+        contained in the license itself.  Each time licenses are 
+        updated or installed, this object is assigned the sequence 
+        number that is a part of the license being installed. 
+
+        Depending upon the implementation, it serves the purpose of
+        preventing the reuse of an already installed license, 
+        especially when that license is applied in additive mode.
+ 
+        When an attempt is made to update/install the licenses, the 
+        implementation may allow update only if the new license's 
+        sequence number is greater than the last installed license
+        sequence number.
+
+        If the license update/installation is successful, this object
+        reflects the new license sequence number and can be used to
+        detect if attempt is being made to reuse a previous license.
+
+        This value is greater than zero.
+       " 
+    ::= { celLicenseConfigHistoryEntry 7 }
+
+celLicenseUpdateMethod OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..40))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "Use of this object is implementation dependent.
+
+        A textual short description explaining how this entry
+        was updated in this table. If not used, it should be zero 
+        length string.
+       " 
+    ::= { celLicenseConfigHistoryEntry 8 }
+
+-- ---------------------------------------------------------------------
+--  License Configuration/Installation History Detail Table
+-- ---------------------------------------------------------------------
+
+celLicenseConfigDetailTable  OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CelLicenseConfigDetailEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "For each entry in the table celLicenseConfigHistoryTable,
+        this table expands the information showing the installed type 
+        of license, and the number of licenses. There may be more
+        than one entries corresponding to a single entry in the table
+        celLicenseConfigHistoryTable
+
+        One of the indicies of this table is celLicenseConfigIndex 
+        which is the index into the table celLicenseConfigHistoryTable.
+       "
+    ::= { celGeneral 2}
+
+celLicenseConfigDetailEntry  OBJECT-TYPE
+    SYNTAX      CelLicenseConfigDetailEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "An entry in celLicenseConfigDetailTable. Each entry contains 
+        objects showing: license type celLicenseConfigType, and the
+        corresponding number of licenses celLicenseConfigNumber.
+       "
+    INDEX { celLicenseConfigIndex, celLicenseConfigType }
+    ::= { celLicenseConfigDetailTable 1 }
+
+CelLicenseConfigDetailEntry ::=
+    SEQUENCE {
+        celLicenseConfigType          LicenseType,
+        celLicenseTypeDescr           SnmpAdminString,
+        celLicenseConfigCount         Unsigned32
+    }
+
+
+celLicenseConfigType   OBJECT-TYPE
+    SYNTAX      LicenseType
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "This represents one of the the license types corresponding 
+        to the entry indexed by celLicenseConfigIndex in the 
+        table celLicenseConfigHistoryTable.
+       "
+    ::= { celLicenseConfigDetailEntry 1 }
+
+celLicenseTypeDescr  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "A textual representation of the licensable feature.
+        Value contained in this object is optional, and if not used,
+        it should be zero length string.
+       "
+    ::= { celLicenseConfigDetailEntry 2 }
+
+celLicenseConfigCount  OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..4294967295)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "Number of licenses of the type celLicenseConfigType. This
+        represents the count of installed licenses represented by 
+        the entry with index celLicenseConfigIndex in the table
+        celLicenseConfigHistoryTable.
+       "
+    ::= {celLicenseConfigDetailEntry 3 }
+
+-- ---------------------------------------------------------------------
+--   License Pool Inventory Table
+-- ---------------------------------------------------------------------
+
+celPoolLicenseTable  OBJECT-TYPE
+    SYNTAX      SEQUENCE OF  CelPoolLicenseEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "This table contains the inventory of installed licenses and 
+        completely defines the license pool owned by the SNMP agent 
+        implementing this table.
+
+        These licenses can be used by the appropriate entities
+        (physical or otherwise) to which these licenses are applicable.
+       "
+    ::= { celGeneral 3}
+
+celPoolLicenseEntry  OBJECT-TYPE
+    SYNTAX      CelPoolLicenseEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "An entry in the table celPoolLicenseTable. 
+
+        When licensed features are applicable to physical entities,
+        the entry contains a licenseable vendor-specific hardware
+        type, corresponding licensed service or feature represented
+        by celPoolLicenseType, total installed number of licenses of
+        this type, already used number of license of this type, and 
+        the maximum allowed usage of this type of licenses by an  
+        entity of the type celPoolLicenseEntityVendorType.
+
+        When licensed features are not applicable to a physical 
+        entity, the object celPoolLicenseEntityVendorType is set to 
+        to NULL.
+        
+        Preferably, implementations should have a single entry 
+        corresponding to the pair celPoolLicenseEntityVendorType
+        and celPoolLicenseType, by keeping only the total of
+        the other objects. This keeps the table size small without
+        losing any useful data.
+       "
+    INDEX { celPoolLicenseIndex }
+            
+    ::= { celPoolLicenseTable 1 }
+
+CelPoolLicenseEntry ::=
+    SEQUENCE {
+        celPoolLicenseIndex               Unsigned32,
+        celPoolLicenseEntityVendorType    AutonomousType,
+        celPoolLicenseType                LicenseType,
+        celPoolLicensesInstalled          Gauge32,
+        celPoolLicensesInUse              Gauge32,
+        celPoolLicenseMaxUsage            Gauge32
+    }
+
+celPoolLicenseIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..4294967295)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "A unique running value greater than 0, used as index 
+        into the table. The values of this index are assigned
+        contiguously starting from 1.
+       "
+    ::= { celPoolLicenseEntry 1 }
+
+celPoolLicenseEntityVendorType   OBJECT-TYPE
+    SYNTAX      AutonomousType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "This represents vendor-specific hardware type of a physical
+        entity which can use one or more licenses to provide licensed
+        services or features. 
+
+        If no vendor-specific registration identifier exists for
+        this object, or the value is unknown by this agent,
+        then the value { 0 0 } is returned. 
+       "
+    ::= { celPoolLicenseEntry 2 }
+
+celPoolLicenseType   OBJECT-TYPE
+    SYNTAX      LicenseType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "This represents a useable license type.
+       "
+    ::= { celPoolLicenseEntry 3 }
+
+celPoolLicensesInstalled  OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "Total number of licenses of the type celPoolLicenseType 
+        at a given time in the license pool.
+       
+        This number changes as a result of installation of
+        licenses of the type celPoolLicenseType.
+       "
+    ::= {celPoolLicenseEntry 4 }
+
+celPoolLicensesInUse   OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "Number of used up licenses of the type celPoolLicenseType. 
+        Each time a license is used up by the appropriate  
+        entity (physical or otherwise), this number is incremented.
+        Similarly, when a license is released back to the license
+        pool, this number decrements.
+
+        Difference between celPoolLicensesInstalled and this object
+        is the number of licenses still available for use.
+
+        Depending upon the implementation and the system operational 
+        considerations, it is possible that at a given time, this 
+        object has a value greater than celPoolLicensesInstalled.  
+        This indicates over-subscription to the licenses. The 
+        implementation may choose to disallow such situation or treat
+        this situation as temporary and allow the system operation 
+        to continue until the implementation specific time period. 
+        In this case, more licenses of this type must be installed in 
+        the license pool to avoid disruption of the services.
+       "
+    ::= {celPoolLicenseEntry 5 }
+
+celPoolLicenseMaxUsage OBJECT-TYPE 
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+      "The value represented by this object specifies the maximum
+       number of the licenses of type celPoolLicenseType which can 
+       be allowed for use by the corresponding entity type (physical
+       or otherwise).  
+
+       As an example of usage of this object, if the entity of
+       corresponding type attempts to use more licenses than this 
+       value, it is considered an error.
+      "
+    ::= {celPoolLicenseEntry 6 }
+
+-- ---------------------------------------------------------------------
+--  License Usage Table
+-- ---------------------------------------------------------------------
+
+celInUseLicenseTable  OBJECT-TYPE
+    SYNTAX      SEQUENCE OF  CelInUseLicenseEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "This table contains entries showing the entities (physical
+        or otherwise) that are using up licenses, and the number 
+        and type of licenses in use.
+        
+        For example, if a service module is consuming certain type
+        of licenses from the license pool, an entry corresponding to 
+        that module will exist in this table and will show the number
+        and type licenses being used.
+
+        An entry in this table is automatically created as soon
+        as an appropriate entity starts using one or more 
+        licenses of the type celInUseLicenseType.
+
+        The object celInUseLicenses can increase or decrease any 
+        time the number of in-use licenses changes. As soon as the 
+        value of the object celInUseLicenses reduces to the 
+        value 0, the corresponding entry is deleted automatically.
+       "
+    ::= { celGeneral 4}
+
+celInUseLicenseEntry  OBJECT-TYPE
+    SYNTAX      CelInUseLicenseEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "Entry containing a licenseable service/feature being used
+        by an entity (physical or otherwise), and the number of
+        instances of this license type.
+       "
+    INDEX {celInUseSlotIndex, celInUseLicenseType }
+    ::= { celInUseLicenseTable 1 }
+
+CelInUseLicenseEntry ::=
+    SEQUENCE {
+        celInUseSlotIndex           Integer32,
+        celInUseLicenseType         LicenseType,
+        celEntPhysicalIndex         EntPhysicalIndexOrZero,
+        celInUseLicenseDescr        SnmpAdminString,
+        celInUseLicenses            Gauge32,
+        celNeededLicenses           Gauge32,
+        celOperationExpiryTmStamp   DateAndTime
+    }
+ 
+celInUseSlotIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..65535)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "A unique running value used as index into the table.
+
+        When not 0, this index is interpreted as the slot number 
+        (within the chassis) containing the entity that is using 
+        licenses. If corresponding entPhysicalIndex (RFC 2737) exists 
+        for this slot, celEntPhysicalIndex contains its value.
+
+        When it is 0, it can be interpreted as a reference to all
+        non-physical entities which can use licenses and which
+        do hot have entPhysicalIndex. In such cases the object
+        celEntPhysicalIndex is also set to 0.
+
+        In addition, when referring to a physical entity for which
+        a slot is non meaningful, but entPhysicalIndex exists, this
+        index has a value 0 and the object celEntPhysicalIndex  
+        contains the corresponding value of entPhysicalIndex.
+       "
+    ::= { celInUseLicenseEntry 1 }
+
+celInUseLicenseType   OBJECT-TYPE
+    SYNTAX      LicenseType
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "This represents a license type being used by the entity
+        (physical or otherwise).
+       "
+    ::= {celInUseLicenseEntry 2 }
+
+celEntPhysicalIndex OBJECT-TYPE
+    SYNTAX      EntPhysicalIndexOrZero
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "When its value is not 0, it represents entPhysicalIndex for  
+        the physical entity which is using up license/licenses.
+
+        When it is 0, it represents all entities (most likly non-
+        physical) which do not have implementation in the entity
+        MIB (RFC 2737).
+       "
+    ::= { celInUseLicenseEntry 3 }
+
+celInUseLicenseDescr  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "A textual representation of the licensable feature.
+        Value contained in this object is optional, and if not used,
+        it should be zero length string.
+       "
+    ::= { celInUseLicenseEntry 4 }
+
+celInUseLicenses   OBJECT-TYPE
+    SYNTAX      Gauge32 (1..65535)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "Number of licenses of type celInUseLicenseType being used
+        by this physical entity (represented by entPhysicalIndex)
+        at this time. 
+
+        These licenses are obtained from the license pool represented
+        by the table celPoolLicenseTable. Therefore, the value of
+        the object celPoolLicensesInUse, corresponding to relevant
+        license and the vendor-specific hardware type, increases or
+        decreases when the value of this object increases or decreases.
+       "
+    ::= {celInUseLicenseEntry 5 }
+
+celNeededLicenses   OBJECT-TYPE
+    SYNTAX      Gauge32 (1..65535)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "Number of licenses of type celInUseLicenseType required
+        by this entity (physical or otherwise) at this time to 
+        perform the desired services. 
+
+        When this number is more than celInUseLicenses, a 
+        shortfall of licenses is indicated. In this case, the 
+        object celOperationExpiryTmStamp specifies until how long
+        such condition can continue.
+       "
+    ::= {celInUseLicenseEntry 6 }
+
+celOperationExpiryTmStamp OBJECT-TYPE
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+      "The use of this object is implementation specific.
+
+       This time-stamp indicates that the physical entity's operation 
+       will not continue beyond this time, since for this particular 
+       entity (physical or otherwise), celNeededLicenses exceeds
+       celInUseLicenses.
+       
+       Under these conditions, user is expected to install sufficient
+       number of licenses, before this time-stamp expires, to avoid 
+       interruption of the operation.
+
+       No expiration is indicated by a value: Jan 1, 0000.
+      "
+    ::= {celInUseLicenseEntry 7 }
+-- ---------------------------------------------------------------------
+--  Physically Programmed License Table
+-- ---------------------------------------------------------------------
+celPhysicallyProgLicenseTable  OBJECT-TYPE
+    SYNTAX      SEQUENCE OF  CelPhysicallyProgLicenseEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "This table contains entries for those physical entities into
+        which licenses have been physically programmed. Depending 
+        upon the implementation, this may involve programming the 
+        licenses into the non-volatile ram (NVRAM) of a physical
+        entity, such as a service module. 
+
+        An entry in this table is automatically created for those 
+        entities which contain such licenses. This table exists 
+        independently of all previous tables described in this MIB.
+
+        The following example illustrates the use of this table for
+        a specific implementation:
+
+        For a module, if the object celPhysicallyProgLicenseStatus has
+        the value 'hasInstallableLic', it means that this module has 
+        never had its programmed licenses installed (or transferred)
+        into any chassis, and therefore its license can be installed
+        (or transferred) if needed. If installation (or transferring)
+        of licenses (programmed on the entity) takes place, it
+        results in incrementing the number of licenses in the 
+        license pool (object celPoolLicensesInstalled) for the 
+        vendor-specific hardware type corresponding to this module.
+        Once the licenses from the module have been installed (or
+        transferred) into the chassis, the value of the object 
+        celPhysicallyProgLicenseStatus changes to 'alreadyInstalled'.
+        This prevents any re-installation or re-use of licenses. This
+        example shows the usage of the module as a vehicle for 
+        installing (or transporting) licenses into the license pool.
+       "
+    ::= { celGeneral 5}
+
+celPhysicallyProgLicenseEntry  OBJECT-TYPE
+    SYNTAX      CelPhysicallyProgLicenseEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "Entry containing details on a physically programmed license.
+       "
+    INDEX { celPhysicallyProgSlotNumber, celPhysicallyProgLicenseType }
+    ::= { celPhysicallyProgLicenseTable 1 }
+
+CelPhysicallyProgLicenseEntry ::=
+    SEQUENCE {
+        celPhysicallyProgSlotNumber       Integer32,
+        celPhysicallyProgLicenseType      LicenseType,
+        celPhysicallyProgEntIndex         EntPhysicalIndexOrZero,
+        celPhysicallyProgLicTypeDescr     SnmpAdminString,
+        celPhysicallyProgLicenses         Unsigned32,
+        celPhysicallyProgLicenseStatus    INTEGER,
+        celPhysicallyProgLicInstSysName   DisplayString,
+        celPhysicallyProgLicInstSerNum    SnmpAdminString,
+        celPhysicallyProgLicSerialNum     SnmpAdminString,
+        celPhysicallyProgLicUseTmStamp    DateAndTime
+    }
+
+celPhysicallyProgSlotNumber OBJECT-TYPE
+    SYNTAX      Integer32 (0..65535)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "A unique running value used as index into the table.
+
+        When not 0, this index is interpreted as the slot number 
+        (within the chassis) containing the entity that is using 
+        licenses. If corresponding entPhysicalIndex (RFC 2737) exists 
+        for this slot, celPhysicallyProgEntIndex contains its value.
+
+        When referring to a physical entity for which a slot
+        is non meaningful, but entPhysicalIndex exists, this index
+        has a value 0 and the object celPhysicallyProgEntIndex  
+        contains the corresponding value of entPhysicalIndex.
+       "
+    ::= { celPhysicallyProgLicenseEntry 1 }
+
+celPhysicallyProgLicenseType   OBJECT-TYPE
+    SYNTAX      LicenseType
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+       "This represents a programmed license type on this entity.
+       "
+    ::= {celPhysicallyProgLicenseEntry 2 }
+
+celPhysicallyProgEntIndex OBJECT-TYPE
+    SYNTAX      EntPhysicalIndexOrZero
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "When its value is not 0, it represents entPhysicalIndex
+        corresponding to slot for this entry. If entPhysicalIndex 
+        is not available, this object is set to 0.
+       "
+    ::= { celPhysicallyProgLicenseEntry 3 }
+
+celPhysicallyProgLicTypeDescr  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "A textual representation of the licensable feature.
+        Value contained in this object is optional, and if not used,
+        it should be zero length string.
+       "
+    ::= { celPhysicallyProgLicenseEntry 4 }
+
+celPhysicallyProgLicenses  OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..65535)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "Number of licenses of type celPhysicallyProgLicenseType
+        programmed into this physical entity.
+       "
+    ::= { celPhysicallyProgLicenseEntry 5 }
+
+celPhysicallyProgLicenseStatus  OBJECT-TYPE
+    SYNTAX  INTEGER 
+        { 
+           unknown          (1), 
+           noInstallableLic (2), 
+           hasInstallableLic(3),        
+           alreadyInstalled (4) 
+        }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "Status of the programmed licenses of the type 
+        celPhysicallyProgLicenseType.
+
+        Depending upon the implementation, all of the programmed  
+        licenses of different types on the physical entity may be 
+        installed (or transferred) into the license pool owned by 
+        the agent at the same time. In this case this object will 
+        have the same value for different license types(represented 
+        by the object celPhysicallyProgLicenseType). These comments 
+        also apply to the next two objects.
+
+        Note that in this context, 'license installation' is akin 
+        to 'license transfer' from physical entity to license pool.
+
+        The possible values are:
+          unknown (1) 
+          noInstallableLic(2):  Licenses not programmed on
+                                this entity.
+          hasInstallableLic(3): The entity has usable licenses,
+                                which can be installed.
+          alreadyInstalled(4):  The programmed licenses on this
+                                entity have been already installed.
+       "
+    ::= { celPhysicallyProgLicenseEntry 6 }
+
+celPhysicallyProgLicInstSysName  OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..255))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "A textual string containing the name of the system to which
+        this entity's programmed licenses were installed.
+
+        As an example of use of this object, it may be the sysName of 
+        node where the license installation/transfer took place.
+        The usefulness of this object is to track the system where 
+        such operation was performed.
+       "
+    ::= { celPhysicallyProgLicenseEntry 7 }
+
+celPhysicallyProgLicInstSerNum  OBJECT-TYPE
+    SYNTAX       SnmpAdminString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "A textual string containing the serial number of the system 
+        to which this entity's programmed licenses were installed.
+
+        For example, it may be the serial number of the chassis where
+        installation took place. 
+       "
+    ::= { celPhysicallyProgLicenseEntry 8 }
+
+celPhysicallyProgLicSerialNum  OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+       "A textual representation of the license serial number, if any.
+        Value contained by this object is optional, and if it is not 
+        used, it should be zero length string.
+
+        Depending upon the implementation, the licenses of different
+        types can be programmed into the physical entity in one 
+        shot and with same value of this object.
+       "
+    ::= { celPhysicallyProgLicenseEntry 9 }
+
+celPhysicallyProgLicUseTmStamp OBJECT-TYPE
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+      "This represents the time-stamp when the object 
+       celPhysicallyProgLicInstSysName was written after licenses
+       were installed to the corresponding system.
+      "
+    ::= { celPhysicallyProgLicenseEntry 10 }
+
+-- 
+-- Notifications 
+-- 
+
+-- ---------------------------------------------------------------------
+-- Conformance information
+-- ---------------------------------------------------------------------
+ 
+celMIBConformance OBJECT IDENTIFIER ::= { ciscoLicenseMIB 2 }
+celMIBCompliances OBJECT IDENTIFIER ::= { celMIBConformance 1 }
+celMIBGroups      OBJECT IDENTIFIER ::= { celMIBConformance 2 }
+                           
+celMIBCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+      "The Compliance statement for entity license management group.
+      "
+    MODULE -- this module
+    MANDATORY-GROUPS { 
+        celMIBGroup
+    }
+    ::= { celMIBCompliances 1 }
+
+-- units of conformance
+
+celMIBGroup OBJECT-GROUP
+    OBJECTS { 
+        celLicenseEntityVendorType, 
+        celLicenseSerialNumber,
+        celLicenseInstallEntitySerNum,
+        celLicenseUpdateTimeStamp,
+        celLicenseConfigHistoryIndex,
+        celLicenseUpdateSequenceNum,
+        celLicenseUpdateMethod,
+        celLicenseConfigCount,
+        celLicenseTypeDescr,
+
+        celPoolLicenseEntityVendorType,
+        celPoolLicenseType,
+        celPoolLicensesInstalled,  
+        celPoolLicensesInUse,  
+        celPoolLicenseMaxUsage,
+
+        celInUseLicenseDescr,
+        celInUseLicenses,
+        celEntPhysicalIndex,
+        celNeededLicenses,
+        celOperationExpiryTmStamp,
+
+        celPhysicallyProgLicenses,
+        celPhysicallyProgEntIndex,
+        celPhysicallyProgLicTypeDescr,
+        celPhysicallyProgLicenseStatus,
+        celPhysicallyProgLicInstSysName,
+        celPhysicallyProgLicInstSerNum,
+        celPhysicallyProgLicSerialNum,
+        celPhysicallyProgLicUseTmStamp
+    }
+    STATUS  current
+    DESCRIPTION
+      "Group containing objects representing the system license
+       details.
+      "
+    ::= { celMIBGroups 1}
+
+END
+

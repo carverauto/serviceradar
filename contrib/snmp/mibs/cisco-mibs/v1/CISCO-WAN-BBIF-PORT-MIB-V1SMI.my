@@ -1,0 +1,519 @@
+-- MIB file created 30-Oct-2002 14:23:15, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-WAN-BBIF-PORT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-WAN-BBIF-PORT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    bbIfCnf, bbIfCnt, bbIfStateGrp
+            FROM BASIS-MIB
+    ciscoWan
+            FROM CISCOWAN-SMI
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoWanBbifPortMIB OBJECT IDENTIFIER ::= { ciscoWan 32 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200208300000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--            Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-wanatm@cisco.com
+--  Descr
+--    The MIB module for configuration of ATM logical
+--    ports in PXM1 Service module in MGX82xx series.
+--    This MIB contains information on ATM Logical
+--    port statistics.
+--  RevDate
+--    200208300000Z
+--  RevDescr
+--    Initial version of the MIB.
+--    
+--    The content of this MIB was originally available
+--    in CISCO-WAN-AXIPOP-MIB defined using SMIv1.
+--    The applicable objects from CISCO-WAN-AXIPOP-MIB
+--    are defined using SMIv2 in this MIB. Also the
+--    descriptions of some of the objects have been 
+--    modified.
+
+bbIfCnfPortGrp  OBJECT IDENTIFIER ::= { bbIfCnf 1 }
+bbIfCntGrp      OBJECT IDENTIFIER ::= { bbIfCnt 1 }
+cwbPortMIBConformance OBJECT IDENTIFIER ::= { ciscoWanBbifPortMIB 2 }
+cwbPortMIBGroups OBJECT IDENTIFIER ::= { cwbPortMIBConformance 1 }
+cwbPortMIBCompliances OBJECT IDENTIFIER ::= { cwbPortMIBConformance 2 }
+
+bbIfCnfPortGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF BbIfCnfPortGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        The Broadband Interface config table is for logical interface.
+        There will an entry for each of the logical partition of the 
+        physical line."
+    ::= { bbIfCnfPortGrp 1 }
+
+bbIfCnfPortGrpEntry OBJECT-TYPE
+    SYNTAX BbIfCnfPortGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+        An entry for the logical interface. The interface may be further
+        be configured to be used as a virtual trunk OR as a UNI Port."
+    INDEX { bbIfNum }
+    ::= { bbIfCnfPortGrpTable 1 }
+
+BbIfCnfPortGrpEntry ::= SEQUENCE {
+    bbIfNum INTEGER,
+    bbIfRowStatus INTEGER,
+    bbIfAdmin INTEGER,
+    bbIfLineNum INTEGER,
+    bbIfIngrPctBandwidth INTEGER,
+    bbIfEgrPctBandwidth INTEGER,
+    bbIfMinVpi INTEGER,
+    bbIfMaxVpi INTEGER,
+    bbIfSpeed INTEGER,
+    bbIfMaxCellRatePct INTEGER
+    }
+
+bbIfNum OBJECT-TYPE
+    SYNTAX INTEGER(1..32)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is logical interface number within a physical line num.
+        In MGX PXM1 card, a physical port can have a maximum of 32 logical
+        interfaces."
+    ::= { bbIfCnfPortGrpEntry 1 }
+
+bbIfRowStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        add(1),
+        del(2),
+        mod(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable enables or disables the logical interface.
+         1 - enable
+         2 - disable
+         3 - modify"
+    ::= { bbIfCnfPortGrpEntry 2 }
+
+bbIfAdmin OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2),
+        writeOnly(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable enables or disables the logical interface.
+        1 - up
+        2 - down
+        3 - writeOnly"
+    ::= { bbIfCnfPortGrpEntry 3 }
+
+bbIfLineNum OBJECT-TYPE
+    SYNTAX INTEGER(1..4)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The line number associated with the logical interface. 
+        For PXM1, there  is currently 4 physical lines."
+    ::= { bbIfCnfPortGrpEntry 4 }
+
+bbIfIngrPctBandwidth OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The percentage of aggregate physical line bandwidth, available for
+        this broadband interface - Ingress. Default is 0 %."
+    DEFVAL { 0 }
+    ::= { bbIfCnfPortGrpEntry 5 }
+
+bbIfEgrPctBandwidth OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The percentage of aggregate physical line bandwidth, available for
+        this broadband interface - Egress . Default is 0 %."
+    DEFVAL { 0 }
+    ::= { bbIfCnfPortGrpEntry 6 }
+
+bbIfMinVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The lower limit of VPI range to be reserved for 
+        this logical interface."
+    ::= { bbIfCnfPortGrpEntry 7 }
+
+bbIfMaxVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The upper limit of VPI range to be reserved 
+        for this logical interface.
+        
+        For virtual trunks, bbIfMinVpi and bbIfMaxVpi should 
+        be the same."
+    ::= { bbIfCnfPortGrpEntry 8 }
+
+bbIfSpeed OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The speed of the port in cells per second."
+    ::= { bbIfCnfPortGrpEntry 9 }
+
+bbIfMaxCellRatePct OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum cell rate allowed for the port in terms of
+        percentage.  Must be greater than or equal to 
+        bbIfIngrPctBandwidth.
+        The default is 100 percent."
+    ::= { bbIfCnfPortGrpEntry 10 }
+
+nextBbIfNumAvailable OBJECT-TYPE
+    SYNTAX INTEGER(1..32)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the next logical broadband interface  
+        number that is available."
+    ::= { bbIfCnfPortGrp 2 }
+
+bbIfStateGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF BbIfStateGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The state table for the logical  interface."
+    ::= { bbIfStateGrp 1 }
+
+bbIfStateGrpEntry OBJECT-TYPE
+    SYNTAX BbIfStateGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry for each logical interface representing
+               the state."
+    INDEX { bbStateIfNum }
+    ::= { bbIfStateGrpTable 1 }
+
+BbIfStateGrpEntry ::= SEQUENCE {
+    bbStateIfNum INTEGER,
+    bbIfState INTEGER,
+    bbIfOversubscribed INTEGER,
+    bbIfIngrPercentUtil INTEGER,
+    bbIfEgrPercentUtil INTEGER
+    }
+
+bbStateIfNum OBJECT-TYPE
+    SYNTAX INTEGER(1..32)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is logical interface number within a physical line num.
+        In MGX PXM1 card, a physical port can have a maximum of 
+        32 logical interfaces."
+    ::= { bbIfStateGrpEntry 1 }
+
+bbIfState OBJECT-TYPE
+    SYNTAX INTEGER {
+        notConfigured(1),
+        active(2),
+        linefailure(4),
+        signallingfailure(5),
+        inactive(6),
+        lineinloopback(7)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This variable indicates the status of the logical interface.
+        
+               The following values are not supported for the logical interface.
+        
+                 remoteloopback (3),
+                 outofcelldelineation (6),
+                 localloopback (7)."
+    ::= { bbIfStateGrpEntry 2 }
+
+bbIfOversubscribed OBJECT-TYPE
+    SYNTAX INTEGER {
+        false(1),
+        true(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This variable indicates the whether the logical interface is 
+        over subscribed or not."
+    ::= { bbIfStateGrpEntry 3 }
+
+bbIfIngrPercentUtil OBJECT-TYPE
+    SYNTAX INTEGER(0..1000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Percentage Utilization of the interface in the
+        Ingress direction."
+    ::= { bbIfStateGrpEntry 4 }
+
+bbIfEgrPercentUtil OBJECT-TYPE
+    SYNTAX INTEGER(0..1000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Percentage Utilization of the interface in 
+               the Egress direction."
+    ::= { bbIfStateGrpEntry 5 }
+
+bbIfCntGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF BbIfCntGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Broadband Interface Count table is for logical interface.
+        There will an entry for each of the logical partition of the
+        physical line."
+    ::= { bbIfCntGrp 1 }
+
+bbIfCntGrpEntry OBJECT-TYPE
+    SYNTAX BbIfCntGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry for logical interface."
+    INDEX { bbCntIfNum }
+    ::= { bbIfCntGrpTable 1 }
+
+BbIfCntGrpEntry ::= SEQUENCE {
+    bbCntIfNum INTEGER,
+    bbIfTotalCells Counter,
+    bbIfRcvValidOAMCells Counter,
+    bbIfRcvRmCells Counter,
+    bbIfRcvClp0Cells Counter,
+    bbIfRcvClp1Cells Counter,
+    bbIfRcvClp0DiscCells Counter,
+    bbIfRcvClp1DiscCells Counter,
+    bbIfXmtOAMCells Counter,
+    bbIfXmtRmCells Counter,
+    bbIfXmtClp0Cells Counter,
+    bbIfXmtClp1Cells Counter,
+    bbIfCntClrButton INTEGER,
+    bbIfRcvErroredCells Counter
+    }
+
+bbCntIfNum OBJECT-TYPE
+    SYNTAX INTEGER(1..32)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Refers to the logical interface index."
+    ::= { bbIfCntGrpEntry 1 }
+
+bbIfTotalCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of cells (VC plus Qbin) that belong 
+        to this Interface. This maps on to the virtual interface of QE."
+    ::= { bbIfCntGrpEntry 2 }
+
+bbIfRcvValidOAMCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of OAM cell received."
+    ::= { bbIfCntGrpEntry 3 }
+
+bbIfRcvRmCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of RM cells Received."
+    ::= { bbIfCntGrpEntry 4 }
+
+bbIfRcvClp0Cells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of CLP-0 cells Received."
+    ::= { bbIfCntGrpEntry 5 }
+
+bbIfRcvClp1Cells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of CLP-1 cells Received."
+    ::= { bbIfCntGrpEntry 6 }
+
+bbIfRcvClp0DiscCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of CLP-0 cells discarded at Ingress."
+    ::= { bbIfCntGrpEntry 7 }
+
+bbIfRcvClp1DiscCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of CLP-1 cells discarded at Ingress."
+    ::= { bbIfCntGrpEntry 8 }
+
+bbIfXmtOAMCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of OAM cells transmitted."
+    ::= { bbIfCntGrpEntry 9 }
+
+bbIfXmtRmCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of RM cells transmitted."
+    ::= { bbIfCntGrpEntry 10 }
+
+bbIfXmtClp0Cells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of CLP-0 cells transmitted."
+    ::= { bbIfCntGrpEntry 11 }
+
+bbIfXmtClp1Cells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of CLP-1 cells transmitted."
+    ::= { bbIfCntGrpEntry 12 }
+
+bbIfCntClrButton OBJECT-TYPE
+    SYNTAX INTEGER {
+        noAction(1),
+        resetCounter32s(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Writing a value of 2 resets all the counters."
+    ::= { bbIfCntGrpEntry 13 }
+
+bbIfRcvErroredCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of cells with Invalid VPI VCI or
+               Invalid PTI fields This is a card level counter and 
+               hence will be the same for all instances of the ports."
+    ::= { bbIfCntGrpEntry 14 }
+
+cwbPortGenearlGroup OBJECT IDENTIFIER ::= { cwbPortMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are applicable
+--    for general information about logical ports.
+--  objects
+--    nextBbIfNumAvailable
+
+cwbPortConfGroup OBJECT IDENTIFIER ::= { cwbPortMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used for
+--    configuring ATM logical ports(known as 
+--    broad band interface ports).
+--  objects
+--    bbIfNum, bbIfRowStatus, bbIfAdmin, bbIfLineNum, 
+--    bbIfIngrPctBandwidth, bbIfEgrPctBandwidth, bbIfMinVpi, 
+--    bbIfMaxVpi, bbIfSpeed, bbIfMaxCellRatePct
+
+cwbPortStateGroup OBJECT IDENTIFIER ::= { cwbPortMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used for
+--    finding the state of ATM logical ports(known as 
+--    broad band interface ports).
+--  objects
+--    bbStateIfNum, bbIfState, bbIfOversubscribed, 
+--    bbIfIngrPercentUtil, bbIfEgrPercentUtil
+
+cwbPortStatsGroup OBJECT IDENTIFIER ::= { cwbPortMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects containing
+--    the statistics information for   
+--    ATM Logical ports.
+--  objects
+--    bbCntIfNum, bbIfTotalCells, bbIfRcvValidOAMCells, 
+--    bbIfRcvRmCells, bbIfRcvClp0Cells, bbIfRcvClp1Cells, 
+--    bbIfRcvClp0DiscCells, bbIfRcvClp1DiscCells, bbIfXmtOAMCells, 
+--    bbIfXmtRmCells, bbIfXmtClp0Cells, bbIfXmtClp1Cells, 
+--    bbIfCntClrButton, bbIfRcvErroredCells
+
+cwbPortCompliance OBJECT IDENTIFIER ::= { cwbPortMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for objects related
+--    to SRM MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cwbPortConfGroup
+--   MandGroup
+--    cwbPortStatsGroup
+
+
+END
+

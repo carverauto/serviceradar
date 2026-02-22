@@ -1,0 +1,231 @@
+-- *****************************************************************
+-- CISCO-VIM-MIB.my
+-- Copyright (c) 2018 by cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VIM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    DateAndTime
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoVimMIB MODULE-IDENTITY
+    LAST-UPDATED    "201807160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-cvim@cisco.com"
+    DESCRIPTION
+        "The MIB module for the Cisco Virtualized Infrastructure Manager
+        (CVIM) platform.
+
+        This MIB only handles notifications from the CVIM."
+    REVISION        "201807160000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 855 }
+
+
+
+CFaultSeverity ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "A code used to identify the severity of a fault."
+    SYNTAX          INTEGER  {
+                        emergency(1), -- System level fault impacting
+                                      -- multiple services.
+                        critical(2), -- Critical fault specific to
+                                     -- a service.
+                        major(3), -- Component level fault within
+                                  -- a service.
+                        alert(4), -- Warning condition for a
+                                  -- service, may eventually impact
+                                  -- the service.
+                        informational(5) -- Informational message, does
+                                         -- not impact any service.
+                    }
+
+CFaultCode ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "A code identifying a class of fault."
+    SYNTAX          INTEGER  {
+                        other(1), -- Type of event not specified in the
+                                  -- other labels.
+                        resourceUsage(2), -- Resource usage exhausted
+                                          -- event.
+                        resourceThreshold(3), -- Resource threshold
+                                              -- reached event.
+                        serviceFailure(4), -- Software failure service
+                                           -- event.
+                        hardwareFailure(5), -- Hardward failure event.
+                        networkConnectivity(6) -- Networking issues.
+                    }
+-- Textual Conventions definition will be defined before this line
+
+ciscoVimMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoVimMIB 0 }
+
+ciscoVimMIBFaults  OBJECT IDENTIFIER
+    ::= { ciscoVimMIB 1 }
+
+ciscoVimMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoVimMIB 2 }
+
+
+cvimPodId OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..100))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Object identificating the CVIM PodId"
+    ::= { ciscoVimMIBFaults 1 }
+
+cvimFaultCreationTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The date and time when the fault is detected."
+    ::= { ciscoVimMIBFaults 2 }
+
+cvimNodeId OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..512))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object is hostname which uniquely identifies the
+        server on which this fault got detected."
+    ::= { ciscoVimMIBFaults 3 }
+
+cvimFaultSource OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (2..100))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Service or component name that generated the fault."
+    ::= { ciscoVimMIBFaults 4 }
+
+cvimFaultSeverity OBJECT-TYPE
+    SYNTAX          CFaultSeverity
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A code identifying the perceived severity of the fault."
+    ::= { ciscoVimMIBFaults 5 }
+
+cvimFaultCode OBJECT-TYPE
+    SYNTAX          CFaultCode
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A code uniquely identifying the fault."
+    ::= { ciscoVimMIBFaults 6 }
+
+cvimFaultDescription OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..2048))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A human-readable message providing details about the fault."
+    ::= { ciscoVimMIBFaults 7 }
+
+-- Default Notification Type
+
+cvimFaultActiveNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cvimPodId,
+                        cvimFaultCreationTime,
+                        cvimNodeId,
+                        cvimFaultSource,
+                        cvimFaultSeverity,
+                        cvimFaultCode,
+                        cvimFaultDescription
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated by CVIM whenever a fault gets
+        triggered."
+   ::= { ciscoVimMIBNotifs 1 }
+
+cvimFaultClearNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cvimPodId,
+                        cvimFaultCreationTime,
+                        cvimNodeId,
+                        cvimFaultSource,
+                        cvimFaultSeverity,
+                        cvimFaultCode,
+                        cvimFaultDescription
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated by a CVIM whenever a
+        fault is resolved."
+   ::= { ciscoVimMIBNotifs 2 }
+
+
+ciscoVimMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoVimMIBConform 1 }
+
+ciscoVimMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoVimMIBConform 2 }
+
+cvimMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities that support
+        the Cisco CVIM Managed Objects"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cvimMIBFaultGroup,
+                        cvimMIBNotificationGroup
+                    }
+    ::= { ciscoVimMIBCompliances 1 }
+
+-- Units of Conformance
+
+cvimMIBFaultGroup OBJECT-GROUP
+    OBJECTS         {
+                        cvimPodId,
+                        cvimFaultSource,
+                        cvimFaultCreationTime,
+                        cvimFaultSeverity,
+                        cvimFaultCode
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The set of CVIM Fault groups defined by this MIB"
+    ::= { ciscoVimMIBGroups 1 }
+
+cvimMIBNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cvimFaultActiveNotif }
+    STATUS          current
+    DESCRIPTION
+        "The set of CVIM notifications defined by this MIB"
+    ::= { ciscoVimMIBGroups 2 }
+
+END
+

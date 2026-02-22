@@ -1,0 +1,3379 @@
+-- *******************************************************************
+-- CISCO-LWAPP-RRM-MIB.my
+-- February 2007, Devesh Pujari, Srinath Candadai
+--   
+-- Copyright (c) 2007, 2014-2020 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-RRM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    IpAddress,
+    Integer32,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    TEXTUAL-CONVENTION,
+    MacAddress,
+    TimeStamp,
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    cldcClientMacAddress,
+    cldcApMacAddress,
+    cldcIfType
+        FROM CISCO-LWAPP-DOT11-CLIENT-MIB
+    cLApName
+        FROM CISCO-LWAPP-AP-MIB
+    cLWlanChdEnable
+        FROM CISCO-LWAPP-WLAN-MIB
+    CLApIfType
+        FROM CISCO-LWAPP-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappRrmMIB MODULE-IDENTITY
+    LAST-UPDATED    "202010120000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+            Tel: +1 800 553-NETS
+
+            Email: cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central controllers, that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Cisco Light-weight LWAPP Access Points.
+
+        Information provided by this MIB is used to study
+        the RRM on the WLAN.
+
+        The relationship between CC and the LWAPP APs
+        can be depicted as follows:
+
+              +......+     +......+     +......+
+              +      +     +      +     +      +
+              +  CC  +     +  CC  +     +  CC  +
+              +      +     +      +     +      +
+              +......+     +......+     +......+
+                ..            .             .
+                ..            .             .
+               .  .            .             .
+              .    .            .             .
+             .      .            .             .
+            .        .            .             .
+        +......+ +......+     +......+      +......+
+        +      + +      +     +      +      +      +
+        +  AP  + +  AP  +     +  AP  +      +  AP  +
+        +      + +      +     +      +      +      +
+        +......+ +......+     +......+      +......+
+                   .              .             .
+                 .  .              .             .
+                .    .              .             .
+               .      .              .             .
+              .        .              .             .
+           +......+ +......+     +......+      +......+
+           +      + +      +     +      +      +      +
+           +  MN  + +  MN  +     +  MN  +      +  MN  +
+           +      + +      +     +      +      +      +
+           +......+ +......+     +......+      +......+
+
+
+        The LWAPP tunnel exists between the controller and
+        the APs.  The MNs communicate with the APs through
+        the protocol defined by the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the
+        controllers and the controller pushes the configuration,
+        that includes the WLAN parameters, to the LWAPP APs.
+        The APs then encapsulate all the 802.11 frames from
+        wireless clients inside LWAPP frames and forward
+        the LWAPP frames to the controller.
+
+                         GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.  
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends them to the controller to which
+        it is logically connected.
+
+        Light Weight Access Point Protocol ( LWAPP )
+
+        This is a generic protocol that defines the 
+        communication between the Access Points and the
+        Central Controller. 
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity is also referred to as 'controller'.
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point. Mobile Node 
+        and client are used interchangeably. 
+
+        Radio Resource Management ( RRM )
+
+        RRM is the system level control of co-channel 
+        interference and other radio transmission 
+        characteristics in wireless communication systems.
+
+        Received Signal Strength Indicator ( RSSI )
+
+        A measure of the strength of the signal as
+        observed by the entity that received it,
+        expressed in 'dbm'.
+
+        Coverage Hole Detection ( CHD )
+
+        If clients on an Access Point are detected at low 
+        RSSI levels, it is considered a coverage hole  
+        by the Access Points. This indicates the existence 
+        of an area where clients are continually getting poor 
+        signal coverage, without having a viable location to 
+        roam to.
+
+        Dynamic Channel Assignment (DCA)
+
+        Dynamic channel assignment (DCA) is used by the controller 
+        to minimize adjacent channel interference between 
+        access points.
+
+        BSS Color Optimization (BCO)
+
+        BCO is used by the controller to minimize BSS color collisions
+        between access points.
+ 
+        Dynamic Frequency Selection (DFS)
+
+        Dynamic frequency selection (DFS) is used by the controller 
+        to detect radar signals and avoid interfering with them.
+
+        RRM RF Grouping 
+
+        Radio Resource Management (RRM) allows the Cisco WLAN controllers 
+        to continuously analyze the existing RF environments, 
+        and automatically adjust the AP power and channel 
+        configurations in order to help alleviate overlapping channel 
+        interference, signal coverage problems, and so forth.
+
+        An RF group is a cluster of Cisco wireless controllers 
+        that coordinates its RRM calculations on a per 802.11-network basis. 
+        An RF group exists for each 802.11 network type. 
+        Clustering controllers into RF groups enables 
+        the RRM algorithms to scale beyond a single controller.
+
+
+        +....+  Auto-leader      +....+ Auto-member
+        +    +  <------------->  + C2 +
+        +    + (802.11a network) +....+   
+        + C1 +   
+        +    +           
+        +    +  Static-member    +....+ Static-leader
+        +    +  <------------->  + C3 +
+        +....+ (802.11b network) +....+
+
+        With the help of above diagram, different aspects of
+        RRM RF Grouping can be explained. Grouping can be
+        configured for 3 modes.
+
+        1) Automatic 
+        2) Static
+        3) Off
+
+        If the mode is 'Automatic', the controllers automatically 
+        form groups and elect leaders to perform better 
+        dynamic parameter optimization. If the mode is 'Static', 
+        user can select one controller as the group leader and 
+        configure the group members manually. If the mode 
+        is 'Off', no dynamic grouping occurs. Each controller 
+        optimizes only its own APs' parameters.
+
+        In the above diagram, controller C1 forms a RF group with
+        controller C2 in 802.11a network. And with controller C3,
+        it forms a different group in 802.11b network. 
+
+        For the 802.11a network, the group mode is selected as 'Automatic'.
+        So between C1 and C2 controllers, one would be selected as 
+        group leader and the other controller as member automatically by
+        the algorithm. In the above case C1 is the group leader and C2 is
+        the group member.
+
+        Now for 802.11b network, group mode is selected as 'Static'.
+        Also the user has manually configured C3 as the leader in this group 
+        and C1 was added to this group as member.
+
+        REFERENCE
+
+        [1] Wireless LAN Medium Access Control ( MAC ) and
+        Physical Layer ( PHY ) Specifications
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+        Weight Access Point Protocol" 
+    REVISION        "202010120000Z"
+    DESCRIPTION     
+	    "Added few values to clrRrmFraSensitivity"
+    REVISION        "202003260000Z"
+    DESCRIPTION
+        "Added clrRrmBcoTable in clrRrmConfig"
+    REVISION        "201907300000Z"
+    DESCRIPTION
+        "Changes in clrRrmPakRssiConfig
+            Deprecated the following objects:
+                -clrRrmPakRssiNtp,
+                -clrRrmPakRssiNtpIpAddressType."        
+    REVISION        "201809250000Z"
+    DESCRIPTION
+        "Added following table
+        - clrRrmRemoveChannelTable
+        - clrRrmAddChannelTable
+        - clrRrmDot11BandJoinedGrpMemberTable
+        Added following new object to clrRrmDcaChannelListTable
+        - clrRrmDcaDefaultChannelList
+        Added notification variable clrRrmSysIdentifier"
+    REVISION        "201706090000Z"
+    DESCRIPTION
+        "Added following attributes,
+        - clrRrmFraSensorThreshold
+        - clrRrmFraSensorCoverage
+        - clrRrmFraServicePriority
+        - clrRrmFraSensorDensityOptimisationTargetRssi"
+    REVISION        "201703280000Z"
+    DESCRIPTION
+        "Added following new objects to clrRrmParametersTable:
+        - clrRrmParametersTpcVersion 
+        - clrRrmParametersChdNoise 
+        - clrRrmParametersChdInterference 
+        - clrRrmParametersChdLoad 
+        - clrRrmParametersChdSignal 
+        - clrRrmParametersChdDevice 
+        - clrRrmParametersMaxClients 
+        - clrRrmParametersRssiCheckEnable 
+        - clrRrmParametersRssiThreshold 
+        - clrRrmParametersOptRoamEnable 
+        - clrRrmParametersOptRoamDataRate 
+        - clrRrmParametersOptRoamInterval 
+        - clrRrmParametersClientNetworkPreference 
+        - clrRrmParametersDcaChannelWidthRev which deprecates 
+          clrRrmParametersDcaChannelWidth 
+
+        Added the following OBJECT IDENTIFIER
+        - clrRrmFraConfig
+        - clrRrmPakRssiConfig
+
+        Added the following objects to clrRrmPakRssiConfig
+        - clrRrmHyperLocationEnable
+        - clrRrmPakRssiThreshold
+        - clrRrmPakRssiThresholdTrigger
+        - clrRrmPakRssiNtpIpAddressType
+        - clrRrmPakRssiNtp
+
+        Added the following objects to clrRrmFraConfig: 
+        - clrRrmFraEnable 
+        - clrRrmFraInterval 
+        - clrRrmFraSensitivity 
+
+        Added new table clrRrmDcaChannelListTable. 
+
+        Added following Notification Objects: 
+        - clrRrmNeighborApCountRev  
+        - clrRrmNeighborApMacAddressRev  
+        - clrRrmNeighborApRssiRev  
+        - clrRrmNeighborApIfTypeRev 
+        - clrRrmSysMacAddressRev 
+        - clrRrmRssiHistogramValuesRev 
+        - clrRrmSysIpAddressType
+        - clrRrmSysIpAddress
+
+        Added following new OBJECT-GROUP: 
+        - ciscoLwappRrmChannelStatusGroup 
+        - ciscoLwappRrmParametersGroup 
+        - ciscoLwappRrmDCAChannelListGroup 
+        - ciscoLwappRrmConfigGroupSup5 
+        - ciscoLwappRrmFraConfigGroup 
+        - ciscoLwappRrmConfigGroupSup6 
+        - ciscoLwappRrmChdConfigGroup 
+        - ciscoLwappRrmOptRoamGroup 
+        - ciscoLwappRrmPakRssiConfigGroup 
+        - ciscoLwappRrmNotifyObjectsGroup 
+        - ciscoLwappRrmConfigGroupSup7 
+
+        Added the following NOTIFICATION-GROUP: 
+        - ciscoLwappRrmNotifsGroup 
+
+        The following object group is deprecated: 
+        - ciscoLwappRrmConfigGroupSup2 
+
+        Deprecated ciscoLwappRrmMIBComplianceRev2 and 
+        replaced by ciscoLwappRrmMIBComplianceRev3."
+    REVISION        "201103080000Z"
+    DESCRIPTION
+        "Added following parameters to the table, clrRrmParametersTable.
+
+        clrRrmParametersDcaChannelWidth,                                          
+        clrRrmParametersMaxTxPower,                                                 
+        clrRrmParametersMinTxPower.                 
+
+        Deprecated the following object:
+
+        clrRrmParametersPicoCellMode,
+        clrRrmTupleEntry.
+
+        Added following scalar variables:
+
+        clrRrmDcaDot11aOutdoorAPDca,
+        clrRrmRfGroupingPriority.
+
+        Following two tables have been added for RRM RF Grouping.
+
+        clrRrmDot11BandGrpTable
+        clrRrmDot11BandGrpMemberTable
+
+        Following notification related objects have been added:
+
+        clrRrmApTransmitPowerLevel
+        clrRrmTimeStamp
+        clrRrmClientType
+        clrRrmRssiHistogramLength
+        clrRrmRssiHistogramMaxIndex
+        clrRrmRssiHistogramValues
+        clrRrmNeighborApCount
+        clrRrmNeighborApMacAddress
+        clrRrmNeighborApRssi
+        clrRrmNeighborApIfType
+        clrRrmSysMacAddress
+        clrRrmSysIpAddress
+
+        Following notifications have been defined:
+
+        ciscoLwappDot11ClientCoverageHolePreAlarm
+        ciscoLwappRrmRfGroupLeaderChange
+        ciscoLwappRrmRfGroupMemberAdded
+        ciscoLwappRrmRfGroupMemberRemoved."
+    REVISION        "200711130000Z"
+    DESCRIPTION
+        "The following objects have been added:
+        1. clrRrmParametersChdEnable
+        2. clrRrmParametersVoicePktCountThreshold
+        3. clrRrmParametersVoicePktPercentThreshold
+        4. clrRrmParametersVoiceRssiThreshold
+        5. clrRrmParametersDataPktCountThreshold
+        6. clrRrmParametersDataPktPercentThreshold
+        7. clrRrmParametersDataRssiThreshold."
+    REVISION        "200702210000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 615 }
+
+
+ciscoLwappRrmMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappRrmMIB 0 }
+
+ciscoLwappRrmMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappRrmMIB 1 }
+
+ciscoLwappRrmMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappRrmMIB 2 }
+
+clrRrmConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappRrmMIBObjects 1 }
+
+
+ClrRrmTupleTuningRange ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "This textual convention defines the RRM tuning
+        parameter range on a 802.11 client."
+    SYNTAX          Integer32 (-127..127)
+-- ********************************************************************
+-- *    Configuration for parameters
+-- ********************************************************************
+
+clrRrmParametersTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClrRrmParametersEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the  RRM parameters for a
+        802.11 interface type. Entries are automatically
+        created on the controller for each 802.11 interface 
+        type."
+    ::= { clrRrmConfig 1 }
+
+clrRrmParametersEntry OBJECT-TYPE
+    SYNTAX          ClrRrmParametersEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table corresponds to a particular
+        802.11 interface type."
+    INDEX           { clrRrmParametersType } 
+    ::= { clrRrmParametersTable 1 }
+
+ClrRrmParametersEntry ::= SEQUENCE {
+        clrRrmParametersType                     CLApIfType,
+        clrRrmParametersPicoCellMode             INTEGER,
+        clrRrmParametersChdEnable                TruthValue,
+        clrRrmParametersVoicePktCountThreshold   Unsigned32,
+        clrRrmParametersVoicePktPercentThreshold Unsigned32,
+        clrRrmParametersVoiceRssiThreshold       Integer32,
+        clrRrmParametersDataPktCountThreshold    Unsigned32,
+        clrRrmParametersDataPktPercentThreshold  Unsigned32,
+        clrRrmParametersDataRssiThreshold        Integer32,
+        clrRrmParametersDcaChannelWidth          INTEGER,
+        clrRrmParametersMaxTxPower               Integer32,
+        clrRrmParametersMinTxPower               Integer32,
+        clrRrmParametersTpcVersion               INTEGER,
+        clrRrmParametersChdNoise                 TruthValue,
+        clrRrmParametersChdInterference          TruthValue,
+        clrRrmParametersChdLoad                  TruthValue,
+        clrRrmParametersChdSignal                TruthValue,
+        clrRrmParametersChdDevice                TruthValue,
+        clrRrmParametersMaxClients               Unsigned32,
+        clrRrmParametersRssiCheckEnable          TruthValue,
+        clrRrmParametersRssiThreshold            Integer32,
+        clrRrmParametersOptRoamEnable            TruthValue,
+        clrRrmParametersOptRoamDataRate          Integer32,
+        clrRrmParametersOptRoamInterval          Integer32,
+        clrRrmParametersClientNetworkPreference  INTEGER
+}
+
+clrRrmParametersType OBJECT-TYPE
+    SYNTAX          CLApIfType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely represents the 802.11 interface
+        type for this entry." 
+    ::= { clrRrmParametersEntry 1 }
+
+clrRrmParametersPicoCellMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        disable(1),
+                        picoCellv1(2),
+                        picoCellv2(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the 802.11 pico-cell mode.
+        disable    - pico-cell mode is disabled.
+        picoCellv1 - legacy pico-cell mode is in use.
+        picoCellv2 - in this mode the APs to use the tuple 
+                     information from the clrRrmTupleTable.
+
+        Object is deprecated since controller doesn't support 
+        Pico cell configuration anymore."
+    DEFVAL          { disable } 
+    ::= { clrRrmParametersEntry 2 }
+
+clrRrmParametersChdEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the state of CHD (Coverage
+        Hole Detection) on the controller. A value of 'true' 
+        indicates that the detection is enabled. A value 
+        of 'false' indicates that the detection is disabled."
+    DEFVAL          { false } 
+    ::= { clrRrmParametersEntry 3 }
+
+clrRrmParametersVoicePktCountThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..255)
+    UNITS           "packets"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum threshold on the
+        Voice packet count required to trigger the CHD 
+        algorithm on the controller."
+    DEFVAL          { 10 } 
+    ::= { clrRrmParametersEntry 4 }
+
+clrRrmParametersVoicePktPercentThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the threshold on the percent
+        of  Voice packets dropped, that is required to 
+        trigger the CHD algorithm on the controller."
+    DEFVAL          { 20 } 
+    ::= { clrRrmParametersEntry 5 }
+
+clrRrmParametersVoiceRssiThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (-90..-60)
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the RSSI threshold value for
+        Voice packets, that is required to trigger the CHD 
+        algorithm on the controller."
+    DEFVAL          { -80 } 
+    ::= { clrRrmParametersEntry 6 }
+
+clrRrmParametersDataPktCountThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..255)
+    UNITS           "packets"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum threshold on the
+        Data packet count required to trigger the CHD 
+        algorithm on the controller."
+    DEFVAL          { 10 } 
+    ::= { clrRrmParametersEntry 7 }
+
+clrRrmParametersDataPktPercentThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the threshold on the percent
+        of  Data packets dropped, that is required to 
+        trigger the CHD algorithm on the controller."
+    DEFVAL          { 20 } 
+    ::= { clrRrmParametersEntry 8 }
+
+clrRrmParametersDataRssiThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (-90..-60)
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the RSSI threshold value for
+        Data packets, that is required to trigger the CHD 
+        algorithm on the controller."
+    DEFVAL          { -74 } 
+    ::= { clrRrmParametersEntry 9 }
+
+clrRrmParametersDcaChannelWidth OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        twenty(1),
+                        forty(2),
+                        eighty(3),
+                        best(4),
+                        oneSixty(5)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the system performs DCA
+        channel width selection
+        twenty   - 20MHz channel width supported by this radio.
+        forty    - 40MHz channel width supported by this radio.
+        eighty   - 80MHz channel width supported by this radio.
+        oneSixty - 160MHz channel width supported by this radio.
+        best     - Dynamic channel width(160MHz, 80MHz, 40MHz or20MHz) 
+                   supported by this radio." 
+    ::= { clrRrmParametersEntry 10 }
+
+clrRrmParametersMaxTxPower OBJECT-TYPE
+    SYNTAX          Integer32 (-10..30)
+    UNITS           "dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the upper limit of transmit power in dBm.
+        For a 802.11a network, the system will 
+        only accept this configuration if the 
+        bsnGlobalDot11aDynamicTransmitPowerControl is set 
+        to 'automatic' or 'runOnce'. For a 802.11b network, 
+        the system will only accept this configuration if the 
+        bsnGlobalDot11bDynamicTransmitPowerControl is set to 
+        'automatic' or 'runOnce'. The value of this attribute 
+        has to be greater than equal to value of 
+        clrRrmParametersMinTxPower."
+    DEFVAL          { 30 } 
+    ::= { clrRrmParametersEntry 11 }
+
+clrRrmParametersMinTxPower OBJECT-TYPE
+    SYNTAX          Integer32 (-10..30)
+    UNITS           "dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the lower limit of transmit power in dBm.
+        For an 802.11a network, the system will 
+        only accept this configuration if the 
+        bsnGlobalDot11aDynamicTransmitPowerControl 
+        is set to 'automatic' or 'runOnce'.
+        For an 802.11b network, the system will 
+        only accept this configuration if the 
+        bsnGlobalDot11bDynamicTransmitPowerControl is set 
+        to 'automatic' or 'runOnce'.
+        The value of this attribute has to be less than equal to
+        value of clrRrmParametersMaxTxPower."
+    DEFVAL          { -10 } 
+    ::= { clrRrmParametersEntry 12 }
+
+clrRrmParametersTpcVersion OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        versionOne(1),
+                        versionTwo(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the TPC(Transmission Power Control) version.
+        versionOne(1) - TPC would be in coverage optimal mode.
+        versionTwo(2) - TPC would be in interference optimal mode." 
+    ::= { clrRrmParametersEntry 13 }
+
+clrRrmParametersChdNoise OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the state of noise
+        on the controller. A value of 'true' 
+        indicates that the detection is enabled. A value 
+        of 'false' indicates that the detection is disabled." 
+    ::= { clrRrmParametersEntry 14 }
+
+clrRrmParametersChdInterference OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the state of interference
+        on the controller. A value of 'true' 
+        indicates that the detection is enabled. A value 
+        of 'false' indicates that the detection is disabled." 
+    ::= { clrRrmParametersEntry 15 }
+
+clrRrmParametersChdLoad OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the state of load
+        on the controller. A value of 'true' 
+        indicates that the detection is enabled. A value 
+        of 'false' indicates that the detection is disabled." 
+    ::= { clrRrmParametersEntry 16 }
+
+clrRrmParametersChdSignal OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the state of signal
+        on the controller. A value of 'true' 
+        indicates that the detection is enabled. A value 
+        of 'false' indicates that the detection is disabled." 
+    ::= { clrRrmParametersEntry 17 }
+
+clrRrmParametersChdDevice OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the state of device detection
+        on the controller. A value of 'true' 
+        indicates that the detection is enabled. A value 
+        of 'false' indicates that the detection is disabled." 
+    ::= { clrRrmParametersEntry 18 }
+
+clrRrmParametersMaxClients OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum allowed clients per radio." 
+    ::= { clrRrmParametersEntry 19 }
+
+clrRrmParametersRssiCheckEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the state of RSSI low
+        check on the controller. A value of 'true' 
+        indicates that the check is enabled. A value 
+        of 'false' indicates that the check is disabled."
+    DEFVAL          { false } 
+    ::= { clrRrmParametersEntry 20 }
+
+clrRrmParametersRssiThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (-90..-60)
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the RSSI threshold value for
+        RSSI low check."
+    DEFVAL          { -80 } 
+    ::= { clrRrmParametersEntry 21 }
+
+clrRrmParametersOptRoamEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the state of optimized
+        roaming feature on the controller. A value of 'true' 
+        indicates that the feature is enabled. A value 
+        of 'false' indicates that the feature is disabled"
+    DEFVAL          { false } 
+    ::= { clrRrmParametersEntry 22 }
+
+clrRrmParametersOptRoamDataRate OBJECT-TYPE
+    SYNTAX          Integer32 (0..54)
+    UNITS           "mbps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the data rate threshold value for
+        optimized roaming. A valid data rate in mbps must be entered."
+    DEFVAL          { 0 } 
+    ::= { clrRrmParametersEntry 23 }
+
+clrRrmParametersOptRoamInterval OBJECT-TYPE
+    SYNTAX          Integer32 (5..90)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the reporting interval value for
+        Optimized Roaming."
+    DEFVAL          { 90 } 
+    ::= { clrRrmParametersEntry 24 }
+
+clrRrmParametersClientNetworkPreference OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        default(1),
+                        connectivity(2),
+                        throughput(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the client network preference.
+        connectivity  - RRM Algorithm has a prefereance on connectiviry of the clients
+        throughput    - RRM Algorithm has a preference on high thoughput of the clients
+        default       - RRM Algorithm has no preference on the clients"
+    DEFVAL          { default } 
+    ::= { clrRrmParametersEntry 25 }
+ 
+
+-- ********************************************************************
+-- *    Configuration for tuple tuning parameters
+-- ********************************************************************
+
+clrRrmTupleTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClrRrmTupleEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A list of tuple tuning parameters that are
+        advertised to all APs registered under this 802.11 
+        interface type. This information is pushed down to 
+        to 802.11 clients by the APs to operate under high 
+        density.
+        Entries in this table are automatically 
+        created by the controller with default values.
+
+        Object is deprecated since controller doesn't support 
+        Pico cell configuration anymore."
+    ::= { clrRrmConfig 2 }
+
+clrRrmTupleEntry OBJECT-TYPE
+    SYNTAX          ClrRrmTupleEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "Each entry represents the tuning parameters for
+        an interface type. These entries are applicable 
+        only when object clrRrmParametersPicoCellMode is 
+        is set to 'picoCellv2'.
+        Pico cell is no more supported so deprecating this
+        attribute. It will be obsolete post 7.0 release.
+
+        Object is deprecated since controller doesn't support 
+        Pico cell configuration anymore."
+    INDEX           { clrRrmParametersType } 
+    ::= { clrRrmTupleTable 1 }
+
+ClrRrmTupleEntry ::= SEQUENCE {
+        clrRrmTupleRxSenseThresholdMin   ClrRrmTupleTuningRange,
+        clrRrmTupleRxSenseThresholdMax   ClrRrmTupleTuningRange,
+        clrRrmTupleRxSenseThreshold      ClrRrmTupleTuningRange,
+        clrRrmTupleCcaSenseThresholdMin  ClrRrmTupleTuningRange,
+        clrRrmTupleCcaSenseThresholdMax  ClrRrmTupleTuningRange,
+        clrRrmTupleCcaSenseThreshold     ClrRrmTupleTuningRange,
+        clrRrmTupleTransmitPowerLevelMin ClrRrmTupleTuningRange,
+        clrRrmTupleTransmitPowerLevelMax ClrRrmTupleTuningRange,
+        clrRrmTupleTransmitPowerLevel    ClrRrmTupleTuningRange,
+        clrRrmTupleSetDefault            TruthValue
+}
+
+clrRrmTupleRxSenseThresholdMin OBJECT-TYPE
+    SYNTAX          ClrRrmTupleTuningRange
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the minimum value configured
+        for receiver's sensitivity threshold.
+        This value must be less than the value configured for 
+        clrRrmTupleRxSenseThresholdMax object.
+
+        Object is deprecated since controller doesn't support 
+        Pico cell configuration anymore."
+    DEFVAL          { -127 } 
+    ::= { clrRrmTupleEntry 1 }
+
+clrRrmTupleRxSenseThresholdMax OBJECT-TYPE
+    SYNTAX          ClrRrmTupleTuningRange
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the maximum value configured
+        for receiver's sensitivity threshold.
+        This value must be greater than the value configured for 
+        clrRrmTupleRxSenseThresholdMin object.
+
+        Object is deprecated since controller doesn't support 
+        Pico cell configuration anymore."
+    DEFVAL          { 127 } 
+    ::= { clrRrmTupleEntry 2 }
+
+clrRrmTupleRxSenseThreshold OBJECT-TYPE
+    SYNTAX          ClrRrmTupleTuningRange
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the current value for
+        receiver's sensitivity threshold.  This value is sent 
+        to the APs that join the controller. The APs in turn 
+        propogate this value to the 802.11 clients. The client 
+        will either use this value or will tune receiver's 
+        sensitivity settings between the range of values 
+        configured by clrRrmTupleRxSenseThresholdMin and 
+        clrRrmTupleRxSenseThresholdMax objects.
+
+        Object is deprecated since controller doesn't support 
+        Pico cell configuration anymore."
+    DEFVAL          { -80 } 
+    ::= { clrRrmTupleEntry 3 }
+
+clrRrmTupleCcaSenseThresholdMin OBJECT-TYPE
+    SYNTAX          ClrRrmTupleTuningRange
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the minimum value configured
+        for clear channel (CCA) sensitivity threshold.
+        This value must be less than the value configured for 
+        clrRrmTupleCcaSenseThresholdMax object.
+
+        Object is deprecated since controller doesn't support 
+        Pico cell configuration anymore."
+    DEFVAL          { -127 } 
+    ::= { clrRrmTupleEntry 4 }
+
+clrRrmTupleCcaSenseThresholdMax OBJECT-TYPE
+    SYNTAX          ClrRrmTupleTuningRange
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the maximum value configured
+        for clear channel (CCA) sensitivity threshold.
+        This value must be greater than the value configured for 
+        clrRrmTupleCcaSenseThresholdMin object.
+
+        Object is deprecated since controller doesn't support 
+        Pico cell configuration anymore."
+    DEFVAL          { 127 } 
+    ::= { clrRrmTupleEntry 5 }
+
+clrRrmTupleCcaSenseThreshold OBJECT-TYPE
+    SYNTAX          ClrRrmTupleTuningRange
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the current value for clear
+        channel (CCA) sensitivity. This value is sent to the 
+        APs that join the controller. The APs in turn propogate 
+        this value to the 802.11 clients. The client will either 
+        use this value or may tune CCA sensitivity settings 
+        between the range of values configured by 
+        clrRrmTupleCcaSenseThresholdMin and 
+        clrRrmTupleCcaSenseThresholdMax objects.
+
+        Object is deprecated since controller doesn't support 
+        Pico cell configuration anymore."
+    DEFVAL          { -60 } 
+    ::= { clrRrmTupleEntry 6 }
+
+clrRrmTupleTransmitPowerLevelMin OBJECT-TYPE
+    SYNTAX          ClrRrmTupleTuningRange
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the minimum value configured
+        for transmit power level. This value must be less than 
+        the value configured for clrRrmTupleTransmitPowerLevelMax 
+        object.
+
+        Object is deprecated since controller doesn't support 
+        Pico cell configuration anymore."
+    DEFVAL          { -127 } 
+    ::= { clrRrmTupleEntry 7 }
+
+clrRrmTupleTransmitPowerLevelMax OBJECT-TYPE
+    SYNTAX          ClrRrmTupleTuningRange
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the maximum value configured
+        for transmit power level. This value must be greater than 
+        the value for clrRrmTupleTransmitPowerLevelMin object.
+
+        Object is deprecated since controller doesn't support 
+        Pico cell configuration anymore."
+    DEFVAL          { 127 } 
+    ::= { clrRrmTupleEntry 8 }
+
+clrRrmTupleTransmitPowerLevel OBJECT-TYPE
+    SYNTAX          ClrRrmTupleTuningRange
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object represents the current value for transmit
+        power level. This value is sent to the APs that join the 
+        controller. The APs in turn propogate this value to the 
+        802.11 clients. The client will either use this value or 
+        may tune the transmit power settings between the range 
+        of values configured by clrRrmTupleTransmitPowerLevelMin 
+        and clrRrmTupleTransmitPowerLevelMax objects.
+
+        Object is deprecated since controller doesn't support 
+        Pico cell configuration anymore."
+    DEFVAL          { 10 } 
+    ::= { clrRrmTupleEntry 9 }
+
+clrRrmTupleSetDefault OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object restores the other objects in this
+        table to default value. Setting this value to
+        'true' wil restore defaults as indicated by 
+        the DEFVAL clause. This object can only be set 
+        to 'true' and all other values are rejected.
+        This object will always return 'false' for get 
+        operations.
+
+        Object is deprecated since controller doesn't support 
+        Pico cell configuration anymore." 
+    ::= { clrRrmTupleEntry 10 }
+ 
+
+-- ********************************************************************
+-- *    Configuration for DCA parameters
+-- ********************************************************************
+
+clrRrmChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClrRrmChannelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the channel information
+        for an AP's 802.11 interface. 
+        Based on the country that an AP operates in, it 
+        gets assigned to a regulatory domain. For a given
+        regulatory domain a fixed number of channels are
+        assigned automatically to an AP for a given interface.
+        This table represents this information.
+        Entries are automatically created on the controller
+        as APs associate. Entries are removed when the APs
+        disassociate."
+    ::= { clrRrmConfig 4 }
+
+clrRrmChannelEntry OBJECT-TYPE
+    SYNTAX          ClrRrmChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table provides the channel
+        information for an 802.11 interface in an AP."
+    INDEX           {
+                        clrRrmParametersType,
+                        clrRrmChannelNum
+                    } 
+    ::= { clrRrmChannelTable 1 }
+
+ClrRrmChannelEntry ::= SEQUENCE {
+        clrRrmChannelNum       Unsigned32,
+        clrRrmChannelDcaState  TruthValue,
+        clrRrmChannelRowStatus RowStatus
+}
+
+clrRrmChannelNum OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The channel nubmer for this entry.  This value
+        represents the unique channel number on this
+        802.11 interface for this regulatory domain." 
+    ::= { clrRrmChannelEntry 1 }
+
+clrRrmChannelDcaState OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether this channel is part
+        of the dynamic channel allocation (DCA) list. 
+        A value of 'true' indicates that the DCA for 
+        this channel is enabled. A value of 'false' indicates 
+        that the DCA for this channel is disabled."
+    DEFVAL          { false } 
+    ::= { clrRrmChannelEntry 2 }
+
+clrRrmChannelRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.clrRrmChannelNum and
+        clrRrmChannelDcaState are mandatory for create and go 
+        of rowstatus.All writable objects in this row may be 
+        modified at any time." 
+    ::= { clrRrmChannelEntry 3 }
+ 
+
+-- ********************************************************************
+-- *    RRM RF grouping
+-- ********************************************************************
+
+clrRrmDot11BandGrpTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClrRrmDot11BandGrpEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the information about the
+        RRM grouping corresponding to the dot11 band 
+        of the APs that have joined the controller.
+
+        This table has a one-to-one dependent relationship 
+        on the clrRrmParametersTable."
+    ::= { clrRrmConfig 5 }
+
+clrRrmDot11BandGrpEntry OBJECT-TYPE
+    SYNTAX          ClrRrmDot11BandGrpEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table represents the
+        RRM RF grouping on a  dot11 band 
+        of an AP that has joined the controller.
+
+        For each dot11 band an entry will be created."
+    INDEX           { clrRrmParametersType } 
+    ::= { clrRrmDot11BandGrpTable 1 }
+
+ClrRrmDot11BandGrpEntry ::= SEQUENCE {
+        clrRrmDot11BandGrpLeaderIpAddressType   InetAddressType,
+        clrRrmDot11BandGrpLeaderIpAddress       InetAddress,
+        clrRrmDot11BandGrpLeaderName            SnmpAdminString,
+        clrRrmDot11BandGrpMode                  INTEGER,
+        clrRrmDot11BandGrpRole                  INTEGER,
+        clrRrmDot11BandGrpRestart               TruthValue,
+        clrRrmDot11BandGrpLastUpdateTime        Unsigned32,
+        clrRrmDot11BandGrpInterval              Unsigned32,
+        clrRrmDot11BandGrpLeaderIpv6AddressType InetAddressType,
+        clrRrmDot11BandGrpLeaderIpv6Address     InetAddress
+}
+
+clrRrmDot11BandGrpLeaderIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the  group
+        leader's address type for the dot11 group 
+        containing this controller. The only
+        one address type supported is ipv4(1)." 
+    ::= { clrRrmDot11BandGrpEntry 1 }
+
+clrRrmDot11BandGrpLeaderIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the configured
+        group leader's address for the dot11
+        group containing this controller." 
+    ::= { clrRrmDot11BandGrpEntry 2 }
+
+clrRrmDot11BandGrpLeaderName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the name of the current
+        group leader." 
+    ::= { clrRrmDot11BandGrpEntry 3 }
+
+clrRrmDot11BandGrpMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        automatic(1),
+                        off(2),
+                        leader(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the mode for the RRM algorithm
+        for the band. 
+        'automatic' - the controller form groups and elect leaders 
+                 to perform better dynamic parameter optimization. 
+
+        'leader'    - the user can manually configure the group. 
+
+        'off'       - no dynamic grouping occurs. Each controller 
+                          optimizes only its own APs' parameters."
+    DEFVAL          { automatic } 
+    ::= { clrRrmDot11BandGrpEntry 4 }
+
+clrRrmDot11BandGrpRole OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        auto-leader(2),
+                        auto-member(3),
+                        static-leader(4),
+                        static-member(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the group role with respect to RRM
+        RF grouping. The controller can be either group member or
+        group leader while being in automatic or static grouping,
+        for a particular band.  If grouping is off , the value
+        of the group role would be 'none'.
+
+        'none'          - RRM RF Grouping is off
+        'auto-leader'   - leader of automatic RRM RF Group
+        'auto-member'   - member in automatic RRM RF Group
+        'static-leader' - leader of static RRM RF Group
+        'static-member' - member in static RRM RF Group."
+    DEFVAL          { auto-leader } 
+    ::= { clrRrmDot11BandGrpEntry 5 }
+
+clrRrmDot11BandGrpRestart OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the grouping algorithm needs
+        a restart. If a value of 'true' is set, the RRM 
+        grouping algorithm is restarted for the dot11 band.
+           This will always return 'false' when retrieved"
+    DEFVAL          { false } 
+    ::= { clrRrmDot11BandGrpEntry 6 }
+
+clrRrmDot11BandGrpLastUpdateTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the last time the dot11
+        grouping was updated on this controller.
+        This is valid only if the controller is not a
+        static member in the group. If it is a static member
+        (i.e the value of the variable ,'clrRrmDot11BandGrpMode'
+        is 'static-member(4)'), a value of '0' would be
+        returned always." 
+    ::= { clrRrmDot11BandGrpEntry 7 }
+
+clrRrmDot11BandGrpInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..600)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the period used by the
+        grouping algorithm. The grouping algorithm runs 
+        when the group contents changes and automatic 
+        grouping is enabled. The system administrator can 
+        start grouping on demand." 
+    ::= { clrRrmDot11BandGrpEntry 8 }
+
+clrRrmDot11BandGrpLeaderIpv6AddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the IP address type of
+        the RRM RF group leader." 
+    ::= { clrRrmDot11BandGrpEntry 9 }
+
+clrRrmDot11BandGrpLeaderIpv6Address OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the IPv6 address of the
+        RRM RF group leader." 
+    ::= { clrRrmDot11BandGrpEntry 10 }
+ 
+
+-- ********************************************************************
+-- *    RRM RF Group Members
+-- ********************************************************************
+
+clrRrmDot11BandGrpMemberTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClrRrmDot11BandGrpMemberEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the information about the
+        RRM grouping members corresponding to
+        the dot11 band of the APs that have joined
+        the controller. 
+
+        The entries are members of the group represented by
+        clrRrmDot11BandGrpTable."
+    ::= { clrRrmConfig 6 }
+
+clrRrmDot11BandGrpMemberEntry OBJECT-TYPE
+    SYNTAX          ClrRrmDot11BandGrpMemberEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes the grouping members
+        on a  dot11 band of an AP that has joined 
+        the controller.
+
+        An entry will be created/deleted when
+        members are added/deleted to/from the gorup."
+    INDEX           {
+                        clrRrmParametersType,
+                        clrRrmDot11BandMemberIpAddressType,
+                        clrRrmDot11BandMemberIpAddress
+                    } 
+    ::= { clrRrmDot11BandGrpMemberTable 1 }
+
+ClrRrmDot11BandGrpMemberEntry ::= SEQUENCE {
+        clrRrmDot11BandMemberIpAddressType     InetAddressType,
+        clrRrmDot11BandMemberIpAddress         InetAddress,
+        clrRrmDot11BandMemberName              SnmpAdminString,
+        clrRrmDot11BandMemberIsJoined          TruthValue,
+        clrRrmDot11BandMemberJoinFailureReason INTEGER,
+        clrRrmDot11BandMemberRowStatus         RowStatus
+}
+
+clrRrmDot11BandMemberIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the address type of the dot11
+        group member for the dot11 grouping containing this controller." 
+    ::= { clrRrmDot11BandGrpMemberEntry 1 }
+
+clrRrmDot11BandMemberIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the address of the dot11
+        group member for the dot11 grouping containing this controller." 
+    ::= { clrRrmDot11BandGrpMemberEntry 2 }
+
+clrRrmDot11BandMemberName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the dot11
+        group member for the dot11 grouping containing this controller." 
+    ::= { clrRrmDot11BandGrpMemberEntry 3 }
+
+clrRrmDot11BandMemberIsJoined OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents whether the member has joined this
+        RRM RF Group yet.If not the value would be 'false'.
+        Else it would be true.This field is significant only
+        if the current group is a static RRM RF Group.
+        In all other cases a value of 'true' would be shown.
+
+        true  - member has joined the group successfully
+        false - member has not joined the group yet."
+    DEFVAL          { true } 
+    ::= { clrRrmDot11BandGrpMemberEntry 4 }
+
+clrRrmDot11BandMemberJoinFailureReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        joinedSuccessfully(1),
+                        invalidIp(2),
+                        groupSizeExceeded(3),
+                        invalidGroupOrder(4),
+                        nonMatchingGroupID(5),
+                        unexpectedError(6),
+                        weakSignalStrength(7),
+                        joinPending(8),
+                        notAManager(9),
+                        groupingDelayed(10),
+                        groupingDisabled(11),
+                        invalidProtocolVersion(12),
+                        countryCodeMismatch(13),
+                        invalidHierarchy(14),
+                        alreadyAStaticLeader(15),
+                        memberOfAnotherGroup(16),
+                        unconfiguredAsStaticMember(17),
+                        cntlrNameAndIpMismatch(18),
+                        unexpectedMemoryError(19),
+                        rfDomainMismatch(20),
+                        splitForInvalidStateRequest(21),
+                        transitioningToStaticFromAuto(22),
+                        splitDueToUserAction(23)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the reason the member could not
+        join the RRM RF Group. This field is relevant only
+        if the corresponding instance for  'clrRrmDot11BandMemberIsJoined'
+        is 'false'.
+
+        joinedSuccessfully         -  member has joined the group 
+                                      successfully
+        invalidIp                  -  invalid ip
+        groupSizeExceeded          -  group size is exceeded
+        invalidGroupOrder          -  group order is invalid
+        nonMatchingGroupID         -  group id doesn't match
+        unexpectedError            -  unexpected error 
+                                      has occurred
+        weakSignalStrength         -  signal strength is weak
+        joinPending                -  group join is pending
+        notAManager                -  not a manager
+        groupingDelayed            -  grouping is delayed
+        groupingDisabled           -  grouping is disabled
+        invalidProtocolVersion     -  protocol version is invalid
+        countryCodeMismatch        -  country code doesn't match
+        invalidHierarchy           -  invalid grouping hierarchy
+        alreadyAStaticLeader       -  already a static leader
+        memberOfAnotherGroup       -  member of another group
+        unconfiguredAsStaticMember -  unconfigured static member
+        cntlrNameAndIpMismatch     -  controller name and ip 
+                                      doesn't match
+        unexpectedMemoryError      -  an unexpected memory error 
+                                      has happened
+        rfDomainMismatch           -  RF domain doesn't match.
+        splitForInvalidStateRequest    -  split for invalid state request
+        transitioningToStaticFromAuto  -  transitioning to static from auto
+        splitDueToUserAction       -  split due to user action."
+    DEFVAL          { joinedSuccessfully } 
+    ::= { clrRrmDot11BandGrpMemberEntry 5 }
+
+clrRrmDot11BandMemberRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the row." 
+    ::= { clrRrmDot11BandGrpMemberEntry 6 }
+ 
+
+clrRrmDcaConfig  OBJECT IDENTIFIER
+    ::= { clrRrmConfig 7 }
+
+
+clrRrmDcaDot11aOutdoorAPDca OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether check for
+        non-DFS channel should be done on DCA channel 
+        list or not. Generally at least one non-DFS 
+        channel should be present in DCA channel list.  
+        But there are locations like EU(European Union)  
+        where there is no non-DFS channel available for 
+        outdoor deployment. Customers deploying outdoor APs 
+        in EU or regions with similar regulations should 
+        set this variable to 'true'. 
+        A value of 'true' indicates that controller will not 
+        perform check for non-DFS channels in DCA list.
+        A value of 'false' indicates that controller will 
+        perform checkf for non-DFS channels in DCA list." 
+    ::= { clrRrmDcaConfig 1 }
+
+clrRrmRfGroupingPriority OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the priority assigned to controller
+        with respect to RRM RF Grouping. When 
+        groups are formed, the priorities of the member controllers 
+        would be checked. Priority of the member controller
+        should be less than or equal to priority of the 
+        leader controller." 
+    ::= { clrRrmConfig 8 }
+
+clrRrmDcaChannelListTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClrRrmDcaChannelListEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains current channel information
+        for an AP's 802.11 interface.
+        Based on the country that an AP operates in, it
+        gets assigned to a regulatory domain. For a given
+        regulatory domain a fixed number of channels are
+        assigned automatically to an AP for a given interface.
+        This table represents this information.
+        Entries are automatically created on the controller
+        as APs associate. Entries are removed when the APs
+        disassociate.
+
+        User can add a channel in DCA or remove it from DCA using the
+        clrRrmChannelTable. clrRrmDcaChannelListTable provides the list
+        of current channels allocation for DCA."
+    ::= { clrRrmConfig 9 }
+
+clrRrmDcaChannelListEntry OBJECT-TYPE
+    SYNTAX          ClrRrmDcaChannelListEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table provides list of the channels
+        that are used in DCA as well as not-used in DCA for an
+        802.11 interface in an AP."
+    INDEX           { clrRrmParametersType } 
+    ::= { clrRrmDcaChannelListTable 1 }
+
+ClrRrmDcaChannelListEntry ::= SEQUENCE {
+        clrRrmDcaUsedChannelList    SnmpAdminString,
+        clrRrmDcaUnusedChannelList  SnmpAdminString,
+        clrRrmDcaDefaultChannelList SnmpAdminString
+}
+
+clrRrmDcaUsedChannelList OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the channels that are part
+        of the Dynamic Channel Allocation (DCA) list.
+        This is a comma separated list of used channel numbers." 
+    ::= { clrRrmDcaChannelListEntry 1 }
+
+clrRrmDcaUnusedChannelList OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the channels that are not part
+        of the Dynamic Channel Allocation (DCA) list. This is
+        a comma separated list of unused channel numbers." 
+    ::= { clrRrmDcaChannelListEntry 2 }
+
+clrRrmDcaDefaultChannelList OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the default DCA channels based on
+        configured country code/country code list. This is
+        a comma separated list of default DCA channel numbers." 
+    ::= { clrRrmDcaChannelListEntry 3 }
+ 
+
+clrRrmPakRssiConfig  OBJECT IDENTIFIER
+    ::= { clrRrmConfig 10 }
+
+
+clrRrmHyperLocationEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the state of Packet RSSI
+        location feature. A value of 'true'
+        indicates that PRL(Packet RSSI Location) is enabled. 
+        A value of 'false' indicates that PRL is disabled."
+    DEFVAL          { false } 
+    ::= { clrRrmPakRssiConfig 1 }
+
+clrRrmPakRssiThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (-100..-50)
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the threshold value for
+        Packet RSSI location feature. Valid range is
+        -100 dbm to -50 dbm."
+    DEFVAL          { -100 } 
+    ::= { clrRrmPakRssiConfig 2 }
+
+clrRrmPakRssiThresholdTrigger OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "dbm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the trigger threshold
+        value for Packet RSSI location feature. Valid
+        range is 1 dbm to 100 dbm."
+    DEFVAL          { 10 } 
+    ::= { clrRrmPakRssiConfig 3 }
+
+clrRrmPakRssiNtpIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the NTP server
+        IP address type for Packet RSSI location feature."
+    DEFVAL          { 1 } 
+    ::= { clrRrmPakRssiConfig 4 }
+
+clrRrmPakRssiNtp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the NTP server
+        IP for Packet RSSI location feature."
+    DEFVAL          { 0 } 
+    ::= { clrRrmPakRssiConfig 5 }
+clrRrmFraConfig  OBJECT IDENTIFIER
+    ::= { clrRrmConfig 11 }
+
+
+clrRrmFraEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the state of Flexible
+        Radio Assignment(FRA)feature. A value of 'true' 
+        indicates that FRA is enabled. A value of 'false'
+        indicates that FRA is disabled."
+    DEFVAL          { false } 
+    ::= { clrRrmFraConfig 1 }
+
+clrRrmFraInterval OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "hours"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the FRA interval
+        in hours for the FRA feature."
+    DEFVAL          { 1 } 
+    ::= { clrRrmFraConfig 2 }
+
+clrRrmFraSensitivity OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        low(1),
+                        medium(2),
+                        high(3),
+                        higher(4),
+                        evenhigher(5),
+                        superhigh(6)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the sensitivity for the FRA feature
+        low(1)    - set the FRA sensistivity as low(100%).
+        medium(2) - set the FRA sensitivity as medium(95%).
+        high(3)   - set the FRA sensitivity as high(90%).
+        higher(4) - set the FRA sensitivity as higher(85%).
+        evenhigher(5)  - set the FRA sensitivity as evenhigher(80%).
+        superhigh(6)   - set the FRA sensitivity as superhigh(50%)."
+    DEFVAL          { low } 
+    ::= { clrRrmFraConfig 3 }
+
+clrRrmFraSensorThreshold OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        clientPriority(0),
+                        clientPreferred(1),
+                        balanced(2),
+                        sensorPreferred(3),
+                        sensorPriority(4)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies threshold levels for Sensor
+        Selection algorithm. Values offered can influence FRA 
+        algorithm's decision to provide less or more sensor radios 
+        for WSA service. ClientPriority will ensure highest(default) 
+        coverage for wireless clients and SensorPriority offers more 
+        sensor radios offered for WSA service, such threshold with 
+        weaker coverage for wireless clients."
+    DEFVAL          { clientPriority } 
+    ::= { clrRrmFraConfig 4 }
+
+clrRrmFraSensorCoverage OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the overall sensor coverage
+        for entire RRM Group. It will represent % of 
+        radios covered in the single RF domain." 
+    ::= { clrRrmFraConfig 5 }
+
+clrRrmFraServicePriority OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        coverage(0),
+                        clientAware(1),
+                        serviceAssurance(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies service priority of
+        flexible radio assignment algorithm.Coverage 
+        is the default state which will ensure good 
+        coverage for wireless clients. Client-Aware 
+        enables more 5GHz radios when network load is 
+        higher,Service-Assurance enables more sensors 
+        via excessive radios to ensure good sensor 
+        coverage for Wireless Service Assurance."
+    DEFVAL          { coverage } 
+    ::= { clrRrmFraConfig 6 }
+
+clrRrmFraSensorDensityOptimisationTargetRssi OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "dbm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This value specifies receiver size cell for
+        wireless clients. RSSI value in dBm will 
+        approximate downlink RSSI for wireless clients. 
+        Target RSSI represents rough coverage given by 
+        FRA enabled radio for clients." 
+    ::= { clrRrmFraConfig 7 }
+clrRrm11kConfig  OBJECT IDENTIFIER
+    ::= { clrRrmConfig 12 }
+
+
+clrRrm11kDenialMax OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..10)
+    UNITS           "count"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum number of times a client can
+        be denied association if the association request that is sent
+        to an AP does not match any AP in the prediction list." 
+    ::= { clrRrm11kConfig 1 }
+
+clrRrm11kFloorBias OBJECT-TYPE
+    SYNTAX          Unsigned32 (5..25)
+    UNITS           "dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the neighbor floor label bias in dBm." 
+    ::= { clrRrm11kConfig 2 }
+
+clrRrm11kPredictionMin OBJECT-TYPE
+    SYNTAX          Unsigned32 (2..6)
+    UNITS           "count"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum number of predicted APs
+        required for the prediction list feature to be activated." 
+    ::= { clrRrm11kConfig 3 }
+
+clrRrmRemoveChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClrRrmRemoveChannelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the removed channel information
+        from default DCA channel list for an AP's 802.11 interface. 
+        Based on the country that an AP operates in, it 
+        gets assigned to a regulatory domain. For a given
+        regulatory domain a fixed number of channels are
+        assigned automatically to an AP for a given interface.
+        We can remove a channel from this default DCA list and
+        those channels will be put in this table.
+        This table represents the removed channels information
+        from the default DCA channel list.
+
+        By default, there will not be any entries in this table.
+        An entry can also be created or deleted from this table
+        by using clrRrmChannelRowStatus."
+    ::= { clrRrmConfig 13 }
+
+clrRrmRemoveChannelEntry OBJECT-TYPE
+    SYNTAX          ClrRrmRemoveChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table provides the removed channel
+        information for an 802.11 interface from
+        the default DCA channel list."
+    INDEX           {
+                        clrRrmParametersType,
+                        clrRrmRemoveChannelNum
+                    } 
+    ::= { clrRrmRemoveChannelTable 1 }
+
+ClrRrmRemoveChannelEntry ::= SEQUENCE {
+        clrRrmRemoveChannelNum       Unsigned32,
+        clrRrmRemovedChannelDcaState TruthValue,
+        clrRrmRemoveChannelRowStatus RowStatus
+}
+
+clrRrmRemoveChannelNum OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The channel nubmer for this entry.  This value represents
+        the unique channel number removed from the default DCA channel
+        list for the 802.11 interface for this regulatory domain." 
+    ::= { clrRrmRemoveChannelEntry 1 }
+
+clrRrmRemovedChannelDcaState OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether this channel is part
+        of the dynamic channel allocation (DCA) Remove List. 
+        A value of 'false' indicates that the DCA for this 
+        channel is disabled."
+    DEFVAL          { false } 
+    ::= { clrRrmRemoveChannelEntry 2 }
+
+clrRrmRemoveChannelRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+        All writable objects in this row may be modified 
+        at any time." 
+    ::= { clrRrmRemoveChannelEntry 3 }
+ 
+
+
+clrRrmAddChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClrRrmAddChannelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the added channel information
+        to the default DCA channel list for an AP's 802.11 interface. 
+        Based on the country that an AP operates in, it 
+        gets assigned to a regulatory domain. For a given
+        regulatory domain a fixed number of channels are
+        assigned automatically to an AP for a given interface.
+        We can add a non-default DCA channel to this list and those 
+        channels will be put in this table.
+        This table represents the added DCA channels information
+        to the default DCA list.
+
+        By default, there will not be any entries in this table.
+        An entry can also be created or deleted by
+        using clrRrmChannelRowStatus."
+    ::= { clrRrmConfig 14 }
+
+clrRrmAddChannelEntry OBJECT-TYPE
+    SYNTAX          ClrRrmAddChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table provides the added channel
+        information to the default DCA channel list for an
+        802.11 interface in an AP."
+    INDEX           {
+                        clrRrmParametersType,
+                        clrRrmAddChannelNum
+                    } 
+    ::= { clrRrmAddChannelTable 1 }
+
+ClrRrmAddChannelEntry ::= SEQUENCE {
+        clrRrmAddChannelNum        Unsigned32,
+        clrRrmAddedChannelDcaState TruthValue,
+        clrRrmAddChannelRowStatus  RowStatus
+}
+
+clrRrmAddChannelNum OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The channel nubmer for this entry.  This value
+        represents the unique channel number added to the 
+        default DCA channel list on this 802.11 interface
+        for this regulatory domain." 
+    ::= { clrRrmAddChannelEntry 1 }
+
+clrRrmAddedChannelDcaState OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether this channel is part
+        of the dynamic channel allocation (DCA) Add List. 
+        A value of 'true' indicates that the DCA for this 
+        channel is enabled."
+    DEFVAL          { true } 
+    ::= { clrRrmAddChannelEntry 2 }
+
+clrRrmAddChannelRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+        All writable objects in this row may be modified 
+        at any time." 
+    ::= { clrRrmAddChannelEntry 3 }
+ 
+
+
+clrRrmDot11BandJoinedGrpMemberTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClrRrmDot11BandJoinedGrpMemberEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the information about the
+        RRM grouping members corresponding to
+        the dot11 band of the APs that have joined
+        the controller.
+
+        The entries are members of the group represented by
+        clrRrmDot11BandGrpTable."
+    ::= { clrRrmConfig 15 }
+
+clrRrmDot11BandJoinedGrpMemberEntry OBJECT-TYPE
+    SYNTAX          ClrRrmDot11BandJoinedGrpMemberEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes the grouping members
+        on a  dot11 band of an AP that has joined 
+        the controller.
+
+        An entry will be created/deleted when
+        members are added/deleted to/from the gorup."
+    INDEX           {
+                        clrRrmParametersType,
+                        clrRrmDot11BandJoinedMemberIpAddressType,
+                        clrRrmDot11BandJoinedMemberIpAddress
+                    } 
+    ::= { clrRrmDot11BandJoinedGrpMemberTable 1 }
+
+ClrRrmDot11BandJoinedGrpMemberEntry ::= SEQUENCE {
+        clrRrmDot11BandJoinedMemberIpAddressType     InetAddressType,
+        clrRrmDot11BandJoinedMemberIpAddress         InetAddress,
+        clrRrmDot11BandJoinedMemberName              SnmpAdminString,
+        clrRrmDot11BandJoinedMemberIsJoined          TruthValue,
+        clrRrmDot11BandJoinedMemberJoinFailureReason INTEGER,
+        clrRrmDot11BandJoinedMemberIpv6AddressType   InetAddressType,
+        clrRrmDot11BandJoinedMemberIpv6Address       InetAddress
+}
+
+clrRrmDot11BandJoinedMemberIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the address type of the dot11
+        group member for the dot11 grouping containing 
+        this controller." 
+    ::= { clrRrmDot11BandJoinedGrpMemberEntry 1 }
+
+clrRrmDot11BandJoinedMemberIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the address of the dot11
+        group member for the dot11 grouping containing 
+        this controller." 
+    ::= { clrRrmDot11BandJoinedGrpMemberEntry 2 }
+
+clrRrmDot11BandJoinedMemberName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the dot11
+        group member for the dot11 grouping containing 
+        this controller." 
+    ::= { clrRrmDot11BandJoinedGrpMemberEntry 3 }
+
+clrRrmDot11BandJoinedMemberIsJoined OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the member has joined this
+        RRM RF Group yet. If not the value would be 'false'.
+        Else it would be true. This field is significant only
+        if the current group is a static RRM RF Group.
+        In all other cases a value of 'true' would be shown.
+
+        true  - member has joined the group successfully
+        false - member has not joined the group yet."
+    DEFVAL          { true } 
+    ::= { clrRrmDot11BandJoinedGrpMemberEntry 4 }
+
+clrRrmDot11BandJoinedMemberJoinFailureReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        joinedSuccessfully(1),
+                        invalidIp(2),
+                        groupSizeExceeded(3),
+                        invalidGroupOrder(4),
+                        nonMatchingGroupID(5),
+                        unexpectedError(6),
+                        weakSignalStrength(7),
+                        joinPending(8),
+                        notAManager(9),
+                        groupingDelayed(10),
+                        groupingDisabled(11),
+                        invalidProtocolVersion(12),
+                        countryCodeMismatch(13),
+                        invalidHierarchy(14),
+                        alreadyAStaticLeader(15),
+                        memberOfAnotherGroup(16),
+                        unconfiguredAsStaticMember(17),
+                        cntlrNameAndIpMismatch(18),
+                        unexpectedMemoryError(19),
+                        rfDomainMismatch(20)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason the member could not
+        join the RRM RF Group. This field is relevant only
+        if the corresponding instance for 
+        'clrRrmDot11BandMemberIsJoined' is 'false'.
+
+        joinedSuccessfully         -  member has joined the group 
+                                      successfully
+        invalidIp                  -  invalid ip
+        groupSizeExceeded          -  group size is exceeded
+        invalidGroupOrder          -  group order is invalid
+        nonMatchingGroupID         -  group id doesn't match
+        unexpectedError            -  unexpected error 
+                                      has occurred
+        weakSignalStrength         -  signal strength is weak
+        joinPending                -  group join is pending
+        notAManager                -  not a manager
+        groupingDelayed            -  grouping is delayed
+        groupingDisabled           -  grouping is disabled
+        invalidProtocolVersion     -  protocol version is invalid
+        countryCodeMismatch        -  country code doesn't match
+        invalidHierarchy           -  invalid grouping hierarchy
+        alreadyAStaticLeader       -  already a static leader
+        memberOfAnotherGroup       -  member of another group
+        unconfiguredAsStaticMember -  unconfigured static member
+        cntlrNameAndIpMismatch     -  controller name and ip 
+                                      doesn't match
+        unexpectedMemoryError      -  an unexpected memory error 
+                                      has happened
+        rfDomainMismatch           -  RF domain doesn't match."
+    DEFVAL          { joinedSuccessfully } 
+    ::= { clrRrmDot11BandJoinedGrpMemberEntry 5 }
+
+clrRrmDot11BandJoinedMemberIpv6AddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IP address type of the
+        member controller joined to the RRM RF group." 
+    ::= { clrRrmDot11BandJoinedGrpMemberEntry 6 }
+
+clrRrmDot11BandJoinedMemberIpv6Address OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the IPv6 address of the
+        member controller joined to the RRM RF group." 
+    ::= { clrRrmDot11BandJoinedGrpMemberEntry 7 }
+ 
+clrRrmBcoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ClrRrmBcoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains configurations for the
+         BSS Color Optimization (BCO) algorithm."
+    ::= { clrRrmConfig 16 }
+
+clrRrmBcoEntry OBJECT-TYPE
+    SYNTAX          ClrRrmBcoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table represents the
+        BSS Color Optimization (BCO) configuration
+        for a dot11 band."
+    INDEX           { clrRrmParametersType }
+    ::= { clrRrmBcoTable 1 }
+
+ClrRrmBcoEntry ::= SEQUENCE {
+        clRrmBcoMode INTEGER
+}
+
+clRrmBcoMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        automatic(1),
+                        static(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "BSS Color Optimization (BCO) has two modes. When the mode is
+        auto, the BSS color will be dynamically updated for all access
+        points that permit this operation. When BCO is static, no
+        dynamic BSS color selections occur and the BSS color must be
+        manually configured."
+    DEFVAL          { automatic }
+    ::= { clrRrmBcoEntry 1 }
+
+clrRrmTriRadioConfig OBJECT IDENTIFIER
+    ::= { clrRrmConfig 17 }
+
+clrRrmTriRadioMode OBJECT-TYPE
+    SYNTAX         TruthValue
+    MAX-ACCESS     read-write
+    STATUS         current
+    DESCRIPTION
+        "This object specifies the state of global tri-radio mode
+         on the controller. A value of 'true' means global tri-radio
+         mode is enabled. A value of 'false' indicates that the
+         global tri-radio mode is disabled"
+    DEFVAL          { false }
+    ::= { clrRrmTriRadioConfig 1 }
+
+-- ********************************************************************
+-- *    NOTIFICATION Variable
+-- ********************************************************************
+
+clrRrmNotificationVariable  OBJECT IDENTIFIER
+    ::= { ciscoLwappRrmMIBObjects 2 }
+
+
+clrRrmApTransmitPowerLevel OBJECT-TYPE
+    SYNTAX          Integer32 (-200..200)
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This indicates represents the transmit power level for the AP." 
+    ::= { clrRrmNotificationVariable 1 }
+
+clrRrmTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time when coverage
+        pre alarm was first reported to controller by an
+        access point. After receiving this alert, 
+        controller will try to mitigate the coverage hole 
+        by increasing the transmit power of that access
+        point. After doing above step for stipulated time,
+        if coverage hole cannot be corrected by controller, 
+        a final notification would be generated from
+        controller , informing the administrator
+        about the existence of a coverage hole." 
+    ::= { clrRrmNotificationVariable 2 }
+
+clrRrmClientType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        data(1),
+                        voice(2)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the client type for which this
+        notification was sent. 
+
+        data(1)  -  coverage hole has been detected for a data 
+                    client(client which is meant for data services). 
+
+        voice(2) -  coverage hole has been detected for a voice 
+                    client(client which is meant for voice services)." 
+    ::= { clrRrmNotificationVariable 3 }
+
+clrRrmRssiHistogramLength OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of values on the histogram.
+        At present it is 31 entries." 
+    ::= { clrRrmNotificationVariable 4 }
+
+clrRrmRssiHistogramMaxIndex OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the maximum value on the histogram." 
+    ::= { clrRrmNotificationVariable 5 }
+
+clrRrmRssiHistogramMinIndex OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the minimum value on the histogram." 
+    ::= { clrRrmNotificationVariable 6 }
+
+clrRrmRssiHistogramValues OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object returns a comma seperated string of histogram
+        values. The number of values sent out is represented by the
+        clrRrmRssiHistogramLength." 
+    ::= { clrRrmNotificationVariable 7 }
+
+clrRrmNeighborApCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of 'clrRrmNeighborApMac,
+        clrRrmNeighborApRssi' appended to this notification.
+        This count is 5 and includes the AP itself." 
+    ::= { clrRrmNotificationVariable 8 }
+
+clrRrmNeighborApMacAddress OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the neighbor MAC address for this
+        client. This is a comma seperated values for clrRrmNeighborApCount
+        values." 
+    ::= { clrRrmNotificationVariable 9 }
+
+clrRrmNeighborApRssi OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the neighbor RSSI values for this
+        client. This is a comma seperated values for clrRrmNeighborApCount
+         values." 
+    ::= { clrRrmNotificationVariable 10 }
+
+clrRrmNeighborApIfType OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the neighbor AP radio type for this
+        client. This is a comma seperated values for clrRrmNeighborApCount
+         values." 
+    ::= { clrRrmNotificationVariable 11 }
+
+clrRrmSysMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the MAC Address of the controller." 
+    ::= { clrRrmNotificationVariable 12 }
+
+clrRrmSysIdentifier OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the unique identifier for the controller." 
+    ::= { clrRrmNotificationVariable 13 }
+
+clrRrmRssiHistogramValuesRev OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the histogram value.
+        When notfication is being sent, there would
+        as many instances of this object as the vlaue of
+        'clrRrmRssiHistogramLength'." 
+    ::= { clrRrmNotificationVariable 14 }
+
+clrRrmNeighborApCountRev OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of 'clrRrmNeighborApMac,
+        clrRrmNeighborApRssi' appended to this notification." 
+    ::= { clrRrmNotificationVariable 15 }
+
+clrRrmNeighborApMacAddressRev OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the neighbor MAC address for this
+        client. This is a comma seperated values for clrRrmNeighborApCount
+        values." 
+    ::= { clrRrmNotificationVariable 16 }
+
+clrRrmNeighborApRssiRev OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the neighbor RSSI values for this
+        client. This is a comma seperated values for clrRrmNeighborApCount
+         values." 
+    ::= { clrRrmNotificationVariable 17 }
+
+clrRrmNeighborApIfTypeRev OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the neighbor AP radio type for this
+        client. This is a comma seperated values for clrRrmNeighborApCount
+         values." 
+    ::= { clrRrmNotificationVariable 18 }
+
+clrRrmSysMacAddressRev OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the MAC Address of the controller." 
+    ::= { clrRrmNotificationVariable 19 }
+
+clrRrmSysIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of clrRrmSysIpAddress." 
+    ::= { clrRrmNotificationVariable 20 }
+
+clrRrmSysIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the IPv4 and IPv6 address of the controller." 
+    ::= { clrRrmNotificationVariable 21 }
+
+-- ********************************************************************
+-- *    NOTIFICATIONS
+-- ********************************************************************
+
+ciscoLwappDot11ClientCoverageHolePreAlarm NOTIFICATION-TYPE
+    OBJECTS         {
+                        cldcClientMacAddress,
+                        cldcApMacAddress,
+                        cldcIfType,
+                        cLApName,
+                        clrRrmApTransmitPowerLevel,
+                        clrRrmTimeStamp,
+                        clrRrmClientType,
+                        clrRrmRssiHistogramLength,
+                        clrRrmRssiHistogramMaxIndex,
+                        clrRrmRssiHistogramMinIndex,
+                        clrRrmRssiHistogramValues,
+                        clrRrmNeighborApCount,
+                        clrRrmNeighborApMacAddress,
+                        clrRrmNeighborApRssi,
+                        clrRrmNeighborApIfType,
+                        cLWlanChdEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when the AP receives at least
+        'packet count' packets, represented by clrRrmParametersVoicePktCount
+        for voice or clrRrmParametersDataPktCount for data, from a client
+        in any given 5 second interval and 'packet percent' of the packets,
+        represented by clrRrmParametersVoicePktCount for voice and
+        clrRrmParametersDataPktCount for data,  from the client are below
+        the 'RSSI threshold' represented by
+        clrRrmParametersVoiceRssiThreshold for voice and
+        clrRrmParametersDataRssiThreshold for data."
+   ::= { ciscoLwappRrmMIBNotifs 1 }
+
+ciscoLwappRrmRfGroupLeaderChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        cldcIfType,
+                        clrRrmSysMacAddress,
+                        clrRrmSysIpAddress,
+                        clrRrmSysIdentifier
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification would be generated,
+        from the controller that is elected as the 
+        new leader, when RF Grouping is done. 
+        It has MAC address and details of the new Group Leader."
+   ::= { ciscoLwappRrmMIBNotifs 2 }
+
+ciscoLwappRrmRfGroupMemberAdded NOTIFICATION-TYPE
+    OBJECTS         {
+                        cldcIfType,
+                        clrRrmSysMacAddress,
+                        clrRrmSysIpAddress,
+                        clrRrmSysIdentifier
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated from the group leader
+        when a new member is added to the RF group.
+        This notification has MAC address and details of 
+        new group member."
+   ::= { ciscoLwappRrmMIBNotifs 3 }
+
+ciscoLwappRrmRfGroupMemberRemoved NOTIFICATION-TYPE
+    OBJECTS         {
+                        cldcIfType,
+                        clrRrmSysMacAddress,
+                        clrRrmSysIpAddress,
+                        clrRrmSysIdentifier
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The notification is generated from the group leader,
+        when a member is removed from the RF group.
+        This notification has MAC address and details of 
+        removed group member."
+   ::= { ciscoLwappRrmMIBNotifs 4 }
+
+ciscoLwappDot11ClientCoverageHolePreAlarmRev NOTIFICATION-TYPE
+    OBJECTS         {
+                        cldcClientMacAddress,
+                        cldcApMacAddress,
+                        cldcIfType,
+                        cLApName,
+                        clrRrmApTransmitPowerLevel,
+                        clrRrmTimeStamp,
+                        clrRrmClientType,
+                        clrRrmRssiHistogramLength,
+                        clrRrmRssiHistogramMaxIndex,
+                        clrRrmRssiHistogramMinIndex,
+                        clrRrmNeighborApCountRev,
+                        clrRrmNeighborApMacAddressRev,
+                        clrRrmNeighborApRssiRev,
+                        clrRrmNeighborApIfTypeRev,
+                        cLWlanChdEnable,
+                        clrRrmRssiHistogramValuesRev
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The system generates this notification when the
+        RRM coverage hole detection algorithm detects areas of radio
+        coverage in a wireless LAN that are below the level needed for
+        robust radio performance.
+
+        If clients on a access point are detected at
+        threshold levels (RSSI, percentage of failed
+        packets, and number of failed packets) specified in RRM
+        configuration, the access point sends a 'coverage hole'
+        alert to the controller.
+
+        This notification is generated in any of the following
+        conditions
+
+        1)When the failed packet count
+        is more than failed packet count threshold represented by
+        clrRrmParametersVoicePktCountThreshold for voice and
+        clrRrmParametersDataPktCountThreshold for data.
+
+        2)When the percentage of failed packet count is more than
+        the failed packet count threshold represented by
+        clrRrmParametersVoicePktPercentThreshold for voice and
+        clrRrmParametersDataPktPercentThreshold for data.
+
+        3)When RSSI value is lower than the RSSI threshold represented
+        by clrRrmParametersVoiceRssiThreshold for voice and
+        clrRrmParametersDataRssiThreshold for data."
+   ::= { ciscoLwappRrmMIBNotifs 5 }
+
+ciscoLwappRrmRfGroupLeaderChangeRev NOTIFICATION-TYPE
+    OBJECTS         {
+                        cldcIfType,
+                        clrRrmSysMacAddressRev,
+                        clrRrmSysIpAddressType,
+                        clrRrmSysIpAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification would be generated,
+        from the controller that is elected as the 
+        new leader, when RF Grouping is done. 
+        It has MAC address and details of the new Group Leader."
+   ::= { ciscoLwappRrmMIBNotifs 6 }
+
+ciscoLwappRrmRfGroupMemberAddedRev NOTIFICATION-TYPE
+    OBJECTS         {
+                        cldcIfType,
+                        clrRrmSysMacAddressRev,
+                        clrRrmSysIpAddressType,
+                        clrRrmSysIpAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated from the group leader
+        when a new member is added to the RF group.
+        This notification has MAC address and details of 
+        new group member."
+   ::= { ciscoLwappRrmMIBNotifs 7 }
+
+ciscoLwappRrmRfGroupMemberRemovedRev NOTIFICATION-TYPE
+    OBJECTS         {
+                        cldcIfType,
+                        clrRrmSysMacAddressRev,
+                        clrRrmSysIpAddressType,
+                        clrRrmSysIpAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The notification is generated from the group leader,
+        when a member is removed from the RF group.
+        This notification has MAC address and details of 
+        removed group member."
+   ::= { ciscoLwappRrmMIBNotifs 8 }
+-- ********************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+-- ********************************************************************
+
+ciscoLwappRrmMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappRrmMIBConform 1 }
+
+ciscoLwappRrmMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappRrmMIBConform 2 }
+
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+-- STATUS deprecated by ciscoLwappRrmMIBComplianceRev1
+
+ciscoLwappRrmMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRrmMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoLwappRrmConfigGroup }
+    ::= { ciscoLwappRrmMIBCompliances 1 }
+
+-- STATUS deprecated by ciscoLwappRrmMIBComplianceRev2
+
+ciscoLwappRrmMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRrmMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoLwappRrmConfigGroup }
+
+    GROUP           ciscoLwappRrmConfigGroupSup1
+    DESCRIPTION
+        "Implementation of this group is mandatory for
+        controllers that support CHD (Coverage Hole 
+        Detection)."
+    ::= { ciscoLwappRrmMIBCompliances 2 }
+
+ciscoLwappRrmMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRrmMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoLwappRrmConfigGroupSup2 }
+
+    GROUP           ciscoLwappRrmConfigGroupSup1
+    DESCRIPTION
+        "Implementation of this group is mandatory for
+        controllers that support CHD (Coverage Hole 
+        Detection)."
+
+    GROUP           ciscoLwappRrmConfigGroupSup3
+    DESCRIPTION
+        "Implementation of this group is mandatory for
+        controllers that supports TPC (Transmission 
+        Power Control)."
+
+    GROUP           ciscoLwappRrmConfigGroupSup4
+    DESCRIPTION
+        "Implementation of this group is mandatory for
+        controllers that supports RRM RF Grouping."
+
+    GROUP           ciscoLwappRrmGrpStatusGroup
+    DESCRIPTION
+        "Implementation of this status group is mandatory for
+        controllers that supports RRM RF Grouping."
+    ::= { ciscoLwappRrmMIBCompliances 3 }
+
+ciscoLwappRrmMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that implement
+        the ciscoLwappRrmMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoLwappRrmConfigGroupSup7 }
+
+    GROUP           ciscoLwappRrmConfigGroupSup1
+    DESCRIPTION
+        "Implementation of this group is mandatory for controllers that
+        support CHD (Coverage Hole Detection)."
+
+    GROUP           ciscoLwappRrmConfigGroupSup3
+    DESCRIPTION
+        "Implementation of this group is mandatory for controllers that
+        supports TPC (Transmission Power Control)"
+
+    GROUP           ciscoLwappRrmConfigGroupSup4
+    DESCRIPTION
+        "Implementation of this group is mandatory for controllers that
+        supports RRM RF Grouping."
+
+    GROUP           ciscoLwappRrmConfigGroupSup5
+    DESCRIPTION
+        "Implementation of this group is mandatory for controllers that
+        support CHD (Coverage Hole Detection)."
+
+    GROUP           ciscoLwappRrmGrpStatusGroup
+    DESCRIPTION
+        "Implementation of this status group is mandatory for controllers
+        that supports RRM RF Grouping"
+
+    GROUP           ciscoLwappRrmChannelStatusGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the devices which
+        support creation or deletion of 802.11 channels."
+
+    GROUP           ciscoLwappRrmParametersGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the devices which
+        support additional RRM parameters for 802.11 channels."
+
+    GROUP           ciscoLwappRrmDcaChannelListGroup
+    DESCRIPTION
+        "Implementation of this group is optional for the devices which
+        support enabling or disabling 802.11 channels for DCA."
+
+    GROUP           ciscoLwappRrmFraConfigGroup
+    DESCRIPTION
+        "Implementation of this group is optional for the devices which
+        has XOR radio."
+
+    GROUP           ciscoLwappRrmConfigGroupSup6
+    DESCRIPTION
+        "Implementation of this group is optional based upon client or
+        network preference."
+
+    GROUP           ciscoLwappRrmNotifsGroup
+    DESCRIPTION
+        "Implementation of this groups sends notifications by the agent
+        related to management station regarding RRM."
+
+    GROUP           ciscoLwappRrmNotifyObjectsGroup
+    DESCRIPTION
+        "Implementation of this groups sends notifications by the agent
+        related to management station regarding RRM."
+
+    GROUP           ciscoLwappRrmPakRssiConfigGroup
+    DESCRIPTION
+        "Implementation of this group is necessary to configure
+        hyperlocation /fastlocate for APs that belong to a user defined
+        group."
+
+    GROUP           ciscoLwappRrmChdConfigGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for
+        controllers that support CHD (Coverage Hole Detection)."
+
+    GROUP           ciscoLwappRrmOptRoamGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for
+        controllers that support Optimized Roaming."
+
+    OBJECT          clrRrmParametersChdEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersVoicePktCountThreshold
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersVoicePktPercentThreshold
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersVoiceRssiThreshold
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersDataPktCountThreshold
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersDataPktPercentThreshold
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersDataRssiThreshold
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersMaxTxPower
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersMinTxPower
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersTpcVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersChdNoise
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersChdInterference
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersChdLoad
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersChdSignal
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersChdDevice
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersMaxClients
+    WRITE-SYNTAX    Unsigned32(1..200)
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersRssiCheckEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersRssiThreshold
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersOptRoamEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersOptRoamDataRate
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-write access is not required."
+
+    OBJECT          clrRrmParametersOptRoamInterval
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmParametersClientNetworkPreference
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmChannelDcaState
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmChannelRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDot11BandGrpLeaderIpAddressType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDot11BandGrpLeaderIpAddress
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDot11BandGrpLeaderName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDot11BandGrpMode
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDot11BandGrpRole
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDot11BandGrpRestart
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDot11BandGrpLastUpdateTime
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDot11BandGrpInterval
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDot11BandMemberName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDot11BandMemberIsJoined
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDot11BandMemberJoinFailureReason
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDot11BandMemberRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDcaDot11aOutdoorAPDca
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmRfGroupingPriority
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDcaUsedChannelList
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmDcaUnusedChannelList
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmHyperLocationEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmPakRssiThreshold
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmPakRssiThresholdTrigger
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmPakRssiNtpIpAddressType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmPakRssiNtp
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmFraEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "write access is not required."
+
+    OBJECT          clrRrmFraInterval
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmFraSensitivity
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmApTransmitPowerLevel
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmTimeStamp
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmClientType
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmRssiHistogramLength
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmRssiHistogramMaxIndex
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmRssiHistogramMinIndex
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmRssiHistogramValuesRev
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmNeighborApCountRev
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmNeighborApMacAddressRev
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmNeighborApRssiRev
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmNeighborApIfTypeRev
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmSysMacAddressRev
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmSysIpAddressType
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmSysIpAddress
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoLwappRrmMIBCompliances 4 }
+
+ciscoLwappRrmMIBComplianceRev4 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappRrmMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoLwappRrmConfigGroupSup8 }
+
+    GROUP           ciscoLwappRrmConfigGroupSup1
+    DESCRIPTION
+        "Implementation of this group is mandatory for
+        controllers that support CHD (Coverage Hole 
+        Detection)."
+
+    GROUP           ciscoLwappRrmConfigGroupSup3
+    DESCRIPTION
+        "Implementation of this group is mandatory for
+        controllers that supports TPC (Transmission 
+        Power Control)."
+
+    GROUP           ciscoLwappRrmConfigGroupSup4
+    DESCRIPTION
+        "Implementation of this group is mandatory for
+        controllers that supports RRM RF Grouping."
+
+    GROUP           ciscoLwappRrmGrpStatusGroup
+    DESCRIPTION
+        "Implementation of this status group is mandatory for
+        controllers that supports RRM RF Grouping."
+
+    GROUP           ciscoLwappRrmChannelStatusGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices which support creation or deletion of
+        802.11 channels."
+
+    GROUP           ciscoLwappRrmParametersGroup
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices which support additional RRM parameters
+        for 802.11 channels."
+
+    GROUP           ciscoLwappRrmDcaChannelListGroup
+    DESCRIPTION
+        "Implementation of this group is optional for the
+        devices which support enabling or disabling 802.11
+        channels for DCA."
+
+    GROUP           ciscoLwappRrmConfigGroupSup5
+    DESCRIPTION
+        "Implementation of this group is mandatory for the
+        devices which support deletion of
+        802.11 channels."
+
+    GROUP           ciscoLwappRrmConfigGroupSup9
+    DESCRIPTION
+        "Implementation of this group is mandatory for
+        controllers that supports RRM RF Grouping."
+
+    OBJECT          clrRrmChannelRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-create access is not required."
+
+    OBJECT          clrRrmParametersTpcVersion
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmParametersMaxClients
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmParametersChdNoise
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmParametersChdInterference
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmParametersChdLoad
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmParametersChdSignal
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmParametersChdDevice
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmDcaUsedChannelList
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmDcaUnusedChannelList
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          clrRrmRemoveChannelRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "read-create access is not required."
+    ::= { ciscoLwappRrmMIBCompliances 5 }
+
+ciscoLwappRrmConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmParametersPicoCellMode,
+                        clrRrmTupleRxSenseThresholdMin,
+                        clrRrmTupleRxSenseThresholdMax,
+                        clrRrmTupleRxSenseThreshold,
+                        clrRrmTupleCcaSenseThresholdMin,
+                        clrRrmTupleCcaSenseThresholdMax,
+                        clrRrmTupleCcaSenseThreshold,
+                        clrRrmTupleTransmitPowerLevelMin,
+                        clrRrmTupleTransmitPowerLevelMax,
+                        clrRrmTupleTransmitPowerLevel,
+                        clrRrmTupleSetDefault,
+                        clrRrmChannelDcaState
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represent the
+        RRM configuration on the controller.
+        ciscoLwappRrmConfigGroup object is superseded by ciscoLwappRrmConfigGroupSup1 ."
+    ::= { ciscoLwappRrmMIBGroups 1 }
+
+ciscoLwappRrmConfigGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmParametersChdEnable,
+                        clrRrmParametersVoicePktCountThreshold,
+                        clrRrmParametersVoicePktPercentThreshold,
+                        clrRrmParametersVoiceRssiThreshold,
+                        clrRrmParametersDataPktCountThreshold,
+                        clrRrmParametersDataPktPercentThreshold,
+                        clrRrmParametersDataRssiThreshold
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the
+        RRM configuration for Voice and Data packets
+        on the controller."
+    ::= { ciscoLwappRrmMIBGroups 2 }
+
+ciscoLwappRrmConfigGroupSup2 OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmChannelDcaState,
+                        clrRrmParametersDcaChannelWidth,
+                        clrRrmDcaDot11aOutdoorAPDca
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represent the
+        RRM configuration on the controller."
+    ::= { ciscoLwappRrmMIBGroups 3 }
+
+ciscoLwappRrmConfigGroupSup3 OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmParametersMaxTxPower,
+                        clrRrmParametersMinTxPower
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        Transmission Power Control(TPC)
+        configuration on the controller, when the same
+        is enabled on the controller."
+    ::= { ciscoLwappRrmMIBGroups 4 }
+
+ciscoLwappRrmConfigGroupSup4 OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmDot11BandGrpMode,
+                        clrRrmDot11BandGrpRestart,
+                        clrRrmDot11BandMemberName,
+                        clrRrmDot11BandMemberRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        RRM RF Grouping configuration on the controller, 
+        when the same is enabled on the controller."
+    ::= { ciscoLwappRrmMIBGroups 5 }
+
+ciscoLwappRrmGrpStatusGroup OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmDot11BandGrpLeaderIpAddressType,
+                        clrRrmDot11BandGrpLeaderIpAddress,
+                        clrRrmDot11BandGrpLeaderName,
+                        clrRrmDot11BandGrpRole,
+                        clrRrmDot11BandGrpLastUpdateTime,
+                        clrRrmDot11BandGrpInterval,
+                        clrRrmDot11BandMemberIsJoined,
+                        clrRrmDot11BandMemberJoinFailureReason,
+                        clrRrmDot11BandGrpLeaderIpv6AddressType,
+                        clrRrmDot11BandGrpLeaderIpv6Address
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        status of RRM RF Groping on the controller,
+        when the same is enabled on the controller."
+    ::= { ciscoLwappRrmMIBGroups 6 }
+
+ciscoLwappRrmChannelStatusGroup OBJECT-GROUP
+    OBJECTS         { clrRrmChannelRowStatus }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing creation or deletion of
+        802.11 channels."
+    ::= { ciscoLwappRrmMIBGroups 7 }
+
+ciscoLwappRrmParametersGroup OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmParametersTpcVersion,
+                        clrRrmParametersMaxClients,
+                        clrRrmParametersChdNoise,
+                        clrRrmParametersChdInterference,
+                        clrRrmParametersChdLoad,
+                        clrRrmParametersChdSignal,
+                        clrRrmParametersChdDevice
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        RRM parameters for a 802.11 interface type."
+    ::= { ciscoLwappRrmMIBGroups 8 }
+
+ciscoLwappRrmNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoLwappDot11ClientCoverageHolePreAlarmRev,
+                        ciscoLwappRrmRfGroupLeaderChangeRev,
+                        ciscoLwappRrmRfGroupMemberAddedRev,
+                        ciscoLwappRrmRfGroupMemberRemovedRev
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects provides the information
+        about the notifications sent by the agent related
+        to RRM."
+    ::= { ciscoLwappRrmMIBGroups 9 }
+
+ciscoLwappRrmDcaChannelListGroup OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmDcaUsedChannelList,
+                        clrRrmDcaUnusedChannelList,
+                        clrRrmDcaDefaultChannelList
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the channels used
+        in DCA as well as not used in DCA for APs."
+    ::= { ciscoLwappRrmMIBGroups 10 }
+
+ciscoLwappRrmConfigGroupSup5 OBJECT-GROUP
+    OBJECTS         { clrRrmRfGroupingPriority }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        RRM configuration on the controller."
+    ::= { ciscoLwappRrmMIBGroups 11 }
+
+ciscoLwappRrmFraConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmFraEnable,
+                        clrRrmFraInterval,
+                        clrRrmFraSensitivity,
+                        clrRrmFraSensorThreshold,
+                        clrRrmFraSensorCoverage,
+                        clrRrmFraServicePriority,
+                        clrRrmFraSensorDensityOptimisationTargetRssi
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the Flexible Radio
+        Assignment (FRA) configuration on the controller."
+    ::= { ciscoLwappRrmMIBGroups 12 }
+
+ciscoLwappRrmConfigGroupSup6 OBJECT-GROUP
+    OBJECTS         { clrRrmParametersClientNetworkPreference }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the RRM configuration on
+        the controller."
+    ::= { ciscoLwappRrmMIBGroups 13 }
+
+ciscoLwappRrmChdConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmParametersChdNoise,
+                        clrRrmParametersChdInterference,
+                        clrRrmParametersChdLoad,
+                        clrRrmParametersChdSignal,
+                        clrRrmParametersChdDevice
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the Coverage Hold Detection(CHD)
+        configuration on the controller, when the same is enabled
+        on the controller."
+    ::= { ciscoLwappRrmMIBGroups 14 }
+
+ciscoLwappRrmOptRoamGroup OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmParametersOptRoamEnable,
+                        clrRrmParametersOptRoamDataRate,
+                        clrRrmParametersOptRoamInterval,
+                        clrRrmParametersRssiCheckEnable,
+                        clrRrmParametersRssiThreshold
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the Optimized Roaming
+        configuration on the controller, when the same is enabled
+        on the controller."
+    ::= { ciscoLwappRrmMIBGroups 15 }
+
+ciscoLwappRrmPakRssiConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmHyperLocationEnable,
+                        clrRrmPakRssiThreshold,
+                        clrRrmPakRssiThresholdTrigger,
+                        clrRrmPakRssiNtpIpAddressType,
+                        clrRrmPakRssiNtp
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the Packet RSSI
+        configuration on the controller, when the same is enabled on the
+        controller."
+    ::= { ciscoLwappRrmMIBGroups 16 }
+
+ciscoLwappRrmNotifyObjectsGroup OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmApTransmitPowerLevel,
+                        clrRrmTimeStamp,
+                        clrRrmClientType,
+                        clrRrmRssiHistogramLength,
+                        clrRrmRssiHistogramMaxIndex,
+                        clrRrmRssiHistogramMinIndex,
+                        clrRrmRssiHistogramValuesRev,
+                        clrRrmNeighborApCountRev,
+                        clrRrmNeighborApMacAddressRev,
+                        clrRrmNeighborApRssiRev,
+                        clrRrmNeighborApIfTypeRev,
+                        clrRrmSysMacAddressRev,
+                        clrRrmSysIpAddressType,
+                        clrRrmSysIpAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects provide the information
+        about RRM trap configuration and trap definition.
+        These objects are defined under ciscoLwappRrmNotifObjects."
+    ::= { ciscoLwappRrmMIBGroups 17 }
+
+ciscoLwappRrmConfigGroupSup7 OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmChannelDcaState,
+                        clrRrmDcaDot11aOutdoorAPDca
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        RRM configuration on the controller."
+    ::= { ciscoLwappRrmMIBGroups 18 }
+
+ciscoLwappRrmConfigGroupSup8 OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmRemovedChannelDcaState,
+                        clrRrmRemoveChannelRowStatus,
+                        clrRrmAddedChannelDcaState,
+                        clrRrmAddChannelRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the
+        RRM Dca configuration on the controller."
+    ::= { ciscoLwappRrmMIBGroups 19 }
+
+ciscoLwappRrmConfigGroupSup9 OBJECT-GROUP
+    OBJECTS         {
+                        clrRrmDot11BandJoinedMemberName,
+                        clrRrmDot11BandJoinedMemberIsJoined,
+                        clrRrmDot11BandMemberName,
+                        clrRrmDot11BandJoinedMemberJoinFailureReason,
+                        clrRrmDot11BandJoinedMemberIpv6AddressType,
+                        clrRrmDot11BandJoinedMemberIpv6Address
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents
+        RRM Grouping configuration corresponding to
+        dot11 band of APs joined to the controller, 
+        when the same is enabled on the controller."
+    ::= { ciscoLwappRrmMIBGroups 20 }
+
+END
+
+

@@ -1,0 +1,299 @@
+-- *****************************************************************
+-- CISCO-CDSTV-INGEST-TUNING-MIB: Cisco CDS-TV Ingest Tuning Management
+-- Information Base
+--   
+-- June 2010, Rajat Ahuja.
+--   
+-- Copyright (c) 2010 by Cisco Systems, Inc.
+--   
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-CDSTV-INGEST-TUNING-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCdstvIngestTuningMIB MODULE-IDENTITY
+    LAST-UPDATED    "201006240000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-cds@cisco.com"
+    DESCRIPTION
+        "This MIB module defines ingest tuning configuration objects
+        that facilitate the management of the Cisco Content Delivery
+        System for TV (CDS-TV) product family.
+
+        CDS-TV is a suite of products and software applications
+        providing ingest, storage, caching, streaming, playout and
+        on-demand delivery of video to television or set-top-box
+        clients.
+
+        Abbreviations:
+
+        CCP     Cache Control Protocol
+        CDS     Content Delivery System
+        CORBA   Common Object Request Broker Architecture 
+        ISA     Interactive Services Architecture
+        ISV     Integrated Streamer-Vault
+        FSI     File Service Interface
+        FTP     File Transfer Protocol
+        MPEG    Motion Picture Experts Group
+        MSA     Managed Services Architecture
+        RTSP    Real-Time Streaming Protocol
+        SOAP    Simple Object Access Protocol
+        STB     Set-Top Box
+        VOD     Video On-Demand
+
+        Common terms:
+
+        Catcher: Device responsible for receiving content (typically via
+        satellite dishes and antennae) from content providers or from a
+        Headend-In-The-Sky. 
+
+        Content Ingest: Acquisition of content from a source such as a
+        catcher or an FTP server for storing it locally and making it
+        available to streamers as needed.
+
+        Device Roles:
+
+        Vault: Content delivery application responsible for ingesting
+        and storing video content and making it available to streamers
+        and/or caching nodes.
+
+        Caching Nodes: Content delivery application responsible for
+        caching content from vault (using CCP) and then streaming
+        content out to streamers over HTTP or CCP.
+
+        Streamer: Content delivery application responsible for streaming
+        video out to STB's.
+
+        ISV: Content delivery application capable of acting as both a
+        vault and as a streamer in a single device."
+    REVISION        "201006240000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 750 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+ciscoCdstvIngestTuningMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIngestTuningMIB 0 }
+
+ciscoCdstvIngestTuningMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIngestTuningMIB 1 }
+
+ciscoCdstvIngestTuningMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIngestTuningMIB 2 }
+
+ciscoCdstvIngestTuningMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIngestTuningMIBConform 1 }
+
+
+cdstvTrickModeSpeedTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdstvTrickModeSpeedEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table of the trick-mode speed settings for ingest."
+    ::= { ciscoCdstvIngestTuningMIBObjects 1 }
+
+cdstvTrickModeSpeedEntry OBJECT-TYPE
+    SYNTAX          CdstvTrickModeSpeedEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the ingest trick-mode speed
+        settings table. Rows are added for each configured trick-mode
+        speed setting and deleted if a previously configured trick-mode
+        is disabled. Note that trick modes need not be in ascending or
+        descending order, and gaps are allowed, e.g. 2, -8, 16, -4 is a
+        valid sequence of trick-mode entries."
+    INDEX           { cdstvTrickModeSpeedIndex } 
+    ::= { cdstvTrickModeSpeedTable 1 }
+
+CdstvTrickModeSpeedEntry ::= SEQUENCE {
+        cdstvTrickModeSpeedIndex Unsigned32,
+        cdstvTrickModeSpeed      Integer32
+}
+
+cdstvTrickModeSpeedIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index into the table containing the ingest
+        trick-mode speed settings." 
+    ::= { cdstvTrickModeSpeedEntry 1 }
+
+cdstvTrickModeSpeed OBJECT-TYPE
+    SYNTAX          Integer32 (-127..127)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a trick-mode speed for ingested
+        content." 
+    ::= { cdstvTrickModeSpeedEntry 2 }
+ 
+
+cdstvServerIngestMPEGSettings  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIngestTuningMIBObjects 2 }
+
+
+cdstvServerPIDStandardization OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enabled(1),
+                        disabled(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the MPEG-2 video assets have
+        their program identifiers (PIDs) standardized at ingest so that
+        most assets use the same PIDs.
+        enabled(1) - PIDs for video assets are standardized at ingest
+        disabled(2) - PIDs for video assets are not standardized at
+        ingest" 
+    ::= { cdstvServerIngestMPEGSettings 1 }
+
+cdstvServerSequenceEndRemove OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enabled(1),
+                        disabled(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether a SEQ END header that is present
+        at the end of the asset (and only at the end) is removed on
+        ingest. 
+        enabled(1) - SEQ END header is removed on ingest
+        disabled(2) - SEQ END header is not removed on ingest" 
+    ::= { cdstvServerIngestMPEGSettings 2 }
+
+cdstvServerRateStandardize OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enabled(1),
+                        disabled(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the MPEG-2 video assets have
+        their rates standardized at ingest so that most assets use one
+        of two standard rates, 3.75 Mbps for Standard Definition (SD)
+        assets or 15 Mbps for High Definition (HD) assets.
+        enabled(1) - Video asset rates are standardized at ingest
+        disabled(2) - Video asset rates are not standardized at ingest" 
+    ::= { cdstvServerIngestMPEGSettings 3 }
+ciscoCdstvIngestTuningMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCdstvIngestTuningMIBConform 2 }
+
+
+ciscoCdstvIngestTuningMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the entities which
+        implement the Cisco CDS TV Ingest Tuning MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoCdstvIngestTuningMIBMainObjectGroup }
+
+    OBJECT          cdstvTrickModeSpeed
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerPIDStandardization
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerSequenceEndRemove
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+
+    OBJECT          cdstvServerRateStandardize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write-access is not required."
+    ::= { ciscoCdstvIngestTuningMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoCdstvIngestTuningMIBMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdstvTrickModeSpeed,
+                        cdstvServerPIDStandardization,
+                        cdstvServerSequenceEndRemove,
+                        cdstvServerRateStandardize
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that provide status of ingest tuning
+        configuration."
+    ::= { ciscoCdstvIngestTuningMIBGroups 1 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

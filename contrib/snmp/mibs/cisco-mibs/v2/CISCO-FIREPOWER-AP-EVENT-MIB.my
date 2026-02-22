@@ -1,0 +1,688 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-EVENT-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- EVENT management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-EVENT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApConditionActionIndicator,
+    CfprApConditionCause,
+    CfprApConditionCode,
+    CfprApConditionRule,
+    CfprApConditionSeverity,
+    CfprApConditionTag,
+    CfprApConditionType,
+    CfprApEventEpCtrlLevel,
+    CfprApPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApEventObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        EVENT management information model package"
+    ::= { ciscoFirepowerApMIBObjects 22 }
+
+cfprApEventEpCtrlTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApEventEpCtrlEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower event:EpCtrl managed object table"
+    ::= { cfprApEventObjects 1 }
+
+cfprApEventEpCtrlEntry OBJECT-TYPE
+    SYNTAX           CfprApEventEpCtrlEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApEventEpCtrlTable table."
+    INDEX { cfprApEventEpCtrlInstanceId }
+    ::= { cfprApEventEpCtrlTable 1 }
+
+CfprApEventEpCtrlEntry ::= SEQUENCE {
+    cfprApEventEpCtrlInstanceId                                      CfprApManagedObjectId,
+    cfprApEventEpCtrlDn                                              CfprApManagedObjectDn,
+    cfprApEventEpCtrlRn                                              SnmpAdminString,
+    cfprApEventEpCtrlLevel                                           CfprApEventEpCtrlLevel,
+    cfprApEventEpCtrlRevertTimeout                                   TimeIntervalSec
+}
+
+cfprApEventEpCtrlInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApEventEpCtrlEntry 1 }
+
+cfprApEventEpCtrlDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:EpCtrl:dn managed object property"
+    ::= { cfprApEventEpCtrlEntry 2 }
+
+cfprApEventEpCtrlRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:EpCtrl:rn managed object property"
+    ::= { cfprApEventEpCtrlEntry 3 }
+
+cfprApEventEpCtrlLevel OBJECT-TYPE
+    SYNTAX       CfprApEventEpCtrlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:EpCtrl:level managed object property"
+    ::= { cfprApEventEpCtrlEntry 4 }
+
+cfprApEventEpCtrlRevertTimeout OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:EpCtrl:revertTimeout managed
+        object property"
+    ::= { cfprApEventEpCtrlEntry 5 }
+
+cfprApEventHolderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApEventHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower event:Holder managed object table"
+    ::= { cfprApEventObjects 2 }
+
+cfprApEventHolderEntry OBJECT-TYPE
+    SYNTAX           CfprApEventHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApEventHolderTable table."
+    INDEX { cfprApEventHolderInstanceId }
+    ::= { cfprApEventHolderTable 1 }
+
+CfprApEventHolderEntry ::= SEQUENCE {
+    cfprApEventHolderInstanceId                                      CfprApManagedObjectId,
+    cfprApEventHolderDn                                              CfprApManagedObjectDn,
+    cfprApEventHolderRn                                              SnmpAdminString,
+    cfprApEventHolderName                                            SnmpAdminString
+}
+
+cfprApEventHolderInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApEventHolderEntry 1 }
+
+cfprApEventHolderDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Holder:dn managed object property"
+    ::= { cfprApEventHolderEntry 2 }
+
+cfprApEventHolderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Holder:rn managed object property"
+    ::= { cfprApEventHolderEntry 3 }
+
+cfprApEventHolderName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Holder:name managed object property"
+    ::= { cfprApEventHolderEntry 4 }
+
+cfprApEventInstTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApEventInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower event:Inst managed object table"
+    ::= { cfprApEventObjects 3 }
+
+cfprApEventInstEntry OBJECT-TYPE
+    SYNTAX           CfprApEventInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApEventInstTable table."
+    INDEX { cfprApEventInstInstanceId }
+    ::= { cfprApEventInstTable 1 }
+
+CfprApEventInstEntry ::= SEQUENCE {
+    cfprApEventInstInstanceId                                        CfprApManagedObjectId,
+    cfprApEventInstDn                                                CfprApManagedObjectDn,
+    cfprApEventInstRn                                                SnmpAdminString,
+    cfprApEventInstCause                                             CfprApConditionCause,
+    cfprApEventInstChangeSet                                         SnmpAdminString,
+    cfprApEventInstCode                                              CfprApConditionCode,
+    cfprApEventInstCreated                                           DateAndTime,
+    cfprApEventInstDescr                                             SnmpAdminString,
+    cfprApEventInstId                                                Unsigned64,
+    cfprApEventInstRule                                              CfprApConditionRule,
+    cfprApEventInstSeverity                                          CfprApConditionSeverity,
+    cfprApEventInstTags                                              CfprApConditionTag,
+    cfprApEventInstType                                              CfprApConditionType
+}
+
+cfprApEventInstInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApEventInstEntry 1 }
+
+cfprApEventInstDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Inst:dn managed object property"
+    ::= { cfprApEventInstEntry 2 }
+
+cfprApEventInstRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Inst:rn managed object property"
+    ::= { cfprApEventInstEntry 3 }
+
+cfprApEventInstCause OBJECT-TYPE
+    SYNTAX       CfprApConditionCause
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Inst:cause managed object property"
+    ::= { cfprApEventInstEntry 4 }
+
+cfprApEventInstChangeSet OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Inst:changeSet managed object property"
+    ::= { cfprApEventInstEntry 5 }
+
+cfprApEventInstCode OBJECT-TYPE
+    SYNTAX       CfprApConditionCode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Inst:code managed object property"
+    ::= { cfprApEventInstEntry 6 }
+
+cfprApEventInstCreated OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Inst:created managed object property"
+    ::= { cfprApEventInstEntry 7 }
+
+cfprApEventInstDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Inst:descr managed object property"
+    ::= { cfprApEventInstEntry 8 }
+
+cfprApEventInstId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Inst:id managed object property"
+    ::= { cfprApEventInstEntry 9 }
+
+cfprApEventInstRule OBJECT-TYPE
+    SYNTAX       CfprApConditionRule
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Inst:rule managed object property"
+    ::= { cfprApEventInstEntry 10 }
+
+cfprApEventInstSeverity OBJECT-TYPE
+    SYNTAX       CfprApConditionSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Inst:severity managed object property"
+    ::= { cfprApEventInstEntry 11 }
+
+cfprApEventInstTags OBJECT-TYPE
+    SYNTAX       CfprApConditionTag
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Inst:tags managed object property"
+    ::= { cfprApEventInstEntry 12 }
+
+cfprApEventInstType OBJECT-TYPE
+    SYNTAX       CfprApConditionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Inst:type managed object property"
+    ::= { cfprApEventInstEntry 13 }
+
+cfprApEventLogTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApEventLogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower event:Log managed object table"
+    ::= { cfprApEventObjects 4 }
+
+cfprApEventLogEntry OBJECT-TYPE
+    SYNTAX           CfprApEventLogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApEventLogTable table."
+    INDEX { cfprApEventLogInstanceId }
+    ::= { cfprApEventLogTable 1 }
+
+CfprApEventLogEntry ::= SEQUENCE {
+    cfprApEventLogInstanceId                                         CfprApManagedObjectId,
+    cfprApEventLogDn                                                 CfprApManagedObjectDn,
+    cfprApEventLogRn                                                 SnmpAdminString,
+    cfprApEventLogMaxSize                                            Gauge32,
+    cfprApEventLogPurgeWindow                                        Gauge32,
+    cfprApEventLogSize                                               Gauge32
+}
+
+cfprApEventLogInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApEventLogEntry 1 }
+
+cfprApEventLogDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Log:dn managed object property"
+    ::= { cfprApEventLogEntry 2 }
+
+cfprApEventLogRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Log:rn managed object property"
+    ::= { cfprApEventLogEntry 3 }
+
+cfprApEventLogMaxSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Log:maxSize managed object property"
+    ::= { cfprApEventLogEntry 4 }
+
+cfprApEventLogPurgeWindow OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Log:purgeWindow managed object property"
+    ::= { cfprApEventLogEntry 5 }
+
+cfprApEventLogSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Log:size managed object property"
+    ::= { cfprApEventLogEntry 6 }
+
+cfprApEventPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApEventPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower event:Policy managed object table"
+    ::= { cfprApEventObjects 5 }
+
+cfprApEventPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprApEventPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApEventPolicyTable table."
+    INDEX { cfprApEventPolicyInstanceId }
+    ::= { cfprApEventPolicyTable 1 }
+
+CfprApEventPolicyEntry ::= SEQUENCE {
+    cfprApEventPolicyInstanceId                                      CfprApManagedObjectId,
+    cfprApEventPolicyDn                                              CfprApManagedObjectDn,
+    cfprApEventPolicyRn                                              SnmpAdminString,
+    cfprApEventPolicyDescr                                           SnmpAdminString,
+    cfprApEventPolicyIntId                                           SnmpAdminString,
+    cfprApEventPolicyName                                            SnmpAdminString,
+    cfprApEventPolicyPolicyLevel                                     Gauge32,
+    cfprApEventPolicyPolicyOwner                                     CfprApPolicyPolicyOwner,
+    cfprApEventPolicyRetentionInterval                               TimeIntervalSec,
+    cfprApEventPolicySizeLimit                                       Gauge32
+}
+
+cfprApEventPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApEventPolicyEntry 1 }
+
+cfprApEventPolicyDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Policy:dn managed object property"
+    ::= { cfprApEventPolicyEntry 2 }
+
+cfprApEventPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Policy:rn managed object property"
+    ::= { cfprApEventPolicyEntry 3 }
+
+cfprApEventPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Policy:descr managed object property"
+    ::= { cfprApEventPolicyEntry 4 }
+
+cfprApEventPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Policy:intId managed object property"
+    ::= { cfprApEventPolicyEntry 5 }
+
+cfprApEventPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Policy:name managed object property"
+    ::= { cfprApEventPolicyEntry 6 }
+
+cfprApEventPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Policy:policyLevel managed object property"
+    ::= { cfprApEventPolicyEntry 7 }
+
+cfprApEventPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Policy:policyOwner managed object property"
+    ::= { cfprApEventPolicyEntry 8 }
+
+cfprApEventPolicyRetentionInterval OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Policy:retentionInterval
+        managed object property"
+    ::= { cfprApEventPolicyEntry 9 }
+
+cfprApEventPolicySizeLimit OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Policy:sizeLimit managed object property"
+    ::= { cfprApEventPolicyEntry 10 }
+
+cfprApEventRecordTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApEventRecordEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower event:Record managed object table"
+    ::= { cfprApEventObjects 6 }
+
+cfprApEventRecordEntry OBJECT-TYPE
+    SYNTAX           CfprApEventRecordEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApEventRecordTable table."
+    INDEX { cfprApEventRecordInstanceId }
+    ::= { cfprApEventRecordTable 1 }
+
+CfprApEventRecordEntry ::= SEQUENCE {
+    cfprApEventRecordInstanceId                                      CfprApManagedObjectId,
+    cfprApEventRecordDn                                              CfprApManagedObjectDn,
+    cfprApEventRecordRn                                              SnmpAdminString,
+    cfprApEventRecordAffected                                        SnmpAdminString,
+    cfprApEventRecordCause                                           CfprApConditionCause,
+    cfprApEventRecordChangeSet                                       SnmpAdminString,
+    cfprApEventRecordCode                                            CfprApConditionCode,
+    cfprApEventRecordCreated                                         DateAndTime,
+    cfprApEventRecordDescr                                           SnmpAdminString,
+    cfprApEventRecordId                                              Gauge32,
+    cfprApEventRecordInd                                             CfprApConditionActionIndicator,
+    cfprApEventRecordSessionId                                       SnmpAdminString,
+    cfprApEventRecordSeverity                                        CfprApConditionSeverity,
+    cfprApEventRecordTrig                                            Gauge32,
+    cfprApEventRecordTxId                                            Unsigned64,
+    cfprApEventRecordUser                                            SnmpAdminString
+}
+
+cfprApEventRecordInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApEventRecordEntry 1 }
+
+cfprApEventRecordDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:dn managed object property"
+    ::= { cfprApEventRecordEntry 2 }
+
+cfprApEventRecordRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:rn managed object property"
+    ::= { cfprApEventRecordEntry 3 }
+
+cfprApEventRecordAffected OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:affected managed object property"
+    ::= { cfprApEventRecordEntry 4 }
+
+cfprApEventRecordCause OBJECT-TYPE
+    SYNTAX       CfprApConditionCause
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:cause managed object property"
+    ::= { cfprApEventRecordEntry 5 }
+
+cfprApEventRecordChangeSet OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:changeSet managed object property"
+    ::= { cfprApEventRecordEntry 6 }
+
+cfprApEventRecordCode OBJECT-TYPE
+    SYNTAX       CfprApConditionCode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:code managed object property"
+    ::= { cfprApEventRecordEntry 7 }
+
+cfprApEventRecordCreated OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:created managed object property"
+    ::= { cfprApEventRecordEntry 8 }
+
+cfprApEventRecordDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:descr managed object property"
+    ::= { cfprApEventRecordEntry 9 }
+
+cfprApEventRecordId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:id managed object property"
+    ::= { cfprApEventRecordEntry 10 }
+
+cfprApEventRecordInd OBJECT-TYPE
+    SYNTAX       CfprApConditionActionIndicator
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:ind managed object property"
+    ::= { cfprApEventRecordEntry 11 }
+
+cfprApEventRecordSessionId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:sessionId managed object property"
+    ::= { cfprApEventRecordEntry 12 }
+
+cfprApEventRecordSeverity OBJECT-TYPE
+    SYNTAX       CfprApConditionSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:severity managed object property"
+    ::= { cfprApEventRecordEntry 13 }
+
+cfprApEventRecordTrig OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:trig managed object property"
+    ::= { cfprApEventRecordEntry 14 }
+
+cfprApEventRecordTxId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:txId managed object property"
+    ::= { cfprApEventRecordEntry 15 }
+
+cfprApEventRecordUser OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower event:Record:user managed object property"
+    ::= { cfprApEventRecordEntry 16 }
+
+END

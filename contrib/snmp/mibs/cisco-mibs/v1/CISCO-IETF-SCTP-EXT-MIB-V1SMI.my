@@ -1,0 +1,760 @@
+-- MIB file created 09-Dec-2001 22:04:15, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IETF-SCTP-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IETF-SCTP-EXT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    TimeStamp, TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoExperiment
+            FROM CISCO-SMI
+    cSctpAssocId, cSctpAssocId, cSctpAssocRemAddressIPType, 
+    cSctpAssocRemAddressIP, cSctpAssocRemAddressStatus
+            FROM CISCO-IETF-SCTP-MIB
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+cSctpExtMIB OBJECT IDENTIFIER ::= { ciscoExperiment 76 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200111090000Z
+--  OrgName
+--     
+--  ContactInfo
+--           Cisco Systems, Inc
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-sctp@cisco.com
+--  Descr
+--    An extension to the CISCO-IETF-SCTP-MIB.my used to 
+--     provide additional information to manage the Stream 
+--     Control Transmission  Protocol (RFC 2960).
+--  RevDate
+--    200111090000Z
+--  RevDescr
+--    Added support for effective destination address,
+--     count of fast retransmission per association and 
+--     notification when destination address changes states.
+--     
+--    
+--     cSctpAssocExtEffectiveAddrType
+--     cSctpAssocExtEffectiveAddress 
+--     cSctpAssocExtRtxChunksFast    
+--     cSctpAddressStateNotifEnabled
+--     cSctpExtDestAddressStateChange
+--     cSctpAssocExtBundleFlag
+--     cSctpAssocExtBundleTimeout
+--  RevDate
+--    200108270000Z
+--  RevDescr
+--    MIB module developed for the SIGTRAN IETF group. Based on
+--    SCTP, RFC2960
+
+cSctpExtNotifications OBJECT IDENTIFIER ::= { cSctpExtMIB 0 }
+cSctpExtObjects OBJECT IDENTIFIER ::= { cSctpExtMIB 1 }
+cSctpScalarsExt OBJECT IDENTIFIER ::= { cSctpExtObjects 1 }
+cSctpExtTables  OBJECT IDENTIFIER ::= { cSctpExtObjects 2 }
+cSctpExtConformance OBJECT IDENTIFIER ::= { cSctpExtMIB 3 }
+cSctpExtCompliances OBJECT IDENTIFIER ::= { cSctpExtConformance 1 }
+cSctpExtGroups  OBJECT IDENTIFIER ::= { cSctpExtConformance 2 }
+
+cSctpStatRtxChucks OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    chunks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SCTP chunks retransmitted due to the T3 timers
+         expiring before the packet is acknowledged. "
+    REFERENCE
+        "[sctp] section 6.3.3. Handle T3-rtx Expiration"
+    ::= { cSctpScalarsExt 1 }
+
+cSctpStatRtxChucksFast OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    chunks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SCTP chunks retransmitted using the 
+         fast-recovery retransmission mechanism specified 
+         in [sctp]."
+    REFERENCE
+        "[sctp] section 7.2.4.- Fast Retransmit on Gap Reports."
+    ::= { cSctpScalarsExt 2 }
+
+cSctpStatDestAddressFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of times a destination IP address
+         was marked unavailable since the start of this association.
+         The IP destination address will be marked unavailable when
+         the specified number of retransmissions have failed."
+    ::= { cSctpScalarsExt 3 }
+
+cSctpCtrlPurgeTimeout OBJECT-TYPE
+    SYNTAX Gauge(3600..3000000)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of time the SCTP protocol software will wait
+         before purging an associations TCB. An association TCB 
+         will exist until a management station sets the cSctpAssocState
+         to deleteTCB or is purge by the protocol implementation. The
+         protocol implementation will purge an association TCB
+         using a combination of cSctpCtrlPurgeTimeout and 
+         cSctpCtrlMaxHeld. The cSctpCtrlPurgeTimeout ranges from
+         the minimum of one hour to roughly one month. The default
+         value is roughly one day."
+    DEFVAL { 86400 }
+    ::= { cSctpScalarsExt 4 }
+
+cSctpCtrlMaxHeld OBJECT-TYPE
+    SYNTAX Gauge(30..10000)
+--  Units
+--    association TCBs
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of association TCBS that will be held
+         after they have been marked closed and are no longer
+         providing service. This limit is used to prevent 
+         excessive waste of resources."
+    DEFVAL { 100 }
+    ::= { cSctpScalarsExt 5 }
+
+cSctpAddressStateNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the generation of 
+          cSctpExtDestAddressStateChange as follows:
+        
+         'true'  Indicates that an address state change
+                 notification is to be generated whenever a IP
+                 address used by one or more associations
+                 becomes available or unavailable. That is,
+                 the notification generation is enabled.
+                 
+         'false' Indicates that an address state change
+                 notification generation is disabled."
+    DEFVAL { false }
+    ::= { cSctpScalarsExt 6 }
+
+cSctpAssocExtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSctpAssocExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing SCTP association-specific information."
+    ::= { cSctpExtTables 1 }
+
+cSctpAssocExtEntry OBJECT-TYPE
+    SYNTAX CSctpAssocExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "General common variables and statistics for the whole
+         association."
+    INDEX { cSctpAssocId }
+-- Augments cSctpAssocEntry FROM CISCO-IETF-SCTP-MIB
+    ::= { cSctpAssocExtTable 1 }
+
+CSctpAssocExtEntry ::= SEQUENCE {
+    cSctpAssocExtRtoMin Gauge,
+    cSctpAssocExtRtoMax Gauge,
+    cSctpAssocExtRtoInitial Gauge,
+    cSctpAssocExtValCookieLife Gauge,
+    cSctpAssocExtMaxInitRetr Gauge,
+    cSctpAssocExtMTU Gauge,
+    cSctpAssocExtLocRecWnd Gauge,
+    cSctpAssocExtLocRecWndLowMark Gauge,
+    cSctpAssocExtLocRecWndZeroCnt Counter,
+    cSctpAssocExtRemRecWnd Gauge,
+    cSctpAssocExtRemRecWndLowMark Gauge,
+    cSctpAssocExtRemRecWndZeroCnt Counter,
+    cSctpAssocExtUlpQueued Gauge,
+    cSctpAssocExtUlpQueuedHW Gauge,
+    cSctpAssocExtUlpQueuedRT TimeStamp,
+    cSctpAssocExtChunksRecControl Counter,
+    cSctpAssocExtChunksRecOrdered Counter,
+    cSctpAssocExtChunksRecUnOrdered Counter,
+    cSctpAssocExtChunksSentControl Counter,
+    cSctpAssocExtChunksSentOrdered Counter,
+    cSctpAssocExtChunksSentUnOrdered Counter,
+    cSctpAssocExtDatagramsRec Counter,
+    cSctpAssocExtDatagramsSent Counter,
+    cSctpAssocExtEffectiveAddrType InetAddressType,
+    cSctpAssocExtEffectiveAddress InetAddress,
+    cSctpAssocExtRtxChunksFast Counter,
+    cSctpAssocExtBundleFlag TruthValue,
+    cSctpAssocExtBundleTimeout Gauge
+    }
+
+cSctpAssocExtRtoMin OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum value permitted by a SCTP implementation for the
+         retransmission timeout, measured in milliseconds.  More
+         refined semantics for objects of this type depend upon the
+         algorithm used to determine the retransmission timeout.
+         Minimum recommended value is 1000 milliseconds. Some telephony
+         applications could require less than 1 second, see [SIGAS] for
+         further information."
+    REFERENCE
+        "[SIGAS] Telephony Signaling Transport over SCTP Applicability
+         Statement"
+    ::= { cSctpAssocExtEntry 1 }
+
+cSctpAssocExtRtoMax OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum value permitted by a SCTP implementation for the
+        retransmission timeout, measured in milliseconds.  More
+        refined semantics for objects of this type depend upon the
+        algorithm used to determine the retransmission timeout.
+        Recommended value is 60000 milliseconds."
+    ::= { cSctpAssocExtEntry 2 }
+
+cSctpAssocExtRtoInitial OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Initial value for the Retransmission timer. Recommended value
+        is 3000 milliseconds."
+    ::= { cSctpAssocExtEntry 3 }
+
+cSctpAssocExtValCookieLife OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Valid cookie life in the 4-way start-up handshake procedure.
+        Recommended value: 60000 milliseconds."
+    ::= { cSctpAssocExtEntry 4 }
+
+cSctpAssocExtMaxInitRetr OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of retransmissions at the start-up phase
+        (INIT and COOKIE ECHO chunks). Recommended value: 8 attempts."
+    ::= { cSctpAssocExtEntry 5 }
+
+cSctpAssocExtMTU OBJECT-TYPE
+    SYNTAX Gauge(37..65535)
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Maximum Transmission Size to be used by this 
+         association. The size will the smallest MTU size supported
+         by any of the IP Addresses used by the association."
+    ::= { cSctpAssocExtEntry 6 }
+
+cSctpAssocExtLocRecWnd OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current local receive window size for this 
+         association."
+    ::= { cSctpAssocExtEntry 7 }
+
+cSctpAssocExtLocRecWndLowMark OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Low water mark for Local Receive Window Size."
+    ::= { cSctpAssocExtEntry 8 }
+
+cSctpAssocExtLocRecWndZeroCnt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times the Local Receive window reached 
+         zero bytes."
+    ::= { cSctpAssocExtEntry 9 }
+
+cSctpAssocExtRemRecWnd OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Remote Receive Window Size for this association."
+    ::= { cSctpAssocExtEntry 10 }
+
+cSctpAssocExtRemRecWndLowMark OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Low water mark for Remote Receive Window Size."
+    ::= { cSctpAssocExtEntry 11 }
+
+cSctpAssocExtRemRecWndZeroCnt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times the Remote Receive window reached 
+         zero bytes."
+    ::= { cSctpAssocExtEntry 12 }
+
+cSctpAssocExtUlpQueued OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+--  Units
+--    datagrams
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current number of IP datagrams waiting to be sent."
+    ::= { cSctpAssocExtEntry 13 }
+
+cSctpAssocExtUlpQueuedHW OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+--  Units
+--    datagrams
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "High water mark for data grams waiting to be sent.
+         Resetting this object is achieved by setting this
+         object to 0. Attempting to set this object to any
+         other value will result in a wrongValue error."
+    ::= { cSctpAssocExtEntry 14 }
+
+cSctpAssocExtUlpQueuedRT OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time when cSctpAssocUlpQueuedHW was set to 0."
+    ::= { cSctpAssocExtEntry 15 }
+
+cSctpAssocExtChunksRecControl OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    chunks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of control Chucks received by this association."
+    ::= { cSctpAssocExtEntry 16 }
+
+cSctpAssocExtChunksRecOrdered OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    chunks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Chucks received by this association where order
+         is required."
+    ::= { cSctpAssocExtEntry 17 }
+
+cSctpAssocExtChunksRecUnOrdered OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    chunks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Chucks received by this association where order
+         is not required."
+    ::= { cSctpAssocExtEntry 18 }
+
+cSctpAssocExtChunksSentControl OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    chunks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of control Chucks sent by this association."
+    ::= { cSctpAssocExtEntry 19 }
+
+cSctpAssocExtChunksSentOrdered OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    chunks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Chucks sent by this association where order 
+         is required."
+    ::= { cSctpAssocExtEntry 20 }
+
+cSctpAssocExtChunksSentUnOrdered OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    chunks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Chucks sent by this association where order 
+         is not required."
+    ::= { cSctpAssocExtEntry 21 }
+
+cSctpAssocExtDatagramsRec OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    datagrams
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of IP datagrams received by this association."
+    ::= { cSctpAssocExtEntry 22 }
+
+cSctpAssocExtDatagramsSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    datagrams
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of IP datagrams sent by this association."
+    ::= { cSctpAssocExtEntry 23 }
+
+cSctpAssocExtEffectiveAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Internet type of effective destination IP address. This 
+         is the type of IP address to which traffic is currently
+         sent for this association."
+    ::= { cSctpAssocExtEntry 24 }
+
+cSctpAssocExtEffectiveAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Effective destination IP address. This is the IP address
+         to which traffic is currently sent for this association.
+         This value can be any of the IP addresses defined in 
+         the cSctpAssocRemAddressExtTable Table."
+    REFERENCE
+        "[sctp] RFC2960 section 8.1 Endpoint Failure Detection"
+    ::= { cSctpAssocExtEntry 25 }
+
+cSctpAssocExtRtxChunksFast OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    chunks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of SCTP chunks retransmitted using the 
+         fast-recovery retransmission mechanism specified in [sctp]
+         since the start of this association."
+    REFERENCE
+        "RFC 2960 section 7.2.4. - Fast Retransmit on Gap Reports."
+    ::= { cSctpAssocExtEntry 26 }
+
+cSctpAssocExtBundleFlag OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This objects indicates if the SCTP protocol allows chunks to 
+         be bundled into a single datagram as follows:
+         
+         'true(1)'  Indicates that chunks will be bundled.
+         
+         'false(2)' Indicates that chunks will not be bundled."
+    ::= { cSctpAssocExtEntry 27 }
+
+cSctpAssocExtBundleTimeout OBJECT-TYPE
+    SYNTAX Gauge(1..60000)
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The amount time to wait to allow data chunks to
+         accumulate so that they can be transmitted in the 
+         same datagram. The arrival of the first data chunk
+         will start a timer that will expire in the specified
+         milliseconds. All later chunks will be delayed until 
+         the timer expires. When the timer expires the data
+         chunks will be sent out in one or more datagrams."
+    ::= { cSctpAssocExtEntry 28 }
+
+cSctpAssocRemAddressExtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CSctpAssocRemAddressExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Expanded table of cSctpAssocRemAddressExtTable based on 
+         the AssocId index."
+    ::= { cSctpExtTables 2 }
+
+cSctpAssocRemAddressExtEntry OBJECT-TYPE
+    SYNTAX CSctpAssocRemAddressExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Additional information about destination IP 
+         addresses."
+    INDEX { cSctpAssocId, cSctpAssocRemAddressIPType, cSctpAssocRemAddressIP }
+-- Augments cSctpAssocRemAddressEntry FROM CISCO-IETF-SCTP-MIB
+    ::= { cSctpAssocRemAddressExtTable 1 }
+
+CSctpAssocRemAddressExtEntry ::= SEQUENCE {
+    cSctpAssocRemAddressFailedCnt Counter,
+    cSctpAssocRemAddressSRTT Gauge
+    }
+
+cSctpAssocRemAddressFailedCnt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times the destination address was marked 
+         as failed."
+    ::= { cSctpAssocRemAddressExtEntry 1 }
+
+cSctpAssocRemAddressSRTT OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Smoothed Round Trip Time(SRTT) is obtained by 
+         averaging the measured Rount trip times(RTT) between
+         the local and remote systems on an IP Network.
+         A value of '0' is reported for SRTT prior to the 
+         first successful RTT calculation."
+    REFERENCE
+        "[sctp] section 6.3.1 RTO Calculation"
+    ::= { cSctpAssocRemAddressExtEntry 2 }
+
+cSctpExtDestAddressStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cSctpExtMIB
+    VARIABLES {
+        cSctpAssocRemAddressStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The notification is generated when the state 
+         transition of cSctpAssocRemAddressStatus has occurred."
+    ::= 1
+
+cSctpExtStatGroup OBJECT IDENTIFIER ::= { cSctpExtGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing SCTP per system basis 
+--     statistics for all associations.
+--  objects
+--    cSctpStatRtxChucks, cSctpStatRtxChucksFast, 
+--    cSctpStatDestAddressFailures
+
+cSctpExtCtrlGroup OBJECT IDENTIFIER ::= { cSctpExtGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing SCTP per system basis 
+--     control behavior for all associations.
+--  objects
+--    cSctpCtrlPurgeTimeout, cSctpCtrlMaxHeld
+
+cSctpExtAssocCtrlGroup OBJECT IDENTIFIER ::= { cSctpExtGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects used to control the behavior each association.
+--  objects
+--    cSctpAssocExtRtoMin, cSctpAssocExtRtoMax, 
+--    cSctpAssocExtRtoInitial, cSctpAssocExtValCookieLife, 
+--    cSctpAssocExtMaxInitRetr
+
+cSctpExtAssocStatGroup OBJECT IDENTIFIER ::= { cSctpExtGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Objects used to collect information and statistics on 
+--     each association.
+--  objects
+--    cSctpAssocExtMTU, cSctpAssocExtLocRecWnd, 
+--    cSctpAssocExtLocRecWndLowMark, cSctpAssocExtLocRecWndZeroCnt, 
+--    cSctpAssocExtRemRecWnd, cSctpAssocExtRemRecWndLowMark, 
+--    cSctpAssocExtRemRecWndZeroCnt, cSctpAssocExtUlpQueued, 
+--    cSctpAssocExtUlpQueuedHW, cSctpAssocExtUlpQueuedRT, 
+--    cSctpAssocExtChunksRecControl, cSctpAssocExtChunksRecOrdered, 
+--    cSctpAssocExtChunksRecUnOrdered, 
+--    cSctpAssocExtChunksSentControl, 
+--    cSctpAssocExtChunksSentOrdered, 
+--    cSctpAssocExtChunksSentUnOrdered, cSctpAssocExtDatagramsRec, 
+--    cSctpAssocExtDatagramsSent
+
+cSctpExtAssocRemAddrGroup OBJECT IDENTIFIER ::= { cSctpExtGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects used to collect information and statistics on 
+--     each destination IP address.
+--  objects
+--    cSctpAssocRemAddressFailedCnt, cSctpAssocRemAddressSRTT
+
+cSctpExtCtrlGroupRev1 OBJECT IDENTIFIER ::= { cSctpExtGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing SCTP per system basis 
+--     control behavior for all associations.
+--  objects
+--    cSctpCtrlPurgeTimeout, cSctpCtrlMaxHeld, 
+--    cSctpAddressStateNotifEnabled
+
+cSctpExtAssocStatGroupRev1 OBJECT IDENTIFIER ::= { cSctpExtGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects used to collect information and statistics on 
+--     each association.
+--  objects
+--    cSctpAssocExtMTU, cSctpAssocExtLocRecWnd, 
+--    cSctpAssocExtLocRecWndLowMark, cSctpAssocExtLocRecWndZeroCnt, 
+--    cSctpAssocExtRemRecWnd, cSctpAssocExtRemRecWndLowMark, 
+--    cSctpAssocExtRemRecWndZeroCnt, cSctpAssocExtUlpQueued, 
+--    cSctpAssocExtUlpQueuedHW, cSctpAssocExtUlpQueuedRT, 
+--    cSctpAssocExtChunksRecControl, cSctpAssocExtChunksRecOrdered, 
+--    cSctpAssocExtChunksRecUnOrdered, 
+--    cSctpAssocExtChunksSentControl, 
+--    cSctpAssocExtChunksSentOrdered, 
+--    cSctpAssocExtChunksSentUnOrdered, cSctpAssocExtDatagramsRec, 
+--    cSctpAssocExtDatagramsSent, cSctpAssocExtEffectiveAddrType, 
+--    cSctpAssocExtEffectiveAddress, cSctpAssocExtRtxChunksFast, 
+--    cSctpAssocExtBundleTimeout, cSctpAssocExtBundleFlag
+
+cSctpExtAssocNotificationsGroup OBJECT IDENTIFIER ::= { cSctpExtGroups 6 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Object used to provide notifications of state changes 
+--     on destination IP addresses.
+--  notifications
+--    cSctpExtDestAddressStateChange
+
+cSctpExtCompliance OBJECT IDENTIFIER ::= { cSctpExtCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for CISCO-IETF-SCTP-EXT-MIB.my.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cSctpExtStatGroup
+--   MandGroup
+--    cSctpExtCtrlGroup
+--   MandGroup
+--    cSctpExtAssocCtrlGroup
+--   MandGroup
+--    cSctpExtAssocStatGroup
+--   MandGroup
+--    cSctpExtAssocRemAddrGroup
+
+cSctpExtComplianceRev1 OBJECT IDENTIFIER ::= { cSctpExtCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for CISCO-IETF-SCTP-EXT-MIB.my.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cSctpExtStatGroup
+--   MandGroup
+--    cSctpExtAssocCtrlGroup
+--   MandGroup
+--    cSctpExtAssocRemAddrGroup
+--   MandGroup
+--    cSctpExtAssocNotificationsGroup
+--   MandGroup
+--    cSctpExtCtrlGroupRev1
+--   MandGroup
+--    cSctpExtAssocStatGroupRev1
+--   ObjVar
+--    cSctpAssocExtEffectiveAddrType
+
+
+END
+

@@ -1,0 +1,1254 @@
+-- *****************************************************************
+-- CISCO-BERT-MIB
+--
+-- Bit Error Rate Test (BERT) MIB for DS3, DS1/E1, DS0 interfaces
+--
+-- April 2000, Zaryab Munir
+--
+-- Copyright (c) 2000, 2003 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-BERT-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Counter64,
+    Integer32
+    			FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    DateAndTime,
+    RowStatus       
+			FROM SNMPv2-TC
+
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP        FROM SNMPv2-CONF
+    ifIndex     	FROM IF-MIB
+    ciscoMgmt           FROM CISCO-SMI;
+
+ciscoBertMIB MODULE-IDENTITY
+    LAST-UPDATED   "200205050000Z"
+    ORGANIZATION   "Cisco Systems, Inc."
+    CONTACT-INFO
+                   "Cisco Systems
+                    Customer Service
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+                    Tel: +1 800 553-NETS
+            E-mail: cs-wanatm@cisco.com"
+
+    DESCRIPTION
+       "The MIB module to configure and perform Bit Error Rate Testing
+	(BERT) on DS3, DS1/E1 and DS0/DS0Bundle interfaces.
+	Bit error rate testing and loopbacks are used by carriers
+	and ISPs to aid in problem resolution as well as for
+        testing the quality of T1/E1 or T3/E3 links.  Tests can
+	be run on a full T1/E1 line or can be run on a fractional
+	T1/E1 such as single DS0 or a group of DS0s.  By using BERT,
+	poor quality links could be detected early.
+	BERT enables the user to test the quality of links by directly
+	comparing a pseudo-random or repetitive test pattern with
+	an identical locally generated test pattern. 
+
+	Terminology:
+
+	BERT: Bit Error Rate Testing (BERT) involves generating a known
+	data sequence into a transmission device and examining the
+	received sequence at the same device or a remote device
+	for errors.
+
+	The use of BERT results in the computation of a bit error rate
+	(BER), which is
+			
+			bits received in error
+		BER = ------------------------
+			number of bits transmitted
+
+	To perform a bit error rate test using one tester, 
+	communications equipment must be placed into a loop-back
+	mode of operation and the BERT test can then be used to 
+	determine if equipment is operating correctly.
+
+	When running a BERT, system expects to receive the same pattern
+	that is transmitting.  To help ensure this, two common options
+	are available.
+	
+        - Use loopback somewhere in the link or network.  This can
+          be accomplished by putting the line in loop up mode;
+          send the pattern; find the BER.
+
+	- configure remote testing equipment to transmit the Same BERT
+	  pattern at the same time.
+ 
+	Typical Sequence in Performing Bit Error Rate Test by the 
+	device is given below:
+
+	- Loop Up:
+        The tester issues special code to force the far end (CPE) into 
+	loopback.  Upon recognition of the loop activation request code
+	the CPE enters a loop mode in which it returns the port data
+	back to the tester.
+
+        - Send Pattern:
+        After a loop has been established, the tester can generate 
+	test pattern toward the CPE and monitor the incoming data.
+	   
+	- Loop Down:
+        The tester issues a special code (loop down command) to 
+	release the far end from the loopback.
+
+        Terminology Used:
+	CPE - Customer's premise equipment.  At CPE, following equipment
+	is required:
+	DSU
+	CSU
+	Usually DSU and CSU functions are incorporated by vendors
+	into a single CSU/DSU unit.
+	OCU - Office Channel Unit
+        CSU - Channel Service Unit
+	A CSU contains the last signal regenerator on the line 
+	before DTE and mechanism to put the line into loopback
+	for testing from the central office.
+        DSU - Data Service Unit. "
+
+    REVISION       "200205050000Z"
+    DESCRIPTION
+       "Add new object cbDs0BitMap to cbConfTable."
+
+    REVISION       "200109090000Z"
+    DESCRIPTION
+       "Add new enum smartJackInband(18) for object cbLoopbackCode"
+
+    REVISION       "200012080000Z"
+    DESCRIPTION
+       "Initial version of this MIB module"
+    ::= { ciscoMgmt 185 }
+ 
+-- Textual Convention
+BertPatterns ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION 
+       "The patterns that can be configured to perform BER Test 
+	on an interface.
+	Bit error measurements are widely used to assess the 
+	performance of a digital transmission equipment.  Precise 
+	error measurement requires that the bit pattern transmitted 
+	is known before hand.  During BER testing a known pattern is 
+	transmitted on a interface.  The pattern received on the 
+	receive side is checked for bit errors.  In order to measure 
+	the performance of digital line under real condition 
+	this patterns should also simulate real traffic as closely 
+	as possible.  There are two categories of test patterns that 
+	can be generated by a BERT equipment: repetitive and 
+	pseudo-random.  The former test patterns are zeroes or ones 
+	or alternating zeroes and ones; the latter patterns are 
+	exponential numbers and conform to CCITT/ITU O.151, O.153.
+
+	There are different patterns for different interface speeds.
+	This object allows the user to configure this BERT patterns.
+
+	The supported values are :
+
+	  Repetitive Patterns
+
+	allZeros(1): All Zeroes(Continuous spaces).  This is 
+		repeating pattern of zeros(...000...). 
+		The use of this pattern is to test and verify 
+		that the ones density policing mechanism is 
+		functioning properly.  This pattern must be 
+		used in circuits optioned for B8ZS.
+
+	allOnes(2): All Ones(Continuous Marks).  This is repeating
+		pattern of ones(...1111...).  This provides 
+		testing of maximum power level requirements.
+		The all one pattern test causes the repeater 
+		to consume the maximum amount of power. 
+		If there is insufficient DC span power then the
+		repeater may begin to fail.
+		Typically this pattern is used for a simple
+		continuity check.  It may also be used to detect
+		the presence of unwanted loop in the network.
+
+	altOneZero(3): Alternate one/zero pattern(..1010..).  This
+		pattern produces a 50% ones density.  It is
+		used to stress the repeater's DC power
+		consumption.
+
+	doubleAltOnesZeros(4): Double alternate one/zero(..1100..).
+
+	oneIn4(5): This pattern is standard loop up remote code.
+		Typically it is used when the loop up remote test 
+		fails to place the remote system into loopback.
+
+	oneIn8(6): This is an eight bit pattern which contains
+		single one.
+                This pattern is used primarily to test timing(clock)
+		recovery and may be used framed or unframed for that
+		purpose.
+		This pattern is used to verify frame synchronization
+		by providing the minimum acceptable pulse density.
+
+	oneIn16(7): N repetitive pattern, 1 in 16.
+
+	threeIn24(8): This is a 24 bit pattern which contains 3 ones. 
+	  	The largest string of consecutive zeros is fifteen.
+		This pattern is used primarily to test timing(clock)
+		recovery and may be used framed or unframed for that
+		purpose.  This pattern covers both the minimum ones
+		density and the maximum number of consecutive zeros.
+
+	inbandLoopup(9): D4/SF Loopback activate.
+		Valid only for T1 line.
+
+	inbandLoopdown(10): D4/SF Loopback deactivate.
+		Valid only for T1 line.
+
+	Pseudo-Random Patterns
+	
+	twoE3MinusOne(11): This is 2^3-1 (7 bits in length) pattern.
+
+	twoE4MinusOne(12): This is 2^4-1 (15 bits in length) pattern.
+
+	twoE5MinusOne(13): This is 2^5-1 (31 bits in length) pattern.
+
+	twoE6MinusOne(14): This is 2^6-1 (63 bits in length) pattern.
+
+	twoE7MinusOne(15): This is 2^7-1 (127 bits in length) pattern.
+
+	twoE7MinusOneFT1Loopup(16): 2^7-1 Fractional
+		T1 Loop Back Activate.
+
+	twoE7MinusOneFT1Loopdown(17): 2^7-1 Fractional 
+		T1 Loop Back Deactivate.
+
+	twoE9MinusOne(18): This is 2^9-1(511 bits in length)
+		pattern specified in ITU O.153.
+		It has the maximum of 8(non-inverted)
+		sequential zeros and 9 sequential ones.
+
+	twoE10MinusOne(19): This is the 2^10-1(1023 bits in length).
+
+	twoE11MinusOne(20): This is the 2^11-1(2047 bits in length)
+		pattern specified in ITU O.152, O.153.
+		It has a maximum of 10(non-inverted) 
+		sequential zeros and 11 sequential ones.
+		This pattern is primarily intended for
+		error measurements at bit rates of 64kbit/s
+		and N*64 kbit/s.
+
+	twoE15MinusOne(21): This is the 2^15-1(32767 bit length)
+		pattern as specified in ITU O.151.
+		It has the maximum of 15(inverted) 
+		sequential zeros.
+		This sequence is primarily intended for
+		error and jitter measurements at bit
+		rates of 1544, 2048, 6312, 8448, 32064 and 
+		44736 kbit/s.
+
+	twoE17MinusOne(22): This the 2^17-1(131071 bits in length).
+
+	twoE18MinusOne(23): This the 2^18-1(262144 bits in length).
+
+	twoE20MinusOne(24): This the 2^20-1(1048575 bits in length)
+		pattern specified in ITU O.153.It has
+		the maximum of 19(non-inverted) sequential
+		zeros.  This pattern is primarily intended 
+		for error measurements at bit rates up to 
+		73kbit/s.  This pattern stresses the 
+		equalization and timing recovery circuitry 
+		of line repeaters.
+
+	twoE20MinusOneQRSS(25): This is the 2^20-1(1048575 bits)
+		pattern specified in ITU O.151.
+		This is the pattern with Zero
+		suppression(Quasi Random Signal Source
+		This provides the simulation of
+		live data.
+		This is primarily intended for
+		error and jitter measurements
+		at bit rates of 34368, 139264 kbit/s.
+
+	twoE21MinusOne(26): This is the 2^21-1(2097151 bit length).
+	
+	twoE22MinusOne(27): This is the 2^22-1(4194303 bit length).
+
+	twoE23MinusOne(28): This is the 2^23-1(8388607 bit length)
+		pattern specified in ITU O.151.
+		Highest stress pseudo-random pattern, with 
+		a maximum of 23 (inverted) sequential zeros 
+		and 23 sequential ones.
+		This sequence is primarily intended for
+		error and jitter measurements at bit rates
+		of 34368 and 139264 kbit/s.
+
+	twoE25MinusOne(29): This is the 2^21-1 (33554431 bit length).
+
+	twoE28MinusOne(30): This is the 2^28-1 (268435455 bit length).
+
+	twoE29MinusOne(31): Highest stress pseudo random pattern, 
+		with a maximum of 29 (inverted) sequential 
+		zeros Specified in ITU 0.150.
+
+	twoE31MinusOne(32): It has maximum 31 sequential zeros.
+
+	DDS is a special service for transmitting 
+	data in a DS-1 frame.
+
+	dds1pattern(33): This sends 100 bytes of all 1s and 
+		then 100 bytes of all 0s to test the stress 
+		clocking of the network.
+
+	dds2pattern(34): This sends 100 bytes of a 0x7e pattern 
+		and then 100 bytes of all 0s.  This pattern simulates 
+		bit oriented protocol flags for DDS testing.
+
+	dds3pattern(35): This pattern sends continuous 
+		bytes of a 0x46 pattern.  It is used to simulate 
+		a typical DDS signal.
+
+	dds4pattern(36): This pattern sends continuous bytes
+		of a 0x02 pattern.  It is used to stress DDS 
+		clock recovery.
+
+	dds5pattern(37): This pattern sends continuous bytes 
+		of a 0x02 pattern.
+		It is used to stress DDS clock recovery.	
+
+	userPattern(38): This is any user defined pattern. "
+    REFERENCE 
+        "CCITT/ITU O.150, O.151, O.152, O.153, O.161 Standards."
+    SYNTAX INTEGER {
+		allZeros(1),
+		allOnes(2),
+		altOneZero(3),
+		doubleAltOnesZeros(4),
+		oneIn4(5),
+		oneIn8(6),
+		oneIn16(7),
+		threeIn24(8),
+		inbandLoopBackActivate(9),
+		inbandLoopBackDeactivate(10),
+	        twoE3MinusOne(11),
+	        twoE4MinusOne(12),
+	        twoE5MinusOne(13),
+	        twoE6MinusOne(14),
+	        twoE7MinusOne(15),
+	        twoE7MinusOneFT1Loopup(16),
+	        twoE7MinusOneFT1Loopdown(17),
+	        twoE9MinusOne(18),
+	        twoE10MinusOne(19),
+	        twoE11MinusOne(20),
+	        twoE15MinusOne(21),
+	        twoE17MinusOne(22),
+	        twoE18MinusOne(23),
+	        twoE20MinusOne(24),
+	        twoE20MinusOneQRSS(25),
+	        twoE21MinusOne(26),
+	        twoE22MinusOne(27),
+	        twoE23MinusOne(28),
+	        twoE25MinusOne(29),
+	        twoE28MinusOne(30),
+	        twoE29MinusOne(31),
+	        twoE31MinusOne(32),
+		dds1pattern (33),
+		dds2pattern (34),
+		dds3pattern (35),
+		dds4pattern (36),
+		dds5pattern (37),
+		userPattern(38)
+	}
+
+ciscoBertMIBObjects  OBJECT IDENTIFIER ::= { ciscoBertMIB 1 }
+
+ciscoBertConfig    OBJECT IDENTIFIER ::= { ciscoBertMIBObjects 1 }
+
+cbConfTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CbConfEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+       "This table contains configuration, control and status parameters 
+        for performing Bit Error Rate Test (BERT) on an interface. 
+        When cbRowStatus is 'active', ifOperStatus will be set to 'testing'."
+    ::= { ciscoBertConfig 1 }
+
+cbConfEntry OBJECT-TYPE
+    SYNTAX     CbConfEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+       "An entry in the BERT configuration table. 
+	An entry is created for each interface running BERT by NMS.
+	The ifIndex refers to a unique value of an interface 
+	in the ifTable on which BERT is being run.
+	The BERT is started or stopped as by-product of creating 
+	and deleting entries in the cbConfTable."
+    INDEX  { ifIndex }
+    ::= { cbConfTable 1 }
+ 
+CbConfEntry ::=
+    SEQUENCE {
+        cbTestPattern	       BertPatterns,
+	cbUserPattern	       OCTET STRING,
+        cbBertTxPatternInv     INTEGER,
+        cbBertRxPatternInv     INTEGER,
+	cbLoopback   	       INTEGER,
+	cbLoopbackCode         INTEGER,
+        cbSingleBitErrorInsert INTEGER,
+	cbErrorInsertionRate   INTEGER,
+	cbDuration	       Integer32,
+	cbOperStatus           INTEGER,
+        cbFailedReason         INTEGER,
+        cbStartDateAndTime     DateAndTime,
+        cbDS0DPCodeIteration   Integer32,
+	cbRowStatus	       RowStatus,
+        cbDs0BitMap            BITS
+    }
+
+cbTestPattern OBJECT-TYPE
+    SYNTAX     BertPatterns
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+       "The BERT pattern to be sent and expected to be received.
+        An implementation may choose to support only selected patterns.
+        In some implementations, this object can not be modified when 
+        the BERT is running, i.e cbRowStatus is active(1)."
+    ::= { cbConfEntry 1 }
+
+cbUserPattern OBJECT-TYPE
+    SYNTAX     OCTET STRING (SIZE(1..4))
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+       "The object used for configuring the user defined pattern
+        for BERT.  This is the fixed repeating BERT pattern sent
+        and expected to be received when the cbTestPattern object is
+        set to 'userPattern'.  The maximum length of this pattern
+        is 32 bits.  Depending on the hardware, the patterns are 
+        transmitted with least significant first or most 
+        significant bit, until pattern length is reached.
+
+        This object can not be modified when the BERT is running,
+        i.e cbRowStatus is active(1)."
+    ::= { cbConfEntry 2 }
+
+cbBertTxPatternInv OBJECT-TYPE
+    SYNTAX INTEGER {
+	    notInverted(1),
+	    inverted(2)
+    }
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+       "This controls inversion of the transmit BERT pattern.
+	Possible values are :
+
+	notInverted(1): Pattern is transmitted normally.
+ 	inverted(2):  Each Mark is replaced by Space and 
+		vice versa.
+
+	For predefined BERT patterns, the value for this Object
+        may not be modified.  An implementation may choose to 
+	ignore the value of this object, for BERT patterns other 
+	than 'userPattern'.  When the value is ignored, the
+	object contains the value chosen by the underlying hardware.
+
+	This object can not be modified when the BERT is running
+	i.e cbRowStatus is active(1)."
+    DEFVAL { notInverted }
+    ::= { cbConfEntry 3 }
+
+
+cbBertRxPatternInv OBJECT-TYPE
+    SYNTAX     INTEGER {
+            notInverted(1),
+            inverted(2)
+    }  
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+       "This controls inversion of the received BERT pattern.
+        Possible values are :
+
+	notInverted(1) : Pattern received is not inverted.
+	inverted(2)    : each Mark is replaced by Space and 
+		vice versa.
+
+	When set to inverted(1), the received data is inverted
+	before being processed by the pattern detector.
+	For predefined BERT patterns, the value for this object
+        may not be modified.  An implementation may choose to 
+	ignore the value of this object, for BERT patterns other 
+	than 'userPattern'.  When the value is ignored, the
+	object contains the value chosen by the underlying 
+	hardware.
+
+	This object can not be modified when the BERT is running
+	i.e cbRowStatus is active(1)."
+    DEFVAL { notInverted }
+    ::= { cbConfEntry 4 }
+
+cbLoopback OBJECT-TYPE
+    SYNTAX  INTEGER {
+            farEndLineLoopback(1),
+            remoteLineLoopback(2),
+            localLoopback(3),
+            farEndPayloadLoopback(4),
+            remotePayloadLoopback(5),
+	    noLoopback(6)
+        }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+       "This object specifies the type of loopback established.
+	Possible values are:
+
+	farEndLineLoopback(1): This loopback occurs at the CPE upon
+		receiving a special code from the
+		device which initiates the loopback.
+		Upon receiving the loop activation request
+		code, the CPE enters a Line loop mode in which it
+		returns the entire line back to the initiator.
+		The CPE will continue to return the data
+		back to the initiator until it receives
+		loopback deactivation request code.	
+
+	remoteLineLoopback(3): This loopback is established 
+		at the Near-end.
+		In this loopback the entire line is looped back to the
+		Far-end with a) bit-sequence integrity maintained,
+		b) no change in framing, and c) no removal of bi-
+		polar violations.        
+
+	localLoopback(3): This is also known as metallic loopback.
+		This loopback is used for checking the
+		internal circuitry of the T3/E3, T1/E1 device.
+		Only for physical lines.
+
+	farEndPayloadLoopback(4): This loopback occurs at the
+		CPE upon receiving a special code from the
+		device which initiates the loopback.
+		Upon receiving the loop activation request
+		code, CPE enters a Payload loop mode in which it
+		returns the Payload of the received data back
+		to the initiator.
+		The CPE will continue to return the data
+		back to the initiator until it receives
+		loopback deactivation request code.
+
+	remotePayloadLoopback(5): This loopback is established 
+		at the Near-end.
+		In this loopback the signal that is returned to the
+		Far-end consists of the payload of the received signal
+		(with bit sequence integrity retained) and newly
+		generated framing information.
+
+	noLoopback(6):   There is no loopback established
+		on the device.  "
+    ::= { cbConfEntry 5 }
+
+cbLoopbackCode OBJECT-TYPE
+    SYNTAX  INTEGER {
+            nonLatchOCUwith1(1),
+            nonLatchOCUwithout1(2),
+            nonLatchCSU(3),
+            nonLatchDSU(4),
+            latchDS0Drop(5),
+            latchDS0Line(6),
+            latchOCU(7),
+            latchCSU(8),
+            latchDSU(9),
+            latchHL96(10),
+            v54PN127Polynomial(11),
+            lineInband(12),
+            lineLoopbackESF(13),
+            localLoopback(14),
+            noLoopbackCode(15),
+            payloadLoopbackESF(16),
+            lineLoopbackFEAC(17),
+            smartJackInband(18)
+    }
+    MAX-ACCESS  read-create
+    STATUS  current
+    DESCRIPTION
+       "This object specifies the type of the end device and
+        the type of loopback code used.
+
+        Latching Loopback: Latching Loopback is appropriate with
+        64 kbit/s DS0-A rate.  Once invoked by a specific activation
+        sequence, it typically remains in effect until released by
+        another specific code sequence.
+
+	non-latching loopback:  Non latching activation involves
+        continuous transmission of loopback command codes, followed
+        by test data interspersed with command codes.
+        The possible values are:
+	Note: The values 1 to 14 are for farEndLoopback.
+	cbLoopback object is farEndLoopback(1) when these values are 
+	selected.
+
+	nonLatchOCUwithOneDevice(1): Non-latching OCU with one device.
+
+	nonLatchOCUwithChainDevices(2): Non-latching OCU with chain
+		of devices.
+
+	nonLatchCSU(3)                 : Non-latching CSU.
+
+	nonLatchDSU(4)                 : Non-latching DSU.
+
+	latchDS0Drop(5)                : Latching DS0-DP Drop device.
+
+	latchDS0Line(6)                : Latching DS0-DP line device.
+
+	latchOCU(7)                    : Latching OCU.
+
+	latchCSU(8)                    : Latching CSU.
+
+	latchDSU(9)                    : Latching DSU.
+
+	latchHL96(10)                  : Latching HL96 device.
+
+	v54PN127Polynomial(11)         : For fractional T1.
+		This loopback is based on
+		CCITT-ITU V.54 and is being
+		used to place either a single
+		DS0 or a DS0 Bundle(N*DS0) in
+		loopback mode.
+
+	lineInband(12)                  : This is used for loopback the
+		entire T1 line at the far end.
+		This is a repeating 5-bit
+		pattern(00001).
+
+	lineLoopbackESF(13): This loopback result in a full
+		1.544Mbit/s loopback of the
+		incoming signal at the far end.
+		The loopback is activated (latched) and
+		deactivated by a bit sequence defined in
+		ANSI T1.403 - 1995.
+		This corresponds to Facility Data Link
+		(FDL)loopbacks on a T1 channel.
+		This causes a repeating,16-bit ESF data
+		link code word(00001110 11111111) to
+		the remote end requesting that it
+		enter into a network line loopback.
+
+	localLoopback(14): This is for loop back at the 
+		near end (facility end).
+		This is used to test the internals of the
+		device, the interface loops back the 
+		outbound traffic from SRM to SM, back to 
+		the SRM, hence testing the internal device
+		connectivity.
+
+	noLoopbackCode(15): This is for situations, where 
+		no loopback is needed for bert tests. 
+		One example is manual loop back at near or
+                far end.
+
+	payloadLoopbackESF(16): This loopback results 
+		in 1.536 Mbit/s loopback of the payload
+		of the incoming signal at the far end.
+		The loopback is activated (latched) and 
+		deactivated by a bit sequence defined in
+		ANSI T1.403 - 1995.
+		This corresponds to Facility Data Link
+		(FDL)loopbacks on a T1 channel.
+		This causes a repeating, 16-bit ESF data
+		link code word(00010100 11111111) to
+		the remote end requesting that it
+		enter into a network payload loopback.
+
+	lineLoopbackFEAC(17): Use the FEAC channel to 
+		establish a line loopback. 
+
+        smartJackInband(18): Inband loop code for SmartJack (a Telco owned 
+                device that represents the demarcation point of T1 service),
+                Ref: TR-TSY-000312." 
+        ::= { cbConfEntry 6 }
+
+
+cbSingleBitErrorInsert OBJECT-TYPE
+    SYNTAX INTEGER {
+	noError(1),
+	insertError(2)
+    }
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION 
+       "This object is used for inserting single bit error in the 
+	transmitted BERT pattern.
+	
+	The possible values are:
+
+	noError(1)      : do not insert single bit errors
+
+	insertError(2)  : insert single bit errors. "
+	DEFVAL { noError }
+        ::= { cbConfEntry 7 }
+
+cbErrorInsertionRate OBJECT-TYPE
+   SYNTAX INTEGER {
+	noError(1),
+	oneInTen(2),
+	oneInHundred(3),
+	oneInThousand(4),
+	oneInTenThousand(5),
+	oneInHundredThousand(6),
+	oneInMillion(7),
+	oneInTenMillion(8)
+    	}
+
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION 
+       "This object is used for injecting continuous errors into 
+	transmitted BERT pattern.  The errors are inserted in a BERT 
+        pattern sent, in order to do sanity check on receive interface 
+        in the event that no bit errors are detected.  Injecting errors 
+        allows users to stress communication links and to check the 
+	functionality of error monitoring equipment along the path.
+        Once set to send continuous errors, errors will be inserted 
+        at the configured rate until set to noError(1). 
+      
+        The possible values are :
+	
+	noError(1)	: no bit errors are inserted.
+
+	oneInTen(2)	: insert bit errors at the rate of 1 bit
+		error per 10 bits (10^-1) transmitted.
+
+	oneInHundred(3)	: insert bit errors at the rate of 1 bit
+		error per 100 bits (10^-2) transmitted.
+
+	oneInThousand(4): insert bit errors at the rate of 1 bit
+		error per 1000 bits (10^-3) transmitted.
+
+	oneIn10Thousand(5): insert bit errors at the rate of 1 bit
+		error per 10000 (10^-4) bits transmitted.
+
+	oneInHundredThousand(6): insert bit errors at the rate of 1 bit
+		error per 100000 bits (10^-5) transmitted.
+
+	oneInMillion(7): insert bit errors at the rate of 1 bit
+		error per 1000000 bits (10^-6) transmitted.
+
+	oneInTenMillion(8): insert bit errors at the rate of 1 bit
+		error per 10,000,000 (10^-7)bits transmitted. "
+	DEFVAL { noError }
+        ::= { cbConfEntry 8 }
+
+cbDuration OBJECT-TYPE
+    SYNTAX     Integer32 (1..86400)
+    UNITS      "seconds"
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+       "This object specifies the duration for which BERT is
+	to be run. "
+    ::= { cbConfEntry 9 }
+
+cbOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        success(1),
+	inSync(2),
+	outOfSync(3),
+	inLoopback(4),
+	clockOutOfSync(5),
+	bertFailed(6)
+    }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+       "This object shows the status of BERT in the shelf.
+	The values for this object are valid only when
+	cbRowStatus contains active(1).
+
+	Possible values for this object:
+
+	success(1)   : BERT is successfully completed.
+
+	inSync(2)    : BERT is activated and receive side is
+		synchronized with the incoming sequence of patterns.
+
+	outOfSync(3) : BERT is activated, but receive is out 
+		of synchronization with the incoming 
+		sequence.  Criteria for out of 
+		synchronization state is defined in 
+		ITU document O.150.
+
+	inLoopback(4): loopback establish or de-establish in
+		progress.  The type of loopback can be 
+		determined by cbLoopback.
+
+	clockOutOfSync(5): When the send and receive clocks are not
+		synchronized.
+
+	bertFailed(6): BERT failed.  The cbFailedReason object
+		contains the reason for the failure."
+	::= { cbConfEntry 10 }
+
+cbFailedReason   OBJECT-TYPE
+    SYNTAX INTEGER {
+        aborted(1),
+	loopbackFailed(2),
+        interfaceStateChange(3),
+	processorModuleStateChange(4),
+        unknown(5)
+    }
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+       "This object contains the reason for the BERT failure.
+	This object gives the additional information when
+	cbOperStatus is set to bertFailed(6).
+	      
+	The possible values are :
+		
+	aborted(1)              : BERT test is completed as
+		a result of a user request.
+
+	loopbackFailed(2)       :  loop up operation failed.
+
+	interfaceStateChange(3) :  interface State changed due to
+		module state change.
+
+        processorModuleStateChange(4) : Processor module 
+		changed state.
+
+	unknown(5) : Failure Reason Unknown. "
+        ::= { cbConfEntry 11 }
+
+cbStartDateAndTime   OBJECT-TYPE
+    SYNTAX  DateAndTime
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+       "The Date and Time when the last BERT testing is started
+	on the interface.  This object is valid only when 
+        cbRowStatus is active(1). "
+    ::= { cbConfEntry 12 }
+
+cbDS0DPCodeIteration  	 OBJECT-TYPE
+        SYNTAX        Integer32 (1..32) 
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION
+       "Valid only with cbLoopbackCode = latchDS0Drop. 
+	DSP-OP devices can be cross connected in the central
+	office in a daisy chain.  By this, the user has
+	capability to put any of the devices in the chain in
+	loopback mode.  A value of 1 results in no iteration
+	and will cause the very first device in chain to go 
+	into loop back.  A value of 2 will result into one
+	iteration and will cause the second device to
+	go into loopback and so on.  This tests the channels
+	across multiple devices connected in a chain. " 
+	::= { cbConfEntry 13 }
+
+	
+cbRowStatus OBJECT-TYPE
+    SYNTAX  RowStatus
+    MAX-ACCESS  read-create
+    STATUS  current
+    DESCRIPTION
+       "The status of this conceptual row.  This object is used for
+        create or modify or deleting an entry from this table.
+
+        To create a row in this table, a manager must set this
+        object to either createAndGo(4) or createAndWait(5).
+
+	Until instances of all corresponding columns are appropriately
+	configured, the value of the corresponding instance of the
+	cbRowStatus is notReady(3).
+
+	An entry can be deleted by setting this object to destroy(6).
+
+	STARTING BERT: Two approaches:
+		
+        1. set this object to createAndGo(4) with all the mandatory
+	objects set to valid values.
+
+        2. Set this object to createAndWait(4).  Reading this object
+        at this stage returns notReady(3).
+
+        Set all the other required objects with valid values.
+
+	Set this object to active(1).
+
+	STOP/RESTART BERT:
+
+	The BERT can be stopped by setting this object to 
+        notInService(2).  After setting it to notInService(2),
+        some parameters can be modified and BERT can be started
+	by setting this object to active(1).
+
+	STOP BERT:
+
+	An entry can be deleted by setting this object 
+	to destroy(6).
+	Deleting an entry stops the BERT test. "
+    ::= { cbConfEntry 14 }
+
+cbDs0BitMap OBJECT-TYPE
+    SYNTAX   BITS {
+            dsZero1(0),
+            dsZero2(1),
+            dsZero3(2),
+            dsZero4(3),
+            dsZero5(4),
+            dsZero6(5),
+            dsZero7(6),
+            dsZero8(7),
+            dsZero9(8),
+            dsZero10(9),
+            dsZero11(10),
+            dsZero12(11),
+            dsZero13(12),
+            dsZero14(13),
+            dsZero15(14),
+            dsZero16(15),
+            dsZero17(16),
+            dsZero18(17),
+            dsZero19(18),
+            dsZero20(19),
+            dsZero21(20),
+            dsZero22(21),
+            dsZero23(22),
+            dsZero24(23), -- last bit for T1
+            dsZero25(24), -- remainder only for E1
+            dsZero26(25), 
+            dsZero27(26),
+            dsZero28(27),
+            dsZero29(28),
+            dsZero30(29),
+            dsZero31(30)  -- last bit for E1
+         }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+       "This object is only used IF the interface type is DS1
+        (ifType is 18 on ifTable).
+        This object is used to indicate which DS0 is involved
+        on the BERT.
+        The defualt value (DEFVAL) is valid and should be used 
+        for implementation purposes. But the DEFVAL is commented  
+        out due to known mib compiler problems associated with  
+        DEFVAL clauses in objects using BITS SYNTAX.
+       "
+--    DEFVAL { {dsZero1, dsZero2, dsZero3, dsZero4, dsZero5,
+--              dsZero6, dsZero7, dsZero8, dsZero9, dsZero10,
+--              dsZero11, dsZero12, dsZero13, dsZero14, dsZero15,
+--              dsZero16, dsZero17, dsZero18, dsZero19, dsZero20,
+--              dsZero21, dsZero22, dsZero23, dsZero24, dsZero25,
+--              dsZero26, dsZero27, dsZero28, dsZero29, dsZero30,
+--              dsZero31
+--           } }
+    ::= { cbConfEntry 15 }
+
+-- --------------------------------------------------------------
+-- Group ciscoBertStatsTable
+-- 
+-- --------------------------------------------------------------
+cbStatsTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CbStatsEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+       "This table contains BERT related real time counters.
+	Counters in this table are reset to zero every time
+	BERT is started on this interface. "
+    ::= { ciscoBertConfig 2 }
+
+cbStatsEntry OBJECT-TYPE
+    SYNTAX  CbStatsEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "Any entry in BERT statistic table.  For each instances of 
+	cbConfTable there will be an entry in the cbStatsTable.  The
+	objects in this table are valid only if cbOperStatus is 
+	inSync(2). "
+    INDEX   { ifIndex }
+    ::=     { cbStatsTable 1 }
+
+CbStatsEntry ::=
+	SEQUENCE {
+	cbTxBitCountLower	Counter32,
+	cbTxBitCountUpper	Counter32,
+	cbHCTxBitCounts		Counter64,
+	cbRxBitCountLower	Counter32,
+	cbRxBitCountUpper	Counter32,
+	cbHCRxBitCounts		Counter64,
+	cbRxBitErrCountLower	Counter32,
+	cbRxBitErrCountUpper	Counter32,
+	cbHCRxBitErrCounts	Counter64,
+	cbSyncLossCounts	Counter32,
+	cbPatternLossCounts	Counter32,
+	cbFrameLossCounts	Counter32,
+	cbESsCounts		Counter32,
+	cbSESsCounts		Counter32,
+	cbEFSsCounts		Counter32,
+	cbErrorInjectCounts	Counter32
+	}
+
+cbTxBitCountLower OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+       "The total number of bits transmitted."
+    ::= { cbStatsEntry 1 }
+
+cbTxBitCountUpper OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+       "The number of times the associated cbTxBitCountLower object has
+        wrapped (i.e. restarted from zero)."
+    ::= { cbStatsEntry 2 }
+
+cbHCTxBitCounts OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+       "The total number of bits transmitted.  This object is
+        a 64-bit version of cbTxBitCounts. "
+    ::= { cbStatsEntry 3 }
+
+cbRxBitCountLower OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+       "The total number of bits received. "
+    ::= { cbStatsEntry 4 }
+
+cbRxBitCountUpper OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+       "The number of times the associated cbRxBitCountLower counter has
+        wrapped (i.e. restarted from zero)."
+    ::= { cbStatsEntry 5 }
+
+cbHCRxBitCounts OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+       "The total number of bits received.  This object is 
+	64-bit version of cbRxBitCounts. "
+    ::= { cbStatsEntry 6 }
+
+cbRxBitErrCountLower OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+       "The total number of bit errors detected in the received 
+	pattern. "
+    ::= { cbStatsEntry 7 }
+
+cbRxBitErrCountUpper OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+       "The number of times the associated cbRxBitErrCountLower counter has
+        wrapped (i.e. restarted from zero)."
+    ::= { cbStatsEntry 8 }
+
+cbHCRxBitErrCounts OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+       "The number of bit errors detected in the received pattern.
+	This is the 64-bit version of cbRxBitErrCounts. "
+    ::= { cbStatsEntry 9 }
+
+cbSyncLossCounts OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+       "This is the count of number of times that synchronization has 
+        been lost since the BERT was started or restarted. "
+    ::= { cbStatsEntry 10 }
+
+cbPatternLossCounts OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+       "The number of 1 second intervals during the BER test in
+        which pattern synchronization was not maintained for the
+	entire second. "
+    ::= { cbStatsEntry 11 }
+
+cbFrameLossCounts OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+       "The number of 1 second intervals during the BER test in
+	which frame synchronization was not maintained for the
+	entire second. "
+    ::= { cbStatsEntry 12 }
+
+cbESsCounts OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+       "Number of 1 second interval during the BER test that at least
+        one bit error was detected in the received data pattern. "
+    ::= { cbStatsEntry 13 }
+
+cbSESsCounts OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current 
+    DESCRIPTION
+       "The number of 1 second intervals during the BER test that
+        the Bit Error Rate was greater than 10^-3. "
+    ::= { cbStatsEntry 14 }
+
+cbEFSsCounts OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current 
+    DESCRIPTION
+       "The number of 1 second intervals during the BER test that 
+        there were not errors detected and pattern synchronization
+        was maintained. "
+    ::= { cbStatsEntry 15 }
+
+cbErrorInjectCounts OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current 
+    DESCRIPTION
+        "This object contains the number of times error was injected."
+    ::= { cbStatsEntry 16 }
+
+-- conformance information
+ 
+ciscoBertMIBConformance OBJECT IDENTIFIER ::= { ciscoBertMIB 8 }
+ciscoBertMIBCompliances OBJECT IDENTIFIER ::= 
+	{ ciscoBertMIBConformance 1 }
+ciscoBertMIBGroups      OBJECT IDENTIFIER ::= 
+	{ ciscoBertMIBConformance 2 }
+ 
+ciscoBertMIBCompliance MODULE-COMPLIANCE
+     STATUS current
+     DESCRIPTION
+        "The Compliance statement for cisco BERT management group."
+     MODULE -- this module
+     MANDATORY-GROUPS { ciscoBertConfigGroup,ciscoBertStatsGroup }
+
+     GROUP ciscoBertHCStatsGroup
+     DESCRIPTION 
+         "Implementation of this group is mandatory 
+	  for SNMP v2/V3 agents."
+
+     GROUP ciscoBertLoopbackGroup
+     DESCRIPTION
+        "Implementation of this group is not mandatory when
+	 the loopbacks need not be established automatically
+	 for the devices involved in BERT.  This group need
+	 not be implemented if the loopback is established
+	 manually."
+     GROUP ciscoBertConfigGroupDs1
+     DESCRIPTION
+        "Implementation of this group is not mandatory.
+         This group is needed only if there is special requirment 
+         for BERT on DS1."
+
+     ::= { ciscoBertMIBCompliances 1 }
+
+
+-- units of conformance
+
+ciscoBertConfigGroup  OBJECT-GROUP
+        OBJECTS {
+            cbTestPattern,         
+	    cbUserPattern,
+            cbBertTxPatternInv,
+	    cbBertRxPatternInv,
+            cbSingleBitErrorInsert,
+            cbErrorInsertionRate,
+	    cbDuration,
+            cbOperStatus,
+            cbFailedReason,
+	    cbStartDateAndTime,
+            cbDS0DPCodeIteration,
+            cbRowStatus
+            }
+       STATUS current
+       DESCRIPTION
+          "Collection of objects related to BERT Configuration and
+	   BERT status."
+       ::= { ciscoBertMIBGroups 1 }
+
+ciscoBertLoopbackGroup  OBJECT-GROUP
+        OBJECTS {
+	    cbLoopback,
+	    cbLoopbackCode
+            }
+       STATUS current
+       DESCRIPTION
+          "Collection of objects related to Loopback configuration
+	   for the BERT."
+       ::= { ciscoBertMIBGroups 2 }
+
+ciscoBertStatsGroup  OBJECT-GROUP
+       OBJECTS {
+	    cbTxBitCountLower,
+            cbTxBitCountUpper,
+            cbRxBitCountLower,
+	    cbRxBitCountUpper,
+	    cbRxBitErrCountLower,
+	    cbRxBitErrCountUpper,
+            cbSyncLossCounts,
+            cbPatternLossCounts,
+            cbFrameLossCounts,
+            cbESsCounts,
+            cbSESsCounts,
+            cbEFSsCounts,
+            cbErrorInjectCounts
+       }
+       STATUS current
+       DESCRIPTION
+          "Collection of objects related to BERT Statistics."
+       ::= { ciscoBertMIBGroups 3 }
+
+ciscoBertHCStatsGroup  OBJECT-GROUP
+       OBJECTS {
+            cbHCTxBitCounts,
+            cbHCRxBitCounts,
+            cbHCRxBitErrCounts
+       }
+       STATUS current
+       DESCRIPTION
+          "Statistics objects which can hold Counter64 value." 
+       ::= { ciscoBertMIBGroups 4 }
+
+ciscoBertConfigGroupDs1  OBJECT-GROUP
+       OBJECTS {
+            cbDs0BitMap
+       }
+       STATUS current
+       DESCRIPTION
+          "This group include objects only for DS1 Bert." 
+       ::= { ciscoBertMIBGroups 5 }
+END
+
+

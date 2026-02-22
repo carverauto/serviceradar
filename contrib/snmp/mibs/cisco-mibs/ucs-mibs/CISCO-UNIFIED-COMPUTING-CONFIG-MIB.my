@@ -1,0 +1,450 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-CONFIG-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- CONFIG management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-CONFIG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsConfigImpactResponseState,
+    CucsConfigSorterDirection,
+    CucsEquipmentChassisConfigIssues,
+    CucsEquipmentChassisProfileConfigState,
+    CucsLsConfigIssues,
+    CucsLsConfigState,
+    CucsMoMoClassId,
+    CucsTrigAckChanges,
+    CucsTrigAckMode
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsConfigObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        CONFIG management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 61 }
+
+cucsConfigImpactTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsConfigImpactEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS config:Impact managed object table"
+    ::= { cucsConfigObjects 2 }
+
+cucsConfigImpactEntry OBJECT-TYPE
+    SYNTAX           CucsConfigImpactEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsConfigImpactTable table."
+    INDEX { cucsConfigImpactInstanceId }
+    ::= { cucsConfigImpactTable 1 }
+
+CucsConfigImpactEntry ::= SEQUENCE {
+    cucsConfigImpactInstanceId                                       CucsManagedObjectId,
+    cucsConfigImpactDn                                               CucsManagedObjectDn,
+    cucsConfigImpactRn                                               SnmpAdminString,
+    cucsConfigImpactAffectedObj                                      SnmpAdminString,
+    cucsConfigImpactAffectedServer                                   SnmpAdminString,
+    cucsConfigImpactChanges                                          CucsTrigAckChanges,
+    cucsConfigImpactConfigIssues                                     CucsLsConfigIssues,
+    cucsConfigImpactConfigQualifier                                  CucsLsConfigIssues,
+    cucsConfigImpactConfigState                                      CucsLsConfigState,
+    cucsConfigImpactDeploymentMode                                   CucsTrigAckMode,
+    cucsConfigImpactName                                             SnmpAdminString,
+    cucsConfigImpactRebootRequired                                   TruthValue,
+    cucsConfigImpactAffectedChassis                                  SnmpAdminString,
+    cucsConfigImpactChassisConfigIssues                              CucsEquipmentChassisConfigIssues,
+    cucsConfigImpactChassisConfigQualifier                           CucsEquipmentChassisConfigIssues,
+    cucsConfigImpactChassisConfigState                               CucsEquipmentChassisProfileConfigState
+}
+
+cucsConfigImpactInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsConfigImpactEntry 1 }
+
+cucsConfigImpactDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:dn managed object property"
+    ::= { cucsConfigImpactEntry 2 }
+
+cucsConfigImpactRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:rn managed object property"
+    ::= { cucsConfigImpactEntry 3 }
+
+cucsConfigImpactAffectedObj OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:affectedObj managed object property"
+    ::= { cucsConfigImpactEntry 4 }
+
+cucsConfigImpactAffectedServer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:affectedServer managed object property"
+    ::= { cucsConfigImpactEntry 5 }
+
+cucsConfigImpactChanges OBJECT-TYPE
+    SYNTAX       CucsTrigAckChanges
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:changes managed object property"
+    ::= { cucsConfigImpactEntry 6 }
+
+cucsConfigImpactConfigIssues OBJECT-TYPE
+    SYNTAX       CucsLsConfigIssues
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:configIssues managed object property"
+    ::= { cucsConfigImpactEntry 7 }
+
+cucsConfigImpactConfigQualifier OBJECT-TYPE
+    SYNTAX       CucsLsConfigIssues
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:configQualifier managed object property"
+    ::= { cucsConfigImpactEntry 8 }
+
+cucsConfigImpactConfigState OBJECT-TYPE
+    SYNTAX       CucsLsConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:configState managed object property"
+    ::= { cucsConfigImpactEntry 9 }
+
+cucsConfigImpactDeploymentMode OBJECT-TYPE
+    SYNTAX       CucsTrigAckMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:deploymentMode managed object property"
+    ::= { cucsConfigImpactEntry 10 }
+
+cucsConfigImpactName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:name managed object property"
+    ::= { cucsConfigImpactEntry 11 }
+
+cucsConfigImpactRebootRequired OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:rebootRequired managed object property"
+    ::= { cucsConfigImpactEntry 12 }
+
+cucsConfigImpactAffectedChassis OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:affectedChassis managed object property"
+    ::= { cucsConfigImpactEntry 13 }
+
+cucsConfigImpactChassisConfigIssues OBJECT-TYPE
+    SYNTAX       CucsEquipmentChassisConfigIssues
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:chassisConfigIssues managed
+        object property"
+    ::= { cucsConfigImpactEntry 14 }
+
+cucsConfigImpactChassisConfigQualifier OBJECT-TYPE
+    SYNTAX       CucsEquipmentChassisConfigIssues
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:chassisConfigQualifier
+        managed object property"
+    ::= { cucsConfigImpactEntry 15 }
+
+cucsConfigImpactChassisConfigState OBJECT-TYPE
+    SYNTAX       CucsEquipmentChassisProfileConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Impact:chassisConfigState managed
+        object property"
+    ::= { cucsConfigImpactEntry 16 }
+
+cucsConfigManagedEpImpactResponseTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsConfigManagedEpImpactResponseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS config:ManagedEpImpactResponse managed object table"
+    ::= { cucsConfigObjects 3 }
+
+cucsConfigManagedEpImpactResponseEntry OBJECT-TYPE
+    SYNTAX           CucsConfigManagedEpImpactResponseEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsConfigManagedEpImpactResponseTable table."
+    INDEX { cucsConfigManagedEpImpactResponseInstanceId }
+    ::= { cucsConfigManagedEpImpactResponseTable 1 }
+
+CucsConfigManagedEpImpactResponseEntry ::= SEQUENCE {
+    cucsConfigManagedEpImpactResponseInstanceId                      CucsManagedObjectId,
+    cucsConfigManagedEpImpactResponseDn                              CucsManagedObjectDn,
+    cucsConfigManagedEpImpactResponseRn                              SnmpAdminString,
+    cucsConfigManagedEpImpactResponseAffectedServers                 Gauge32,
+    cucsConfigManagedEpImpactResponseAppConnectorId                  Gauge32,
+    cucsConfigManagedEpImpactResponseEpName                          SnmpAdminString,
+    cucsConfigManagedEpImpactResponseImpactAnalyzerId                DateAndTime,
+    cucsConfigManagedEpImpactResponseRebootRequired                  TruthValue,
+    cucsConfigManagedEpImpactResponseSourceConnectorId               Gauge32,
+    cucsConfigManagedEpImpactResponseState                           CucsConfigImpactResponseState,
+    cucsConfigManagedEpImpactResponseAffectedChassisCnt              Gauge32
+}
+
+cucsConfigManagedEpImpactResponseInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsConfigManagedEpImpactResponseEntry 1 }
+
+cucsConfigManagedEpImpactResponseDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:ManagedEpImpactResponse:dn managed
+        object property"
+    ::= { cucsConfigManagedEpImpactResponseEntry 2 }
+
+cucsConfigManagedEpImpactResponseRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:ManagedEpImpactResponse:rn managed
+        object property"
+    ::= { cucsConfigManagedEpImpactResponseEntry 3 }
+
+cucsConfigManagedEpImpactResponseAffectedServers OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:ManagedEpImpactResponse:affectedServers
+        managed object property"
+    ::= { cucsConfigManagedEpImpactResponseEntry 4 }
+
+cucsConfigManagedEpImpactResponseAppConnectorId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:ManagedEpImpactResponse:appConnectorId
+        managed object property"
+    ::= { cucsConfigManagedEpImpactResponseEntry 5 }
+
+cucsConfigManagedEpImpactResponseEpName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:ManagedEpImpactResponse:epName
+        managed object property"
+    ::= { cucsConfigManagedEpImpactResponseEntry 6 }
+
+cucsConfigManagedEpImpactResponseImpactAnalyzerId OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:ManagedEpImpactResponse:impactAnalyzerId
+        managed object property"
+    ::= { cucsConfigManagedEpImpactResponseEntry 7 }
+
+cucsConfigManagedEpImpactResponseRebootRequired OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:ManagedEpImpactResponse:rebootRequired
+        managed object property"
+    ::= { cucsConfigManagedEpImpactResponseEntry 8 }
+
+cucsConfigManagedEpImpactResponseSourceConnectorId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:ManagedEpImpactResponse:sourceConnectorId
+        managed object property"
+    ::= { cucsConfigManagedEpImpactResponseEntry 9 }
+
+cucsConfigManagedEpImpactResponseState OBJECT-TYPE
+    SYNTAX       CucsConfigImpactResponseState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:ManagedEpImpactResponse:state
+        managed object property"
+    ::= { cucsConfigManagedEpImpactResponseEntry 10 }
+
+cucsConfigManagedEpImpactResponseAffectedChassisCnt OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:ManagedEpImpactResponse:affectedChassisCnt
+        managed object property"
+    ::= { cucsConfigManagedEpImpactResponseEntry 12 }
+
+cucsConfigSorterTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsConfigSorterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS config:Sorter managed object table"
+    ::= { cucsConfigObjects 1 }
+
+cucsConfigSorterEntry OBJECT-TYPE
+    SYNTAX           CucsConfigSorterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsConfigSorterTable table."
+    INDEX { cucsConfigSorterInstanceId }
+    ::= { cucsConfigSorterTable 1 }
+
+CucsConfigSorterEntry ::= SEQUENCE {
+    cucsConfigSorterInstanceId                                       CucsManagedObjectId,
+    cucsConfigSorterDn                                               CucsManagedObjectDn,
+    cucsConfigSorterRn                                               SnmpAdminString,
+    cucsConfigSorterDirection                                        CucsConfigSorterDirection,
+    cucsConfigSorterSortClass                                        CucsMoMoClassId,
+    cucsConfigSorterSortProp                                         SnmpAdminString
+}
+
+cucsConfigSorterInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsConfigSorterEntry 1 }
+
+cucsConfigSorterDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Sorter:dn managed object property"
+    ::= { cucsConfigSorterEntry 2 }
+
+cucsConfigSorterRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Sorter:rn managed object property"
+    ::= { cucsConfigSorterEntry 3 }
+
+cucsConfigSorterDirection OBJECT-TYPE
+    SYNTAX       CucsConfigSorterDirection
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Sorter:direction managed object property"
+    ::= { cucsConfigSorterEntry 4 }
+
+cucsConfigSorterSortClass OBJECT-TYPE
+    SYNTAX       CucsMoMoClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Sorter:sortClass managed object property"
+    ::= { cucsConfigSorterEntry 5 }
+
+cucsConfigSorterSortProp OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS config:Sorter:sortProp managed object property"
+    ::= { cucsConfigSorterEntry 6 }
+
+END

@@ -1,0 +1,1124 @@
+-- MIB file created 29-Jul-2002 13:57:08, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ENHANCED-WRED-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ENHANCED-WRED-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ifIndex
+            FROM IF-MIB
+    entPhysicalIndex, PhysicalIndex
+            FROM ENTITY-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoEnhancedWredMIB OBJECT IDENTIFIER ::= { ciscoMgmt 222 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200112210000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134-1706
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-wredmib@cisco.com
+--  Descr
+--    Cisco WRED MIB - Overview
+--     Cisco Weighted Random Early Detection/Drop (WRED)
+--     is a method which avoids traffic congestion on an
+--     output interface. Congestion is detected by computing
+--     the average output queue size against queue
+--     thresholds, which can be configured either per IP
+--     precedence or differentiated services code point
+--     (DSCP) based. WRED support are on the IP fast
+--     switching and IP flow switching only. It does not
+--     apply to IP process switching.
+--    
+--     The purpose of this MIB is to provide Weighted Random
+--     Early Detection/Drop packet configuration and packet
+--     filtering information. This MIB provides the WRED
+--     information about  the transmit (Tx) side and 
+--     receive (Rx) side of the modules, for the managed
+--     systems that support WRED on both transmit side 
+--     and receive side.
+--  RevDate
+--    200112210000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoEnhancedWredMIBObjects OBJECT IDENTIFIER ::= { ciscoEnhancedWredMIB 1 }
+cewredTx        OBJECT IDENTIFIER ::= { ciscoEnhancedWredMIBObjects 1 }
+cewredRx        OBJECT IDENTIFIER ::= { ciscoEnhancedWredMIBObjects 2 }
+cewredConfig    OBJECT IDENTIFIER ::= { ciscoEnhancedWredMIBObjects 3 }
+cewredQueue     OBJECT IDENTIFIER ::= { ciscoEnhancedWredMIBObjects 4 }
+cewredStat      OBJECT IDENTIFIER ::= { ciscoEnhancedWredMIBObjects 5 }
+cewredMIBNotifications OBJECT IDENTIFIER ::= { ciscoEnhancedWredMIB 0 }
+cewredMIBConformance OBJECT IDENTIFIER ::= { ciscoEnhancedWredMIB 3 }
+cewredMIBCompliances OBJECT IDENTIFIER ::= { cewredMIBConformance 1 }
+cewredMIBGroups OBJECT IDENTIFIER ::= { cewredMIBConformance 2 }
+
+CewredQueueNumber ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An unique value, for each distributed round robin
+--    queue in the managed system.
+
+CewredRedMechanism ::= INTEGER {
+        precedence(1),
+        dscp(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This denotes the Random Early Detection mechanisms
+--     to be used by WRED. The possible mechanisms are as
+--     follows:
+--    
+--    precedence      Based on IP precedence
+--    dscp            Based on DSCP values
+
+CewredRedProfile ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A value which identifies the mapping between the
+--    precedence or DSCP value to a Random Early Detection
+--    profile.
+
+CewredIndex ::= Gauge(1..4294967295)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An unique value, greater than zero, which identifies
+--    unique entry in cewredConfigGlobTable.
+
+cewredTxTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CewredTxEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the mapping entries that
+        associate WRED configuration with an egress 
+        interface. This table is used for creating or
+        modifying or retrieving transmit side WRED
+        information."
+    ::= { cewredTx 1 }
+
+cewredTxEntry OBJECT-TYPE
+    SYNTAX CewredTxEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entries used for providing transmit side
+        WRED information. If this entry got deleted,
+        the corresponding cewredConfigGlobIndex 
+        (identified by cewredTxValue) associated entry
+        in cewredConfigGlobTable is also deleted.
+        
+        If a entry corresponding to the value of 
+        cewredTxValue does not exist in the
+        cewredConfigGlobTable, the value of
+        cewredTxValue can be (re)used as an index to
+        create a new entry in the 
+        cewredConfigGlobTable for building association
+        between this mapping table and the
+        cewredConfigGlobTable."
+    INDEX { ifIndex }
+    ::= { cewredTxTable 1 }
+
+CewredTxEntry ::= SEQUENCE {
+    cewredTxValue CewredIndex,
+    cewredTxRowStatus RowStatus
+    }
+
+cewredTxValue OBJECT-TYPE
+    SYNTAX CewredIndex
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the value of
+        cewredConfigGlobIndex which associates the WRED
+        configuration with ifIndex associated egress
+        interface. This value can not be modified when
+        cewredTxRowStatus is active(1). 
+        
+        The value of this object must not be same as the
+        values of the following objects:
+        cewredRxIfValue,
+        cewredRxValue,
+        cewredRxMulticastValue."
+    ::= { cewredTxEntry 1 }
+
+cewredTxRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        This object is used for creating, modifying
+        and deleting entries in the cewredTxTable."
+    ::= { cewredTxEntry 2 }
+
+cewredRxIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CewredRxIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the mapping entries that
+        associate WRED configuration with a source
+        module and destination interface combination."
+    ::= { cewredRx 1 }
+
+cewredRxIfEntry OBJECT-TYPE
+    SYNTAX CewredRxIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entries containing the mapping that associate the
+        receive side WRED configuration  to the physical
+        entity of type PhysicalClass module(9) which supports
+        WRED with per interface queueing on the receive side.
+        If this entry got deleted, the corresponding
+        cewredConfigGlobIndex (identified by cewredRxIfValue)
+        associated entry in cewredConfigGlobTable is also
+        deleted.
+        
+        If a entry corresponding to the value of
+        cewredRxIfValue does not exist in the
+        cewredConfigGlobTable, the value of cewredRxIfValue 
+        can be (re)used as an index to create a new entry
+        in the cewredConfigGlobTable for building
+        association between this mapping table and the
+        cewredConfigGlobTable."
+    INDEX { entPhysicalIndex, ifIndex }
+    ::= { cewredRxIfTable 1 }
+
+CewredRxIfEntry ::= SEQUENCE {
+    cewredRxIfValue CewredIndex,
+    cewredRxIfRowStatus RowStatus
+    }
+
+cewredRxIfValue OBJECT-TYPE
+    SYNTAX CewredIndex
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the value of
+        cewredConfigGlobIndex which associates the WRED 
+        configuration with the source module (identified by
+        entPhysicalIndex) and destination interface
+        (identified by the ifIndex) combination.This value
+        can't be modified when cewredRxRowStatus is active(1).
+        
+        The value of this object must not be same as the
+        values of the following objects:
+        cewredTxValue,
+        cewredRxValue,
+        cewredRxMulticastValue."
+    ::= { cewredRxIfEntry 1 }
+
+cewredRxIfRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        This object is used for creating, modifying
+        and deleting entries in the cewredRxIfTable."
+    ::= { cewredRxIfEntry 2 }
+
+cewredRxTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CewredRxEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the mapping entries that
+        associate WRED configuration with a source
+        module and destination module combination."
+    ::= { cewredRx 2 }
+
+cewredRxEntry OBJECT-TYPE
+    SYNTAX CewredRxEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entries containing the mapping that associate the
+        receive side WRED configuration  to the physical
+        entity of type PhysicalClass module(9) which supports
+        WRED with per module queueing on the receive side.
+        If this entry got deleted, the corresponding
+        cewredConfigGlobIndex (identified by cewredRxValue)
+        associated entry in cewredConfigGlobTable is also
+        deleted.
+        
+        If a entry corresponding to the value of 
+        cewredRxValue does not exist in the
+        cewredConfigGlobTable, the value of cewredRxValue 
+        can be (re)used as an index to create a new entry
+        in the cewredConfigGlobTable for building 
+        association between this mapping table and the
+        cewredConfigGlobTable."
+    INDEX { cewredRxSourceId, cewredRxDestId }
+    ::= { cewredRxTable 1 }
+
+CewredRxEntry ::= SEQUENCE {
+    cewredRxSourceId PhysicalIndex,
+    cewredRxDestId PhysicalIndex,
+    cewredRxValue CewredIndex,
+    cewredRxRowStatus RowStatus
+    }
+
+cewredRxSourceId OBJECT-TYPE
+    SYNTAX PhysicalIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The entPhysicalIndex of the source module,
+        supporting per module queueing on receive side
+        to which WRED configuration was attached."
+    ::= { cewredRxEntry 1 }
+
+cewredRxDestId OBJECT-TYPE
+    SYNTAX PhysicalIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "On the receive side, WRED configuration is applied on
+        the traffic going from a source module to a destination
+        module. This object represents the entPhysicalIndex of
+        the destination module where source module is being 
+        represented by cewredRxSourceId."
+    ::= { cewredRxEntry 2 }
+
+cewredRxValue OBJECT-TYPE
+    SYNTAX CewredIndex
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the value which can be used by 
+        cewredConfigGlobIndex object, which associates WRED
+        configuration with the source module (identified by 
+        cewredRxSourceId) and destination module
+        (identified by cewredRxDestId) combination. This 
+        value can't be modified when cewredRxRowStatus is
+        active(1).
+        
+        The value of this object must not be same as the values
+        of the following objects:
+        cewredTxValue,
+        cewredRxIfValue,
+        cewredRxMulticastValue."
+    ::= { cewredRxEntry 3 }
+
+cewredRxRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        This object is used for creating, modifying
+        and deleting entries in the cewredRxTable."
+    ::= { cewredRxEntry 4 }
+
+cewredRxMulticastTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CewredRxMulticastEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the mapping entries that
+        associate WRED configuration on the multicast
+        traffic of a module on the receive side."
+    ::= { cewredRx 3 }
+
+cewredRxMulticastEntry OBJECT-TYPE
+    SYNTAX CewredRxMulticastEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entries used to provide WRED information
+        for the physical entities of type PhysicalClass 
+        module(9) that support WRED on multicast traffic
+        on the receive side. If this entry got deleted,
+        the corresponding cewredConfigGlobIndex 
+        (identified by cewredRxMulticastValue) associated
+        entry in cewredConfigGlobTable is also deleted.
+        
+        If a entry corresponding to the value of 
+        cewredRxMulticastValue does not exist in the
+        cewredConfigGlobTable, the value of 
+        cewredRxMulticastValue can be (re)used as an
+        index to create a new entry in the 
+        cewredConfigGlobTable for building association
+        between this mapping table and the
+        cewredConfigGlobTable."
+    INDEX { entPhysicalIndex }
+    ::= { cewredRxMulticastTable 1 }
+
+CewredRxMulticastEntry ::= SEQUENCE {
+    cewredRxMulticastValue CewredIndex,
+    cewredRxMulticastRowStatus RowStatus
+    }
+
+cewredRxMulticastValue OBJECT-TYPE
+    SYNTAX CewredIndex
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the value which can be used by 
+        cewredConfigGlobIndex object, which associates 
+        WRED configuration on the multicast traffic of the 
+        source module (identified by entPhysicalIndex) on the 
+        receive side. This value can't be modified when 
+        cewredRxMulticastRowStatus is active(1).
+        
+        The value of this object must not be same as the values
+        of the following objects:
+        cewredTxValue,
+        cewredRxIfValue,
+        cewredRxValue."
+    ::= { cewredRxMulticastEntry 1 }
+
+cewredRxMulticastRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        This object is used for creating, modifying
+        and deleting entries in the cewredRxMulticastTable."
+    ::= { cewredRxMulticastEntry 2 }
+
+cewredConfigGlobTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CewredConfigGlobEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of WRED global configuration variables."
+    ::= { cewredConfig 1 }
+
+cewredConfigGlobEntry OBJECT-TYPE
+    SYNTAX CewredConfigGlobEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of configuration entries. 
+        On the transmit side of a module an Entry of 
+        this table is created/deleted  when the interface
+        is associated/disassociated respectively with random
+        early detection. On the receive side, an entry of
+        this table is created or deleted when the entries
+        representing cewredConfigGlobIndex is 
+        associated/disassociated respectively with 
+        random early detection.
+        
+        An entry in this table created only when
+        the corresponding entry providing the value for
+        cewredConfigGlobIndex is created in one of the
+        following mapping tables:
+        cewredTxTable,
+        cewredRxIfTable,
+        cewredRxTable,
+        cewredRxMulticastTable.
+        
+        Deletion of this entry will not cause the deletion
+        of the corresponding entry (entry providing 
+        cewredConfigGlobIndex) in the mapping 
+        tables."
+    INDEX { cewredConfigGlobIndex }
+    ::= { cewredConfigGlobTable 1 }
+
+CewredConfigGlobEntry ::= SEQUENCE {
+    cewredConfigGlobIndex CewredIndex,
+    cewredConfigGlobCosGroupName SnmpAdminString,
+    cewredConfigGlobQueueWeight Gauge,
+    cewredConfigGlobDscpPrec CewredRedMechanism,
+    cewredConfigGlobRowStatus RowStatus
+    }
+
+cewredConfigGlobIndex OBJECT-TYPE
+    SYNTAX CewredIndex
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Index into the cewredConfigGlobTable. For 
+        the managed systems which support WRED configuration
+        on both transmit side and receive side,
+        this index will be obtained by one of the following
+        mapping table entries:
+        cewredTxTable,
+        cewredRxIfTable,
+        cewredRxTable,
+        cewredRxMulticastTable.
+        
+        This index will be obtained through cewredTxValue
+        object in case of WRED applied on an interface on the 
+        transmit side. If WRED is applied on the
+        receive side, this index will be obtained
+        through cewredRxIfvalue if the module supports
+        per module/interface queueing on the receive side, 
+        otherwise this index will be obtained through
+        to cewredRxValue. For multicast on the receive side,
+        this index will be obtained through
+        cewredRxMulticastValue.
+        
+        For the managed systems, which only support interface
+        level WRED configuration, this value can be equal to
+        the ifIndex associated with the interface."
+    ::= { cewredConfigGlobEntry 1 }
+
+cewredConfigGlobCosGroupName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the class of service queue group 
+        under which all WRED parameters are configured.
+        For the managed systems, which do not support
+        class of service queue groups, this value will
+        be a zero length string."
+    DEFVAL { "" }
+    ::= { cewredConfigGlobEntry 2 }
+
+cewredConfigGlobQueueWeight OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The decay factor for the queue average calculation.
+        Numbers are 2's exponent up to 16. The smaller the
+        number, the faster it decays."
+    ::= { cewredConfigGlobEntry 3 }
+
+cewredConfigGlobDscpPrec OBJECT-TYPE
+    SYNTAX CewredRedMechanism
+--    Rsyntax INTEGER {
+--        precedence(1),
+--        dscp(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The classification mechanism used by WRED - precedence
+         or DSCP-based. This entry can't be modified if there
+         exists corresponding entry with different RED mechanism
+         in the following cewredConfigRedTable. For example
+         for a given cewredConfigGlobIndex, if there exists 
+         precedence based configuration in the 
+         cewredConfigRedTable, this value can't be changed
+         to dscp(2)."
+    ::= { cewredConfigGlobEntry 4 }
+
+cewredConfigGlobRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        This object is used for creating, modifying
+        and deleting entries in the cewredConfigGlobTable.
+        This value can be set to active(1) only if the 
+        corresponding row in one of the following mapping
+        tables is having a row status value active(1):
+        cewredTxTable,
+        cewredRxIfTable,
+        cewredRxTable,
+        cewredRxMulticastTable."
+    ::= { cewredConfigGlobEntry 5 }
+
+cewredConfigRedTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CewredConfigRedEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of WRED configuration values with respect 
+        to the IP precedence or DSCP value of packets."
+    ::= { cewredConfig 2 }
+
+cewredConfigRedEntry OBJECT-TYPE
+    SYNTAX CewredConfigRedEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "WRED IP precedence/DSCP configuration table entry.
+        If the WRED configuration is per interface based,
+        an entry of this table is created/deleted when
+        a combination of interface and cewredConfigRedValue
+        is associated/disassociated respectively with
+        random early detection.
+        
+        On the receive side, an entry of this
+        table is created or deleted when a combination
+        of entries representing cewredConfigGlobIndex
+        and cewredConfigRedValue is
+        associated/disassociated respectively with random 
+        early detection."
+    INDEX { cewredConfigGlobIndex, cewredConfigRedValue }
+    ::= { cewredConfigRedTable 1 }
+
+CewredConfigRedEntry ::= SEQUENCE {
+    cewredConfigRedValue Gauge,
+    cewredConfigRedQueueNumber CewredQueueNumber,
+    cewredConfigRedProfile CewredRedProfile,
+    cewredConfigRedMinThreshold Gauge,
+    cewredConfigRedMaxThreshold Gauge,
+    cewredConfigRedPktsDropFract Gauge,
+    cewredConfigRedRowStatus RowStatus
+    }
+
+cewredConfigRedValue OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP precedence or DSCP value of this entry."
+    ::= { cewredConfigRedEntry 1 }
+
+cewredConfigRedQueueNumber OBJECT-TYPE
+    SYNTAX CewredQueueNumber
+--    Rsyntax Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The queue number of the distributed round robin queue
+        associated with this RedValue. For each queue there
+        are RED  parameters associated with it depending
+        upon its precedence or DSCP value. For the managed
+        systems which do not support multiple distributed round
+        robin queues, this number will be 1."
+    ::= { cewredConfigRedEntry 2 }
+
+cewredConfigRedProfile OBJECT-TYPE
+    SYNTAX CewredRedProfile
+--    Rsyntax Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the WRED profile associated with the
+        cewredConfigRedValue. This object value will be
+        equal to the WRED profile value for the managed systems
+        that support a mapping of many  precedences or DSCP
+        values to a WRED profile, otherwise this object value
+        will be same as the  precedence or DSCP value associated
+        with this entry."
+    ::= { cewredConfigRedEntry 3 }
+
+cewredConfigRedMinThreshold OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The average queue depth at which WRED
+        begins to drop packets. Below this value
+        no packets will be dropped."
+    ::= { cewredConfigRedEntry 4 }
+
+cewredConfigRedMaxThreshold OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The average queue depth at which WRED may
+        begin to drop all packets. Above this value
+        all the packets will be dropped"
+    ::= { cewredConfigRedEntry 5 }
+
+cewredConfigRedPktsDropFract OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The fraction of packets to be dropped when
+        the average queue depth is at 
+        cewredConfigRedMaxThreshold. The mark
+        probability denominator maps to this object. 
+        For example if this value is 500, then one 
+        out of every 500 packets is to be dropped when
+        the average queue length is at the maximum
+        threshold."
+    ::= { cewredConfigRedEntry 6 }
+
+cewredConfigRedRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        This object is  used for creating, modifying
+        and deleting entries in the cewredConfigRedTable.
+        This value can be set to active(1) only if the 
+        corresponding row in one of the following mapping
+        tables is having a row status value active(1):
+        cewredTxTable,
+        cewredRxIfTable,
+        cewredRxTable,
+        cewredRxMulticastTable."
+    ::= { cewredConfigRedEntry 7 }
+
+cewredQueueParamTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CewredQueueParamEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of WRED queue parameters."
+    ::= { cewredQueue 1 }
+
+cewredQueueParamEntry OBJECT-TYPE
+    SYNTAX CewredQueueParamEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table of WRED queue parameters.
+        Entries represent the queue parameters of the
+        distributed round robin queues."
+    INDEX { cewredConfigGlobIndex, cewredQueueParamNumber }
+    ::= { cewredQueueParamTable 1 }
+
+CewredQueueParamEntry ::= SEQUENCE {
+    cewredQueueParamNumber CewredQueueNumber,
+    cewredQueueParamWeight Gauge,
+    cewredQueueParamAverage Gauge,
+    cewredQueueParamMaxAverage Gauge,
+    cewredQueueParamDepth Gauge,
+    cewredQueueParamMaxDepth Gauge
+    }
+
+cewredQueueParamNumber OBJECT-TYPE
+    SYNTAX CewredQueueNumber
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The queue number associated with this entry.
+        There can be  multiple distributed round robin
+        queues exists on the transmit side as well as on 
+        the receive side of the managed system. For each
+        queue there are WRED parameters associated with
+        it depend upon its precedence or DSCP value.
+        For the managed systems which do not support
+        multiple distributed round robin queues this
+        number will be 1."
+    ::= { cewredQueueParamEntry 1 }
+
+cewredQueueParamWeight OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The weight of this queue. The weights give a
+        relative bandwidth for each queue when there
+        is congestion. The distributed round robin 
+        algorithm dequeues data from each queue for 
+        processing depending upon its weight."
+    ::= { cewredQueueParamEntry 2 }
+
+cewredQueueParamAverage OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The computed queue average length. This value is
+        based on the Exponential weighting factor
+        (cewredConfigGlobQueueWeight), the  old average 
+        length of the  queue and current queue size."
+    ::= { cewredQueueParamEntry 3 }
+
+cewredQueueParamMaxAverage OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Historically maximum value of 
+        cewredQueueParamAverage. Write is required only to
+        clear this object, i.e, this object can only be set
+        to zero."
+    ::= { cewredQueueParamEntry 4 }
+
+cewredQueueParamDepth OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets currently withheld
+        in the queue and awaiting transmission."
+    ::= { cewredQueueParamEntry 5 }
+
+cewredQueueParamMaxDepth OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Historically maximum value of cewredQueueParamDepth.
+        Write is required only to clear this object, 
+        i.e, this object can only be set to zero."
+    ::= { cewredQueueParamEntry 6 }
+
+cewredStatTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CewredStatEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of WRED status information with respect to
+              the IP precedence or DSCP value of packets."
+    ::= { cewredStat 1 }
+
+cewredStatEntry OBJECT-TYPE
+    SYNTAX CewredStatEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The WRED status information entry."
+    INDEX { cewredConfigGlobIndex, cewredStatRedProfile }
+    ::= { cewredStatTable 1 }
+
+CewredStatEntry ::= SEQUENCE {
+    cewredStatRedProfile CewredRedProfile,
+    cewredStatSwitchedPkts Counter,
+    cewredStatRandomFilteredPkts Counter,
+    cewredStatMaxFilteredPkts Counter,
+    cewredStatSwitchedPkts64 Counter,
+    cewredStatRandomFilteredPkts64 Counter,
+    cewredStatMaxFilteredPkts64 Counter
+    }
+
+cewredStatRedProfile OBJECT-TYPE
+    SYNTAX CewredRedProfile
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the WRED profile associated with the
+        entry. This value will be equal to the WRED
+        profile value for the managed systems that support
+        a mapping of many  precedences or DSCP values to a 
+        WRED profile, otherwise this object value will be same
+        as the precedence or DSCP value."
+    ::= { cewredStatEntry 1 }
+
+cewredStatSwitchedPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets output by WRED."
+    ::= { cewredStatEntry 2 }
+
+cewredStatRandomFilteredPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets filtered/dropped when average
+        queue length exceeds cewredRedConfigMinThreshold
+        and less than cewredConfigRedMaxThreshold and meet a 
+        defined random drop policy pointed by the WRED
+        config tables."
+    ::= { cewredStatEntry 3 }
+
+cewredStatMaxFilteredPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets filtered/dropped when average
+        queue length exceeds cewredConfigRedMaxThreshold."
+    ::= { cewredStatEntry 4 }
+
+cewredStatSwitchedPkts64 OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets output by WRED. This object is
+        a 64-bit version of cewredStatSwitchedPkts."
+    ::= { cewredStatEntry 5 }
+
+cewredStatRandomFilteredPkts64 OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets filtered/dropped when average
+        queue length exceeds cewredRedConfigMinThreshold
+        and less than cewredConfigRedMaxThreshold and meet a 
+        defined random drop policy pointed by the WRED
+        config tables. This object is a 64-bit version of
+        cewredStatRandomFilteredPkts."
+    ::= { cewredStatEntry 6 }
+
+cewredStatMaxFilteredPkts64 OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets filtered/dropped when average
+        queue length exceeds cewredConfigRedMaxThreshold.
+        This object is a 64-bit version of 
+        cewredStatMaxFilteredPkts."
+    ::= { cewredStatEntry 7 }
+
+ciscoEnhancedWredGroup OBJECT IDENTIFIER ::= { cewredMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing WRED monitoring
+--    feature.
+--  objects
+--    cewredConfigGlobQueueWeight, cewredConfigGlobDscpPrec, 
+--    cewredConfigGlobRowStatus, cewredConfigRedMinThreshold, 
+--    cewredConfigRedMaxThreshold, cewredConfigRedPktsDropFract, 
+--    cewredConfigRedRowStatus, cewredQueueParamAverage, 
+--    cewredStatRandomFilteredPkts, cewredStatMaxFilteredPkts, 
+--    cewredStatRandomFilteredPkts64, cewredStatMaxFilteredPkts64
+
+ciscoEnhancedWredDrrQueueGroup OBJECT IDENTIFIER ::= { cewredMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing distributed round
+--    robin queue parameters.
+--  objects
+--    cewredConfigRedQueueNumber, cewredQueueParamWeight, 
+--    cewredQueueParamMaxAverage, cewredQueueParamDepth, 
+--    cewredQueueParamMaxDepth
+
+ciscoEnhancedWredStatCountGroup OBJECT IDENTIFIER ::= { cewredMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing random early
+--    detection/drop statistics.
+--  objects
+--    cewredStatSwitchedPkts, cewredStatSwitchedPkts64
+
+ciscoEnhancedWredCosQueueGroup OBJECT IDENTIFIER ::= { cewredMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing class of service
+--           information.
+--  objects
+--    cewredConfigGlobCosGroupName, cewredConfigRedProfile
+
+ciscoEnhancedWredTxInfoGroup OBJECT IDENTIFIER ::= { cewredMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing transmit side WRED
+--    information.
+--  objects
+--    cewredTxValue, cewredTxRowStatus
+
+ciscoEnhancedWredRxIfInfoGroup OBJECT IDENTIFIER ::= { cewredMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing receive side WRED 
+--    information, with the modules supporting per interface
+--    queueing.
+--  objects
+--    cewredRxIfValue, cewredRxIfRowStatus
+
+ciscoEnhancedWredRxInfoGroup OBJECT IDENTIFIER ::= { cewredMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing receive side WRED 
+--    information, with the modules supporting per module
+--    queueing.
+--  objects
+--    cewredRxValue, cewredRxRowStatus
+
+ciscoEnhancedWredRxMcInfoGroup OBJECT IDENTIFIER ::= { cewredMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing receive side WRED 
+--    information, with the modules supporting  multicast 
+--    queueing.
+--  objects
+--    cewredRxMulticastValue, cewredRxMulticastRowStatus
+
+cewredMIBCompliance OBJECT IDENTIFIER ::= { cewredMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which 
+--    implement WRED.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoEnhancedWredGroup
+--   ObjVar
+--    cewredTxValue
+--   ObjVar
+--    cewredTxRowStatus
+--   ObjVar
+--    cewredRxIfValue
+--   ObjVar
+--    cewredRxIfRowStatus
+--   ObjVar
+--    cewredRxValue
+--   ObjVar
+--    cewredRxRowStatus
+--   ObjVar
+--    cewredRxMulticastValue
+--   ObjVar
+--    cewredRxMulticastRowStatus
+--   ObjVar
+--    cewredConfigGlobQueueWeight
+--   ObjVar
+--    cewredConfigGlobCosGroupName
+--   ObjVar
+--    cewredConfigGlobDscpPrec
+--   ObjVar
+--    cewredConfigGlobRowStatus
+--   ObjVar
+--    cewredConfigRedQueueNumber
+--   ObjVar
+--    cewredConfigRedProfile
+--   ObjVar
+--    cewredConfigRedMinThreshold
+--   ObjVar
+--    cewredConfigRedMaxThreshold
+--   ObjVar
+--    cewredConfigRedPktsDropFract
+--   ObjVar
+--    cewredConfigRedRowStatus
+--   ObjVar
+--    cewredQueueParamWeight
+--   ObjVar
+--    cewredQueueParamMaxAverage
+--   ObjVar
+--    cewredQueueParamMaxDepth
+--   OptGroup
+--    ciscoEnhancedWredDrrQueueGroup
+--   OptGroup
+--    ciscoEnhancedWredStatCountGroup
+--   OptGroup
+--    ciscoEnhancedWredCosQueueGroup
+--   OptGroup
+--    ciscoEnhancedWredTxInfoGroup
+--   OptGroup
+--    ciscoEnhancedWredRxIfInfoGroup
+--   OptGroup
+--    ciscoEnhancedWredRxInfoGroup
+--   OptGroup
+--    ciscoEnhancedWredRxMcInfoGroup
+
+
+END
+

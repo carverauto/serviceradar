@@ -1,0 +1,353 @@
+-- MIB file created 14-May-2003 15:00:24, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ITP-ACT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ITP-ACT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    CItpTcGlobalTitleSelectorName, CItpTcGtaAddr, CItpTcLinksetId, 
+    CItpTcPointCode, CItpTcServiceIndicator
+            FROM CISCO-ITP-TC-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoItpActMIB OBJECT IDENTIFIER ::= { ciscoMgmt 230 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200212180000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems, Inc
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-ss7@cisco.com
+--  Descr
+--    The MIB for providing information specified
+--     in ITU Q752 Monitoring and Measurements for
+--     Signalling System No. 7(SS7) Network. 
+--     This information can be used to manage messages
+--     transported over SS7 Network via Cisco IP 
+--     Transfer Point.  
+--     
+--     The Cisco IP Transfer Point (ITP) is a hardware 
+--     and software solution that transports SS7 traffic 
+--     using IP. Each ITP node provides function similar
+--     to SS7 signaling point.   
+--     
+--     The relevant ITU documents describing this technology
+--     is the ITU Q series, including ITU Q.700: Introduction
+--     to CCITT Signalling System No. 7 and ITU Q.701 
+--     Functional description of the message transfer part
+--     (MTP) of Signalling System No. 7.
+--  RevDate
+--    200212180000Z
+--  RevDescr
+--    The ability to allow multiple instances of 
+--     Signalling Points to run in the same device
+--     has introduce a new index structure.  All
+--     objects in this MIB will be deprecated and 
+--     replaced by objects in the CISCO-ITP-GACT-MIB.my
+--     MIB.
+--  RevDate
+--    200109260000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+cItpActMIBNotifs OBJECT IDENTIFIER ::= { ciscoItpActMIB 0 }
+cItpActMIBObjects OBJECT IDENTIFIER ::= { ciscoItpActMIB 1 }
+cItpActMIBConformance OBJECT IDENTIFIER ::= { ciscoItpActMIB 2 }
+cItpActMtp3     OBJECT IDENTIFIER ::= { cItpActMIBObjects 1 }
+cItpActGtt      OBJECT IDENTIFIER ::= { cItpActMIBObjects 2 }
+cItpActMIBCompliances OBJECT IDENTIFIER ::= { cItpActMIBConformance 1 }
+cItpActMIBGroups OBJECT IDENTIFIER ::= { cItpActMIBConformance 2 }
+
+cItpActMtp3Table OBJECT-TYPE
+    SYNTAX SEQUENCE OF CItpActMtp3TableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "This table contains information about the number
+         of packets and bytes at the MTP3 layer. The 
+         information collected from both directions(send
+         and receive). The information is broken down 
+         by linkset, Destination Point Code (DPC),
+         Originating Point Code (OPC) and Signalling 
+         Indicator (SI). This provides the lowest granularity 
+         required by Q752 and allows network management 
+         stations to calculate the required fields in Q752."
+    ::= { cItpActMtp3 1 }
+
+cItpActMtp3TableEntry OBJECT-TYPE
+    SYNTAX CItpActMtp3TableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A list of MTP3 accounting objects."
+    INDEX { cItpActMtp3TableId, cItpActMtp3LinksetName, cItpActMtp3Dpc, cItpActMtp3Opc, cItpActMtp3SI }
+    ::= { cItpActMtp3Table 1 }
+
+CItpActMtp3TableEntry ::= SEQUENCE {
+    cItpActMtp3TableId INTEGER,
+    cItpActMtp3LinksetName CItpTcLinksetId,
+    cItpActMtp3Dpc CItpTcPointCode,
+    cItpActMtp3Opc CItpTcPointCode,
+    cItpActMtp3SI CItpTcServiceIndicator,
+    cItpActMtp3RcvdPackets Counter,
+    cItpActMtp3SentPackets Counter,
+    cItpActMtp3RcvdBytes Counter,
+    cItpActMtp3SentBytes Counter
+    }
+
+cItpActMtp3TableId OBJECT-TYPE
+    SYNTAX INTEGER {
+        passed(1),
+        violation(2)
+        }
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The accounting table identifier.
+        'passed'    : signifies that this table instance
+                      represents statistics for packets that
+                      matched an Access Control List (ACL) in
+                      the linkset's inbound ACL and in the 
+                      outbound ACL.
+        'violation' : signifies that this table instance
+                      represents statistics for packets that
+                      did not match an ACL in the linkset's
+                      inbound ACL and in the outbound ACL."
+    ::= { cItpActMtp3TableEntry 1 }
+
+cItpActMtp3LinksetName OBJECT-TYPE
+    SYNTAX CItpTcLinksetId
+--    Rsyntax OCTET STRING(SIZE(1..19))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The name of the linkset."
+    ::= { cItpActMtp3TableEntry 2 }
+
+cItpActMtp3Dpc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The destination point code."
+    ::= { cItpActMtp3TableEntry 3 }
+
+cItpActMtp3Opc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The origin point code."
+    ::= { cItpActMtp3TableEntry 4 }
+
+cItpActMtp3SI OBJECT-TYPE
+    SYNTAX CItpTcServiceIndicator
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        snmm(0),
+--        sntm(1),
+--        spare2(2),
+--        sccp(3),
+--        tup(4),
+--        isup(5),
+--        dupc(6),
+--        dupf(7),
+--        mtup(8),
+--        bisup(9),
+--        sisup(10),
+--        spare11(11),
+--        spare12(12),
+--        spare13(13),
+--        spare14(14),
+--        spare15(15)
+--        }
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The service indicator."
+    ::= { cItpActMtp3TableEntry 5 }
+
+cItpActMtp3RcvdPackets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "Sum of all received packets for this linkset, DPC and
+         OPC combination."
+    ::= { cItpActMtp3TableEntry 6 }
+
+cItpActMtp3SentPackets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "Sum of all transmitted packets for this linkset, DPC
+         and OPC combination."
+    ::= { cItpActMtp3TableEntry 7 }
+
+cItpActMtp3RcvdBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "Sum of all received bytes for this linkset, DPC and
+         OPC combination."
+    ::= { cItpActMtp3TableEntry 8 }
+
+cItpActMtp3SentBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "Sum of all transmitted bytes for this linkset, DPC
+         and OPC combination."
+    ::= { cItpActMtp3TableEntry 9 }
+
+cItpActGttTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CItpActGttTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "This table contains information about the number
+         of packets and bytes required for global title 
+         translation."
+    ::= { cItpActGtt 1 }
+
+cItpActGttTableEntry OBJECT-TYPE
+    SYNTAX CItpActGttTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A list of Gtt accounting objects."
+    INDEX { cItpActGttLinksetName, cItpActGttSelectorName, cItpActGttGta, cItpActGttTranslatedPc }
+    ::= { cItpActGttTable 1 }
+
+CItpActGttTableEntry ::= SEQUENCE {
+    cItpActGttLinksetName CItpTcLinksetId,
+    cItpActGttSelectorName CItpTcGlobalTitleSelectorName,
+    cItpActGttGta CItpTcGtaAddr,
+    cItpActGttTranslatedPc CItpTcPointCode,
+    cItpActGttPackets Counter,
+    cItpActGttBytes Counter
+    }
+
+cItpActGttLinksetName OBJECT-TYPE
+    SYNTAX CItpTcLinksetId
+--    Rsyntax OCTET STRING(SIZE(1..19))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The name of the linkset."
+    ::= { cItpActGttTableEntry 1 }
+
+cItpActGttSelectorName OBJECT-TYPE
+    SYNTAX CItpTcGlobalTitleSelectorName
+--    Rsyntax OCTET STRING(SIZE(1..9))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The Global Title Selector Name."
+    ::= { cItpActGttTableEntry 2 }
+
+cItpActGttGta OBJECT-TYPE
+    SYNTAX CItpTcGtaAddr
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The Global Title Address."
+    ::= { cItpActGttTableEntry 3 }
+
+cItpActGttTranslatedPc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The translated point code."
+    ::= { cItpActGttTableEntry 4 }
+
+cItpActGttPackets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "Number of packets performing Global Title
+         Translation."
+    ::= { cItpActGttTableEntry 5 }
+
+cItpActGttBytes OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "Count of bytes received that required 
+         Global Title Translation."
+    ::= { cItpActGttTableEntry 6 }
+
+cItpActMtp3Group OBJECT IDENTIFIER ::= { cItpActMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Accounting for MTP3 objects.
+--  objects
+--    cItpActMtp3RcvdPackets, cItpActMtp3SentPackets, 
+--    cItpActMtp3RcvdBytes, cItpActMtp3SentBytes
+
+cItpActGttGroup OBJECT IDENTIFIER ::= { cItpActMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Accounting for Global Title Translation.
+--  objects
+--    cItpActGttPackets, cItpActGttBytes
+
+cItpActMIBCompliance OBJECT IDENTIFIER ::= { cItpActMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco SP MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cItpActMtp3Group
+--   MandGroup
+--    cItpActGttGroup
+
+
+END
+

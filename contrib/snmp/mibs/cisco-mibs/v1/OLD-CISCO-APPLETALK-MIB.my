@@ -1,0 +1,300 @@
+-- *****************************************************************
+-- OLD-CISCO-APPLETALK-MIB.my:  Old Cisco Appletalk MIB file
+--
+-- May 1994, Jeffrey T. Johnson
+--
+-- Copyright (c) 1994-1996 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+--
+
+               OLD-CISCO-APPLETALK-MIB DEFINITIONS ::= BEGIN
+
+               IMPORTS
+                    OBJECT-TYPE
+			FROM RFC-1212
+		    temporary
+			FROM CISCO-SMI;
+          
+               tmpappletalk OBJECT IDENTIFIER ::= { temporary 3 }
+
+
+
+               -- Temporary AppleTalk Section
+
+          -- This group is present in all router based products.
+
+               atInput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total input count of number of AppleTalk
+                           packets."
+                   ::= { tmpappletalk 1 }
+
+               atLocal OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of AppleTalk input packets for
+                           this host."
+                   ::= { tmpappletalk 2 }
+
+               atBcastin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk input
+                           broadcast packets."
+                   ::= { tmpappletalk 3 }
+
+               atForward OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk packets
+                           forwarded."
+                   ::= { tmpappletalk 4 }
+
+               atBcastout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk output
+                           broadcast packets."
+                   ::= { tmpappletalk 5 }
+
+               atChksum OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk input
+                           packets with checksum errors."
+                   ::= { tmpappletalk 7 }
+
+               atNotgate OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of AppleTalk input packets
+                           received while not routing."
+                   ::= { tmpappletalk 8 }
+
+               atHopcnt OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk input
+                           packets that have exceeded the maximum hop
+                           count."
+                   ::= { tmpappletalk 9 }
+
+               atNoaccess OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of AppleTalk packets dropped
+                           due to access control."
+                   ::= { tmpappletalk 10 }
+
+               atNoroute OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk packets
+                           dropped due to no route."
+                   ::= { tmpappletalk 11 }
+
+               atNoencap OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk packets
+                           dropped due to output encapsulation failure."
+                   ::= { tmpappletalk 12 }
+
+               atOutput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk output
+                           packets."
+                   ::= { tmpappletalk 13 }
+
+               atInmult OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk input
+                           multicast packets."
+                   ::= { tmpappletalk 14 }
+
+               atRtmpin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk RTMP
+                           packets received."
+                   ::= { tmpappletalk 15 }
+
+               atRtmpout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk RTMP
+                           packets sent."
+                   ::= { tmpappletalk 16 }
+
+               atNbpin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk NBP
+                           packets received."
+                   ::= { tmpappletalk 17 }
+
+               atNbpout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk NBP
+                           packets sent."
+                   ::= { tmpappletalk 18 }
+
+               atAtp OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk ATP
+                           packets received."
+                   ::= { tmpappletalk 19 }
+
+               atZipin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk ZIP
+                           packets received."
+                   ::= { tmpappletalk 20 }
+
+               atZipout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk ZIP
+                           packets sent."
+                   ::= { tmpappletalk 21 }
+
+               atEcho OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk Echo
+                           packets received."
+                   ::= { tmpappletalk 22 }
+
+               atEchoill OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of illegal AppleTalk
+                           Echo packets received."
+                   ::= { tmpappletalk 23 }
+
+               atDdpshort OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of short AppleTalk DDP
+                           packets received."
+                   ::= { tmpappletalk 24 }
+
+               atDdplong OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of long AppleTalk DDP
+                           packets received."
+                   ::= { tmpappletalk 25 }
+
+               atDdpbad OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of illegal sized
+                           AppleTalk DDP packets received."
+                   ::= { tmpappletalk 26 }
+
+               atNobuffer OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk packets
+                           lost due to no memory."
+                   ::= { tmpappletalk 27 }
+
+               atArpreq OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of input AppleTalk ARP
+                           request packets."
+                   ::= { tmpappletalk 28 }
+
+               atArpreply OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of AppleTalk ARP reply
+                           packets output."
+                   ::= { tmpappletalk 29 }
+
+               atArpprobe OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of input AppleTalk ARP
+                           probe packets."
+                   ::= { tmpappletalk 30 }
+
+               atUnknown OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of unknown AppleTalk
+                           input packets."
+                   ::= { tmpappletalk 31 }
+
+
+END

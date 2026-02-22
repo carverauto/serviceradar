@@ -1,0 +1,710 @@
+-- *****************************************************************
+-- CISCO-IEEE8021-CFM-EXT-MIB
+--   
+-- August 2008, Wen Xu
+--   
+-- Copyright (c) 2008 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-IEEE8021-CFM-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    RowStatus,
+    StorageType,
+    MacAddress
+        FROM SNMPv2-TC
+    InterfaceIndex
+        FROM IF-MIB
+    VlanId
+        FROM Q-BRIDGE-MIB
+    dot1agCfmMdIndex,
+    dot1agCfmMaIndex,
+    Dot1agCfmMpDirection
+        FROM IEEE8021-CFM-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoIeee8021CfmExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "200811130000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "A MIB module for extending the IEEE8021-CFM-MIB
+        and IEEE8021-CFM-V2-MIB to add objects which provide
+        additional information about Connectivity Fault
+        management(CFM) not available in IEEE8021-CFM-MIB and
+        IEEE8021-CFM-V2-MIB.
+
+        Glossary:
+        Connectivity Fault Management (CFM):
+            Connectivity Fault Management comprises capabilities for
+            detecting, verifying, and isolating connectivity failures
+            in Virtual Bridged Local Area Networks.
+
+        Maintenance Domain (MD):
+            The network or the part of the network for which
+            faults in connectivity can be managed.
+
+        Service Access Point (SAP): The point at which a service is
+            offered.
+
+        Domain Service Access Point (DoSAP): A member of a set of SAPs
+            at which a Maintenance Domain is capable of offering
+            connectivity to systems outside the Maintenance Domain.
+
+        Intermediate Service Access Points (ISAP): A SAP, interior
+            to a Maintenance Domain, through which frames can pass
+            in transit from DoSAP to DoSAP.
+
+        Maintenance association End Point (MEP):
+            An actively managed CFM entity, associated with a
+            specific domain service access point of a service
+            instance, which can generate and receive CFM PDUs and
+            track any responses.
+
+        Maintenance Association (MA):
+            A set of MEPs, each configured with the same MAID and
+            MD Level, established to verify the integrity of a
+            single service instance.
+
+        Maintenance domain Intermediate Point (MIP):
+            A CFM entity consisting of two MHFs. A MHF is a CFM entity,
+            associated with a single Maintenance Domain, and thus
+            with a single MD Level and a set of VIDs, that cannot
+            generate CFM PDUs, but only in response to received
+            CFM PDUs.
+
+        Continuity Check Message (CCM):
+            A multicast CFM PDU transmitted periodically by a MEP in
+            order to ensure continuity over the MA to which the
+            transmitting MEP belongs. No reply is sent by any MP
+            in response to receiving a CCM.
+
+        Continuity Check Initiator (CCI):
+            A state machine. Once it starts, CCMs will be generated.
+
+        Linktrace Message (LTM):
+            A CFM PDU initiated by a MEP to trace a path to a
+            target MAC address, forwarded from MIP to MIP, up to the
+            point at which the LTM reaches its target, a MEP, or can
+            no longer be forwarded.
+
+        Linktrace Reply (LTR): A unicast CFM PDU sent by an MP to a
+            MEP, in response to receiving an LTM from that MEP.
+
+        Content Addressable memory (CAM): The CAM table is consulted
+            to make the frame forwarding decision. On Ethernet networks
+            that transmit IP, switches learn MAC addresses from the
+            source address of ethernet frames on the interfaces."
+    REVISION        "200811130000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 679 }
+
+
+cIeeeCfmExtMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoIeee8021CfmExtMIB 0 }
+
+cIeeeCfmExtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoIeee8021CfmExtMIB 1 }
+
+cIeeeCfmExtMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoIeee8021CfmExtMIB 2 }
+
+ciceCfmGlobal  OBJECT IDENTIFIER
+    ::= { cIeeeCfmExtMIBObjects 1 }
+
+ciceCfmLtr  OBJECT IDENTIFIER
+    ::= { cIeeeCfmExtMIBObjects 2 }
+
+ciceCfmMa  OBJECT IDENTIFIER
+    ::= { cIeeeCfmExtMIBObjects 3 }
+
+ciceCfmIfObjects  OBJECT IDENTIFIER
+    ::= { cIeeeCfmExtMIBObjects 4 }
+
+ciceCfmMep  OBJECT IDENTIFIER
+    ::= { cIeeeCfmExtMIBObjects 5 }
+
+
+ciceCfmEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object enables or disables the CFM feature
+        of the local device. When the object is 'true',
+        CFM feature is enabled. When the object is 'false',
+        CFM feature is disabled." 
+    ::= { ciceCfmGlobal 1 }
+
+ciceCfmMaxMdLevel OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum MD level that has been
+        configured through dot1agCfmMdMdLevel of IEEE8021-CFM-MIB
+        in the system."
+    ::= { ciceCfmGlobal 2 }
+
+ciceCfmBrainAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the brain MAC address of
+        the bridge. The brain MAC address is used by 
+        unicast CFM messages." 
+    ::= { ciceCfmGlobal 3 }
+
+ciceCfmCcMulticastAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the CFM Continuity Check multicast
+        Mac Address." 
+    ::= { ciceCfmGlobal 4 }
+
+ciceCfmLtmMulticastAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the CFM LTM multicast
+        Mac Address." 
+    ::= { ciceCfmGlobal 5 }
+
+ciceCfmEnableFaultAlarm OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates whether the system
+        produces the dot1agCfmFaultAlarm defined in
+        IEEE8021-CFM-MIB.
+
+        A value of 'false' prevents dot1agCfmFaultAlarm
+        from being generated." 
+    ::= { ciceCfmGlobal 6 }
+
+ciceCfmLtrEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether caching CFM LTRs
+        in dot1agCfmLtrTable of IEEE8021-CFM-MIB is enabled.
+
+        The Linktrace replies will be cached in dot1agCfmLtrTable
+        only if this object has the value of 'true'." 
+    ::= { ciceCfmLtr 1 }
+
+ciceCfmLtrHoldTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    UNITS           "minutes"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is the cache time for retaining an entry in
+        dot1agCfmLtrTable of IEEE8021-CFM-MIB." 
+    ::= { ciceCfmLtr 2 }
+
+ciceCfmLtrSize OBJECT-TYPE
+    SYNTAX          Unsigned32 
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is the cache size of LTRs in
+        dot1agCfmLtrTable of IEEE8021-CFM-MIB.
+
+        A value of zero for this object indicates that there 
+        is no limitation on the cache size."
+    ::= { ciceCfmLtr 3 }
+
+ciceCfmMaNetTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiceCfmMaNetEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of Maintenance Association."
+    ::= { ciceCfmMa 1 }
+
+ciceCfmMaNetEntry OBJECT-TYPE
+    SYNTAX          CiceCfmMaNetEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing Continuity Check configuration for
+        a particular MA."
+    INDEX           {
+                        dot1agCfmMdIndex,
+                        dot1agCfmMaIndex
+                    } 
+    ::= { ciceCfmMaNetTable 1 }
+
+CiceCfmMaNetEntry ::= SEQUENCE {
+        ciceCfmMaNetCciEnable     TruthValue,
+        ciceCfmMaNetCciDirection  Dot1agCfmMpDirection,
+        ciceCfmMaNetLossThreshold Unsigned32
+}
+
+ciceCfmMaNetCciEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether Continuity Check
+        Initiator is enabled.
+
+        A value of 'true' indicates that the Continuity
+        Check Initiator state machine will start and all
+        MEPs in this MA will generate Continuity Check
+        Messages (CCMs)." 
+    ::= { ciceCfmMaNetEntry 1 }
+
+ciceCfmMaNetCciDirection OBJECT-TYPE
+    SYNTAX          Dot1agCfmMpDirection
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the direction in which the
+        Maintenance association faces on the bridge port." 
+    ::= { ciceCfmMaNetEntry 2 }
+
+ciceCfmMaNetLossThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of CCMs that
+        is allowed to be lost before cleaning up the
+        corresponding entry in CC database." 
+    ::= { ciceCfmMaNetEntry 3 }
+ 
+
+
+ciceCfmInterfaceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiceCfmInterfaceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of CFM capable ports."
+    ::= { ciceCfmIfObjects 1 }
+
+ciceCfmInterfaceEntry OBJECT-TYPE
+    SYNTAX          CiceCfmInterfaceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing information about the CFM state
+        on a particular CFM capable port."
+    INDEX           { ciceCfmIfIndex } 
+    ::= { ciceCfmInterfaceTable 1 }
+
+CiceCfmInterfaceEntry ::= SEQUENCE {
+        ciceCfmIfIndex InterfaceIndex,
+        ciceCfmIfState INTEGER
+}
+
+ciceCfmIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The port number associated with this CFM port.
+
+        This is a unique index for an entry in the
+        ciceCfmInterfaceTable. A non-zero index for an
+        entry indicates the ifIndex for the corresponding
+        CFM capable interface entry in the ifTable.
+        Note that this table does not necessarily correspond
+        one-to-one with all entries in the Interface MIB;
+        rather, only those which are enabled for CFM
+        functionality."
+    REFERENCE
+        "RFC 2233 - The Interfaces Group MIB using SMIv2,
+        McCloghrie, K., and F. Kastenholtz, Nov. 1997" 
+    ::= { ciceCfmInterfaceEntry 1 }
+
+ciceCfmIfState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enable(1),
+                        disable(2),
+                        transparent(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The administrative CFM state of the port.
+
+        enable      - enables CFM on the port.
+
+        disable     - disables CFM on the port.
+
+        transparent - forward CFM frames like regular
+                      data traffic." 
+    ::= { ciceCfmInterfaceEntry 2 }
+ 
+
+
+ciceCfmMipTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiceCfmMipEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of Maintenance domain
+        Intermediate Points.
+
+        This table manages MIPs which are created by rules
+        specified on the Maintenance Association (MA) and
+        Maintenance Domain (MD) on the local device. MIPs can
+        also be created by rules specified on Default MD Level,
+        which is covered by dot1agCfmDefaultMdTable in
+        IEEE8021-CFM-MIB."
+    ::= { ciceCfmIfObjects 2 }
+
+ciceCfmMipEntry OBJECT-TYPE
+    SYNTAX          CiceCfmMipEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing configuration of a particular MIP.
+
+        Each row in the table represents a different MIP.
+        In order to facilitate the diagnosis of connectivity
+        failures, an administrator can make a DoSAP visible
+        as an ISAP to the immediately enclosing Maintenance
+        Domain by configuring it as a MIP. In the lowest
+        Maintenance Domains, the MIPs can be configured on
+        individual Bridge Ports."
+    INDEX           {
+                        ciceCfmIfIndex,
+                        ciceCfmMipVlanIndex
+                    } 
+    ::= { ciceCfmMipTable 1 }
+
+CiceCfmMipEntry ::= SEQUENCE {
+        ciceCfmMipVlanIndex   VlanId,
+        ciceCfmMipMdLevel     Unsigned32,
+        ciceCfmMipStorageType StorageType,
+        ciceCfmMipRowStatus   RowStatus
+}
+
+ciceCfmMipVlanIndex OBJECT-TYPE
+    SYNTAX          VlanId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The VLAN-ID with which the MIP is associated on
+        the interface." 
+    ::= { ciceCfmMipEntry 1 }
+
+ciceCfmMipMdLevel OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The MD level of the MIP." 
+    ::= { ciceCfmMipEntry 2 }
+
+ciceCfmMipStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { ciceCfmMipEntry 3 }
+
+ciceCfmMipRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of the row.
+
+        The writable columns in a row can not be changed if the row
+        is active. All columns must have a valid value before a row
+        can be activated." 
+    ::= { ciceCfmMipEntry 4 }
+ 
+
+
+ciceCfmMacEnableIfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiceCfmMacEnableIfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of VLANs on CFM interfaces.
+
+        Each row in the table represents a MAC enable
+        configuration on an interface associated with
+        a VLAN. Creating one row installs a system CAM
+        entry. Linktrace replies and Loopback messages
+        and replies could be seen from the interface for
+        which the Mac address was learnt via the system CAM
+        table for Down MEPs."
+    ::= { ciceCfmIfObjects 3 }
+
+ciceCfmMacEnableIfEntry OBJECT-TYPE
+    SYNTAX          CiceCfmMacEnableIfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing MAC enable configuration
+        of a particular VLAN on an interface."
+    INDEX           {
+                        ciceCfmIfIndex,
+                        ciceCfmMacEnableVlanIndex
+                    } 
+    ::= { ciceCfmMacEnableIfTable 1 }
+
+CiceCfmMacEnableIfEntry ::= SEQUENCE {
+        ciceCfmMacEnableVlanIndex   VlanId,
+        ciceCfmMacEnableStorageType StorageType,
+        ciceCfmMacEnableRowStatus   RowStatus
+}
+
+ciceCfmMacEnableVlanIndex OBJECT-TYPE
+    SYNTAX          VlanId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The VLAN-ID with which the MAC enable attribute
+        is associated on the interface." 
+    ::= { ciceCfmMacEnableIfEntry 1 }
+
+ciceCfmMacEnableStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { ciceCfmMacEnableIfEntry 2 }
+
+ciceCfmMacEnableRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of the row.
+
+        The writable columns in a row can not be changed if the row
+        is active. All columns must have a valid value before a row
+        can be activated." 
+    ::= { ciceCfmMacEnableIfEntry 3 }
+ 
+-- Conformance
+
+ciceCfmMIBCompliances  OBJECT IDENTIFIER
+    ::= { cIeeeCfmExtMIBConformance 1 }
+
+ciceCfmMIBGroups  OBJECT IDENTIFIER
+    ::= { cIeeeCfmExtMIBConformance 2 }
+
+
+ciceCfmMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the
+        CISCO-IEEE8021-CFM-EXT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciceCfmGlobalObjectsGroup,
+                        ciceCfmInterfaceGroup
+                    }
+
+    GROUP           ciceCfmLtrConfigGroup
+    DESCRIPTION
+        "The implementation of this group of objects
+        is optional."
+
+    GROUP           ciceCfmMaNetGroup
+    DESCRIPTION
+        "The implementation of this group of objects
+        is optional."
+
+    GROUP           ciceCfmMipGroup
+    DESCRIPTION
+        "The implementation of this group of objects
+        is optional."
+
+    GROUP           ciceCfmMacEnableGroup
+    DESCRIPTION
+        "The implementation of this group of objects
+        is optional."
+
+    OBJECT          ciceCfmEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciceCfmEnableFaultAlarm
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciceCfmLtrEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciceCfmLtrHoldTime
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciceCfmLtrSize
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciceCfmMaNetCciEnable
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciceCfmMaNetCciDirection
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciceCfmMaNetLossThreshold
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciceCfmIfState
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciceCfmMipMdLevel
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciceCfmMipStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciceCfmMipRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciceCfmMacEnableStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          ciceCfmMacEnableRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    ::= { ciceCfmMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciceCfmGlobalObjectsGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciceCfmEnable,
+                        ciceCfmMaxMdLevel,
+                        ciceCfmBrainAddress,
+                        ciceCfmCcMulticastAddress,
+                        ciceCfmLtmMulticastAddress,
+                        ciceCfmEnableFaultAlarm
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which provided
+        the global information of the CFM feature
+        not covered in IEEE8021-CFM-MIB."
+    ::= { ciceCfmMIBGroups 1 }
+
+ciceCfmLtrConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciceCfmLtrEnable,
+                        ciceCfmLtrHoldTime,
+                        ciceCfmLtrSize
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which provided the 
+        configuration to cache CFM LTRs."
+    ::= { ciceCfmMIBGroups 2 }
+
+ciceCfmMaNetGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciceCfmMaNetCciEnable,
+                        ciceCfmMaNetCciDirection,
+                        ciceCfmMaNetLossThreshold
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which provided the extra
+        MA configuration cross all bridges in a Maintenance Domain (MD),
+        and across all components of a single bridge."
+    ::= { ciceCfmMIBGroups 3 }
+
+ciceCfmInterfaceGroup OBJECT-GROUP
+    OBJECTS         { ciceCfmIfState }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which provides the CFM
+        configuration on the interfaces."
+    ::= { ciceCfmMIBGroups 4 }
+
+ciceCfmMipGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciceCfmMipMdLevel,
+                        ciceCfmMipStorageType,
+                        ciceCfmMipRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which provides the MIP
+        configuration on the local device."
+    ::= { ciceCfmMIBGroups 5 }
+
+ciceCfmMacEnableGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciceCfmMacEnableStorageType,
+                        ciceCfmMacEnableRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which provides the MAC enable
+        enable configuration of the interfaces on the local device."
+    ::= { ciceCfmMIBGroups 6 }
+
+END
+
+
+

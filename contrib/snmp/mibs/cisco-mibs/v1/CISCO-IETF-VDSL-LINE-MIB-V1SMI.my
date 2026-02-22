@@ -1,0 +1,1380 @@
+-- MIB file created 15-Nov-2002 17:55:21, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IETF-VDSL-LINE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IETF-VDSL-LINE-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoIetfVdslMIB OBJECT IDENTIFIER ::= { ciscoExperiment 87 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200204180000Z
+--  OrgName
+--    Cisco Systems
+--  ContactInfo
+--    Cisco Systems
+--       Customer Service
+--    
+--       Postal: 170 W Tasman Drive
+--       San Jose, CA 95134
+--    
+--       Tel: +1 800 553-NETS
+--    
+--       E-mail: cs-2900lre@cisco.com
+--  Descr
+--    The MIB module defining objects for the management of a pair of
+--    VDSL modems at each end of the VDSL line.  Each VDSL line has
+--    an entry in an ifTable. 
+--    
+--    An agent may reside at either end of the VDSL line however the
+--    MIB is designed to require no management communication between
+--    them beyond that inherent in the low-level VDSL line protocol.
+--    The agent may monitor and control this protocol for its needs.
+--    
+--    VDSL lines may support optional Fast or Interleaved channels.
+--    If these are supported, additional entries corresponding to the
+--    supported channels must be created in the ifTable. Thus a VDSL
+--    line that supports both channels will have three entries in the
+--    ifTable, one for each physical, fast, and interleaved, whose
+--    ifType values are equal to vdsl(97), fast(125), and
+--    interleaved(124), respectively. The ifStackTable is used to
+--    represent the relationship between the entries.
+--    
+--    Naming Conventions:
+--        Vtuc == (VTUC) modem at near (Central) end of line
+--        Vtur == (VTUR) modem at Remote end of line
+--        Vtu  == One of either Vtuc or Vtur
+--        Curr == Current
+--        Prev == Previous
+--        Atn  == Attenuation
+--        ES   == Errored Second.
+--        LCS  == Line Code Specific
+--        Lof  == Loss of Frame
+--        Lol  == Loss of Link
+--        Los  == Loss of Signal
+--        Lpr  == Loss of Power
+--        xyzs == interval of Seconds in which xyz occurs
+--                (e.g., xyz=Lof, Los, Lpr)
+--        Max  == Maximum
+--        Mgn  == Margin
+--        Min  == Minimum
+--        Psd  == Power Spectral Density
+--        Snr  == Signal to Noise Ratio
+--        Tx   == Transmit
+--        Blks == Blocks, a data unit, see cvdslVtuXChanCrcBlockLength
+--        
+--  RevDate
+--    200204180000Z
+--  RevDescr
+--    This is a cisco version of the Internet draft
+
+cvdslLineMib    OBJECT IDENTIFIER ::= { ciscoIetfVdslMIB 1 }
+cvdslMibObjects OBJECT IDENTIFIER ::= { cvdslLineMib 1 }
+cvdslNotifications OBJECT IDENTIFIER ::= { cvdslLineMib 0 }
+cvdslConformance OBJECT IDENTIFIER ::= { cvdslLineMib 3 }
+cvdslGroups     OBJECT IDENTIFIER ::= { cvdslConformance 1 }
+cvdslCompliances OBJECT IDENTIFIER ::= { cvdslConformance 2 }
+
+CVdslLineCodingType ::= INTEGER {
+        other(1),
+        mcm(2),
+        scm(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This data type is used as the syntax for the VDSL
+--     Line Code.
+
+CVdslLineEntity ::= INTEGER {
+        vtuc(1),
+        vtur(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Identifies a modem as being either Vtuc or Vtur.  A
+--    VDSL line consists of two modems, a Vtuc and a Vtur.
+
+cvdslLineTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvdslLineEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table includes common attributes describing
+        both ends of the line.  It is required for all VDSL
+        physical interfaces.  VDSL physical interfaces are
+        those ifEntries where ifType is equal to vdsl(97)."
+    ::= { cvdslMibObjects 1 }
+
+cvdslLineEntry OBJECT-TYPE
+    SYNTAX CvdslLineEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cvdslLineTable."
+    INDEX { ifIndex }
+    ::= { cvdslLineTable 1 }
+
+CvdslLineEntry ::= SEQUENCE {
+    cvdslLineCoding CVdslLineCodingType,
+    cvdslLineType INTEGER,
+    cvdslLineConfProfile INTEGER,
+    cvdslLineAlarmConfProfile INTEGER
+    }
+
+cvdslLineCoding OBJECT-TYPE
+    SYNTAX CVdslLineCodingType
+--    Rsyntax INTEGER {
+--        other(1),
+--        mcm(2),
+--        scm(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the VDSL coding type used on this line."
+    ::= { cvdslLineEntry 1 }
+
+cvdslLineType OBJECT-TYPE
+    SYNTAX INTEGER {
+        noChannel(1),
+        fastOnly(2),
+        slowOnly(3),
+        either(4),
+        both(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Defines the type of VDSL physical line
+        entity that exists, by defining whether and how
+        the line is channelized.  If the line is channelized,
+        the value will be other than noChannel(1).  This
+        object defines which channel type(s) are supported.
+        
+        In the case that the line is channelized, the manager
+        can use the ifStackTable to determine the ifIndex for
+        the associated channel(s)."
+    ::= { cvdslLineEntry 2 }
+
+cvdslLineConfProfile OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object identifies the rows
+        in the VDSL Line Configuration Profile Table,
+        ( cvdslLineConfProfileTable ), which apply for this
+        VDSL line, and channels if applicable."
+    ::= { cvdslLineEntry 3 }
+
+cvdslLineAlarmConfProfile OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object identifies the rows in the VDSL
+        Line Alarm Configuration Profile Table, 
+        ( cvdslLineAlarmConfProfileTable ), which apply to this
+        VDSL line, and channels if applicable."
+    ::= { cvdslLineEntry 4 }
+
+cvdslPhysTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvdslPhysEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each Vtu.  Each row 
+        contains the Physical Layer Parameters table for that 
+        Vtu.  VDSL physical interfaces are those ifEntries where 
+        ifType is equal to vdsl(97)."
+    ::= { cvdslMibObjects 2 }
+
+cvdslPhysEntry OBJECT-TYPE
+    SYNTAX CvdslPhysEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cvdslPhysTable."
+    INDEX { ifIndex, cvdslPhysSide }
+    ::= { cvdslPhysTable 1 }
+
+CvdslPhysEntry ::= SEQUENCE {
+    cvdslPhysSide CVdslLineEntity,
+    cvdslInvSerialNumber SnmpAdminString,
+    cvdslInvVendorID SnmpAdminString,
+    cvdslInvVersionNumber SnmpAdminString,
+    cvdslCurrSnrMgn INTEGER,
+    cvdslCurrAtn Gauge,
+    cvdslCurrStatus OCTET STRING,
+    cvdslCurrOutputPwr INTEGER,
+    cvdslCurrAttainableRate Gauge
+    }
+
+cvdslPhysSide OBJECT-TYPE
+    SYNTAX CVdslLineEntity
+--    Rsyntax INTEGER {
+--        vtuc(1),
+--        vtur(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Identifies whether the modem is the Vtuc or Vtur."
+    ::= { cvdslPhysEntry 1 }
+
+cvdslInvSerialNumber OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The vendor specific string that identifies the
+        vendor equipment."
+    ::= { cvdslPhysEntry 2 }
+
+cvdslInvVendorID OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..16))
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The vendor ID code is a copy of the binary vendor 
+        identification field defined by the PHY[10] and 
+        expressed as readable characters."
+    ::= { cvdslPhysEntry 3 }
+
+cvdslInvVersionNumber OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..16))
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The vendor specific version number sent by this Vtu
+        as part of the initialization messages.  It is a copy
+        of the binary version number field defined by the
+        PHY[10] and expressed as readable characters."
+    ::= { cvdslPhysEntry 4 }
+
+cvdslCurrSnrMgn OBJECT-TYPE
+    SYNTAX INTEGER(-640..640)
+--  Units
+--    tenth dB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Noise Margin as seen by this Vtu with respect to its
+        received signal in tenth dB."
+    ::= { cvdslPhysEntry 5 }
+
+cvdslCurrAtn OBJECT-TYPE
+    SYNTAX Gauge(0..630)
+--  Units
+--    tenth dB
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Measured difference in the total power transmitted by 
+        the peer Vtu and the total power received by this Vtu."
+    ::= { cvdslPhysEntry 6 }
+
+cvdslCurrStatus OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   noDefect(0)
+        --   lossOfFraming(1)
+        --   lossOfSignal(2)
+        --   lossOfPower(3)
+        --   lossOfSignalQuality(4)
+        --   lossOfLink(5)
+        --   dataInitFailure(6)
+        --   configInitFailure(7)
+        --   protocolInitFailure(8)
+        --   noPeerVtuPresent(9)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates current state of the Vtu line.  This is a
+        bit-map of possible conditions.  The various bit
+        positions are:
+        
+        0   noDefect             There no defects on the line
+        
+        1   lossOfFraming        Vtu failure due to not receiving 
+                                 valid frame.
+        
+        2   lossOfSignal         Vtu failure due to not receiving 
+                                 signal.
+        
+        3   lossOfPower          Vtu failure due to loss of power.
+        
+        4   lossOfSignalQuality  Loss of Signal Quality is declared
+                                 when the Noise Margin falls below 
+                                 the Minimum Noise Margin, or the 
+                                 bit-error-rate exceeds 10^-7.
+        
+        5   lossOfLink           Vtu failure due to inability to 
+                                 link with peer Vtu.
+        
+        6   dataInitFailure      Vtu failure during initialization 
+                                 due to bit errors corrupting
+                                 startup exchange data.
+        
+        7   configInitFailure    Vtu failure during initialization 
+                                 due to peer Vtu not able to support
+                                 requested configuration.
+        
+        8   protocolInitFailure  Vtu failure during initialization 
+                                 due to incompatible protocol used 
+                                 by the peer Vtu.
+        
+        9   noPeerVtuPresent     Vtu failure during initialization 
+                                 due to no activation sequence 
+                                 detected from peer Vtu.
+        
+        This is intended to supplement ifOperStatus."
+    ::= { cvdslPhysEntry 7 }
+
+cvdslCurrOutputPwr OBJECT-TYPE
+    SYNTAX INTEGER(-310..310)
+--  Units
+--    tenth dBm
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Measured total output power transmitted by this ATU.
+        This is the measurement that was reported during
+        the last activation sequence."
+    ::= { cvdslPhysEntry 8 }
+
+cvdslCurrAttainableRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bps
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the maximum currently attainable data rate
+        by the Vtu.  This value will be equal or greater than
+        the current line rate."
+    ::= { cvdslPhysEntry 9 }
+
+cvdslChanTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvdslChanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides one row for each Vtu channel.
+        VDSL channel interfaces are those ifEntries where 
+        ifType is equal to interleave(124) or fast(125)."
+    ::= { cvdslMibObjects 3 }
+
+cvdslChanEntry OBJECT-TYPE
+    SYNTAX CvdslChanEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cvdslChanTable."
+    INDEX { ifIndex, cvdslPhysSide }
+    ::= { cvdslChanTable 1 }
+
+CvdslChanEntry ::= SEQUENCE {
+    cvdslChanInterleaveDelay Gauge,
+    cvdslChanCrcBlockLength Gauge
+    }
+
+cvdslChanInterleaveDelay OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milli-seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Interleave Delay for this channel.
+        
+        Interleave delay applies only to the interleave 
+        (slow) channel and defines the mapping (relative 
+        spacing) between subsequent input bytes at the 
+        interleaver input and their placement in the bit 
+        stream at the interleaver output.  Larger numbers 
+        provide greater separation between consecutive 
+        input bytes in the output bit stream allowing for 
+        improved impulse noise immunity at the expense of 
+        payload latency.
+        
+        In the case where the ifType is fast(125), the
+        object is not instantiated."
+    ::= { cvdslChanEntry 1 }
+
+cvdslChanCrcBlockLength OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    byte
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the length of the channel data-block
+        on which the CRC operates."
+    ::= { cvdslChanEntry 2 }
+
+cvdslLineConfProfileTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvdslLineConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information on the VDSL line
+        configuration.  One entry in this table reflects a
+        profile defined by a manager which can be used to
+        configure the VDSL line."
+    ::= { cvdslMibObjects 8 }
+
+cvdslLineConfProfileEntry OBJECT-TYPE
+    SYNTAX CvdslLineConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry consists of a list of parameters that
+        represents the configuration of a VDSL modem.  A 
+        default profile with an index of 1 will always exist
+        and its parameters will be set to vendor specific
+        values, unless otherwise specified in this document."
+    INDEX { cvdslPhysSide, cvdslLineConfProfileIndex }
+    ::= { cvdslLineConfProfileTable 1 }
+
+CvdslLineConfProfileEntry ::= SEQUENCE {
+    cvdslLineConfProfileIndex INTEGER,
+    cvdslLineConfProfileName SnmpAdminString,
+    cvdslLineConfTargetSnrMgn INTEGER,
+    cvdslLineConfTxSpeed INTEGER,
+    cvdslLineConfRxSpeed INTEGER,
+    cvdslLineConfProfileRowStatus RowStatus
+    }
+
+cvdslLineConfProfileIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used by the line configuration table
+        in order to identify a row in that table.  The system
+        will always provide a default profile whose value is 1."
+    ::= { cvdslLineConfProfileEntry 1 }
+
+cvdslLineConfProfileName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name for this profile as specified by a user."
+    ::= { cvdslLineConfProfileEntry 2 }
+
+cvdslLineConfTargetSnrMgn OBJECT-TYPE
+    SYNTAX INTEGER(0..310)
+--  Units
+--    tenth dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Configured Target Signal/Noise Margin.  This is the 
+        Noise Margin the modem must achieve with a BER of 10-7 
+        or better to successfully complete initialization."
+    ::= { cvdslLineConfProfileEntry 3 }
+
+cvdslLineConfTxSpeed OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+--  Units
+--    bits per second
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Transmit speed for this modem.  The corresponding modem
+        on the other end of the VDSL line will have an equal
+        cvdslLineConfRxSpeed value."
+    ::= { cvdslLineConfProfileEntry 4 }
+
+cvdslLineConfRxSpeed OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+--  Units
+--    bits per second
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Receive speed for this modem.  The corresponding modem
+        on the other end of the VDSL line will have an equal
+        cvdslLineConfTxSpeed value."
+    ::= { cvdslLineConfProfileEntry 5 }
+
+cvdslLineConfProfileRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table.
+        
+        A profile activated by setting this object to `active'.  
+        When `active' is set, the system will validate the profile.
+        
+        Before a profile can be deleted or taken out of
+        service, (by setting this object to `destroy' or
+        `outOfService') it must be first unreferenced
+        from all associated lines.
+        The DEFVAL profile cannot be deleted."
+    ::= { cvdslLineConfProfileEntry 6 }
+
+cvdslLineMCMConfProfileTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvdslLineMCMConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information on the VDSL line
+        configuration.  One entry in this table reflects a
+        profile defined by a manager which can be used to
+        configure the VDSL line."
+    ::= { cvdslMibObjects 9 }
+
+cvdslLineMCMConfProfileEntry OBJECT-TYPE
+    SYNTAX CvdslLineMCMConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry consists of a list of parameters that
+        represents the configuration of a multiple carrier
+        modulation VDSL modem.    A default profile with an
+        index of 1 will always exist and its parameters will
+        be set to vendor specific values, unless otherwise
+        specified in this document."
+    INDEX { cvdslPhysSide, cvdslLineConfProfileIndex }
+    ::= { cvdslLineMCMConfProfileTable 1 }
+
+CvdslLineMCMConfProfileEntry ::= SEQUENCE {
+    cvdslMCMConfProfileTxWindowLength INTEGER,
+    cvdslMCMConfProfileRowStatus RowStatus
+    }
+
+cvdslMCMConfProfileTxWindowLength OBJECT-TYPE
+    SYNTAX INTEGER(1..255)
+--  Units
+--    samples
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the length of the transmit window, counted
+        in samples at the sampling rate corresponding to the 
+        negotiated value of N."
+    ::= { cvdslLineMCMConfProfileEntry 1 }
+
+cvdslMCMConfProfileRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table.
+        
+        A profile activated by setting this object to `active'.  
+        When `active' is set, the system will validate the profile.
+        
+        Before a profile can be deleted or taken out of
+        service, (by setting this object to `destroy' or
+        `outOfService') it must be first unreferenced
+        from all associated lines."
+    ::= { cvdslLineMCMConfProfileEntry 2 }
+
+cvdslLineMCMConfProfileTxBandTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvdslLineMCMConfProfileTxBandEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains transmit band descriptor configuration
+        information for a VDSL line.  Each entry in this table 
+        reflects the configuration for one of possibly many bands
+        with a multiple carrier modulation (MCM) VDSL line.
+        These entries are defined by a manager and can be used to
+        configure the VDSL line."
+    ::= { cvdslMibObjects 10 }
+
+cvdslLineMCMConfProfileTxBandEntry OBJECT-TYPE
+    SYNTAX CvdslLineMCMConfProfileTxBandEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry consists of a transmit band descriptor, which
+        is defined by a start and a stop tone index.
+        
+        A default profile with an index of 1 will always exist and
+        its parameters will be set to vendor specific values,
+        unless otherwise specified in this document."
+    INDEX { cvdslPhysSide, cvdslLineConfProfileIndex, cvdslMCMConfProfileTxBandNumber }
+    ::= { cvdslLineMCMConfProfileTxBandTable 1 }
+
+CvdslLineMCMConfProfileTxBandEntry ::= SEQUENCE {
+    cvdslMCMConfProfileTxBandNumber INTEGER,
+    cvdslMCMConfProfileTxBandStart INTEGER,
+    cvdslMCMConfProfileTxBandStop INTEGER,
+    cvdslMCMConfProfileTxBandRowStatus RowStatus
+    }
+
+cvdslMCMConfProfileTxBandNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index for this band descriptor entry."
+    ::= { cvdslLineMCMConfProfileTxBandEntry 1 }
+
+cvdslMCMConfProfileTxBandStart OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Start tone index for this band."
+    ::= { cvdslLineMCMConfProfileTxBandEntry 2 }
+
+cvdslMCMConfProfileTxBandStop OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Stop tone index for this band."
+    ::= { cvdslLineMCMConfProfileTxBandEntry 3 }
+
+cvdslMCMConfProfileTxBandRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table.
+        
+        A profile activated by setting this object to `active'.  
+        When `active' is set, the system will validate the profile.
+        
+        Before a profile can be deleted or taken out of
+        service, (by setting this object to `destroy' or
+        `outOfService') it must be first unreferenced
+        from all associated lines."
+    ::= { cvdslLineMCMConfProfileTxBandEntry 4 }
+
+cvdslLineMCMConfProfileRxBandTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvdslLineMCMConfProfileRxBandEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains receive band descriptor configuration
+        information for a VDSL line.  Each entry in this table 
+        reflects the configuration for one of possibly many bands
+        with a multiple carrier modulation (MCM) VDSL line.
+        These entries are defined by a manager and can be used to
+        configure the VDSL line."
+    ::= { cvdslMibObjects 11 }
+
+cvdslLineMCMConfProfileRxBandEntry OBJECT-TYPE
+    SYNTAX CvdslLineMCMConfProfileRxBandEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry consists of a transmit band descriptor, which
+        defines the start and stop bands and the power spectral
+        density (PSD) for that band.  
+        
+        A default profile with an index of 1 will always exist and
+        its parameters will be set to vendor specific values,
+        unless otherwise specified in this document."
+    INDEX { cvdslPhysSide, cvdslLineConfProfileIndex, cvdslMCMConfProfileRxBandNumber }
+    ::= { cvdslLineMCMConfProfileRxBandTable 1 }
+
+CvdslLineMCMConfProfileRxBandEntry ::= SEQUENCE {
+    cvdslMCMConfProfileRxBandNumber INTEGER,
+    cvdslMCMConfProfileRxBandStart INTEGER,
+    cvdslMCMConfProfileRxBandStop INTEGER,
+    cvdslMCMConfProfileRxBandRowStatus RowStatus
+    }
+
+cvdslMCMConfProfileRxBandNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index for this band descriptor entry."
+    ::= { cvdslLineMCMConfProfileRxBandEntry 1 }
+
+cvdslMCMConfProfileRxBandStart OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Start tone index for this band."
+    ::= { cvdslLineMCMConfProfileRxBandEntry 2 }
+
+cvdslMCMConfProfileRxBandStop OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Stop tone index for this band."
+    ::= { cvdslLineMCMConfProfileRxBandEntry 3 }
+
+cvdslMCMConfProfileRxBandRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table.
+        
+        A profile activated by setting this object to `active'.  
+        When `active' is set, the system will validate the profile.
+        
+        Before a profile can be deleted or taken out of
+        service, (by setting this object to `destroy' or
+        `outOfService') it must be first unreferenced
+        from all associated lines."
+    ::= { cvdslLineMCMConfProfileRxBandEntry 4 }
+
+cvdslLineMCMConfProfileTxPSDTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvdslLineMCMConfProfileTxPSDEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains transmit PSD mask descriptor 
+        configuration information for a VDSL line.  Each entry in 
+        this table reflects the configuration for one tone within
+        a multiple carrier modulation (MCM) VDSL line.  These 
+        entries are defined by a manager and can be used to 
+        configure the VDSL line."
+    ::= { cvdslMibObjects 12 }
+
+cvdslLineMCMConfProfileTxPSDEntry OBJECT-TYPE
+    SYNTAX CvdslLineMCMConfProfileTxPSDEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry consists of a transmit PSD mask descriptor, 
+        which defines the power spectral density (PSD) for a tone.
+        
+        A default profile with an index of 1 will always exist and
+        its parameters will be set to vendor specific values,
+        unless otherwise specified in this document."
+    INDEX { cvdslPhysSide, cvdslLineConfProfileIndex, cvdslMCMConfProfileTxPSDNumber }
+    ::= { cvdslLineMCMConfProfileTxPSDTable 1 }
+
+CvdslLineMCMConfProfileTxPSDEntry ::= SEQUENCE {
+    cvdslMCMConfProfileTxPSDNumber INTEGER,
+    cvdslMCMConfProfileTxPSDTone INTEGER,
+    cvdslMCMConfProfileTxPSDPSD INTEGER,
+    cvdslMCMConfProfileTxPSDRowStatus RowStatus
+    }
+
+cvdslMCMConfProfileTxPSDNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index for this mask descriptor entry."
+    ::= { cvdslLineMCMConfProfileTxPSDEntry 1 }
+
+cvdslMCMConfProfileTxPSDTone OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The tone index for which the PSD is being specified."
+    ::= { cvdslLineMCMConfProfileTxPSDEntry 2 }
+
+cvdslMCMConfProfileTxPSDPSD OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+--  Units
+--    0.5dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Power Spectral Density level in steps of 0.5dB with
+        an offset of -140dbm/Hz."
+    ::= { cvdslLineMCMConfProfileTxPSDEntry 3 }
+
+cvdslMCMConfProfileTxPSDRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table.
+        
+        A profile activated by setting this object to `active'.  
+        When `active' is set, the system will validate the profile.
+        
+        Before a profile can be deleted or taken out of
+        service, (by setting this object to `destroy' or
+        `outOfService') it must be first unreferenced
+        from all associated lines."
+    ::= { cvdslLineMCMConfProfileTxPSDEntry 4 }
+
+cvdslLineMCMConfProfileMaxTxPSDTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvdslLineMCMConfProfileMaxTxPSDEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains transmit maximum PSD mask descriptor 
+        configuration information for a VDSL line.  Each entry in 
+        this table reflects the configuration for one tone within
+        a multiple carrier modulation (MCM) VDSL modem.  These 
+        entries are defined by a manager and can be used to 
+        configure the VDSL line."
+    ::= { cvdslMibObjects 13 }
+
+cvdslLineMCMConfProfileMaxTxPSDEntry OBJECT-TYPE
+    SYNTAX CvdslLineMCMConfProfileMaxTxPSDEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry consists of a transmit PSD mask descriptor, 
+        which defines the maximum power spectral density (PSD) 
+        for a tone.
+        
+        A default profile with an index of 1 will always exist and
+        its parameters will be set to vendor specific values,
+        unless otherwise specified in this document."
+    INDEX { cvdslPhysSide, cvdslLineConfProfileIndex, cvdslMCMConfProfileMaxTxPSDNumber }
+    ::= { cvdslLineMCMConfProfileMaxTxPSDTable 1 }
+
+CvdslLineMCMConfProfileMaxTxPSDEntry ::= SEQUENCE {
+    cvdslMCMConfProfileMaxTxPSDNumber INTEGER,
+    cvdslMCMConfProfileMaxTxPSDTone INTEGER,
+    cvdslMCMConfProfileMaxTxPSDPSD INTEGER,
+    cvdslMCMConfProfileMaxTxPSDRowStatus RowStatus
+    }
+
+cvdslMCMConfProfileMaxTxPSDNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index for this band descriptor entry."
+    ::= { cvdslLineMCMConfProfileMaxTxPSDEntry 1 }
+
+cvdslMCMConfProfileMaxTxPSDTone OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The tone index for which the PSD is being specified."
+    ::= { cvdslLineMCMConfProfileMaxTxPSDEntry 2 }
+
+cvdslMCMConfProfileMaxTxPSDPSD OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+--  Units
+--    0.5dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Power Spectral Density level in steps of 0.5dB with
+        an offset of -140dbm/Hz."
+    ::= { cvdslLineMCMConfProfileMaxTxPSDEntry 3 }
+
+cvdslMCMConfProfileMaxTxPSDRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table.
+        
+        A profile activated by setting this object to `active'.  
+        When `active' is set, the system will validate the profile.
+        
+        Before a profile can be deleted or taken out of
+        service, (by setting this object to `destroy' or
+        `outOfService') it must be first unreferenced
+        from all associated lines."
+    ::= { cvdslLineMCMConfProfileMaxTxPSDEntry 4 }
+
+cvdslLineMCMConfProfileMaxRxPSDTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvdslLineMCMConfProfileMaxRxPSDEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains maximum receive PSD mask descriptor 
+        configuration information for a VDSL line.  Each entry in 
+        this table reflects the configuration for one tone within
+        a multiple carrier modulation (MCM) VDSL modem.  These 
+        entries are defined by a manager and can be used to 
+        configure the VDSL line."
+    ::= { cvdslMibObjects 14 }
+
+cvdslLineMCMConfProfileMaxRxPSDEntry OBJECT-TYPE
+    SYNTAX CvdslLineMCMConfProfileMaxRxPSDEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry consists of a transmit PSD mask descriptor, 
+        which defines the power spectral density (PSD) for a
+        tone.
+        
+        A default profile with an index of 1 will always exist and
+        its parameters will be set to vendor specific values,
+        unless otherwise specified in this document."
+    INDEX { cvdslPhysSide, cvdslLineConfProfileIndex, cvdslMCMConfProfileMaxRxPSDNumber }
+    ::= { cvdslLineMCMConfProfileMaxRxPSDTable 1 }
+
+CvdslLineMCMConfProfileMaxRxPSDEntry ::= SEQUENCE {
+    cvdslMCMConfProfileMaxRxPSDNumber INTEGER,
+    cvdslMCMConfProfileMaxRxPSDTone INTEGER,
+    cvdslMCMConfProfileMaxRxPSDPSD INTEGER,
+    cvdslMCMConfProfileMaxRxPSDRowStatus RowStatus
+    }
+
+cvdslMCMConfProfileMaxRxPSDNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index for this band descriptor entry."
+    ::= { cvdslLineMCMConfProfileMaxRxPSDEntry 1 }
+
+cvdslMCMConfProfileMaxRxPSDTone OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The tone index for which the PSD is being specified."
+    ::= { cvdslLineMCMConfProfileMaxRxPSDEntry 2 }
+
+cvdslMCMConfProfileMaxRxPSDPSD OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+--  Units
+--    0.5dB
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Power Spectral Density level in steps of 0.5dB with
+        an offset of -140dbm/Hz."
+    ::= { cvdslLineMCMConfProfileMaxRxPSDEntry 3 }
+
+cvdslMCMConfProfileMaxRxPSDRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table.
+        
+        A profile activated by setting this object to `active'.  
+        When `active' is set, the system will validate the profile.
+        
+        Before a profile can be deleted or taken out of
+        service, (by setting this object to `destroy' or
+        `outOfService') it must be first unreferenced
+        from all associated lines."
+    ::= { cvdslLineMCMConfProfileMaxRxPSDEntry 4 }
+
+cvdslLineSCMConfProfileTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvdslLineSCMConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information on the VDSL line
+        configuration.  One entry in this table reflects a
+        profile defined by a manager which can be used to
+        configure the VDSL line."
+    ::= { cvdslMibObjects 15 }
+
+cvdslLineSCMConfProfileEntry OBJECT-TYPE
+    SYNTAX CvdslLineSCMConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry consists of a list of parameters that
+        represents the configuration of a single carrier
+        modulation VDSL modem.  
+        
+        A default profile with an index of 1 will always exist and
+        its parameters will be set to vendor specific values,
+        unless otherwise specified in this document."
+    INDEX { cvdslPhysSide, cvdslLineConfProfileIndex }
+    ::= { cvdslLineSCMConfProfileTable 1 }
+
+CvdslLineSCMConfProfileEntry ::= SEQUENCE {
+    cvdslSCMConfProfileInterleaveDepth INTEGER,
+    cvdslSCMConfProfileFastCodewordSize INTEGER,
+    cvdslSCMConfProfileTransmitPSDMask OCTET STRING,
+    cvdslSCMConfProfileTransmitPSDLevel INTEGER,
+    cvdslSCMConfProfileSymbolRateProfile INTEGER,
+    cvdslSCMConfProfileConstellationSize INTEGER,
+    cvdslSCMConfProfileCenterFrequency INTEGER,
+    cvdslSCMConfProfileRowStatus RowStatus
+    }
+
+cvdslSCMConfProfileInterleaveDepth OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+--  Units
+--    octets
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the interleaving depth."
+    ::= { cvdslLineSCMConfProfileEntry 1 }
+
+cvdslSCMConfProfileFastCodewordSize OBJECT-TYPE
+    SYNTAX INTEGER(0..180)
+--  Units
+--    octets
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the length in octets of the fast codeword.
+        A value of 0 indicates that the single latency transport 
+        class is to be utilized."
+    ::= { cvdslLineSCMConfProfileEntry 2 }
+
+cvdslSCMConfProfileTransmitPSDMask OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   vendorNotch1(0)
+        --   vendorNotch2(1)
+        --   amateurBand30m(2)
+        --   amateurBand40m(3)
+        --   amateurBand80m(4)
+        --   amateurBand160m(5)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The transmit power spectral density mask code."
+    ::= { cvdslLineSCMConfProfileEntry 3 }
+
+cvdslSCMConfProfileTransmitPSDLevel OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+--  Units
+--    dBm/Hz
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The transmit power spectral density for the VDSL modem."
+    ::= { cvdslLineSCMConfProfileEntry 4 }
+
+cvdslSCMConfProfileSymbolRateProfile OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+--  Units
+--    kbaud
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The symbol rate profile calculated as S = SR/BSR, where
+        SR is the required symbol rate in kbaud, BSR  = 67.5."
+    ::= { cvdslLineSCMConfProfileEntry 5 }
+
+cvdslSCMConfProfileConstellationSize OBJECT-TYPE
+    SYNTAX INTEGER(0..15)
+--  Units
+--    log2
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the constellation size."
+    ::= { cvdslLineSCMConfProfileEntry 6 }
+
+cvdslSCMConfProfileCenterFrequency OBJECT-TYPE
+    SYNTAX INTEGER(0..511)
+--  Units
+--    kHz
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the center frequency profile K."
+    ::= { cvdslLineSCMConfProfileEntry 7 }
+
+cvdslSCMConfProfileRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table.
+        
+        A profile activated by setting this object to `active'.  
+        When `active' is set, the system will validate the profile.
+        
+        Before a profile can be deleted or taken out of
+        service, (by setting this object to `destroy' or
+        `outOfService') it must be first unreferenced
+        from all associated lines."
+    ::= { cvdslLineSCMConfProfileEntry 8 }
+
+cvdslLineAlarmConfProfileTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvdslLineAlarmConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information on the VDSL line alarm
+        configuration.  One entry in this table reflects a profile
+        defined by a manager which can be used to configure the 
+        VDSL line alarm thresholds."
+    ::= { cvdslMibObjects 16 }
+
+cvdslLineAlarmConfProfileEntry OBJECT-TYPE
+    SYNTAX CvdslLineAlarmConfProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry consists of a list of parameters that
+        represents the configuration of a VDSL line alarm
+        profile.  
+        A default profile with an index of 1 will always exist and
+        its parameters will be set to vendor specific values,
+        unless otherwise specified in this document."
+    INDEX { cvdslPhysSide, cvdslLineAlarmConfProfileIndex }
+    ::= { cvdslLineAlarmConfProfileTable 1 }
+
+CvdslLineAlarmConfProfileEntry ::= SEQUENCE {
+    cvdslLineAlarmConfProfileIndex INTEGER,
+    cvdslLineAlarmConfProfileName SnmpAdminString,
+    cvdslInitFailureNotificationEnable TruthValue,
+    cvdslLineAlarmConfProfileRowStatus RowStatus
+    }
+
+cvdslLineAlarmConfProfileIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used by the line alarm configuration table
+        in order to identify a row in that table.  The system will
+        always provide a default profile whose index is 1."
+    ::= { cvdslLineAlarmConfProfileEntry 1 }
+
+cvdslLineAlarmConfProfileName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name for this profile as specified by a user."
+    ::= { cvdslLineAlarmConfProfileEntry 2 }
+
+cvdslInitFailureNotificationEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if a cvdslInitFailureNotification 
+        notification will be generated if an initialization
+        failure occurs."
+    ::= { cvdslLineAlarmConfProfileEntry 3 }
+
+cvdslLineAlarmConfProfileRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create a new row or modify or
+        delete an existing row in this table.
+        
+        A profile activated by setting this object to `active'.  
+        When `active' is set, the system will validate the profile.
+        
+        Before a profile can be deleted or taken out of
+        service, (by setting this object to `destroy' or
+        `outOfService') it must be first unreferenced
+        from all associated lines."
+    ::= { cvdslLineAlarmConfProfileEntry 4 }
+
+cvdslInitFailureNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cvdslLineMib
+    VARIABLES {
+        cvdslCurrStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Vtu initialization failed.  See cvdslCurrStatus for 
+        potential reasons."
+    ::= 1
+
+cvdslGroup OBJECT IDENTIFIER ::= { cvdslGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--     a VDSL Line.
+--  objects
+--    cvdslLineCoding, cvdslLineType, cvdslLineConfProfile, 
+--    cvdslLineAlarmConfProfile, cvdslInvSerialNumber, 
+--    cvdslInvVendorID, cvdslInvVersionNumber, cvdslCurrSnrMgn, 
+--    cvdslCurrAtn, cvdslCurrStatus, cvdslCurrOutputPwr, 
+--    cvdslCurrAttainableRate, cvdslChanInterleaveDelay, 
+--    cvdslChanCrcBlockLength, cvdslLineConfProfileName, 
+--    cvdslLineConfTargetSnrMgn, cvdslLineConfTxSpeed, 
+--    cvdslLineConfRxSpeed, cvdslLineConfProfileRowStatus, 
+--    cvdslLineAlarmConfProfileName, 
+--    cvdslInitFailureNotificationEnable, 
+--    cvdslLineAlarmConfProfileRowStatus
+
+cvdslMCMGroup OBJECT IDENTIFIER ::= { cvdslGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing configuration
+--    information for a VDSL line based upon multiple carrier 
+--    modulation modem.
+--  objects
+--    cvdslMCMConfProfileTxWindowLength, 
+--    cvdslMCMConfProfileRowStatus, cvdslMCMConfProfileTxBandStart, 
+--    cvdslMCMConfProfileTxBandStop, 
+--    cvdslMCMConfProfileTxBandRowStatus, 
+--    cvdslMCMConfProfileRxBandStart, cvdslMCMConfProfileRxBandStop, 
+--    cvdslMCMConfProfileRxBandRowStatus, 
+--    cvdslMCMConfProfileTxPSDTone, cvdslMCMConfProfileTxPSDPSD, 
+--    cvdslMCMConfProfileTxPSDRowStatus, 
+--    cvdslMCMConfProfileMaxTxPSDTone, 
+--    cvdslMCMConfProfileMaxTxPSDPSD, 
+--    cvdslMCMConfProfileMaxTxPSDRowStatus, 
+--    cvdslMCMConfProfileMaxRxPSDTone, 
+--    cvdslMCMConfProfileMaxRxPSDPSD, 
+--    cvdslMCMConfProfileMaxRxPSDRowStatus
+
+cvdslSCMGroup OBJECT IDENTIFIER ::= { cvdslGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing configuration
+--    information for a VDSL line based upon single carrier 
+--    modulation modem.
+--  objects
+--    cvdslSCMConfProfileInterleaveDepth, 
+--    cvdslSCMConfProfileFastCodewordSize, 
+--    cvdslSCMConfProfileTransmitPSDMask, 
+--    cvdslSCMConfProfileTransmitPSDLevel, 
+--    cvdslSCMConfProfileSymbolRateProfile, 
+--    cvdslSCMConfProfileConstellationSize, 
+--    cvdslSCMConfProfileCenterFrequency, 
+--    cvdslSCMConfProfileRowStatus
+
+cvdslNotificationGroup OBJECT IDENTIFIER ::= { cvdslGroups 4 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group supports notifications of significant 
+--    conditions associated with VDSL Lines.
+--  notifications
+--    cvdslInitFailureNotification
+
+cvdslLineMibCompliance OBJECT IDENTIFIER ::= { cvdslCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP entities which 
+--    manage VDSL interfaces.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvdslGroup
+--   OptGroup
+--    cvdslMCMGroup
+--   OptGroup
+--    cvdslSCMGroup
+
+
+END
+

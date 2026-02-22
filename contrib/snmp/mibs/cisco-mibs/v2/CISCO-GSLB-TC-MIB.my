@@ -1,0 +1,526 @@
+-- ******************************************************************
+-- CISCO-GSLB-TC-MIB.my:  Global Server Load Balancing
+-- Textual Conventions
+--   
+-- Sep 2006, Pawan N
+--   
+-- Copyright (c) 2006-2007 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ******************************************************************
+
+CISCO-GSLB-TC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoGslbTcMIB MODULE-IDENTITY
+    LAST-UPDATED    "200702230000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-slb@cisco.com"
+    DESCRIPTION
+        "This MIB module defines Textual Conventions and
+        OBJECT-IDENTITIES for use in documents defining
+        management information base (MIBs) modules for managing
+        CISCO-GSLB-SYSTEM-MIB, CISCO-GSLB-DNS-MIB and
+        CISCO-GSLB-HEALTH-MON-MIB (These MIB modules are used
+        for a Global Server Load Balancing device(GSLB)).
+
+        Acronyms and their description:
+
+        CRA       : Content Routing Agent - software that provides
+                    information to a GSLB device for content 
+                    routing decisions and handles content routing
+                    requests from the GSLB device.
+
+        D-Proxy   : It is a local name server of the client which
+                    has initiated a DNS query for a domain.
+
+        VIP       : Virtual IP Addresses - they are used by server
+                    load balancing devices to represent content
+                    hosted on one or more servers under their
+                    control.  The use of VIPs is to route content
+                    to the proper requesting host without exposing
+                    the device's internal IP address.
+
+        Keepalive : A keepalive is an interaction between GSLB
+                    device and another device using a commonly
+                    supported protocol.  It is used to periodically
+                    check if a resource is still active.
+
+        DNS race  : It is a method of resolving the proximity of
+                    the CRAs from the D-Proxy.  In this method the
+                    GSLB device sends a request to all the CRAs
+                    directing them to respond to the D-Proxy at
+                    at the same time.  The first response received
+                    by the D-proxy is, by default, considered to
+                    be the most proximate."
+    REVISION        "200702230000Z"
+    DESCRIPTION
+        "Added enumeration 'scriptedKal' to
+        CiscoGslbKeepaliveMethod.
+
+        Added enumeration 'init' to
+        CiscoGslbAnswerStatus."
+    REVISION        "200609260000Z"
+    DESCRIPTION
+        "Initial version of this MIB module"
+    ::= { ciscoMgmt 583 }
+
+
+
+-- Textual Conventions
+
+CiscoGslbNodeServices ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Defines the role of the GSLB device in a GSLB peer network:
+
+        'primary'      :  Provides GSLB services and active for
+                          peer configuration and management.
+
+        'standby'      :  Provides GSLB services and standby for
+                          peer configuration and management.
+
+        'secondary'    :  Provides GSLB services only, not peer 
+                          configuration and management."
+    SYNTAX          INTEGER  {
+                        primary(1),
+                        standby(2),
+                        secondary(3)
+                    }
+
+CiscoGslbPeerStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Defines the status of a peer as known to this GSLB device.
+
+        'inactive'     :     GSLB peer device is waiting to be
+                             activated by the primary GSLB device
+                             it is registered with.
+
+        'offline'      :     GSLB device which is out-of-service.
+
+        'online'       :     GSLB device which is in service."
+    SYNTAX          INTEGER  {
+                        inactive(1),
+                        offline(2),
+                        online(3)
+                    }
+
+CiscoGslbAnswerType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Defines the answer type.  When a GSLB device receives a
+        request from a D-proxy, it will resolve the request by
+        pointing the D-proxy to one of the answers.  The answer
+        can be one of the following type:
+
+        'other'        :     The value 'other' has been provided so
+                             that the MIB may still be valid while
+                             new protocols emerge and the MIB has 
+                             not been updated to enumerate them.
+
+        'vip'          :     Virtual IP address associated with 
+                             SLB device or any 
+                             other geographically dispersed device 
+                             in global network deployment.
+
+        'ns'           :     IP Address of the NS that can answer
+                             queries that the GSLB device cannot
+                             resolve.
+
+        'cra'          :     CRAs that use a resolution process
+                             called DNS race to send identical and
+                             simultaneous responses back to a 
+                             user's D-proxy."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        vip(2),
+                        ns(3),
+                        cra(4)
+                    }
+
+CiscoGslbKeepaliveTargetType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Defines the answer type to which the keepalive is
+        associated.  The only exception being shared, where
+        the keepalive can be associated with multiple answers,
+        hence the name shared.
+
+        'other'        :     The value 'other' has been provided so
+                             that the MIB may still be valid while
+                             new protocols emerge and the MIB has
+                             not been updated to enumerate them.
+
+        'vip'          :     Keepalives associated with VIP answer.
+
+        'ns'           :     Keepalives associated with NS answer.
+
+        'cra'          :     Keepalives associated with CRA answer.
+
+        'shared'       :     Keepalives that may be shared among
+                             multiple VIP answers."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        vip(2),
+                        ns(3),
+                        cra(4),
+                        shared(5)
+                    }
+
+CiscoGslbKeepaliveMethod ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Defines the keepalive method.  A keepalive is an
+        interaction between GSLB device and another device using
+        a commonly supported protocol.  This defines the protocol
+        to be used by the keepalive when monitoring an answer.
+        For example a keepalive for a VIP answer can have
+        icmp/tcp/httphead/kalap method to monitor the health of
+        answer.
+        (Note: The keepaliveTargetType is VIP, since the answer
+        is associated with a VIP type answer.)
+
+        'other'        :     The value 'other' has been provided so
+                             that the MIB may still be valid while
+                             new protocols emerge and the MIB has
+                             not been updated to enumerate them.
+
+        'none'         :     This is to prevent the GSLB device from
+                             taking the online status and load into
+                             account.  Thus, the resource is always
+                             assumed to be online.
+
+        'icmp'         :     Internet Control Message Protocol(ICMP)
+                             packets are sent to the VIP address (or
+                             a shared keepalive address) for an
+                             answer to determine the Online status
+                             indicating connectivity to network.
+
+        'tcp'          :     To determine the Online status a TCP
+                             connection to remote device is
+                             established by performing three-way
+                             handshake sequence.  The connection
+                             is then terminated.
+
+        'httphead'     :     A HTTP HEAD connection is established,
+                             the online status of the resource is
+                             returned in form of an HTTP Response,
+                             then the connection is terminated.
+
+        'kalap'        :     A detailed query is sent to primary
+                             and an optional secondary address to
+                             determine the online status and load of
+                             each specified address.
+
+        'ns'           :     A query is sent to the NS address to
+                             determine its online status by means
+                             of its ability to respond the query
+                             for the domain.
+
+        'cra'          :     It is used when testing CRA answer
+                             that respond to DNS race requests as it
+                             keeps track to the time required for a
+                             packet to reach the CRA and return to
+                             the GSLB device.
+
+        'scriptedKal'  :     It uses SNMP get request to fetch the
+                             load information from the target
+                             device.  It enables the GSLB device
+                             to use third party application for
+                             fetching the load information from
+                             target."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        none(2),
+                        icmp(3),
+                        tcp(4),
+                        httphead(5),
+                        kalap(6),
+                        ns(7),
+                        cra(8),
+                        scriptedKal(9)
+                    }
+
+CiscoGslbKeepaliveConfigState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Administrative configuration state for the keepalive.
+        The keepalive can be activated/suspended by the
+        administrator.  This is used to define the present state
+        of the keepalive.
+
+        'active'       :     The keepalive is administratively
+                             enabled.
+
+        'suspend'      :     The keepalive is administratively
+                             disabled."
+    SYNTAX          INTEGER  {
+                        active(1),
+                        suspend(2)
+                    }
+
+CiscoGslbKeepaliveRate ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The rate associated with each keepalive method.
+        It defines the rate at which the probing happens
+        in-other-words how frequently the probing should happen.
+
+        'other'        :     The value 'other' has been provided so
+                             that the MIB may still be valid while
+                             new rates emerge and the MIB has not
+                             been updated to enumerate them.
+
+        'standard'     :     Uses the standard detection time.
+                             Each keepalive method has a standard
+                             detection time associated with it.
+
+        'fast'         :     Uses the user-selectable Number of
+                             Retries parameter to control the
+                             transmission rate.  Number of retries
+                             is a user configurable parameter, which
+                             says the number times the target device
+                             has to be probed before declaring it
+                             offline."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        standard(2),
+                        fast(3)
+                    }
+
+CiscoGslbTerminationMethod ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Some keepalives establish a connection and then terminate
+        the connection as part of the process to determine the
+        online status of the resource.
+        For example, in a keepalive of method 'tcp', a connection
+        is established to the target device while probing.
+        GSS can terminate this connection in either of the
+        following ways:
+
+        'other'        :     The value 'other' has been provided
+                             so that the MIB may still be valid
+                             while new methods emerge and the MIB
+                             has not been updated to enumerate them.
+
+        'reset'        :     Immediately terminates the connection
+                             by using a hard reset.
+
+        'graceful'     :     Initiates the graceful closing of the
+                             connection by using the standard
+                             three-way connection termination method."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        reset(2),
+                        graceful(3)
+                    }
+
+CiscoGslbKeepaliveStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Most recently known status of the keepalive.
+
+        'other'        :     The value 'other' has been provided
+                             so that the MIB may still be valid
+                             while new states emerge and the MIB
+                             has not been updated to enumerate them.
+
+        'offline'      :     The resource whose status is being 
+                             determined by the keepalive is not 
+                             available.
+
+        'online'       :     The resource is available and is in 
+                             service.
+
+        'suspended'    :     The keepalive is suspended.
+
+        'init'         :     The keepalive is being initialized."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        offline(2),
+                        online(3),
+                        suspended(4),
+                        init(5)
+                    }
+
+CiscoGslbAnswerStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Most recently known status of the answer
+
+        'other'        :     The value 'other' has been provided
+                             so that the MIB may still be valid
+                             while new states emerge and the MIB
+                             has not been updated to enumerate them.
+
+        'offline'      :     The answer is not available as is
+                             determined by using the keepalives
+                             associated with the answer.
+
+        'online'       :     The answer is available and is in
+                             service.
+
+        'suspended'    :     The answer has been administratively
+                             disabled.
+
+        'init'         :     The answer is being initialized."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        offline(2),
+                        online(3),
+                        suspended(4),
+                        init(5)
+                    }
+
+CiscoGslbAnswerAdminState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Administrative configuration state for an answer.
+        An answer can be activated/suspended by the
+        administrator.  This is used to define the present state
+        of the answer.
+
+        'active'       :     The answer has been administratively
+                             enabled.
+
+        'suspended'    :     The answer has been administratively
+                             disabled."
+    SYNTAX          INTEGER  {
+                        suspended(1),
+                        active(2)
+                    }
+
+CiscoGslbKalapType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Kalap is keepalive protocol, which sends a detailed query
+        to primary and an optional secondary address to determine
+        the online status and load of each specified address.
+        Following are the different types in kalap method of
+        keepalive:
+
+        'other'        :     The value 'other' has been provided
+                             so that the MIB may still be valid
+                             while new states emerge and the MIB
+                             has not been updated to enumerate them.
+
+        'kalapByVip' :       In this type, only the VIP address is
+                             specified in the kalap request.  The
+                             kalap queries the VIP to determine the
+                             online status.
+
+        'kalapByTag' :       In this type, an alphanumeric tag
+                             associated with the VIP is specified
+                             in the kalap request.  The kalap
+                             queries the VIP to determine the
+                             online status."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        kalapByVip(2),
+                        kalapByTag(3)
+                    }
+
+CiscoGslbBalanceMethod ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "A balance method is an algorithm for selecting the best
+        server.
+        Following are the different types of balance methods:
+
+        'other'        :     The value 'other' has been provided
+                             so that the MIB may still be valid
+                             while new states emerge and the MIB
+                             has not been updated to enumerate
+                             them.
+
+        'orderedList'  :     In this type, each resource within
+                             an answer group (for example, an SLB
+                             VIP or a name server) is assigned a
+                             number that corresponds to the rank
+                             of that answer within the group.
+                             The number assigned represents the
+                             order of the answer on the list.
+                             Subsequent VIPs or name servers on
+                             the list will only be used if
+                             preceding VIPs or name servers on
+                             the list are unavailable.
+
+        'roundRobin'   :     In this type, each resource within
+                             an answer group is tried in turn.
+                             The GSLB device cycles through the
+                             list of answers, selecting the next
+                             answer in line for each request.
+                             In this way, the device can resolve
+                             requests by evenly distributing the
+                             load among possible answers.
+
+        'weightedRR'   :     In this type, as performed by the
+                             round-robin balance method, the
+                             weighted round-robin method also
+                             cycles through a list of defined
+                             answers to choose each available
+                             answer in turn.  However, with
+                             weighted round-robin, an additional
+                             weight factor is assigned to each
+                             answer, biasing the GSLB device
+                             towards certain servers so that
+                             they are used more often.
+
+        'leastLoaded'  :     In this type, the GSLB device
+                             resolves requests to the least
+                             loaded of all resources.
+
+        'hashed'       :     In this type, elements of the
+                             client's DNS proxy IP address and
+                             the requesting client's domain are
+                             extracted to create a unique value,
+                             referred to as a hash value.  The
+                             unique hash value is attached to
+                             and used to identify a VIP that is
+                             chosen to serve the DNS query.
+
+        'boomerang'    :     This method is based on the concept
+                             that instantaneous proximity can be
+                             determined if a CRA within each
+                             data center sends an A-record
+                             (IP address) at the exact same time
+                             to the client's D-proxy.  The DNS
+                             race method of DNS resolution gives
+                             all CRAs (Cisco content engines or
+                             content services switches) a chance
+                             at resolving a client request and
+                             allows for proximity to be determined
+                             without probing the client's D-proxy.
+                             The first A-record received by the
+                             D-proxy is, by default, considered 
+                             to be the most proximate."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        orderedList(2),
+                        roundRobin(3),
+                        weightedRR(4),
+                        leastLoaded(5),
+                        hashed(6),
+                        boomerang(7)
+                    }
+
+END

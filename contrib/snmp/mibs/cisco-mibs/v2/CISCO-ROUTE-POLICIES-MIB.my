@@ -1,0 +1,142 @@
+
+-- *****************************************************************
+-- CISCO-ROUTE-POLICIES-MIB.my:
+-- OID assignments for Cisco route policies
+
+
+-- July 2006, Tim Gleeson
+
+-- Copyright (c) 2006 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-ROUTE-POLICIES-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-IDENTITY
+                FROM SNMPv2-SMI
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+
+ciscoRoutePoliciesMIB MODULE-IDENTITY
+        LAST-UPDATED    "200608180000Z"
+        ORGANIZATION    "Cisco Systems, Inc. "
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-snmp@cisco.com"
+        DESCRIPTION
+                "This module provides a subtree to define OIDs so that
+                various routing 'policies' used by Cisco routers can be
+                expressed. This module defines only this 'policy' OID
+                space and doesn't define any other object.
+
+                As an example, these OIDs are required by at least the
+                following MIB objects: inetCidrRoutePolicy
+                ( IP-FORWARD-MIB, RFC4292 ) and
+                mplsL3VpnVrfRteInetCidrPolicy ( MPLS-L3VPN-STD-MIB
+                RCS4382).  Both of these objects are defined as OBJECT
+                IDENTIFIERs without any defined semantics, to
+                differentiate between multiple entries to the same
+                destination in the tables inetCidrRoutePolicyTable and
+                mplsL3VpnVrfRteInetCidrTable.  These two objects
+                utilise a generalised notion of 'policy' defined in
+                this module.
+
+                The table inetCidrRouteTable of IP-FORWARD-MIB may list
+                multiple paths pointing out of (either):
+
+                * different interfaces with the same next-hop
+                        ipv6 route 2003::/64 interface gig0/0 2222::1
+                        ipv6 route 2003::/64 interface gig0/1 2222::1
+                * different interfaces with no next-hop
+                        ipv6 route 2003::/64 interface gig0/0
+                        ipv6 route 2003::/64 interface gig0/1
+
+                2003::/64 and 2222::1 represent an IPv6 route-prefix
+                and IPv6 next-hop respectively.
+
+                If these interfaces were in different zones, then the
+                'InetAddressIPv6z' type next-hop could distinguish
+                them. If they are in the same zone, then the two
+                interfaces refer to the same link.
+
+                The indices of inetCidrRouteTable are:
+                        inetCidrRouteDestType
+                        inetCidrRouteDest
+                        inetCidrRoutePfxLen
+                        inetCidrRoutePolicy
+                        inetCidrRouteNextHopType
+                        inetCidrRouteNextHop
+
+                The inetCidrRoutePolicy object, when instantiated with a
+                value from crpPolicyIfIndex, allows us to distinguish
+                the routing table entries mentioned in the examples
+                above.
+
+                REFERENCE
+
+                [1] IP-FORWARD-MIB (RFC4292)
+
+                [2] MPLS-L3VPN-STD-MIB (RFC4382)
+
+                [3] ifIndex, IF-MIB
+
+                [4] RFC 4291 IP Version 6 Addressing Architecture,
+                Section 2.2, Text Representation of Addresses. "
+        REVISION        "200608180000Z"
+        DESCRIPTION
+                "Initial version of this MIB module. "
+        ::= { ciscoMgmt 578 }
+
+
+ciscoRoutePoliciesMIBNotifs  OBJECT IDENTIFIER
+        ::= { ciscoRoutePoliciesMIB 0 }
+
+ciscoRoutePoliciesMIBObjects  OBJECT IDENTIFIER
+        ::= { ciscoRoutePoliciesMIB 1 }
+
+ciscoRoutePoliciesMIBConform  OBJECT IDENTIFIER
+        ::= { ciscoRoutePoliciesMIB 2 }
+
+crpPolicies OBJECT-IDENTITY
+        STATUS current
+        DESCRIPTION
+                "A subtree to define OIDs so that various routing
+                policies used by Cisco routers can be expressed.
+                Such OIDs may serve as additional indices, e.g., as the
+                values of inetCidrRoutePolicy in inetCidrRouteTable,
+                to delineate between multiple routes to the same
+                destination. "
+        ::= { ciscoRoutePoliciesMIBObjects 1 }
+
+crpPolicyIfIndex OBJECT-IDENTITY
+        STATUS current
+        DESCRIPTION
+                "This OID specifies a set of policies, one for each
+                ifIndex value.  Specifically, the OID value of
+                crpPolicyIfIndex.i is defined such that each
+                inetCidrRouteTable entry for which the instance of
+                inetCidrRoutePolicy has this value, is associated with
+                ifIndex=i, and thereby is distinct for any
+                inetCidrRouteTable entry associated with
+                ifIndex=j.  Note that the value of inetCidrRoutePolicy
+                for the latter would be crpPolicyIfIndex.j.
+
+                This set of policies is appropriate only if an ifIndex
+                value is sufficient to distinguish between routes. "
+        REFERENCE
+                "inetCidrRouteTable, IP-FORWARD-MIB, RFC4292. "
+        ::= { crpPolicies 1 }
+
+
+END

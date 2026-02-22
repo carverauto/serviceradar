@@ -1,0 +1,2255 @@
+-- *****************************************************************
+-- CISCO-VOICE-ANALOG-IF-MIB.my: Voice Analog Interface MIB file
+--
+-- September 1996  Hongchi Shih   
+--
+-- Copyright (c) 1996-1997, 2001-2004 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VOICE-ANALOG-IF-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Integer32,
+        Counter32
+                FROM SNMPv2-SMI
+        TEXTUAL-CONVENTION,
+        TruthValue 
+                FROM SNMPv2-TC
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        ifIndex
+                FROM IF-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+
+ciscoVoiceAnalogIfMIB MODULE-IDENTITY
+        LAST-UPDATED    "200510030000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail: cs-voice@cisco.com"
+        DESCRIPTION
+                "Analog Voice Interface MIB module.
+                 This MIB manages the E&M, FXO, FXS         
+                 Interfaces in the router.
+                "
+        REVISION    "200510030000Z"
+        DESCRIPTION
+                "Extend cvaIfEMCfgSignalType to include
+                 fgd(5) and fgd-eana(6)
+                "
+        REVISION    "200410140000Z"
+        DESCRIPTION
+                "Extend CvaIfEMCfgEntry to include
+                    cvaIfEMCfgAutoGainControl
+                 Extend CvaIfEMTimingEntry to include
+                    cvaIfEMTimeoutPttXmt
+                    cvaIfEMTimeoutPttRcv
+                    cvaIfEMTimingDelayVoice
+                 add cvaIfEMGroupRev2
+                 "               
+
+        REVISION    "200401150000Z"
+        DESCRIPTION
+                "Extend cvaIfEMCfgSignalType to include 
+                 lmr(4)
+                 Extend CvaIfEMCfgEntry to include 
+                 cvaIfEMCfgLmrMCap & cvaIfEMCfgLmrECap
+                 Extend CvaIfEMTimingEntry to include
+                 cvaIfEMTimingVoiceHangover &
+                 cvaIfEMTimeoutLmrTeardown
+                 Deprecated cvaIfEMGroup
+                 add cvaIfEMGroupRev1
+                 Addition of fxoCama in cvaIfFXOCfgSignalType.
+                 Deprecated cvaIfFXOCfgSupDisconnect in favor of
+                 cvaIfFXOCfgSupDisconnect2.
+                 Add cvaIfMIBCompliance2
+                "
+        REVISION       "200208030000Z"
+        DESCRIPTION
+                "Addition of fxoCama in cvaIfFXOCfgSignalType.
+                "
+
+        REVISION        "200207290000Z"
+        DESCRIPTION
+                "Deprecated cvaIfFXOCfgSupDisconnect in favor of
+                 cvaIfFXOCfgSupDisconnect2.
+                "
+
+        REVISION        "200201210000Z"
+        DESCRIPTION
+                "Created TC InterfaceDialType. Updated 
+                 cvaIfEMCfgDialType and cvaIfFXOCfgDialType
+                 objects to use this TC InterfaceDialType.
+                 Added enumeration 'trunked(3)' to the SYNTAX of
+                 cvaIfFXSHookStatus. 
+                 Added enumeration 'trunked(3)' to the SYNTAX of 
+                 cvaIfFXOHookStatus.
+                "
+        ::= { ciscoMgmt 62 }
+
+-- 
+-- Overview of Analog Voice interface MIB
+--
+-- The Analog Voice interface MIB provides the standard configuration,
+-- timing parameters and telephony hook, ring status information on Cisco's 
+-- Analog Voice interface implementation. The following groups
+-- are managed:
+-- 1) Analog interface general group
+-- 2) E&M (recEive and transMit) interface group      
+-- 3) FXO (Foreign Exchange Office) interface group
+-- 4) FXS (Foreign Exchange Station) interface group
+--
+-- ifEntry for an Analog Voice Interface
+--
+-- The ifEntry for an Analog Voice Interface supports the 
+-- ifGeneralInformationGroup of Cisco IF-MIB.
+
+-- ifTable           Comments
+-- ==============    =====================================================
+-- ifIndex           Each Analog telephony interface is represented by an 
+--                   ifEntry.
+-- ifDescr           Textual port description.                    
+-- ifType            The IANA value of voiceEM(100), voiceFXO(101) and
+--                   voiceFXS(102).
+-- ifSpeed           contains a zero value.
+-- ifPhysAddress     contains an octet string of zero length.
+--                                                   
+-- ifAdminStatus     The desired administrative status of the
+--                   Analog Telephony interface port.
+-- ifOperStatus      The current operational status of the Analog Telephony
+--                   interface port. Note that dormant(5) is explicitly being
+--                   used as defined in RFC 1573.
+-- ifLastChange      Refer to RFC 1573.
+-- ifLinkUpDownTrapEnable  
+--                   Refer to RFC 1573.
+-- ifConnectorPresent
+--                   Refer to RFC 1573.
+-- ifHighSpeed       contains a zero value.
+-- ifName            Refer to RFC 1573.
+-- ifAlias           Refer to Cisco IF-MIB.
+--
+             
+--
+-- Relationship to the IETF Dial Control MIB (RFC2128)
+--
+-- Associating and disassociating an analog voice interface with
+-- a connection can be explicitly handled using an ifStack. If a
+-- call connection is established, the managed system correlates the call
+-- associated voice encapsulation interface with the analog voice interface
+-- via ifStack based on the section 2.2.1 of RFC2128.
+
+
+
+cvaIfObjects                 OBJECT IDENTIFIER ::= { ciscoVoiceAnalogIfMIB 1 }
+cvaIfGeneralObjects          OBJECT IDENTIFIER ::= { cvaIfObjects 1 }
+cvaIfEMObjects               OBJECT IDENTIFIER ::= { cvaIfObjects 2 }
+cvaIfFXOObjects              OBJECT IDENTIFIER ::= { cvaIfObjects 3 }
+cvaIfFXSObjects              OBJECT IDENTIFIER ::= { cvaIfObjects 4 }
+
+--
+-- Textual Conventions
+--
+
+
+--
+-- Dial Type Textual Conventions
+--
+
+InterfaceDialType ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION
+                "Specifies the out dialing type of E&M interface and 
+                 FXO type interfaces.
+                 dtmf  - DTMF digit.
+                 pulse - pulse.
+                 mf    - mf digit.
+                "
+        SYNTAX      INTEGER {
+                    dtmf      (1),
+                    pulse     (2),
+                    mf        (3) 
+        }
+
+--****************************************************************************
+-- The Analog Voice General Interface Group
+--****************************************************************************
+-- [1] Analog Voice Interface Standard Configuration Table 
+-- [2] Analog Voice Interface Status Table                  
+
+
+
+--****************************************************************************
+-- The Analog Voice Interface Standard Configuration Table
+--****************************************************************************
+cvaIfCfgTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvaIfCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The Analog Voice Standard Configuration Table. It contains 
+                 the standard configuration information of the analog          
+                 telephony interface.
+                "
+        ::= { cvaIfGeneralObjects 1 }
+
+cvaIfCfgEntry OBJECT-TYPE
+        SYNTAX      CvaIfCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the configuration table for each voice analog
+                 interface. The entry is created when the voice analog
+                 hardware is detected.
+                "
+        INDEX   { ifIndex }
+        ::= { cvaIfCfgTable 1 }
+
+CvaIfCfgEntry ::=
+        SEQUENCE {
+                cvaIfCfgImpedance           INTEGER,
+                cvaIfCfgIntegratedDSP       TruthValue
+        }
+
+
+cvaIfCfgImpedance OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    other           (1),
+                    ohms600Real     (2),
+                    ohms600Complex  (3),
+                    ohms900Complex  (4),
+                    ohmsComplex1    (5),
+                    ohmsComplex2    (6)
+        }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Specifies the terminating impedance of voice analog
+                 interfaces.
+                 other          - none of the following; arbitrary,
+                                  within limits, for special cases.
+                 ohms600Real    - 600 Ohms.
+                 ohms600Complex - 600 Ohms + 2.16uF
+                 ohms900Complex - 900 Ohms + 2.16uF.
+                 ohmsComplex1   - complex 1; 
+                                  220 Ohms + 820 Ohms || 115nF.
+                                  This impedance is primarily used in
+                                  Germany.
+                 ohmsComplex2   - complex 2;
+                                  270 Ohms + 750 Ohms || 150nF.
+                                  This impedance is primarily used in 
+                                  United Kingdom and Sweden.
+                "
+        ::= { cvaIfCfgEntry 1 }
+
+cvaIfCfgIntegratedDSP OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Indicates whether the interface has an integrated
+                 Digital Signal processing (DSP) unit.
+                "
+        ::= { cvaIfCfgEntry 2 }
+
+--****************************************************************************
+-- The Analog Voice Interface Status Table
+--****************************************************************************
+cvaIfStatusTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF CvaIfStatusEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+               "The Analog Voice Status Table.  It contains general 
+                information about the status of Analog Telephony interface
+                including the error statistics.
+               "
+       ::= { cvaIfGeneralObjects 2 }
+
+cvaIfStatusEntry OBJECT-TYPE
+        SYNTAX      CvaIfStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the status table for each Analog voice interface.
+                "
+        AUGMENTS   { cvaIfCfgEntry }
+        ::= { cvaIfStatusTable 1 }
+
+CvaIfStatusEntry ::=
+        SEQUENCE {
+                cvaIfStatusInfoType              INTEGER,
+                cvaIfMaintenanceMode             INTEGER,
+                cvaIfStatusSignalErrors          Counter32
+        }
+
+
+cvaIfStatusInfoType OBJECT-TYPE
+        SYNTAX      INTEGER {
+                 none (1),
+                 voice(2),
+                 g3Fax(3) 
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The information transfer services for the current
+                 or last call.
+                 none     - no information transfer service
+                 voice    - analog voice.
+                 g3Fax    - Group 3 FAX. 
+                "
+        ::= { cvaIfStatusEntry 1 }
+
+cvaIfMaintenanceMode OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    none                        (1),
+                    hostCompressedLoopback      (2),
+                    hostUncompressedLoopback    (3),
+                    ifCompressedLoopback        (4),
+                    ifUncompressedLoopback      (5)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Indicates the maintenance modes of the Analog voice interface.
+
+                               Managed system
+                      +=============+=============================+
+                      |   Voice     |   +===========+   telephony |
+                <=====+ application +===+   CODEC   +===end point +=== test
+                IP    |   (Host)    | . +===========+ .(Interface)|   equipment
+             backbone +=============+=============================+
+                                      .               .
+                  Host      ======>===+               .
+                  Compressed   <======+               .
+                                      .               .
+                  Host      ===================>======+
+                  Uncompressed <======================+
+                                      .               .
+                  Interface           +========<==========================    
+                  Compressed          +==================================>
+                                      .               . 
+                  Interface           .               +===<===============    
+                  Uncompressed        .               +==================>
+                                    Compress      Uncompress 
+                                    Loopback      Loopback
+                                    point         point
+   
+                 none(1)  - the interface is not in maintenance mode.
+                 hostCompressedLoopback(2) - Host Compressed Loopback.
+                    This mode is set by the managed system to perform the 
+                    compressed voice loopback test. The voice packet is passed
+                    by voice application to the interface associated CODEC.
+                    Instead of feeding these into the CODEC for decompression,
+                    they are immediately sent back to the voice application as
+                    if they had originated locally and been compressed.
+
+                 hostUncompressedLoopback(3) - Host Uncompressed Loopback.
+                    This mode is set by the managed system to perform the 
+                    uncompressed voice loopback test. The voice packet is 
+                    sent by voice application all the way through the
+                    interface associated CODEC and then turned around instead
+                    of being sent to the telephony endpoint.
+
+                 ifCompressedLoopback(4) - Interface Compressed Loopback.
+                    This mode is set by the managed system to perform the 
+                    interface uncompressed voice loopback test for the 
+                    external test equipment that is connected to the voice
+                    interface.
+                    The voice samples are sent from the test equipment all the
+                    way through the interface associated CODEC and then turned
+                    around instead of being sent to voice application.
+
+                 ifUncompressedLoopback(5) - Interface Uncompressed Loopback.
+                    This mode is set by the managed system to perform the 
+                    interface uncompressed voice loopback test for the
+                    external test equipment that is connected to the voice
+                    interface.
+                    The voice samples are sent from the test equipment to the
+                    interface associated CODEC. Instead of feeding the voice
+                    samples into the CODEC for compression, they are 
+                    immediately sent back to the telephony interface.
+                "
+        ::= { cvaIfStatusEntry 2 }
+
+cvaIfStatusSignalErrors OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Accumulated number of signaling protocol errors that are
+                 detected in the interface since system startup."
+        ::= { cvaIfStatusEntry 3 }
+
+
+--****************************************************************************
+-- The E&M Standard Configuration Table
+--****************************************************************************
+
+-- This table is used to configure the E&M type, signaling, operation,
+-- dial type for the E&M interface.
+
+cvaIfEMCfgTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvaIfEMCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The E&M standard configuration table. It contains 
+                 the current setting of E&M configurable parameters.
+                "
+        ::= { cvaIfEMObjects 1 }
+
+cvaIfEMCfgEntry OBJECT-TYPE
+        SYNTAX      CvaIfEMCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the standard configuration table for
+                 each E&M tie trunk interface."
+        INDEX   { ifIndex }
+        ::= { cvaIfEMCfgTable 1 }
+
+CvaIfEMCfgEntry ::=
+        SEQUENCE {
+                cvaIfEMCfgSignalType INTEGER,
+                cvaIfEMCfgOperation  INTEGER,
+                cvaIfEMCfgType       INTEGER,
+                cvaIfEMCfgDialType   InterfaceDialType,
+                cvaIfEMCfgLmrMCap    INTEGER,
+                cvaIfEMCfgLmrECap    INTEGER,
+                cvaIfEMCfgAutoGainControl TruthValue
+        }
+
+cvaIfEMCfgSignalType OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    winkStart     (1),
+                    immediateDial (2),
+                    delayDial     (3),
+                    lmr           (4),
+                    fgd           (5),
+                    fgd-eana      (6)
+        }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "The signaling type of E&M tie trunk interface.
+                 winkStart - the calling side seizes the line by going
+                             off-hook on its E lead but waits for a short
+                             off-hook 'wink' indication on its M lead from
+                             the called side before sending address
+                             information as DTMF digits.
+                 immediateDial - the calling side seizes the line by going
+                             off-hook on its E lead and sends sends address
+                             information as DTMF digits.
+                 delayDial - the calling side seizes the line by going
+                             off-hook on its E lead. After a timing interval,
+                             the calling side looks at the supervision 
+                             from the called side. If the supervision is
+                             on-hook, the calling side starts sending
+                             information as DTMF digits; otherwise, the calling
+                             side waits until the called side goes
+                             on-hook and then starts sending address
+                             information.
+                 lmr       - the e&m port is used to interface with
+                             Land Mobil Radio system. The e-lead and 
+                             m-lead are not used in the traditional
+                             way.
+                 fgd       - Feature Group D is an access switched services
+                             that provides access to Local Exchange Carrier
+                             of the public switched network. It is supported
+                             in North America only based on E&M wink-start.
+                 fgd-eana  - Exchange Access North American signalling
+                             protocol of Feature Group D.
+                "
+        REFERENCE
+                "EIA/TIA-464B: Sections 4.1.3.4.1 Signaling Protocols.
+                "
+        DEFVAL { winkStart }
+        ::= { cvaIfEMCfgEntry 1 }
+
+cvaIfEMCfgOperation OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    twoWires    (1),
+                    fourWires   (2)
+        }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Specify the operation of the E&M signal.
+                 twoWires  - 2-wire operation.
+                 fourWires - 4-wire operation.
+                "
+        DEFVAL { twoWires }
+        ::= { cvaIfEMCfgEntry 2 }
+
+
+cvaIfEMCfgType OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    typeI    (1),
+                    typeII   (2),
+                    typeIII  (3),
+                    typeIV   (4),
+                    typeV    (5)
+
+        }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Specifies the E&M Lead Signaling type.
+                 LEGEND: V     = -48V
+                 /\/\/ = detector/resister
+                 X     = normally open relay contact
+                 +     = normally closed relay contact
+                 G     = ground
+                 SB    = Signal Battery
+                 SG    = Signal Ground
+
+                 typeI -
+                      Leads:  E (output, relay to ground)
+                              M (input, referenced to ground)
+
+                      The tie line equipment (switch/router/etc) generates the
+                      E-signal to the PBX type grounding the E-lead.  
+                      The tie line equipment detects the M-signal by detecting
+                      current flow to ground.  A common ground must exist 
+                      between the line equipment and the PBX.
+
+                               PBX    |  TIE LINE
+                                      |
+                      E:   V--/\/\/---|-----X----G
+                                      |
+                      M:   V----X-----|---/\/\/--G
+
+                 typeII -
+                      Leads: E (output, relay to SG)
+                      M (input, referenced to ground)
+                      SB (feed for M, connected to -48V)
+                      SG (return for E, galvanically isolated from ground)
+
+                      This interface requires no common ground between the
+                      equipment, thus avoiding ground loop noise problems.
+                      E-signal is generated toward the PBX by connecting it
+                      to SG.  M-signal is indicated by the PBX connecting
+                      it to SB.  While this interface does NOT require a
+                      common ground, it does have the tendency to inject
+                      noise into the audio paths since it is asymmetrical
+                      with respect to current flow between devices.
+
+                               PBX    |  TIE LINE
+                                      |
+                      E:   V--/\/\/---|-----X----
+                                      |          |
+                      SG:  G----------|----------
+                                      |
+                      M:    ----X-----|---/\/\/--G
+                                      |          |
+                      SB:   ----------|----------V
+
+                 typeIII -
+                      Leads: E (output, relay to ground)
+                      M (input, referenced to ground)
+                      SB (connected to -48V)
+                      SG (connected to ground) 
+
+                      This interface operates similar to type I with respect
+                      to the E-signal. The M-signal, however, is indicated by
+                      the PBX connecting it to SB on assertion, and alternately
+                      connecting it to SG during inactivity. Unfortunately, a 
+                      common ground must be shared between the equipment.
+
+                               PBX    |  TIE LINE
+                                      |
+                      E:   V--/\/\/---|-----X----G
+                                      |          
+                      SG:   ----------|----------G
+                               +      |
+                      M:    ----------|---/\/\/--G
+                           X          |
+                      SB:   ----------|----------V
+
+                 typeIV -
+                      Leads: E (output, relay to SG)
+                      M (input, referenced to -48V)
+                      SB (feed for M, connected to ground)
+                      SG (return for E, galvanically isolated from ground)
+
+                      This interface is fully symmetrical; it does not require
+                      a common ground, does not inject noise into audio paths,
+                      and can be connected back to back by swapping E/SG for 
+                      M/SB.  E-signal is indicated to the PBX by connecting it
+                      to SG.  M-signal is provided by the PBX connecting it to
+                      SB.
+
+                               PBX    |  TIE LINE
+                                      |
+                      E:   V--/\/\/---|-----X----
+                                      |          |
+                      SG:  G----------|----------
+                                      |
+                      M:    ----------|---/\/\/--V
+                           X          |
+                      SB:   ----------|----------G
+
+                 typeV -
+                      Leads: E (output, relay to ground)
+                             M (input, referenced to -48V)
+
+                      Type V line equipment indicates E-signal to the PBX by
+                      grounding the E-lead. The PBX indicates M-signal by 
+                      grounding the M-lead.  This interface does require a
+                      common ground, but does allow back to back connections
+                      by swapping E for M.  This interface is quasi-symmetric
+                      in that while the line is up, current flow is more or
+                      less equal between the PBX and line equipment. But noise
+                      injection is still a problem.
+
+                               PBX    |  TIE LINE
+                                      |
+                      E:   V--/\/\/---|-----X----G
+                                      |          
+                      M:   G-----X----|---/\/\/--V
+                                      |
+                "
+        REFERENCE
+                "EIA/TIA-464B: Sections 4.2.3 E&M Lead Signaling. 
+                "
+        DEFVAL { typeI }
+        ::= { cvaIfEMCfgEntry 3 }
+
+cvaIfEMCfgDialType OBJECT-TYPE
+        SYNTAX      InterfaceDialType
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Specifies the out dialing type of E&M interface.
+                "
+        DEFVAL { dtmf }
+        ::= { cvaIfEMCfgEntry 4 }
+
+cvaIfEMCfgLmrMCap OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    inact     (1),
+                    audio     (2),
+                    dial      (3)
+        }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "The M lead behavior of E&M LMR interface.
+                 inact - The m-lead status should be ignored.
+                 audio - The m-lead status is used to control
+                          generating voice packet.
+                 dial  - Perform the same audio case except abling to
+                          initiate a call when offhook in a idle state.
+                "
+        DEFVAL { inact }
+        ::= { cvaIfEMCfgEntry 5 }
+
+cvaIfEMCfgLmrECap OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    seize     (4),
+                    voice     (5),
+                    inactive  (6)
+        }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "The E lead behavior of E&M LMR interface.
+                 seize - The e-lead used as seize signal
+                 voice -  The e-lead status is used to indicate
+                          voice packet received or not.
+                 inactive -- e-lead is inactive.
+                "
+        DEFVAL { seize }
+        ::= { cvaIfEMCfgEntry 6 }
+
+cvaIfEMCfgAutoGainControl OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "This object is used to enabling/disabling automatic
+                 gain control(AGC) on this interface. AGC allows DSP
+                 to adjust the input voice volume and avoid rapid
+                 voice volume change.
+                "
+        DEFVAL { false }
+        ::= { cvaIfEMCfgEntry 7 }
+
+--****************************************************************************
+-- The E&M interface Status Table
+--****************************************************************************
+
+cvaIfEMStatusTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvaIfEMStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The E&M interface Table.  The table contains 
+                 the status of the E&M tie trunk interface.
+                "
+        ::= { cvaIfEMObjects 2 }
+
+cvaIfEMStatusEntry OBJECT-TYPE
+        SYNTAX      CvaIfEMStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the status table for each E&M interface.
+                "
+        AUGMENTS   { cvaIfEMCfgEntry }
+        ::= { cvaIfEMStatusTable 1 }
+
+CvaIfEMStatusEntry ::=
+        SEQUENCE {
+                cvaIfEMInSeizureActive        TruthValue,
+                cvaIfEMOutSeizureActive       TruthValue
+        }
+
+cvaIfEMInSeizureActive OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object contains the incoming seizure state of the E&M 
+                 interface. If the value is true, then the interface has an 
+                 incoming trunk seizure active; otherwise, it doesn't.
+                "
+        ::= { cvaIfEMStatusEntry 1 }
+
+cvaIfEMOutSeizureActive OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object contains the outgoing seizure state of the E&M 
+                 interface. If the value is true, then the interface has an 
+                 outgoing trunk seizure active; otherwise, it doesn't.
+                "
+        ::= { cvaIfEMStatusEntry 2 }
+
+
+
+
+--****************************************************************************
+-- The E&M Timing Parameters Table
+--****************************************************************************
+
+-- This table contains the E&M interface timing parameters information.
+
+cvaIfEMTimingTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvaIfEMTimingEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The E&M tie trunk Timing Parameters table. It 
+                 contains the configuration of the various E&M signaling
+                 protocol timing parameters.
+                "
+        ::= { cvaIfEMObjects 3 }
+
+cvaIfEMTimingEntry OBJECT-TYPE
+        SYNTAX      CvaIfEMTimingEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the E&M Timing Parameters Table for
+                 each E&M interface."
+        AUGMENTS   { cvaIfEMCfgEntry }
+        ::= { cvaIfEMTimingTable 1 }
+
+CvaIfEMTimingEntry ::=
+        SEQUENCE {
+                cvaIfEMTimingDigitDuration            Integer32,
+                cvaIfEMTimingInterDigitDuration       Integer32,
+                cvaIfEMTimingPulseRate                Integer32,
+                cvaIfEMTimingPulseInterDigitDuration  Integer32,
+                cvaIfEMTimingClearWaitDuration        Integer32,
+                cvaIfEMTimingMaxWinkWaitDuration      Integer32,
+                cvaIfEMTimingMaxWinkDuration          Integer32,
+                cvaIfEMTimingDelayStart               Integer32,
+                cvaIfEMTimingMaxDelayDuration         Integer32,
+                cvaIfEMTimingMinDelayPulseWidth       Integer32,
+                cvaIfEMTimingVoiceHangover            Integer32,
+                cvaIfEMTimeoutLmrTeardown             Integer32,
+                cvaIfEMTimeoutPttXmt                  Integer32,
+                cvaIfEMTimeoutPttRcv                  Integer32,
+                cvaIfEMTimingDelayVoice               Integer32
+        }
+
+cvaIfEMTimingDigitDuration  OBJECT-TYPE
+       SYNTAX     Integer32 (50..500)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Outgoing DTMF digit duration in milliseconds.
+               "
+       DEFVAL { 100 }
+       ::= { cvaIfEMTimingEntry 1 }
+
+cvaIfEMTimingInterDigitDuration  OBJECT-TYPE
+       SYNTAX     Integer32 (50..500)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Outgoing DTMF inter-digit duration in milliseconds.
+               "
+       DEFVAL { 100 }
+       ::= { cvaIfEMTimingEntry 2 }
+
+cvaIfEMTimingPulseRate  OBJECT-TYPE
+       SYNTAX     Integer32 (10..20)
+       UNITS      "pulses per second"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Outgoing pulse dialing rate in pulses per second (pps).
+               "
+       DEFVAL { 10 }
+       ::= { cvaIfEMTimingEntry 3 }
+
+cvaIfEMTimingPulseInterDigitDuration  OBJECT-TYPE
+       SYNTAX     Integer32 (100..1000)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Outgoing Pulse dialing inter-digit timing in 
+                milliseconds.
+               "
+       DEFVAL { 750 }
+       ::= { cvaIfEMTimingEntry 4 }
+
+cvaIfEMTimingClearWaitDuration        OBJECT-TYPE
+       SYNTAX     Integer32 (200..2000)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Time of Inactive seizure signal to declare call cleared.
+               "
+       DEFVAL { 400 }
+       ::= { cvaIfEMTimingEntry 5 }
+
+cvaIfEMTimingMaxWinkWaitDuration        OBJECT-TYPE
+       SYNTAX     Integer32 (100..5000)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Maximum time to wait from the outgoing seizure of the line
+                to the time of sending out a wink-pulse.
+               "
+       DEFVAL { 200 }
+       ::= { cvaIfEMTimingEntry 6 }
+
+cvaIfEMTimingMaxWinkDuration        OBJECT-TYPE
+       SYNTAX     Integer32 (100..3000)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Maximum outgoing wink duration (between the wink-pulse leading
+                edge and trailing edge) for wink start signaling.
+               "
+       DEFVAL { 200 }
+       ::= { cvaIfEMTimingEntry 7 }
+
+cvaIfEMTimingDelayStart        OBJECT-TYPE
+       SYNTAX     Integer32 (20..2000)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Minimum time to wait from outgoing seizure to
+                out-dialing digits for delay start signaling.
+               "
+       DEFVAL { 300 }
+       ::= { cvaIfEMTimingEntry 8 }
+
+cvaIfEMTimingMaxDelayDuration        OBJECT-TYPE
+       SYNTAX     Integer32 (100..5000)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Maximum time to wait from outgoing seizure to
+                out-dialing digits. If the far end does not allow to
+                send digits after the duration specified in the object,
+                a reorder tone will be sent to the calling party.
+               "
+       DEFVAL { 2000 }
+       ::= { cvaIfEMTimingEntry 9 }
+
+cvaIfEMTimingMinDelayPulseWidth   OBJECT-TYPE
+       SYNTAX     Integer32 (0 | 140..5000)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Minimum delay-dial pulse duration for incoming call.
+                If the value of this object is 0, then no delay-dial
+                is sent to the far end for the incoming call.
+               "
+       DEFVAL { 140 }
+       ::= { cvaIfEMTimingEntry 10 }
+
+cvaIfEMTimingVoiceHangover   OBJECT-TYPE
+       SYNTAX     Integer32 (0..10000)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "The hangover time used to  determine the casethere is
+                no more voice packet arrived. 
+               "
+       DEFVAL { 250 }
+       ::= { cvaIfEMTimingEntry 11 }
+
+cvaIfEMTimeoutLmrTeardown   OBJECT-TYPE
+       SYNTAX     Integer32 (-1 | 5..60000)
+       UNITS      "seconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "LMR port tear down  timeout.
+                This object is relevant to the waiting time of 
+                teardown call on LMR port.
+                if the value of this object is '-1', then the timeout
+                is disable.
+               "
+       DEFVAL { 1800 }
+       ::= { cvaIfEMTimingEntry 12 }
+
+cvaIfEMTimeoutPttXmt   OBJECT-TYPE
+       SYNTAX     Integer32 (0..30)
+       UNITS      "minutes"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "This object signifies LMR port maxinum transmit time.
+                This object is relevant to how long LMR port can
+                continue transmit voice packet without pause.
+               "
+       DEFVAL { 0 }
+       ::= { cvaIfEMTimingEntry 13 }
+
+cvaIfEMTimeoutPttRcv   OBJECT-TYPE
+       SYNTAX     Integer32 (0..30)
+       UNITS      "minutes"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "This object signifies LMR port maxinum receive time.
+                This object is relevant to how long LMR port can
+                continue receive voice packet without pause.
+                "
+       DEFVAL { 0 }
+       ::= { cvaIfEMTimingEntry 14 }
+
+cvaIfEMTimingDelayVoice   OBJECT-TYPE
+       SYNTAX     Integer32 (0..1500)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "This object is relevant to how long DSP will delay
+                sending the voice packet to the LMR port.
+               "
+       DEFVAL { 0 }
+       ::= { cvaIfEMTimingEntry 15 }
+
+--****************************************************************************
+-- The Foreign Exchange Office (FXO) Standard Configuration Table
+--****************************************************************************
+
+-- This table is used to configure the FXO signaling and number of rings
+-- for the FXO interface. 
+
+cvaIfFXOCfgTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvaIfFXOCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The FXO standard configuration table. It contains 
+                 FXO configuration parameters, one entry per FXO interface.
+                 The configuration information of this table is set by 
+                 hardware with its default setting or CLI during the hardware 
+                 installation time.
+                "
+        ::= { cvaIfFXOObjects 1 }
+
+cvaIfFXOCfgEntry OBJECT-TYPE
+        SYNTAX      CvaIfFXOCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the standard configuration table for
+                 each FXO interface."
+        INDEX   { ifIndex }
+        ::= { cvaIfFXOCfgTable 1 }
+
+CvaIfFXOCfgEntry ::=
+        SEQUENCE {
+                cvaIfFXOCfgSignalType    INTEGER,
+                cvaIfFXOCfgNumberRings   Integer32,
+                cvaIfFXOCfgSupDisconnect TruthValue,
+                cvaIfFXOCfgDialType      InterfaceDialType,
+                cvaIfFXOCfgSupDisconnect2 INTEGER
+        }
+
+cvaIfFXOCfgSignalType OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    fxoLoopStart    (1),
+                    fxoGroundStart  (2),
+                    fxoCama         (3) 
+        }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "the signaling type of FXO interface.
+                 fxoLoopStart   - loop start.
+                 fxoGroundStart - ground start.
+                 fxoCama        - cama.
+                "
+        DEFVAL { fxoLoopStart }
+        ::= { cvaIfFXOCfgEntry 1 }
+
+cvaIfFXOCfgNumberRings        OBJECT-TYPE
+       SYNTAX     Integer32 (1..10)
+       UNITS      "rings"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "The number of rings detected before closing loop.
+               "
+       DEFVAL { 1 }
+       ::= { cvaIfFXOCfgEntry 2 }
+
+cvaIfFXOCfgSupDisconnect OBJECT-TYPE
+       SYNTAX  TruthValue
+       MAX-ACCESS read-write
+       STATUS     deprecated -- superceded by cvaIfFXOCfgSupDisconnect2
+       DESCRIPTION
+               " Specifies whether a supervisory disconnect signal (CPC) will 
+                 be presented to the interface when the connected party at 
+                 the interface hangs up.
+               "
+       DEFVAL { true }
+       ::= { cvaIfFXOCfgEntry 3 }
+
+cvaIfFXOCfgDialType OBJECT-TYPE
+        SYNTAX      InterfaceDialType
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Specifies the out dialing type of FXO interface.
+                "
+        DEFVAL { dtmf }
+        ::= { cvaIfFXOCfgEntry 4 }
+
+cvaIfFXOCfgSupDisconnect2 OBJECT-TYPE
+       SYNTAX   INTEGER {
+                signal(0),
+                anytone(1),
+                dualtoneMidcall(2),
+                dualtonePreconnect(3)
+       }
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               " Specifies the type of supervisory disconnect signal 
+                 (CPC) to be presented to the interface when the 
+                 connected party at the interface hangs up.
+                 signal - power denial recognition
+                 anytone - tone detection of all call progressing tones
+                 dualtoneMidcall - tone detection to operate throughout 
+                                   the call duration
+                 dualtonePreconnect - tone detection to operate only 
+                                      during call setup
+               "
+       DEFVAL { signal }
+       ::= { cvaIfFXOCfgEntry 5 }
+
+--****************************************************************************
+-- The Foreign Exchange Office (FXO) interface Status Table
+--****************************************************************************
+
+cvaIfFXOStatusTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvaIfFXOStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The Foreign Exchange Office (FXO) interface Status Table.
+                 It contains hook status, ring detection and other states of
+                 the interface.
+                "
+        ::= { cvaIfFXOObjects 2 }
+
+cvaIfFXOStatusEntry OBJECT-TYPE
+        SYNTAX      CvaIfFXOStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the status table for each FXO interface.
+                "
+        AUGMENTS   { cvaIfFXOCfgEntry }
+        ::= { cvaIfFXOStatusTable 1 }
+
+CvaIfFXOStatusEntry ::=
+        SEQUENCE {
+                cvaIfFXOHookStatus          INTEGER,
+                cvaIfFXORingDetect          TruthValue,
+                cvaIfFXORingGround          TruthValue,
+                cvaIfFXOTipGround           TruthValue
+        }
+
+cvaIfFXOHookStatus OBJECT-TYPE
+        SYNTAX      INTEGER {
+            onHook   (1),
+            offHook  (2),
+            trunked  (3)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object contains the hook status of FXO interface.
+                 onHook  - Present the onHook to the connected equipment.
+                 offHook - Present the offHook to the connected equipment.
+                 trunked - Present the trunk to the connected equipment.
+                "
+        ::= { cvaIfFXOStatusEntry 1 }
+
+
+cvaIfFXORingDetect OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object contains the ring detect indication. If the
+                 value is true, then the interface detects ring from PBX or
+                 CO; otherwise, it doesn't."
+        ::= { cvaIfFXOStatusEntry 2 }
+
+
+cvaIfFXORingGround OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object contains the incoming ring ground indication.
+                 It is only valid when the cvaIfFXOCfgSignalType is
+                 fxoGroundStart. If the object is true, then the interface 
+                 is presenting a ring ground to the connected equipment; 
+                 otherwise, it doesn't.
+                "
+        ::= { cvaIfFXOStatusEntry 3 }
+
+cvaIfFXOTipGround OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object contains the incoming tip ground indication. 
+                 It is only valid when the cvaIfFXOCfgSignalType is
+                 fxoGroundStart. If the object is true, then the interface
+                 is detecting a tip ground at the interface; otherwise, 
+                 it doesn't.
+                "
+        ::= { cvaIfFXOStatusEntry 4 }
+
+
+--****************************************************************************
+-- The FXO Timing Parameters Table
+--****************************************************************************
+-- This table contains the FXO interface timing parameters information.
+
+cvaIfFXOTimingTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvaIfFXOTimingEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The FXO interface Timing Parameters table. It 
+                 contains the configuration of the various FXO signaling
+                 protocol timing parameters.
+                "
+        ::= { cvaIfFXOObjects 3 }
+
+cvaIfFXOTimingEntry OBJECT-TYPE
+        SYNTAX      CvaIfFXOTimingEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the FXO Timing Parameters Table for
+                 each FXO interface."
+        AUGMENTS   { cvaIfFXOCfgEntry }
+        ::= { cvaIfFXOTimingTable 1 }
+
+CvaIfFXOTimingEntry ::=
+        SEQUENCE {
+                cvaIfFXOTimingDigitDuration            Integer32,
+                cvaIfFXOTimingInterDigitDuration       Integer32,
+                cvaIfFXOTimingPulseRate                Integer32,
+                cvaIfFXOTimingPulseInterDigitDuration  Integer32 
+        }
+
+cvaIfFXOTimingDigitDuration  OBJECT-TYPE
+       SYNTAX     Integer32 (50..500)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Outgoing DTMF digit duration in milliseconds.
+               "
+       DEFVAL { 100 }
+       ::= { cvaIfFXOTimingEntry 1 }
+ 
+cvaIfFXOTimingInterDigitDuration  OBJECT-TYPE
+       SYNTAX     Integer32 (50..500)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Outgoing DTMF inter-digit duration in milliseconds.
+               "
+       DEFVAL { 100 }
+       ::= { cvaIfFXOTimingEntry 2 }
+
+cvaIfFXOTimingPulseRate  OBJECT-TYPE
+       SYNTAX     Integer32 (10..20)
+       UNITS      "pulses per second"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Outgoing pulse dialing rate in pulses per second (pps).
+               "
+       DEFVAL { 10 }
+       ::= { cvaIfFXOTimingEntry 3 }
+
+cvaIfFXOTimingPulseInterDigitDuration  OBJECT-TYPE
+       SYNTAX     Integer32 (100..1000)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Outgoing pulse dialing inter-digit timing in milliseconds.
+               "
+       DEFVAL { 500 }
+       ::= { cvaIfFXOTimingEntry 4 }
+
+
+--****************************************************************************
+-- The Foreign Exchange Station (FXS) Standard Configuration Table
+--****************************************************************************
+
+-- This table is used to configure the FXS signaling type, Ring frequency
+
+cvaIfFXSCfgTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvaIfFXSCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The FXS standard configuration table. It contains
+                 FXS configuration parameters, one entry per FXS interface.
+                 The configuration information of this table is set by 
+                 hardware with its default setting or CLI during the hardware 
+                 installation time.
+                "
+        ::= { cvaIfFXSObjects 1 }
+
+cvaIfFXSCfgEntry OBJECT-TYPE
+        SYNTAX      CvaIfFXSCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the standard configuration table for
+                 each FXS interface."
+        INDEX   { ifIndex }
+        ::= { cvaIfFXSCfgTable 1 }
+
+CvaIfFXSCfgEntry ::=
+        SEQUENCE {
+                cvaIfFXSCfgSignalType INTEGER,
+                cvaIfFXSRingFrequency INTEGER
+        }
+
+cvaIfFXSCfgSignalType OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    fxsLoopStart    (1),
+                    fxsGroundStart  (2)
+        }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "the signaling type of FXS interface.
+                 fxsLoopStart   - loop start.
+                 fxsGroundStart - ground start.
+                "
+        DEFVAL { fxsLoopStart }
+        ::= { cvaIfFXSCfgEntry 1 }
+
+cvaIfFXSRingFrequency         OBJECT-TYPE
+        SYNTAX      INTEGER {
+                    ringFrequency25 (1),
+                    ringFrequency50 (2),
+                    ringFrequency20 (3),
+                    ringFrequency30 (4) 
+        }
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "the ring  frequency to be used in the FXS interface.
+                 ringFrequency25  - ring frequency 25 Hertz.
+                 ringFrequency50  - ring frequency 50 Hertz.
+                 ringFrequency20  - ring frequency 20 Hertz.
+                 ringFrequency30  - ring frequency 30 Hertz.
+               "
+       ::= { cvaIfFXSCfgEntry 2 }
+
+--****************************************************************************
+-- The Foreign Exchange Station (FXS) interface Status Table
+--****************************************************************************
+
+cvaIfFXSStatusTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvaIfFXSStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The Foreign Exchange Station (FXS) interface Status Table.
+                 It contains hook status, ring active and other states of
+                 the interface.
+                "
+        ::= { cvaIfFXSObjects 2 }
+
+cvaIfFXSStatusEntry OBJECT-TYPE
+        SYNTAX      CvaIfFXSStatusEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the status table for each FXS interface.
+                "
+        AUGMENTS   { cvaIfFXSCfgEntry }
+        ::= { cvaIfFXSStatusTable 1 }
+
+CvaIfFXSStatusEntry ::=
+        SEQUENCE {
+                cvaIfFXSHookStatus            INTEGER,
+                cvaIfFXSRingActive            TruthValue,
+                cvaIfFXSRingGround            TruthValue,
+                cvaIfFXSTipGround             TruthValue
+        }
+
+cvaIfFXSHookStatus OBJECT-TYPE
+        SYNTAX      INTEGER {
+            onHook   (1),
+            offHook  (2),
+            trunked  (3) 
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object contains the hook status of FXS interface.
+                 onHook - the connected equipment(e.g., phone) is onHook.
+                 offHook - the connected equipment is offHook.
+                 trunked - the connected equipment is trunked.
+                "
+        ::= { cvaIfFXSStatusEntry 1 }
+
+
+cvaIfFXSRingActive OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object contains the outgoing ring active indication. If
+                 the object value is true, then the interface is currently 
+                 generating ring out to the Key Telephone System (KTS) or
+                 Plain Old Telephone (POT); otherwise, it doesn't.
+                "
+        ::= { cvaIfFXSStatusEntry 2 }
+
+cvaIfFXSRingGround OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object contains the incoming ring ground indication.
+                 It is only valid when the cvaIfFXSCfgSignalType is
+                 fxsGroundStart. If the object is true, then the interface 
+                 is presenting a ring ground to the connected equipment; 
+                 otherwise, it doesn't.
+                "
+        ::= { cvaIfFXSStatusEntry 3 }
+
+cvaIfFXSTipGround OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object contains the incoming tip ground indication. 
+                 It is only valid when the cvaIfFXSCfgSignalType is
+                 fxsGroundStart. If the object is true, then the interface
+                 is detecting a tip ground at the interface; otherwise, 
+                 it doesn't.
+                "
+        ::= { cvaIfFXSStatusEntry 4 }
+
+
+--****************************************************************************
+-- The FXS Timing Parameters Table
+--****************************************************************************
+-- This table contains the FXS interface timing parameters information.
+
+cvaIfFXSTimingTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvaIfFXSTimingEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The FXS interface Timing Parameters table. It 
+                 contains the configuration of the various FXS signaling
+                 protocol timing parameters.
+                "
+        ::= { cvaIfFXSObjects 3 }
+
+cvaIfFXSTimingEntry OBJECT-TYPE
+        SYNTAX      CvaIfFXSTimingEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "An entry in the FXS Timing Parameters Table for
+                 each FXS interface."
+        AUGMENTS   { cvaIfFXSCfgEntry }
+        ::= { cvaIfFXSTimingTable 1 }
+
+CvaIfFXSTimingEntry ::=
+        SEQUENCE {
+                cvaIfFXSTimingDigitDuration            Integer32,
+                cvaIfFXSTimingInterDigitDuration       Integer32
+        }
+
+
+
+cvaIfFXSTimingDigitDuration  OBJECT-TYPE
+       SYNTAX     Integer32 (50..500)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Outgoing DTMF digit duration in milliseconds.
+               "
+       DEFVAL { 100 }
+       ::= { cvaIfFXSTimingEntry 1 }
+ 
+cvaIfFXSTimingInterDigitDuration  OBJECT-TYPE
+       SYNTAX     Integer32 (50..500)
+       UNITS      "milliseconds"
+       MAX-ACCESS read-write
+       STATUS     current
+       DESCRIPTION
+               "Outgoing DTMF inter-digit duration in milliseconds.
+               "
+       DEFVAL { 100 }
+       ::= { cvaIfFXSTimingEntry 2 }
+
+
+--****************************************************************************
+-- Conformance and compliance statements
+--****************************************************************************
+
+-- conformance information
+
+cvaIfMIBConformance
+        OBJECT IDENTIFIER ::= { ciscoVoiceAnalogIfMIB 3 }
+cvaIfMIBCompliances
+        OBJECT IDENTIFIER ::= { cvaIfMIBConformance 1 }
+cvaIfMIBGroups
+        OBJECT IDENTIFIER ::= { cvaIfMIBConformance 2 }
+
+
+-- compliance statements
+
+cvaIfMIBCompliance MODULE-COMPLIANCE
+        STATUS  deprecated -- superceded by cvaIfMIBCompliance2
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                 the Cisco Analog Voice interface MIB"
+        MODULE  -- compliance to this module
+                MANDATORY-GROUPS {
+                   cvaIfGeneralGroup
+                }
+                GROUP cvaIfEMGroup
+                DESCRIPTION
+                        "The E&M group is mandatory for devices that have the 
+                        E&M interfaces."
+
+                GROUP cvaIfFXOGroup
+                DESCRIPTION
+                        "The FXO group is mandatory for devices that have the
+                        FXO interfaces."
+
+                GROUP cvaIfFXSGroup
+                DESCRIPTION
+                        "The FXS group is mandatory for devices that have the
+                        FXO interfaces."
+
+                OBJECT  cvaIfCfgImpedance
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfCfgIntegratedDSP
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfStatusInfoType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfMaintenanceMode
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfStatusSignalErrors
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgSignalType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgOperation
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgDialType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingPulseRate
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingPulseInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingClearWaitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingMaxWinkWaitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingMaxWinkDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingDelayStart
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingMaxDelayDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingMinDelayPulseWidth
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOCfgSignalType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOCfgNumberRings
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOCfgSupDisconnect
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOCfgDialType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOTimingDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOTimingInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOTimingPulseRate
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOTimingPulseInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXSCfgSignalType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXSRingFrequency
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXSTimingDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXSTimingInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+        ::= { cvaIfMIBCompliances 1 }
+
+cvaIfMIBCompliance2 MODULE-COMPLIANCE
+        STATUS  deprecated -- superceded by cvaIfMIBCompliance3
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                 the Cisco Analog Voice interface MIB"
+        MODULE  -- compliance to this module
+                MANDATORY-GROUPS {
+                   cvaIfGeneralGroup
+                }
+                GROUP cvaIfEMGroupRev1
+                DESCRIPTION
+                        "The E&M group is mandatory for devices that 
+                         have the E&M interfaces."
+
+                GROUP cvaIfFXOGroup2
+                DESCRIPTION
+                        "The FXO group is mandatory for devices that
+                         have the FXO interfaces."
+
+                GROUP cvaIfFXSGroup
+                DESCRIPTION
+                        "The FXS group is mandatory for devices that 
+                         have the FXO interfaces."
+
+                OBJECT  cvaIfCfgImpedance
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfCfgIntegratedDSP
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfStatusInfoType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfMaintenanceMode
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfStatusSignalErrors
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgSignalType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgOperation
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgDialType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                 OBJECT  cvaIfEMCfgLmrMCap
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgLmrECap
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+              OBJECT  cvaIfEMTimingDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingPulseRate
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingPulseInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingClearWaitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingMaxWinkWaitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingMaxWinkDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingDelayStart
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingMaxDelayDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingMinDelayPulseWidth
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingVoiceHangover
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimeoutLmrTeardown
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+
+                OBJECT  cvaIfFXOCfgSignalType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOCfgNumberRings
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOCfgSupDisconnect2
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOCfgDialType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOTimingDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOTimingInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOTimingPulseRate
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOTimingPulseInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXSCfgSignalType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXSRingFrequency
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXSTimingDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXSTimingInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+        ::= { cvaIfMIBCompliances 2 }
+
+cvaIfMIBCompliance3 MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                 the Cisco Analog Voice interface MIB"
+        MODULE  -- compliance to this module
+                MANDATORY-GROUPS {
+                   cvaIfGeneralGroup
+                }
+                GROUP cvaIfEMGroupRev2
+                DESCRIPTION
+                        "The E&M group is mandatory for devices that 
+                         have the E&M interfaces."
+
+                GROUP cvaIfFXOGroup2
+                DESCRIPTION
+                        "The FXO group is mandatory for devices that
+                         have the FXO interfaces."
+
+                GROUP cvaIfFXSGroup
+                DESCRIPTION
+                        "The FXS group is mandatory for devices that 
+                         have the FXO interfaces."
+
+                OBJECT  cvaIfCfgImpedance
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfCfgIntegratedDSP
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfStatusInfoType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfMaintenanceMode
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfStatusSignalErrors
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgSignalType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgOperation
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgDialType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgLmrMCap
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgLmrECap
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMCfgAutoGainControl
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingPulseRate
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingPulseInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingClearWaitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingMaxWinkWaitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingMaxWinkDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingDelayStart
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingMaxDelayDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingMinDelayPulseWidth
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingVoiceHangover
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimeoutLmrTeardown
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimeoutPttXmt
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimeoutPttRcv
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfEMTimingDelayVoice
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOCfgSignalType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOCfgNumberRings
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOCfgSupDisconnect2
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOCfgDialType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOTimingDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOTimingInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOTimingPulseRate
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXOTimingPulseInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXSCfgSignalType
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXSRingFrequency
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXSTimingDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+                OBJECT  cvaIfFXSTimingInterDigitDuration
+                MIN-ACCESS  read-only
+                DESCRIPTION
+                        "Write access is not required."
+
+        ::= { cvaIfMIBCompliances 3 }
+
+-- units of conformance
+
+cvaIfGeneralGroup OBJECT-GROUP
+        OBJECTS {
+                cvaIfCfgIntegratedDSP,
+                cvaIfCfgImpedance,
+                cvaIfStatusInfoType,
+                cvaIfMaintenanceMode,
+                cvaIfStatusSignalErrors
+        }
+        STATUS  current
+        DESCRIPTION
+                "The collection of objects providing general information
+                 about the Cisco Analog Voice interfaces."
+        ::= { cvaIfMIBGroups 1 }
+
+cvaIfEMGroup OBJECT-GROUP
+        OBJECTS {
+                cvaIfEMInSeizureActive, 
+                cvaIfEMOutSeizureActive, 
+                cvaIfEMCfgSignalType,
+                cvaIfEMCfgOperation,
+                cvaIfEMCfgType,
+                cvaIfEMCfgDialType,
+                cvaIfEMTimingDigitDuration,
+                cvaIfEMTimingInterDigitDuration,
+                cvaIfEMTimingPulseRate,
+                cvaIfEMTimingPulseInterDigitDuration,
+                cvaIfEMTimingClearWaitDuration,
+                cvaIfEMTimingMaxWinkWaitDuration,
+                cvaIfEMTimingMaxWinkDuration,
+                cvaIfEMTimingDelayStart,
+                cvaIfEMTimingMaxDelayDuration,
+                cvaIfEMTimingMinDelayPulseWidth
+        }
+        STATUS deprecated  -- superceded by cvaIfEMGroupRev1
+        DESCRIPTION
+                "The collection of objects providing information
+                 about the Cisco E&M trunk interface."
+        ::= { cvaIfMIBGroups 2 }
+
+cvaIfFXOGroup OBJECT-GROUP
+        OBJECTS {
+                cvaIfFXOHookStatus, 
+                cvaIfFXORingDetect,
+                cvaIfFXORingGround,
+                cvaIfFXOTipGround,
+                cvaIfFXOCfgSignalType,
+                cvaIfFXOCfgNumberRings,
+                cvaIfFXOCfgSupDisconnect,
+                cvaIfFXOCfgDialType,
+                cvaIfFXOTimingDigitDuration,
+                cvaIfFXOTimingInterDigitDuration,
+                cvaIfFXOTimingPulseRate,
+                cvaIfFXOTimingPulseInterDigitDuration
+        }
+        STATUS  deprecated -- superceded by cvaIfFXOGroup2
+        DESCRIPTION
+                "The collection of objects providing information
+                 about the Cisco FXO interface."
+        ::= { cvaIfMIBGroups 3 }
+
+cvaIfFXSGroup OBJECT-GROUP
+        OBJECTS {
+                cvaIfFXSHookStatus, 
+                cvaIfFXSRingActive,
+                cvaIfFXSRingGround,
+                cvaIfFXSTipGround,
+                cvaIfFXSCfgSignalType,
+                cvaIfFXSRingFrequency,
+                cvaIfFXSTimingDigitDuration,
+                cvaIfFXSTimingInterDigitDuration
+        }
+        STATUS  current
+        DESCRIPTION
+                "The collection of objects providing information
+                 about the Cisco FXS interface."
+        ::= { cvaIfMIBGroups 4 }
+
+cvaIfFXOGroup2 OBJECT-GROUP
+        OBJECTS {
+                cvaIfFXOHookStatus, 
+                cvaIfFXORingDetect,
+                cvaIfFXORingGround,
+                cvaIfFXOTipGround,
+                cvaIfFXOCfgSignalType,
+                cvaIfFXOCfgNumberRings,
+                cvaIfFXOCfgSupDisconnect2,
+                cvaIfFXOCfgDialType,
+                cvaIfFXOTimingDigitDuration,
+                cvaIfFXOTimingInterDigitDuration,
+                cvaIfFXOTimingPulseRate,
+                cvaIfFXOTimingPulseInterDigitDuration
+        }
+        STATUS  current
+        DESCRIPTION
+                "The collection of objects providing information
+                 about the Cisco FXO interface."
+        ::= { cvaIfMIBGroups 5 }
+cvaIfEMGroupRev1 OBJECT-GROUP
+        OBJECTS {
+                cvaIfEMInSeizureActive, 
+                cvaIfEMOutSeizureActive, 
+                cvaIfEMCfgSignalType,
+                cvaIfEMCfgOperation,
+                cvaIfEMCfgType,
+                cvaIfEMCfgDialType,
+                cvaIfEMTimingDigitDuration,
+                cvaIfEMTimingInterDigitDuration,
+                cvaIfEMTimingPulseRate,
+                cvaIfEMTimingPulseInterDigitDuration,
+                cvaIfEMTimingClearWaitDuration,
+                cvaIfEMTimingMaxWinkWaitDuration,
+                cvaIfEMTimingMaxWinkDuration,
+                cvaIfEMTimingDelayStart,
+                cvaIfEMTimingMaxDelayDuration,
+                cvaIfEMTimingMinDelayPulseWidth,
+                cvaIfEMCfgLmrMCap,
+                cvaIfEMCfgLmrECap,
+                cvaIfEMTimingVoiceHangover,
+                cvaIfEMTimeoutLmrTeardown
+        }
+        STATUS  deprecated -- superceded by cvaIfEMGroupRev2
+        DESCRIPTION
+                "The collection of objects providing information
+                 about the Cisco E&M trunk interface."
+        ::= { cvaIfMIBGroups 6 }
+
+cvaIfEMGroupRev2 OBJECT-GROUP
+        OBJECTS {
+                cvaIfEMInSeizureActive, 
+                cvaIfEMOutSeizureActive, 
+                cvaIfEMCfgSignalType,
+                cvaIfEMCfgOperation,
+                cvaIfEMCfgType,
+                cvaIfEMCfgDialType,
+                cvaIfEMTimingDigitDuration,
+                cvaIfEMTimingInterDigitDuration,
+                cvaIfEMTimingPulseRate,
+                cvaIfEMTimingPulseInterDigitDuration,
+                cvaIfEMTimingClearWaitDuration,
+                cvaIfEMTimingMaxWinkWaitDuration,
+                cvaIfEMTimingMaxWinkDuration,
+                cvaIfEMTimingDelayStart,
+                cvaIfEMTimingMaxDelayDuration,
+                cvaIfEMTimingMinDelayPulseWidth,
+                cvaIfEMCfgLmrMCap,
+                cvaIfEMCfgLmrECap,
+                cvaIfEMTimingVoiceHangover,
+                cvaIfEMTimeoutLmrTeardown,
+                cvaIfEMCfgAutoGainControl,
+		cvaIfEMTimeoutPttXmt,
+		cvaIfEMTimeoutPttRcv,
+		cvaIfEMTimingDelayVoice
+        }
+        STATUS  current
+        DESCRIPTION
+                "The collection of objects providing information
+                 about the Cisco E&M trunk interface."
+        ::= { cvaIfMIBGroups 7 }
+
+END
+
+
+

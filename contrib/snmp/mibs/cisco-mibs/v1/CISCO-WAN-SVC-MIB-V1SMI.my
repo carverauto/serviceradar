@@ -1,0 +1,5739 @@
+-- MIB file created 01-Jul-2003 17:21:11, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-WAN-SVC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-WAN-SVC-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DisplayString, RowStatus, TimeStamp, TruthValue
+            FROM SNMPv2-TC-v1
+    ifIndex, InterfaceIndex
+            FROM IF-MIB
+    PnniNodeId, PnniPortId
+            FROM PNNI-MIB
+    AtmAddress, NetPrefix
+            FROM ATM-FORUM-TC-MIB
+    CiscoWanNsapAtmAddress
+            FROM CISCO-WAN-ATM-CONN-MIB
+    stratacom
+            FROM CISCOWAN-SMI
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoWANSvcMIB OBJECT IDENTIFIER ::= { stratacom 140 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200303100000Z
+--  OrgName
+--    Cisco System, Inc
+--  ContactInfo
+--    Cisco Systems Customer Service
+--    Postal: 170 W Tasman Drive
+--           San Jose, CA 95143
+--           USA
+--    
+--      Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-wanatm@cisco.com
+--  Descr
+--    The MIB modules describe an ATM network service 
+--     on a BPX-SES or a MGX ATM switch. This MIB module 
+--     provides configuring, provisioning, as well as status 
+--     gathering for ATM services.
+--    
+--     Abbreviation used:
+--    
+--         ABR == Available Bit Rate
+--         AINI == ATM Inter-Network Interface
+--         ATM == Asynchronous Transfer Mode
+--         BGN == Begin
+--         BW  == Bandwidth
+--         CBR == Constant Bit Rate
+--         ENNI == Enhanced Network to Network Interface
+--              Note: The 'ENNI' term used here indicating 
+--              'enhanced' or 'friendly' NNI for linking 
+--              two networks of CISCO AutoRoute or PNNI 
+--              switches.  The XPVCs and XPVPs are 
+--              provisioned across them.  Functionality 
+--              includes changing segment OAM cell handling 
+--              so that these cells flow over 'end-to-end 
+--              OAM segment' loops for the provisioned 
+--              length of the XPVC or XPVP, i.e.  the 
+--              'segment' comprises the two or three 
+--              segments between the user ports. Also 
+--              implemented at ENNIs is an LMI 
+--              functionality that enables 
+--              auto-discovery of the ENNIs.
+--         ER  == Error Recovery
+--         GAT == Generic Application Transport
+--         IE == Information Element
+--         IISP == Interim Inter-Switch Signaling Protocol
+--         ILMI == Interim Local Management Interface
+--         MD  == Management Data
+--         PNNI == Private Network-Network Interface
+--         RS  == Resynchronization
+--         REJ == Rejection
+--         SD  == Sequence Data
+--         SDP == Sequence Data with Poll
+--         SPVC == Soft Permanent Virtual Circuit
+--         SSCOP == Service Specific Connection Oriented Protocol
+--         SVC == Switched Virtual Circuit
+--         UBR == Unspecified Bit Rate
+--         UD  == Unit Data
+--         UNI == User-Network Interface
+--         USTAT == Unsolicited STAT
+--         VBR == Variable Bit Rate
+--  RevDate
+--    200303100000Z
+--  RevDescr
+--    a) Modified to have characters/line to be less than 72
+--        and add range for Integer32.
+--     b) Modified to use cwspConfigGrp3 in 
+--        ciscoWANSvcMIBCompliance3.
+--  RevDate
+--    200209160000Z
+--  RevDescr
+--    a) Added 'cwspSpvcAddress' to cwspConfigTable.
+--  RevDate
+--    200203010000Z
+--  RevDescr
+--    a) Added 'cwspRoutingPriority' object in cwspConfigTable.
+--     b) The DEFVAL clause for 'cwspUniVersion' and 
+--        'cwspNniVersion' is changed to 'unsupported(7)' from 
+--        'uni31'. The DESCRIPTION is modified for these 
+--        objects.
+--  RevDate
+--    200107190000Z
+--  RevDescr
+--    The change is to back out previous revision. The 
+--     requirement was changed.
+--  RevDate
+--    200107060000Z
+--  RevDescr
+--    The change is to use 'unsupoerted(7)' as default for both 
+--     'cwspUniVersion' and 'cwspNniVersion'. 
+--    
+--     DESCRIPTION modified for both variables as well.
+--  RevDate
+--    200106060000Z
+--  RevDescr
+--    The change is to add 'self(9)' enumeration to 
+--     'cwspUniVersion'. This value is used to indicate 
+--     a voice port.
+--  RevDate
+--    200105100000Z
+--  RevDescr
+--    The changes are as follows:
+--     (1) Add one mib variable 'cwspConnTraceLastNode'. 
+--     (2) Add 'unsupported(7)'to 'cwspNniVersion' variable. 
+--     (3) Add additional comments in DESCRIPTION of 
+--         'cwspNniVersion' and 'cwspUniVersion' variables. 
+--     (4) Corrected spelling error.
+--  RevDate
+--    200010200000Z
+--  RevDescr
+--    The changes are as follows:
+--     (1) Description for 'ENNI' is added.
+--     (2) cwspNniVersion == enumeration enni(4) and 
+--         aini(5) are added.
+--     (3) cwspOperNniSigVersion == enumeration aini(5) 
+--         is added.
+--  RevDate
+--    200009010000Z
+--  RevDescr
+--    The changes are as follows:
+--     (1) The default value of cwspMinSvccVci is changed to 35.
+--     (2) The lower range of cwspMaxSvccVci changed to 35.
+--  RevDate
+--    200008030000Z
+--  RevDescr
+--    Importing symbol stratacom from CISCOWAN-SMI
+--     instead from BASIS-MIB.
+--  RevDate
+--    200006150000Z
+--  RevDescr
+--    The changes are as follows.
+--     (1) The lower bound and upper bound of the following 
+--         MIB objects has been changed from 0 to 1 and from 
+--         100 to 200 respectively.
+--    
+--         (i)   cwspUtilFactorCbr
+--         (ii)  cwspUtilFactorRtVbr
+--         (iii) cwspUtilFactorNrtVbr
+--         (iv)  cwspUtilFactorAbr
+--         (v)   cwspUtilFactorUbr
+--     (2) The lower bound of cwspMinSvccVci object has been 
+--         changed from 32 to 0.
+--  RevDate
+--    200004010000Z
+--  RevDescr
+--    This is the initial version of this MIB module.
+
+ciscoWANSvcMIBObjects OBJECT IDENTIFIER ::= { ciscoWANSvcMIB 1 }
+ciscoWANSvcInfo OBJECT IDENTIFIER ::= { ciscoWANSvcMIBObjects 1 }
+ciscoWANSvcPort OBJECT IDENTIFIER ::= { ciscoWANSvcMIBObjects 2 }
+ciscoWANPnniRouting OBJECT IDENTIFIER ::= { ciscoWANSvcMIBObjects 3 }
+ciscoWANSpvc    OBJECT IDENTIFIER ::= { ciscoWANSvcMIBObjects 4 }
+cwspConfig      OBJECT IDENTIFIER ::= { ciscoWANSvcPort 1 }
+cwspCacConfig   OBJECT IDENTIFIER ::= { ciscoWANSvcPort 2 }
+cwspSigConfig   OBJECT IDENTIFIER ::= { ciscoWANSvcPort 3 }
+cwspSscopConfig OBJECT IDENTIFIER ::= { ciscoWANSvcPort 4 }
+cwspCallStats   OBJECT IDENTIFIER ::= { ciscoWANSvcPort 5 }
+cwspSigStats    OBJECT IDENTIFIER ::= { ciscoWANSvcPort 6 }
+cwspSscopStats  OBJECT IDENTIFIER ::= { ciscoWANSvcPort 7 }
+cwspCall        OBJECT IDENTIFIER ::= { ciscoWANSvcPort 8 }
+cwspAbrCall     OBJECT IDENTIFIER ::= { ciscoWANSvcPort 9 }
+cwspPrefix      OBJECT IDENTIFIER ::= { ciscoWANSvcPort 10 }
+cwspAddress     OBJECT IDENTIFIER ::= { ciscoWANSvcPort 11 }
+cwspRegAddress  OBJECT IDENTIFIER ::= { ciscoWANSvcPort 12 }
+cwspLoad        OBJECT IDENTIFIER ::= { ciscoWANSvcPort 13 }
+cwspConnTrace   OBJECT IDENTIFIER ::= { ciscoWANSvcPort 14 }
+cwspOperation   OBJECT IDENTIFIER ::= { ciscoWANSvcPort 15 }
+ciscoWANSvcMIBConformance OBJECT IDENTIFIER ::= { ciscoWANSvcMIB 3 }
+ciscoWANSvcMIBCompliances OBJECT IDENTIFIER ::= { ciscoWANSvcMIBConformance 1 }
+ciscoWANSvcMIBGroups OBJECT IDENTIFIER ::= { ciscoWANSvcMIBConformance 2 }
+
+CwspSpvcState ::= INTEGER {
+        genSpvcErr(1),
+        mPvcDelFail(2),
+        sPvcDelFail(3),
+        mRelPendHalfTmout(4),
+        mInstlPvcFail(5),
+        sInstlPvcFail(6),
+        mRecmtPvcFail(7),
+        sRecmtPvcFail(8),
+        mCmtHalfFail(9),
+        sCmtHalfFail(10),
+        mInstlXconnFail(11),
+        sRecvSetupConfmMismatch(12),
+        sRecvSetupServMismatch(13),
+        sRecvSetupTrafParmMismatch(14),
+        masterSpvcAutoDelete(15),
+        slaveSpvcAutoDelete(16)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Defines possible failures at an endpoint.
+--     The following are implemented: 
+--         genSpvcErr(1) == General SPVC error, 
+--         sRecvSetupConfmMismatch(12) 
+--             == Connection ATM Conformance type 
+--             == mismatch with master at slave endpoint.
+--         sRecvSetupServMismatch(13)
+--             == Connection Service type mismatch with 
+--             == master at slave endpoint.
+--         sRecvSetupTrafParmMismatch(14),
+--             == Traffic parameters mismatch with master
+--             == at slave endpoint.  
+--         masterSpvcAutoDelete(15)
+--             == Controller auto deleting provisioned 
+--             == master SPVC.
+--     and slaveSpvcAutoDelete(16)
+--             == Controller auto deleting provisioned
+--             == slave SPVC.
+
+CwspControllerState ::= INTEGER {
+        ready(1),
+        unavilable(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Defines possible state for the pnni
+--     controller.
+
+cwsSwRevision OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "PNNI network controller software revision number."
+    ::= { ciscoWANSvcInfo 1 }
+
+cwsControllerStatus OBJECT-TYPE
+    SYNTAX CwspControllerState
+--    Rsyntax INTEGER {
+--        ready(1),
+--        unavilable(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The administrative status for the pnni active 
+         controller."
+    ::= { ciscoWANSvcInfo 6 }
+
+cwspPnniStndbyControllerStatus OBJECT-TYPE
+    SYNTAX CwspControllerState
+--    Rsyntax INTEGER {
+--        ready(1),
+--        unavilable(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The administrative status for the standby controller."
+    ::= { ciscoWANSvcInfo 7 }
+
+cwspPnniControllerStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        active(1),
+        stndby(2),
+        unavailable(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The administrative status of the pnni controller.
+         Note: this object is only used in the trap varbind, 
+         snmp get operation is meaningless."
+    ::= { ciscoWANSvcInfo 8 }
+
+cwspPnniControllerPhySlot OBJECT-TYPE
+    SYNTAX INTEGER(1..16)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The pnni controller physical location 
+         for MGX or BPX-SES. Note: this object 
+         is only used in the trap varbind, snmp 
+         get operation is meaningless."
+    ::= { ciscoWANSvcInfo 9 }
+
+cwspSscopTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspSscopEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table specifies SSCOP (Layer 2) 
+         configuration parameters."
+    ::= { cwspSscopConfig 1 }
+
+cwspSscopEntry OBJECT-TYPE
+    SYNTAX CwspSscopEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the SSCOP configuration table. 
+         Each entry indexed by the ifIndex of a port."
+    INDEX { ifIndex }
+    ::= { cwspSscopTable 1 }
+
+CwspSscopEntry ::= SEQUENCE {
+    cwspSscopTmrCC INTEGER,
+    cwspSscopTmrKeepAlive INTEGER,
+    cwspSscopTmrNoResp INTEGER,
+    cwspSscopTmrPoll INTEGER,
+    cwspSscopTmtIdle INTEGER,
+    cwspSscopMaxCC INTEGER,
+    cwspSscopMaxPD INTEGER,
+    cwspSscopMaxSTAT INTEGER
+    }
+
+cwspSscopTmrCC OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the value for Connection 
+         control timer."
+    DEFVAL { 1 }
+    ::= { cwspSscopEntry 1 }
+
+cwspSscopTmrKeepAlive OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the value for keep 
+         alive timer "
+    DEFVAL { 5 }
+    ::= { cwspSscopEntry 2 }
+
+cwspSscopTmrNoResp OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the value for no 
+         response timer."
+    DEFVAL { 30 }
+    ::= { cwspSscopEntry 3 }
+
+cwspSscopTmrPoll OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the value for poll timer."
+    DEFVAL { 1 }
+    ::= { cwspSscopEntry 4 }
+
+cwspSscopTmtIdle OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the value for idle timer."
+    DEFVAL { 10 }
+    ::= { cwspSscopEntry 5 }
+
+cwspSscopMaxCC OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the upper limit for the number  
+        of transmissions of a BGN, END, ER or RS PDU."
+    DEFVAL { 10 }
+    ::= { cwspSscopEntry 6 }
+
+cwspSscopMaxPD OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains an upper limit for a counter 
+        which counts the number of SD PDUs transmitted between 
+        transmissions of POLL PDUs or the number of SD PDUs 
+        transmitted before the transmission of the first POLL 
+        PDU after POLL timer became active."
+    DEFVAL { 10 }
+    ::= { cwspSscopEntry 7 }
+
+cwspSscopMaxSTAT OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains an upper limit for 
+        the number of list elements placed in a 
+        STAT PDU."
+    DEFVAL { 67 }
+    ::= { cwspSscopEntry 8 }
+
+cwspSscopStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspSscopStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains SSCOP (Layer 2) statistics 
+        counters."
+    ::= { cwspSscopStats 1 }
+
+cwspSscopStatsEntry OBJECT-TYPE
+    SYNTAX CwspSscopStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry contains SSCOP (Layer 2) statistics."
+    INDEX { ifIndex }
+    ::= { cwspSscopStatsTable 1 }
+
+CwspSscopStatsEntry ::= SEQUENCE {
+    cwspSscopCounterReset INTEGER,
+    cwspSscopIgnoredPduRcv Counter,
+    cwspSscopBgnRcv Counter,
+    cwspSscopBgakRcv Counter,
+    cwspSscopEndRcv Counter,
+    cwspSscopEndakRcv Counter,
+    cwspSscopRsRcv Counter,
+    cwspSscopRsakRcv Counter,
+    cwspSscopBgrejRcv Counter,
+    cwspSscopSdRcv Counter,
+    cwspSscopSdpRcv Counter,
+    cwspSscopPollRcv Counter,
+    cwspSscopStatRcv Counter,
+    cwspSscopUstatRcv Counter,
+    cwspSscopUdRcv Counter,
+    cwspSscopMdRcv Counter,
+    cwspSscopErakRcv Counter,
+    cwspSscopBgnXmt Counter,
+    cwspSscopBgakXmt Counter,
+    cwspSscopEndXmt Counter,
+    cwspSscopEndakXmt Counter,
+    cwspSscopRsXmt Counter,
+    cwspSscopRsakXmt Counter,
+    cwspSscopBgrejXmt Counter,
+    cwspSscopSdXmt Counter,
+    cwspSscopSdpXmt Counter,
+    cwspSscopPollXmt Counter,
+    cwspSscopStatXmt Counter,
+    cwspSscopUstatXmt Counter,
+    cwspSscopUdXmt Counter,
+    cwspSscopMdXmt Counter,
+    cwspSscopErakXmt Counter
+    }
+
+cwspSscopCounterReset OBJECT-TYPE
+    SYNTAX INTEGER {
+        noop(1),
+        reset(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the SSCOP
+        statistics collected for this interface 
+        needs to be reset."
+    DEFVAL { noop }
+    ::= { cwspSscopStatsEntry 1 }
+
+cwspSscopIgnoredPduRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        PDUs that are received but ignored due to 
+        incorrect size, invalid PDU, unknown PDU 
+        type."
+    ::= { cwspSscopStatsEntry 2 }
+
+cwspSscopBgnRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        BGN PDUs received at this interface."
+    ::= { cwspSscopStatsEntry 3 }
+
+cwspSscopBgakRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        BGN ACK PDUs received at this interface."
+    ::= { cwspSscopStatsEntry 4 }
+
+cwspSscopEndRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        END PDUs received at this interface."
+    ::= { cwspSscopStatsEntry 5 }
+
+cwspSscopEndakRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        END ACK PDUs received at this interface."
+    ::= { cwspSscopStatsEntry 6 }
+
+cwspSscopRsRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        RS(Resync) PDUs received at this interface."
+    ::= { cwspSscopStatsEntry 7 }
+
+cwspSscopRsakRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        RS(Resync) ACK PDUs received at this interface."
+    ::= { cwspSscopStatsEntry 8 }
+
+cwspSscopBgrejRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        BGN REJ PDUs received at this interface."
+    ::= { cwspSscopStatsEntry 9 }
+
+cwspSscopSdRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP
+        SD (Sequenced Data) PDUs received at 
+        this interface."
+    ::= { cwspSscopStatsEntry 10 }
+
+cwspSscopSdpRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        SDP (Sequenced Data with Poll) PDUs received
+        at this interface."
+    ::= { cwspSscopStatsEntry 11 }
+
+cwspSscopPollRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        POLL PDUs received at this interface."
+    ::= { cwspSscopStatsEntry 12 }
+
+cwspSscopStatRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        STAT PDUs received at this interface."
+    ::= { cwspSscopStatsEntry 13 }
+
+cwspSscopUstatRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        USTAT (Unsolicited STAT) PDUs received 
+        at this interface."
+    ::= { cwspSscopStatsEntry 14 }
+
+cwspSscopUdRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        UD (Unit data) PDUs received at this 
+        interface."
+    ::= { cwspSscopStatsEntry 15 }
+
+cwspSscopMdRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        MD (Management data) PDUs received 
+        at this interface."
+    ::= { cwspSscopStatsEntry 16 }
+
+cwspSscopErakRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        ER ACK (error recovery ack) PDUs received 
+        at this interface."
+    ::= { cwspSscopStatsEntry 17 }
+
+cwspSscopBgnXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP
+        BGN PDUs transmitted over this interface."
+    ::= { cwspSscopStatsEntry 18 }
+
+cwspSscopBgakXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        BGN ACK PDUs transmitted on this interface."
+    ::= { cwspSscopStatsEntry 19 }
+
+cwspSscopEndXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        END PDUs transmitted on this interface."
+    ::= { cwspSscopStatsEntry 20 }
+
+cwspSscopEndakXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        END ACK PDUs transmitted on this interface."
+    ::= { cwspSscopStatsEntry 21 }
+
+cwspSscopRsXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        RS (Resync) PDUs transmitted over this 
+        interface."
+    ::= { cwspSscopStatsEntry 22 }
+
+cwspSscopRsakXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        RS (Resync) ACK PDUs transmitted over 
+        this interface."
+    ::= { cwspSscopStatsEntry 23 }
+
+cwspSscopBgrejXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        BGN REJ PDUs transmitted over this interface."
+    ::= { cwspSscopStatsEntry 24 }
+
+cwspSscopSdXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        SD transmitted over this interface."
+    ::= { cwspSscopStatsEntry 25 }
+
+cwspSscopSdpXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        SDP PDUs transmitted over this interface."
+    ::= { cwspSscopStatsEntry 26 }
+
+cwspSscopPollXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        POLL PDUs transmitted over this interface."
+    ::= { cwspSscopStatsEntry 27 }
+
+cwspSscopStatXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        STAT PDUs transmitted over this interface."
+    ::= { cwspSscopStatsEntry 28 }
+
+cwspSscopUstatXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        USTAT PDUs transmitted over this interface."
+    ::= { cwspSscopStatsEntry 29 }
+
+cwspSscopUdXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        UD PDUs transmitted over this interface."
+    ::= { cwspSscopStatsEntry 30 }
+
+cwspSscopMdXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        MD PDUs transmitted over this interface."
+    ::= { cwspSscopStatsEntry 31 }
+
+cwspSscopErakXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object stores the number of SSCOP 
+        ER(error recovery) ACK PDUs transmitted 
+        over this interface."
+    ::= { cwspSscopStatsEntry 32 }
+
+cwspSigConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspSigConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table specifies signaling
+        configuration parameters."
+    ::= { cwspSigConfig 1 }
+
+cwspSigConfigEntry OBJECT-TYPE
+    SYNTAX CwspSigConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the signaling configuration 
+        table. Each entry indexed by the ifIndex of         
+        a port."
+    INDEX { ifIndex }
+    ::= { cwspSigConfigTable 1 }
+
+CwspSigConfigEntry ::= SEQUENCE {
+    cwspSigCfgT301 INTEGER,
+    cwspSigCfgT303 INTEGER,
+    cwspSigCfgT308 INTEGER,
+    cwspSigCfgT310 INTEGER,
+    cwspSigCfgT316 INTEGER,
+    cwspSigCfgT317 INTEGER,
+    cwspSigCfgT322 INTEGER,
+    cwspSigCfgT397 INTEGER,
+    cwspSigCfgT398 INTEGER,
+    cwspSigCfgT399 INTEGER
+    }
+
+cwspSigCfgT301 OBJECT-TYPE
+    SYNTAX INTEGER(150..240)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Timer started when ALERT message received 
+        at Call Received State. Normally, timer is 
+        stopped when CONNECT message is
+        received. Clear call at first expiry."
+    DEFVAL { 180 }
+    ::= { cwspSigConfigEntry 1 }
+
+cwspSigCfgT303 OBJECT-TYPE
+    SYNTAX INTEGER(4..8)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Timer started when SETUP message sent at 
+        Call Present State. Normally, timer is 
+        stopped when ALERT, CONNECT, RELEASE
+        COMPLETE or CALL PROCEEDING message is 
+        received. Resend SETUP message and restart 
+        the timer at first expiry; Clear network
+        connection and enter NULL state at second 
+        expiry."
+    DEFVAL { 4 }
+    ::= { cwspSigConfigEntry 2 }
+
+cwspSigCfgT308 OBJECT-TYPE
+    SYNTAX INTEGER(20..45)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Timer started when RELEASE message sent at
+        Release Indication State. Normally, timer is        
+        stopped when RELEASE COMPLETE or RELEASE 
+        message is received. Resend RELEASE and 
+        restart the timer at first expiry; Release 
+        call reference and enter NULL state at
+        second expiry."
+    DEFVAL { 30 }
+    ::= { cwspSigConfigEntry 3 }
+
+cwspSigCfgT310 OBJECT-TYPE
+    SYNTAX INTEGER(10..120)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Timer started when CALL PROCEEDING message 
+        received at Incoming Call Proceeding State. 
+        Normally, timer is stopped when ALERT,
+        CONNECT or RELEASE message is received. 
+        Clear call at first expiry. Range from 10 to
+        20 seconds for UNI 3.0/3.1 with default
+        of 10; 30 to 120 seconds for UNI 4.0 with 
+        default of 30, default number can be 10 or
+        30, 10 is used."
+    DEFVAL { 10 }
+    ::= { cwspSigConfigEntry 4 }
+
+cwspSigCfgT316 OBJECT-TYPE
+    SYNTAX INTEGER(90..300)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Timer started when RESTART message sent 
+        Restart Request State. Normally, timer is 
+        stopped when RESTART ACK message is
+        received. RESTART may be sent multiple times
+        in both first or second expiry."
+    DEFVAL { 90 }
+    ::= { cwspSigConfigEntry 5 }
+
+cwspSigCfgT317 OBJECT-TYPE
+    SYNTAX INTEGER(60..300)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Timer started when RESTART message received 
+        at Restart State. Normally, timer is stopped when
+        Internal clearing of call references happen. 
+        Maintenance notification at first expiry.
+        The value of this timer should be less 
+        than T316."
+    DEFVAL { 60 }
+    ::= { cwspSigConfigEntry 6 }
+
+cwspSigCfgT322 OBJECT-TYPE
+    SYNTAX INTEGER(4..20)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Timer started when STATUS ENQUIRY message 
+        sent at any call state. Normally, timer is
+        stopped when STATUS RELEASE or
+        RELEASE COMPLETE message is received. 
+        STATUS ENQUIREY message may be resent several
+        times in both first or second expiry."
+    DEFVAL { 4 }
+    ::= { cwspSigConfigEntry 7 }
+
+cwspSigCfgT397 OBJECT-TYPE
+    SYNTAX INTEGER(180..240)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Timer started when ALERTING or PARTY ALERTING 
+        message received in point-to-multipoint call. 
+        Normally timer is stopped when ADD
+        PARTY ACK message is received. Clear party at 
+        first expiry."
+    DEFVAL { 180 }
+    ::= { cwspSigConfigEntry 8 }
+
+cwspSigCfgT398 OBJECT-TYPE
+    SYNTAX INTEGER(4..20)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Timer is started when DROP PARTY message sent at Drop Party
+         Initiated State. Normally, timer is stopped when DROP PARTY
+         ACK or RELEASE message is received. Send DROP PARTY ACK or
+         RELEASE at first expiry."
+    DEFVAL { 4 }
+    ::= { cwspSigConfigEntry 9 }
+
+cwspSigCfgT399 OBJECT-TYPE
+    SYNTAX INTEGER(14..124)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Timer is started when ADD PARTY message sent at 
+        Add Party Initiated State. Normally, timer is 
+        stopped when ADD PARTY ACK, ADD PARTY REJ or RELEASE 
+        message is received. Clear the party and enter NULL Party
+        State at first expiry. Range from 14 to 28 seconds for 
+        UNI 3.0/3.1 with default of 14; 34
+        to 124 seconds for UNI 4.0 with default of 34,
+        default can be 14 or 34, 14 is used."
+    DEFVAL { 14 }
+    ::= { cwspSigConfigEntry 10 }
+
+cwspSigStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspSigStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains signaling statistics counters"
+    ::= { cwspSigStats 1 }
+
+cwspSigStatsEntry OBJECT-TYPE
+    SYNTAX CwspSigStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry contains signaling statistics."
+    INDEX { ifIndex }
+    ::= { cwspSigStatsTable 1 }
+
+CwspSigStatsEntry ::= SEQUENCE {
+    cwspSigCounterReset INTEGER,
+    cwspCallProcRcv Counter,
+    cwspConnectRcv Counter,
+    cwspConnectAckRcv Counter,
+    cwspSetupRcv Counter,
+    cwspReleaseRcv Counter,
+    cwspReleaseComplRcv Counter,
+    cwspRestartRcv Counter,
+    cwspRestartAckRcv Counter,
+    cwspStatusRcv Counter,
+    cwspStatusEnqRcv Counter,
+    cwspNotifyRcv Counter,
+    cwspAlertRcv Counter,
+    cwspProgressRcv Counter,
+    cwspAddPtyRcv Counter,
+    cwspAddPtyAckRcv Counter,
+    cwspAddPtyRejRcv Counter,
+    cwspDropPtyRcv Counter,
+    cwspIncorrectMsgRcv Counter,
+    cwspTimerExpiries Counter,
+    cwspLastCause Counter,
+    cwspLastDiagnostic INTEGER,
+    cwspCallProcXmt Counter,
+    cwspConnectXmt Counter,
+    cwspConnectAckXmt Counter,
+    cwspSetupXmt Counter,
+    cwspReleaseXmt Counter,
+    cwspReleaseComplXmt Counter,
+    cwspRestartXmt Counter,
+    cwspRestartAckXmt Counter,
+    cwspStatusXmt Counter,
+    cwspStatusEnqXmt Counter,
+    cwspNotifyXmt Counter,
+    cwspAlertXmt Counter,
+    cwspProgressXmt Counter,
+    cwspAddPtyXmt Counter,
+    cwspAddPtyAckXmt Counter,
+    cwspAddPtyRejXmt Counter,
+    cwspDropPtyXmt Counter,
+    cwspSscopStatus INTEGER
+    }
+
+cwspSigCounterReset OBJECT-TYPE
+    SYNTAX INTEGER {
+        noop(1),
+        reset(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Writing a 2 to this object resets the all Sig counters."
+    DEFVAL { noop }
+    ::= { cwspSigStatsEntry 1 }
+
+cwspCallProcRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of CALL PROCEEDING messages received 
+        on this interface."
+    ::= { cwspSigStatsEntry 2 }
+
+cwspConnectRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of CONNECT messages received 
+        on this interface."
+    ::= { cwspSigStatsEntry 3 }
+
+cwspConnectAckRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of CONNECT ACK messages received 
+        on this interface."
+    ::= { cwspSigStatsEntry 4 }
+
+cwspSetupRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SETUP messages received 
+        on this interface."
+    ::= { cwspSigStatsEntry 5 }
+
+cwspReleaseRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of RELEASE messages received 
+        on this interface."
+    ::= { cwspSigStatsEntry 6 }
+
+cwspReleaseComplRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of RELEASE COMPLETE messages received
+        on this interface."
+    ::= { cwspSigStatsEntry 7 }
+
+cwspRestartRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of RESTART messages received 
+        on this interface."
+    ::= { cwspSigStatsEntry 8 }
+
+cwspRestartAckRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of RESTART ACK messages received 
+        on this interface."
+    ::= { cwspSigStatsEntry 9 }
+
+cwspStatusRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of STATUS messages received 
+        on this interface."
+    ::= { cwspSigStatsEntry 10 }
+
+cwspStatusEnqRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of STATUS ENQUIRY messages received 
+        on this interface."
+    ::= { cwspSigStatsEntry 11 }
+
+cwspNotifyRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of NOTIFY messages received on this interface."
+    ::= { cwspSigStatsEntry 12 }
+
+cwspAlertRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of ALERT messages received on this interface."
+    ::= { cwspSigStatsEntry 13 }
+
+cwspProgressRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of PROGRESS messages received on this interface."
+    ::= { cwspSigStatsEntry 14 }
+
+cwspAddPtyRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of ADD PARTY messages received on this interface."
+    ::= { cwspSigStatsEntry 15 }
+
+cwspAddPtyAckRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of ADD PARTY ACK messages received 
+        on this interface."
+    ::= { cwspSigStatsEntry 16 }
+
+cwspAddPtyRejRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of ADD PARTY REJECT messages received 
+        on this interface."
+    ::= { cwspSigStatsEntry 17 }
+
+cwspDropPtyRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of DROP PARTY messages received on this interface."
+    ::= { cwspSigStatsEntry 18 }
+
+cwspIncorrectMsgRcv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Incorrect messages received on this interface."
+    ::= { cwspSigStatsEntry 20 }
+
+cwspTimerExpiries OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of timeouts occurred on this interface."
+    ::= { cwspSigStatsEntry 21 }
+
+cwspLastCause OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "to indicate the last cause of release or cranckback."
+    ::= { cwspSigStatsEntry 22 }
+
+cwspLastDiagnostic OBJECT-TYPE
+    SYNTAX INTEGER(-2147483648..214743647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "to indicate the last diagnostic of release or cranckback."
+    ::= { cwspSigStatsEntry 23 }
+
+cwspCallProcXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of CALL PROCEEDING messages transmitted from this
+         interface."
+    ::= { cwspSigStatsEntry 24 }
+
+cwspConnectXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of CONNECT messages transmitted from this 
+        interface."
+    ::= { cwspSigStatsEntry 25 }
+
+cwspConnectAckXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of CONNECT ACK messages transmitted from this 
+        interface."
+    ::= { cwspSigStatsEntry 26 }
+
+cwspSetupXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SETUP messages transmitted from this 
+        interface."
+    ::= { cwspSigStatsEntry 27 }
+
+cwspReleaseXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of RELEASE messages transmitted from this 
+        interface."
+    ::= { cwspSigStatsEntry 28 }
+
+cwspReleaseComplXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of RELEASE COMPLETE messages transmitted from this
+        interface."
+    ::= { cwspSigStatsEntry 29 }
+
+cwspRestartXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of RESTART messages transmitted from this 
+        interface."
+    ::= { cwspSigStatsEntry 30 }
+
+cwspRestartAckXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of RESTART ACK messages transmitted from this 
+        interface."
+    ::= { cwspSigStatsEntry 31 }
+
+cwspStatusXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of STATUS messages transmitted from this 
+        interface."
+    ::= { cwspSigStatsEntry 32 }
+
+cwspStatusEnqXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of STATUS ENQUIRY messages transmitted from this
+        interface."
+    ::= { cwspSigStatsEntry 33 }
+
+cwspNotifyXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of NOTIFY messages transmitted from this 
+        interface."
+    ::= { cwspSigStatsEntry 34 }
+
+cwspAlertXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of ALERT messages transmitted from this 
+        interface."
+    ::= { cwspSigStatsEntry 35 }
+
+cwspProgressXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of PROGRESS messages transmitted from this 
+        interface."
+    ::= { cwspSigStatsEntry 36 }
+
+cwspAddPtyXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of ADD PARTY messages transmitted from this 
+        interface."
+    ::= { cwspSigStatsEntry 37 }
+
+cwspAddPtyAckXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of ADD PARTY ACK messages transmitted from this
+        interface."
+    ::= { cwspSigStatsEntry 38 }
+
+cwspAddPtyRejXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of ADD PARTY REJECT messages transmitted from this
+        interface."
+    ::= { cwspSigStatsEntry 39 }
+
+cwspDropPtyXmt OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of DROP PARTY messages transmitted 
+        from this interface."
+    ::= { cwspSigStatsEntry 40 }
+
+cwspSscopStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Sscop link status on an NNI interface, 
+        object is meaningful along with 
+        ciscoWANSscopLinkChange trap."
+    ::= { cwspSigStatsEntry 42 }
+
+cwspConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Interface configuration table collects 
+        attributes that affect the operation of the 
+        controller interface. There is a single row
+        for each interface that the managed system 
+        is expected to be added or managed."
+    ::= { cwspConfig 1 }
+
+cwspConfigEntry OBJECT-TYPE
+    SYNTAX CwspConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        " An entry in the interface configuration table containing
+        information about an interface"
+    INDEX { ifIndex }
+    ::= { cwspConfigTable 1 }
+
+CwspConfigEntry ::= SEQUENCE {
+    cwspAdminStatus INTEGER,
+    cwspOperStatus INTEGER,
+    cwspSvcBlocked TruthValue,
+    cwspSpvcBlocked TruthValue,
+    cwspIlmiAddrRegEnable TruthValue,
+    cwspIlmiAutoConfEnable TruthValue,
+    cwspIlmiServRegEnable TruthValue,
+    cwspPhyIdentifier DisplayString,
+    cwspSignallingVpi INTEGER,
+    cwspSignallingVci INTEGER,
+    cwspRoutingVpi INTEGER,
+    cwspRoutingVci INTEGER,
+    cwspMaxVpiBits INTEGER,
+    cwspMaxVciBits INTEGER,
+    cwspUniVersion INTEGER,
+    cwspNniVersion INTEGER,
+    cwspUniType INTEGER,
+    cwspSide INTEGER,
+    cwspMaxP2pCalls INTEGER,
+    cwspMaxP2mpRoots INTEGER,
+    cwspMaxP2mpLeafs INTEGER,
+    cwspMinSvccVpi INTEGER,
+    cwspMaxSvccVpi INTEGER,
+    cwspMinSvccVci INTEGER,
+    cwspMaxSvccVci INTEGER,
+    cwspMinSvpcVpi INTEGER,
+    cwspMaxSvpcVpi INTEGER,
+    cwspEnhancedIisp TruthValue,
+    cwspConfigTableRowStatus RowStatus,
+    cwspAddrPlanSupported INTEGER,
+    cwspIlmiSecureLink TruthValue,
+    cwspIlmiAttachmentPoint TruthValue,
+    cwspIlmiLocalAttrStd TruthValue,
+    cwspIlmiUCSMEnable TruthValue,
+    cwspRoutingPriority INTEGER,
+    cwspSpvcAddress CiscoWanNsapAtmAddress
+    }
+
+cwspAdminStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        inService(1),
+        outService(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The administrative status of the interface. 
+        inService (1) means that the interface is
+        operational while outService (2) indicates 
+        that the interface is put out of service by 
+        the administrator."
+    DEFVAL { outService }
+    ::= { cwspConfigEntry 1 }
+
+cwspOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        ok(1),
+        failed(2),
+        other(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The operational state of the interface. This status 
+        is derived from the physical state of the interface. 
+        failed (2) indicates that the interface has failed. 
+        ok (1) indicates that the interface is in
+        operational status, while other (3) denotes that  
+        the interface is in an unknown state."
+    ::= { cwspConfigEntry 2 }
+
+cwspSvcBlocked OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether Switches virtual connections are
+        allowed through this interface."
+    DEFVAL { false }
+    ::= { cwspConfigEntry 3 }
+
+cwspSpvcBlocked OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether soft permanent virtual 
+        connections are allowed through this interface."
+    DEFVAL { false }
+    ::= { cwspConfigEntry 4 }
+
+cwspIlmiAddrRegEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether ILMI address registration is 
+        enabled or disabled."
+    DEFVAL { true }
+    ::= { cwspConfigEntry 5 }
+
+cwspIlmiAutoConfEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether auto-configuration of the 
+        interface is turned on or off. If 
+        auto-configuration is enabled, then the interface
+        comes up using the ILMI auto-configuration."
+    DEFVAL { true }
+    ::= { cwspConfigEntry 6 }
+
+cwspIlmiServRegEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether service registry is 
+        enabled or disabled on the interface."
+    DEFVAL { true }
+    ::= { cwspConfigEntry 7 }
+
+cwspPhyIdentifier OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the physical identification of the interface.  
+        Mandatory when the port is provisioned for the 
+        first time through SNMP."
+    ::= { cwspConfigEntry 8 }
+
+cwspSignallingVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Denotes the Signaling VPI used on the interface."
+    DEFVAL { 0 }
+    ::= { cwspConfigEntry 9 }
+
+cwspSignallingVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the signaling VCI used on the 
+        interface, acceptable value is 32-65535,
+        and 5 being the default."
+    DEFVAL { 5 }
+    ::= { cwspConfigEntry 10 }
+
+cwspRoutingVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the VPI used for PNNI lowest level RCC."
+    DEFVAL { 0 }
+    ::= { cwspConfigEntry 11 }
+
+cwspRoutingVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the VCI used for the PNNI lowest 
+        level RCC, acceptable value is 32-65535, and 
+        18 being the default."
+    DEFVAL { 18 }
+    ::= { cwspConfigEntry 12 }
+
+cwspMaxVpiBits OBJECT-TYPE
+    SYNTAX INTEGER(0..12)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of active VPI bits on this 
+        ATM Interface. For virtual interfaces (i.e. Virtual 
+        Path Connections used by PNNI), this value has 
+        no meaning and is set to zero."
+    ::= { cwspConfigEntry 13 }
+
+cwspMaxVciBits OBJECT-TYPE
+    SYNTAX INTEGER(0..16)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of active VCI bits 
+        on this ATM Interface."
+    ::= { cwspConfigEntry 14 }
+
+cwspUniVersion OBJECT-TYPE
+    SYNTAX INTEGER {
+        uni20(1),
+        uni30(2),
+        uni31(3),
+        uni40(4),
+        ituDss2(5),
+        frf4(6),
+        unsupported(7),
+        ip(8),
+        self(9)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An indication of the latest version of the ATM Forum UNI
+        Signaling Specification that is supported on this ATM
+        Interface.  If this value is not present, a version of the
+        UNI earlier than 3.1 is supported.
+        
+        The value of 'self(9)' indicates this entry is a voice port.
+        
+        If the peer IME's value of this object is the same as, or
+        later than the local IME's value, then the version 
+        corresponding to the local IME's value should be attempted.   
+        Otherwise, if the peer IME's value of this object is earlier, 
+        and supported locally, then the local IME should attempt the
+        version corresponding to the peer IME's value. Otherwise,
+        compatibility of the two IMEs  cannot be assumed."
+    DEFVAL { unsupported }
+    ::= { cwspConfigEntry 15 }
+
+cwspNniVersion OBJECT-TYPE
+    SYNTAX INTEGER {
+        iisp30(1),
+        iisp31(2),
+        pnni10(3),
+        enni(4),
+        aini(5),
+        unsupported(7)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An indication of the latest version of the ATM Forum
+        PNNI Signaling Specification that is supported on this
+        ATM Interface. Note that the PNNI routing version is not
+        determined through ILMI.
+        If the peer IME's value of this object is the same as,
+        or later than the local IME's value, then the version
+        corresponding to the local IME's value should be
+        attempted.  Otherwise, if the peer IME's value of this
+        object is earlier, and supported locally, then the
+        local IME should attempt the version corresponding to
+        the peer IME's value.  Otherwise, compatibility of the
+        two IMEs cannot be assumed."
+    DEFVAL { unsupported }
+    ::= { cwspConfigEntry 16 }
+
+cwspUniType OBJECT-TYPE
+    SYNTAX INTEGER {
+        public(1),
+        private(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the ATM device, either public or private."
+    DEFVAL { private }
+    ::= { cwspConfigEntry 17 }
+
+cwspSide OBJECT-TYPE
+    SYNTAX INTEGER {
+        user(1),
+        network(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object determines the type of the ATM device. This
+        object is used in automatic ATM Interface-Type determination
+        procedure such that a correct operational ATM Interface-type
+        can be determined. An ATM End System shall take the value of
+        user(1), and an ATM network node shall take the value of 
+        node(2)."
+    DEFVAL { network }
+    ::= { cwspConfigEntry 18 }
+
+cwspMaxP2pCalls OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the maximum number of point to 
+        point calls (including VCs and VPs allowed 
+        on the interface."
+    DEFVAL { 10000 }
+    ::= { cwspConfigEntry 19 }
+
+cwspMaxP2mpRoots OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the maximum number of root VCs 
+        (for point-to-multipoint) allowed on the interface."
+    DEFVAL { 1000 }
+    ::= { cwspConfigEntry 20 }
+
+cwspMaxP2mpLeafs OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the maximum number of leaf VCs 
+        (for point-to-multipoint) allowed on the interface."
+    DEFVAL { 4095 }
+    ::= { cwspConfigEntry 21 }
+
+cwspMinSvccVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the minimum SVCC VPI configured on 
+        the interface."
+    DEFVAL { 0 }
+    ::= { cwspConfigEntry 22 }
+
+cwspMaxSvccVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the maximum SVCC VPI configured on 
+        the interface."
+    DEFVAL { 4095 }
+    ::= { cwspConfigEntry 23 }
+
+cwspMinSvccVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the minimum SVCC VCI configured on 
+        the interface."
+    DEFVAL { 35 }
+    ::= { cwspConfigEntry 24 }
+
+cwspMaxSvccVci OBJECT-TYPE
+    SYNTAX INTEGER(35..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the maximum SVCC VCI configured on 
+        the interface."
+    DEFVAL { 65535 }
+    ::= { cwspConfigEntry 25 }
+
+cwspMinSvpcVpi OBJECT-TYPE
+    SYNTAX INTEGER(1..4095)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the minimum SVPC VPI configured on 
+        the interface."
+    DEFVAL { 1 }
+    ::= { cwspConfigEntry 26 }
+
+cwspMaxSvpcVpi OBJECT-TYPE
+    SYNTAX INTEGER(1..4095)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the maximum SVPC VPI configured on 
+        the interface."
+    DEFVAL { 4095 }
+    ::= { cwspConfigEntry 27 }
+
+cwspEnhancedIisp OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the enhanced features for IISP 
+        are enabled or disabled."
+    DEFVAL { false }
+    ::= { cwspConfigEntry 28 }
+
+cwspConfigTableRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Used to create and delete the Interface. However, only
+        createAndGo, destroy, active and notInService are supported.
+        NMS should only use createAndGo to create a row and destroy to
+        delete a row. The managed device will either return active or
+        notInService for a row status."
+    ::= { cwspConfigEntry 29 }
+
+cwspAddrPlanSupported OBJECT-TYPE
+    SYNTAX INTEGER {
+        both(1),
+        aesa(2),
+        e164(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The ATM address plan supported on an interface. This can 
+         only be modified if interface is public UNI. For all other
+         interfaces, the value is aesa."
+    DEFVAL { aesa }
+    ::= { cwspConfigEntry 30 }
+
+cwspIlmiSecureLink OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether ILMI Secure Link Protocol is enabled or
+        disabled. When secure link protocol is enabled, loss in ILMI
+        connectivity is treated as loss of attachment point which 
+        results in all SVCs/SVPs being released on the interface."
+    DEFVAL { true }
+    ::= { cwspConfigEntry 31 }
+
+cwspIlmiAttachmentPoint OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether detection of loss of attachment 
+        procedures are enabled on this interface. When set 
+        to true, then standard ILMI procedures are employed 
+        to detect loss of attachment point. If set to false, 
+        then ILMI protocol on the interface does not detect 
+        the loss of attachment."
+    DEFVAL { true }
+    ::= { cwspConfigEntry 32 }
+
+cwspIlmiLocalAttrStd OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether on modification of local attributes, 
+        procedures as recommended by ILMI 4.0 specification 
+        are followed or cisco proprietery procedures are 
+        followed. When set to true, the standard ILMI procedures 
+        are followed."
+    DEFVAL { true }
+    ::= { cwspConfigEntry 33 }
+
+cwspIlmiUCSMEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether ILMI user connection status monitoring 
+        is enabled or disabled."
+    DEFVAL { true }
+    ::= { cwspConfigEntry 34 }
+
+cwspRoutingPriority OBJECT-TYPE
+    SYNTAX INTEGER(1..15)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is the routing priority to be assigned 
+        to connections which enter the network from this 
+        ingress interface, but does not carry the routing
+        priority signaling in the SETUP message. SETUP 
+        message. A default routing priority of 8 is used if 
+        this object is not configured. A routing priority 1 
+        is the highest priority for a user connection. 
+        A connection tagged with a routing priority of 1 
+        is derouted ahead of connections tagged with other 
+        priority values."
+    DEFVAL { 8 }
+    ::= { cwspConfigEntry 35 }
+
+cwspSpvcAddress OBJECT-TYPE
+    SYNTAX CiscoWanNsapAtmAddress
+--    Rsyntax OCTET STRING(SIZE(20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the internal NSAP assigned 
+        to a port by the switch. 
+           a) The format is that of 13-byte node prefix and
+              7-byte port number. 
+           b) When the switch's node prefix is modified,
+              the node prefix part of this variable is also
+              changed accordingly. Note: the switch's node
+              prefix cannot be changed if there are 
+              connections on the switch.
+           c) The port number can be physical port identifier
+              or the ifIndex of this port."
+    ::= { cwspConfigEntry 36 }
+
+cwspCallStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspCallStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This Table contains objects showing the Statistics for 
+        SVC/SPVC calls on a given interface."
+    ::= { cwspCallStats 1 }
+
+cwspCallStatsEntry OBJECT-TYPE
+    SYNTAX CwspCallStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry contains SVC/SPVC call statistics"
+    INDEX { ifIndex }
+    ::= { cwspCallStatsTable 1 }
+
+CwspCallStatsEntry ::= SEQUENCE {
+    cwspCountReset INTEGER,
+    cwspInCallAttempts Counter,
+    cwspInCallEstabs Counter,
+    cwspInCallFailures Counter,
+    cwspInFilterFailures Counter,
+    cwspInRouteFailures Counter,
+    cwspInResrcFailures Counter,
+    cwspInTimerFailures Counter,
+    cwspInCrankbacks Counter,
+    cwspOutCallAttempts Counter,
+    cwspOutCallEstabs Counter,
+    cwspOutCallFailures Counter,
+    cwspOutFilterFailures Counter,
+    cwspOutRouteFailures Counter,
+    cwspOutResrcFailures Counter,
+    cwspOutTimerFailures Counter,
+    cwspOutCrankbacks Counter
+    }
+
+cwspCountReset OBJECT-TYPE
+    SYNTAX INTEGER {
+        noop(1),
+        reset(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Writing a 2 to this object resets all counters."
+    DEFVAL { noop }
+    ::= { cwspCallStatsEntry 1 }
+
+cwspInCallAttempts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of incoming Signaling messages 
+        (Setup and Add Party) received by the switching node on this 
+        interface for Call establishment."
+    ::= { cwspCallStatsEntry 2 }
+
+cwspInCallEstabs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of incoming Signaling Messages 
+        (Connect and Add Party Ack) received by the switching node on 
+        this interface which marks that a call has been successfully 
+        established."
+    ::= { cwspCallStatsEntry 3 }
+
+cwspInCallFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the total number of incoming Point-to-Point
+        (p2p) and Point-to-MultiPoint(p2mp) SVC/SPVC call attempts 
+        failed on this interface."
+    ::= { cwspCallStatsEntry 4 }
+
+cwspInFilterFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of incoming Point-to-Point(p2p) 
+        and Point-to-MultiPoint(p2mp) SVC/SPVC call attempts which 
+        failed due to address filtering on this interface."
+    ::= { cwspCallStatsEntry 5 }
+
+cwspInRouteFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of incoming Point-to-Point(p2p) 
+        and Point-to-MulitPoint(p2mp) SVC/SPVC call attempts on this
+        interface which failed because there was no route to the 
+        destination available."
+    ::= { cwspCallStatsEntry 6 }
+
+cwspInResrcFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of incoming Point-to-Point(p2p) 
+        and Point-to-MulitPoint(p2mp) SVC/SPVC call attempts on this
+        interface which failed because there were not enough resources 
+        as requested in the parameters of the call."
+    ::= { cwspCallStatsEntry 7 }
+
+cwspInTimerFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of signaling timers timed out for
+        incoming Point-to-Point(p2p) and Point-to-MultiPoint(p2mp) 
+        SVC/SPVC calls on this interface."
+    ::= { cwspCallStatsEntry 8 }
+
+cwspInCrankbacks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of Crankback IEs received on this
+        interface for incoming Point-to-Point(p2p) and 
+        Point-to-MultiPoint (p2mp) SVC/SPVC call attempts."
+    ::= { cwspCallStatsEntry 9 }
+
+cwspOutCallAttempts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of outgoing Signaling messages
+        (Setup and Add Party) on this interface for Call
+        establishment."
+    ::= { cwspCallStatsEntry 10 }
+
+cwspOutCallEstabs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of outgoing Signaling messages
+        (Connect and Add Party Ack) which mark the call being
+        established on this interface"
+    ::= { cwspCallStatsEntry 11 }
+
+cwspOutCallFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the total number of outgoing Signaling 
+        messages for Point-to-Point and Point-to-MultiPoint call 
+        establishment on this interface which failed."
+    ::= { cwspCallStatsEntry 12 }
+
+cwspOutFilterFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of outgoing Signaling messages
+        for call establishment on this interface which failed the 
+        address filtering."
+    ::= { cwspCallStatsEntry 13 }
+
+cwspOutRouteFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of outgoing Signaling messages
+        for call establishment on this interface which failed because
+        the route was not available."
+    ::= { cwspCallStatsEntry 14 }
+
+cwspOutResrcFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of outgoing Signaling messages
+        for call establishment on this interface which failed because
+        the resource requested was not available."
+    ::= { cwspCallStatsEntry 15 }
+
+cwspOutTimerFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of Signaling timers timed-out on
+        this interface for outgoing signaling messages."
+    ::= { cwspCallStatsEntry 16 }
+
+cwspOutCrankbacks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the number of Crankback IEs being sent on
+        this interface for outgoing signaling Release messages. This 
+        is generated on the node which generates the Crankback
+        IEs."
+    ::= { cwspCallStatsEntry 17 }
+
+cwspPrefixTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspPrefixEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table specifying the network prefix(es)
+         used for ILMI address registration."
+    ::= { cwspPrefix 1 }
+
+cwspPrefixEntry OBJECT-TYPE
+    SYNTAX CwspPrefixEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about a single network prefix contained
+        in the prefix table."
+    INDEX { ifIndex, cwspNetPrefix }
+    ::= { cwspPrefixTable 1 }
+
+CwspPrefixEntry ::= SEQUENCE {
+    cwspNetPrefix NetPrefix,
+    cwspPrefixRowStatus RowStatus
+    }
+
+cwspNetPrefix OBJECT-TYPE
+    SYNTAX NetPrefix
+--    Rsyntax OCTET STRING(SIZE(8|13))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The network prefix specified for use in ILMI address
+        registration."
+    ::= { cwspPrefixEntry 1 }
+
+cwspPrefixRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Used to create, delete, activate and de-activate
+        network prefixes used in ILMI address registration."
+    ::= { cwspPrefixEntry 2 }
+
+cwspAddressTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Interface ATM Address Table. This table contains all the
+        attributes necessary to determine what the PNNI entity believes
+        is reachable in terms of ATM End System Addresses and to
+        determine which nodes are advertising this reachability. This
+        table is also used to configure static routes to reachable
+        addresses.  Entries in this table can be created/deleted by
+        setting the intfAddressRowStatus object to appropriate values.
+        Existing entries in this table cannot be modified. Entries in 
+        this table can also be created/deleted through the command 
+        provided by the CLI."
+    ::= { cwspAddress 1 }
+
+cwspAddressEntry OBJECT-TYPE
+    SYNTAX CwspAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing information about a
+        reachable address."
+    INDEX { ifIndex, cwspAtmAddress, cwspAddrLen }
+    ::= { cwspAddressTable 1 }
+
+CwspAddressEntry ::= SEQUENCE {
+    cwspAtmAddress AtmAddress,
+    cwspAddrLen INTEGER,
+    cwspAddrType INTEGER,
+    cwspAddrProto INTEGER,
+    cwspAddrPlan INTEGER,
+    cwspAddrScope INTEGER,
+    cwspAddrRedistribute TruthValue,
+    cwspAddressRowStatus RowStatus
+    }
+
+cwspAtmAddress OBJECT-TYPE
+    SYNTAX AtmAddress
+--    Rsyntax OCTET STRING(SIZE(8|20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the ATM End System Address."
+    ::= { cwspAddressEntry 1 }
+
+cwspAddrLen OBJECT-TYPE
+    SYNTAX INTEGER(0..160)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The address length in bits to be applied to the ATM End 
+         System Address."
+    ::= { cwspAddressEntry 2 }
+
+cwspAddrType OBJECT-TYPE
+    SYNTAX INTEGER {
+        internal(1),
+        exterior(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of reachability from the advertising node to the
+        address. This variable indicates either this ATM address
+        ('internal') is a reachable ATM destination that is directly
+        attached to the logical node advertising this address or an 
+        ATM address('exterior') that can be reached through a PNNI 
+        routing domain but which is not located in that routing 
+        domain."
+    REFERENCE
+        "ATM Forum PNNI 1.0 Section 5.8.1.3"
+    DEFVAL { exterior }
+    ::= { cwspAddressEntry 3 }
+
+cwspAddrProto OBJECT-TYPE
+    SYNTAX INTEGER {
+        local(1),
+        static(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The routing mechanism via which the connectivity from the
+        advertising node to the reachable address was learned. A 
+        'local' address indicates this address is automatically
+        advertised. A 'static' address is not automatically
+        advertised. By setting 'cwspAddrRedistribute' variable
+        (see below) to 'true' will force a 'static' address
+        to be advertised."
+    DEFVAL { local }
+    ::= { cwspAddressEntry 4 }
+
+cwspAddrPlan OBJECT-TYPE
+    SYNTAX INTEGER {
+        e164(1),
+        nsap(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The address plan. For NSAP address, the first byte of the 
+        address automatically implies one of the three NSAP address 
+        plans: NSAP E.164, NSAP DCC or NSAP ICD."
+    DEFVAL { nsap }
+    ::= { cwspAddressEntry 5 }
+
+cwspAddrScope OBJECT-TYPE
+    SYNTAX INTEGER(0..104)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The PNNI scope of advertisement (i.e. level of PNNI hierarchy)
+        of the reachability from the advertising node to the address."
+    DEFVAL { 0 }
+    ::= { cwspAddressEntry 6 }
+
+cwspAddrRedistribute OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Whether or not the reachable address specified by this entry 
+        is to be advertised by the local node into its PNNI routing 
+        domain. This object is only meaningful if the routing mechanism
+        (cwspAddrProto) is static."
+    DEFVAL { false }
+    ::= { cwspAddressEntry 7 }
+
+cwspAddressRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "To create or delete a reachable address. Note that 
+        NMS should use CreateAndGo to create a row and Destroy
+        to delete a row. The managed device will return 
+        active or notInService as row status."
+    ::= { cwspAddressEntry 8 }
+
+cwspRegAddressTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspRegAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains a list of ATM addresses that can
+        be used for calls to and from a given interface by a
+        switch or service.  The ATM addresses are registered by
+        the endsystem via ILMI.  ILMI registered addresses
+        cannot be deleted using this table. This table only
+        applies to switches and network services."
+    ::= { cwspRegAddress 1 }
+
+cwspRegAddressEntry OBJECT-TYPE
+    SYNTAX CwspRegAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the ATM Interface Registered Address
+        table."
+    INDEX { ifIndex, cwspRegAtmAddress }
+    ::= { cwspRegAddressTable 1 }
+
+CwspRegAddressEntry ::= SEQUENCE {
+    cwspRegAtmAddress AtmAddress,
+    cwspRegAddressOrgSscope INTEGER
+    }
+
+cwspRegAtmAddress OBJECT-TYPE
+    SYNTAX AtmAddress
+--    Rsyntax OCTET STRING(SIZE(8|20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An address registered for a given switch or service
+        interface."
+    ::= { cwspRegAddressEntry 1 }
+
+cwspRegAddressOrgSscope OBJECT-TYPE
+    SYNTAX INTEGER {
+        localNetwork(1),
+        global(15)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the organizational scope for
+        the referenced address.  The information of the
+        referenced address shall not be distributed outside
+        the indicated scope.
+        
+        The default values for organizational scope are
+        localNetwork(1) for ATM group addresses, and
+        global(15) for individual addresses."
+    DEFVAL { global }
+    ::= { cwspRegAddressEntry 2 }
+
+cwspCacConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspCacConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table specifying the CAC(Connection Admission Control)
+        information for each interface."
+    ::= { cwspCacConfig 1 }
+
+cwspCacConfigEntry OBJECT-TYPE
+    SYNTAX CwspCacConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry contains CAC information."
+    INDEX { ifIndex }
+    ::= { cwspCacConfigTable 1 }
+
+CwspCacConfigEntry ::= SEQUENCE {
+    cwspUtilFactorCbr INTEGER,
+    cwspUtilFactorRtVbr INTEGER,
+    cwspUtilFactorNrtVbr INTEGER,
+    cwspUtilFactorAbr INTEGER,
+    cwspUtilFactorUbr INTEGER,
+    cwspMaxBwCbr INTEGER,
+    cwspMaxBwRtVbr INTEGER,
+    cwspMaxBwNrtVbr INTEGER,
+    cwspMaxBwAbr INTEGER,
+    cwspMaxBwUbr INTEGER,
+    cwspMinBwCbr INTEGER,
+    cwspMinBwRtVbr INTEGER,
+    cwspMinBwNrtVbr INTEGER,
+    cwspMinBwAbr INTEGER,
+    cwspMinBwUbr INTEGER,
+    cwspMaxVcCbr INTEGER,
+    cwspMaxVcRtVbr INTEGER,
+    cwspMaxVcNrtVbr INTEGER,
+    cwspMaxVcAbr INTEGER,
+    cwspMaxVcUbr INTEGER,
+    cwspMinVcCbr INTEGER,
+    cwspMinVcRtVbr INTEGER,
+    cwspMinVcNrtVbr INTEGER,
+    cwspMinVcAbr INTEGER,
+    cwspMinVcUbr INTEGER,
+    cwspMaxVcBwCbr INTEGER,
+    cwspMaxVcBwRtVbr INTEGER,
+    cwspMaxVcBwNrtVbr INTEGER,
+    cwspMaxVcBwAbr INTEGER,
+    cwspMaxVcBwUbr INTEGER,
+    cwspDefaultCdvtCbr INTEGER,
+    cwspDefaultCdvtRtVbr INTEGER,
+    cwspDefaultCdvtNrtVbr INTEGER,
+    cwspDefaultCdvtAbr INTEGER,
+    cwspDefaultCdvtUbr INTEGER,
+    cwspDefaultMbsRtVbr INTEGER,
+    cwspDefaultMbsNrtVbr INTEGER
+    }
+
+cwspUtilFactorCbr OBJECT-TYPE
+    SYNTAX INTEGER(1..200)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the booking factor for CBR service."
+    DEFVAL { 100 }
+    ::= { cwspCacConfigEntry 1 }
+
+cwspUtilFactorRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(1..200)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the booking factor for real time VBR service"
+    DEFVAL { 100 }
+    ::= { cwspCacConfigEntry 2 }
+
+cwspUtilFactorNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(1..200)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the booking factor for non-real time VBR service "
+    DEFVAL { 100 }
+    ::= { cwspCacConfigEntry 3 }
+
+cwspUtilFactorAbr OBJECT-TYPE
+    SYNTAX INTEGER(1..200)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the booking factor for ABR service"
+    DEFVAL { 100 }
+    ::= { cwspCacConfigEntry 4 }
+
+cwspUtilFactorUbr OBJECT-TYPE
+    SYNTAX INTEGER(1..200)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the booking factor for UBR service."
+    DEFVAL { 100 }
+    ::= { cwspCacConfigEntry 5 }
+
+cwspMaxBwCbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum bandwidth for CBR service in percentage.
+        
+        The value of this variable is interpreted in the format of
+        xxx.xxxx. For example a value of 750000 is interpreted
+        as 75.0000%."
+    DEFVAL { 1000000 }
+    ::= { cwspCacConfigEntry 6 }
+
+cwspMaxBwRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum bandwidth for real time VBR service in 
+        percentage.
+        
+        The value of this variable is interpreted in the format of
+        xxx.xxxx. For example a value of 750000 is interpreted 
+        as 75.0000%."
+    DEFVAL { 1000000 }
+    ::= { cwspCacConfigEntry 7 }
+
+cwspMaxBwNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum bandwidth for non-real time VBR service 
+        in percentage.
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For  example a value of 750000 is interpreted
+        as 75.0000%."
+    DEFVAL { 1000000 }
+    ::= { cwspCacConfigEntry 8 }
+
+cwspMaxBwAbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum bandwidth for ABR service in percentage.
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted 
+        as 75.0000%."
+    DEFVAL { 1000000 }
+    ::= { cwspCacConfigEntry 9 }
+
+cwspMaxBwUbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum bandwidth for UBR service in percentage.
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted
+        as 75.0000%."
+    DEFVAL { 1000000 }
+    ::= { cwspCacConfigEntry 10 }
+
+cwspMinBwCbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the minimum bandwidth for CBR service in percentage.
+        The total values of cwspMinBwCbr, cwspMinBwRtVbr, 
+        cwspMinBwNrtVbr,  cwspMinBwAbr and cwspMinBwUbr can not exceed
+        1000000, i.e. 100%.
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted 
+        as 75.0000%."
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 11 }
+
+cwspMinBwRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the minimum bandwidth for real time VBR service in 
+        percentage. The total values of cwspMinBwCbr, cwspMinBwRtVbr, 
+        cwspMinBwNrtVbr, cwspMinBwAbr and cwspMinBwUbr can not exceed 
+        1000000, i.e. 100%.
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted 
+        as 75.0000%."
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 12 }
+
+cwspMinBwNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the minimum bandwidth for non-real time VBR service 
+        in percentage.
+        The total values of cwspMinBwCbr, cwspMinBwRtVbr, 
+        cwspMinBwNrtVbr, cwspMinBwAbr and cwspMinBwUbr can not exceed 
+        1000000, i.e. 100%.
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted
+        as 75.0000%."
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 13 }
+
+cwspMinBwAbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the minimum bandwidth for ABR service in percentage.
+        The total values of cwspMinBwCbr, cwspMinBwRtVbr, 
+        cwspMinBwNrtVbr, cwspMinBwAbr and cwspMinBwUbr can not exceed 
+        1000000, i.e. 100%.
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted 
+        as 75.0000%."
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 14 }
+
+cwspMinBwUbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the minimum bandwidth for UBR service in percentage. 
+        The value  for this variable is always 0."
+    ::= { cwspCacConfigEntry 15 }
+
+cwspMaxVcCbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum number of VCs for CBR service in 
+        percentage.
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted
+        as 75.0000%. "
+    DEFVAL { 1000000 }
+    ::= { cwspCacConfigEntry 16 }
+
+cwspMaxVcRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum number of VCs for real time VBR service 
+        in percentage.
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For  example a value of 750000 is interpreted
+        as 75.0000%."
+    DEFVAL { 1000000 }
+    ::= { cwspCacConfigEntry 17 }
+
+cwspMaxVcNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum number of VCs for non-real time VBR 
+        service in percentage.
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted
+        as 75.0000%."
+    DEFVAL { 1000000 }
+    ::= { cwspCacConfigEntry 18 }
+
+cwspMaxVcAbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum number of VCs for ABR service in 
+        percentage.
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted
+        as 75.0000%. "
+    DEFVAL { 1000000 }
+    ::= { cwspCacConfigEntry 19 }
+
+cwspMaxVcUbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum number of VCs for UBR service in 
+        percentage.
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted
+        as 75.0000%."
+    DEFVAL { 1000000 }
+    ::= { cwspCacConfigEntry 20 }
+
+cwspMinVcCbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the minimum number of VCs for CBR service in 
+        percentage.
+        
+        The values of cwspMinVcCbr, cwspMinVcRtVbr, 
+        cwspMinVcNrtVbr, cwspMinVcAbr and cwspMinVcUbr can not exceed 
+        1000000, i.e. 100%.
+        
+        This variable is interpreted in the format of xxx.xxxx. For
+        example a value of 750000 is interpreted as 75.0000%."
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 21 }
+
+cwspMinVcRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the minimum number of VCs for real time VBR service 
+        in percentage.
+        
+        The values of cwspMinVcCbr, cwspMinVcRtVbr, 
+        cwspMinVcNrtVbr, cwspMinVcAbr and cwspMinVcUbr can not exceed 
+        1000000, i.e. 100%.
+        
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted 
+        as 75.0000%."
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 22 }
+
+cwspMinVcNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the minimum number of VCs for non-real time VBR 
+        service in percentage.
+        
+        The values of cwspMinVcCbr, cwspMinVcRtVbr, 
+        cwspMinVcNrtVbr,cwspMinVcAbr and cwspMinVcUbr can not exceed
+        1000000, i.e. 100%.
+        
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted 
+        as 75.0000%."
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 23 }
+
+cwspMinVcAbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the minimum number of VCs for ABR service in 
+        percentage.
+        
+        The values of cwspMinVcCbr, cwspMinVcRtVbr, 
+        cwspMinVcNrtVbr, cwspMinVcAbr and cwspMinVcUbr can not exceed 
+        1000000, i.e. 100%.
+        
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted
+        as 75.0000%."
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 24 }
+
+cwspMinVcUbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the minimum number of VCs for UBR service in 
+        percentage.
+        
+        The values of cwspMinVcCbr, cwspMinVcRtVbr, 
+        cwspMinVcNrtVbr, cwspMinVcAbr and cwspMinVcUbr can not exceed 
+        1000000, i.e. 100%.
+        
+        The value of this variable is interpreted in the format of 
+        xxx.xxxx. For example a value of 750000 is interpreted
+        as 75.0000%."
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 25 }
+
+cwspMaxVcBwCbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum bandwidth allowed for a VC for real time 
+        CBR service.
+        
+        The value is in the unit of cells per second."
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 26 }
+
+cwspMaxVcBwRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum bandwidth allowed for a VC for real time 
+        VBR service.
+        
+        The value is in the unit of cells per second."
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 27 }
+
+cwspMaxVcBwNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum bandwidth allowed for a VC for non-real 
+        time VBR service.
+        
+        The value is in the unit of cells per second."
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 28 }
+
+cwspMaxVcBwAbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum bandwidth allowed for a VC for ABR 
+        service.
+        
+        The value is in the unit of cells per second. "
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 29 }
+
+cwspMaxVcBwUbr OBJECT-TYPE
+    SYNTAX INTEGER(0..1000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the maximum bandwidth allowed for UBR service.
+        
+        The value is in the unit of cells per second."
+    DEFVAL { 0 }
+    ::= { cwspCacConfigEntry 30 }
+
+cwspDefaultCdvtCbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the default CDVT for CBR service."
+    DEFVAL { 1024 }
+    ::= { cwspCacConfigEntry 31 }
+
+cwspDefaultCdvtRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the default CDVT real time VBR service."
+    DEFVAL { 1024 }
+    ::= { cwspCacConfigEntry 32 }
+
+cwspDefaultCdvtNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the default CDVT non-real time VBR service."
+    DEFVAL { 1024 }
+    ::= { cwspCacConfigEntry 33 }
+
+cwspDefaultCdvtAbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the default CDVT for ABR service."
+    DEFVAL { 1024 }
+    ::= { cwspCacConfigEntry 34 }
+
+cwspDefaultCdvtUbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the default CDVT for UBR service."
+    DEFVAL { 1024 }
+    ::= { cwspCacConfigEntry 35 }
+
+cwspDefaultMbsRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the default MBS real time VBR service."
+    DEFVAL { 1024 }
+    ::= { cwspCacConfigEntry 36 }
+
+cwspDefaultMbsNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This is the default MBS non-real time VBR service."
+    DEFVAL { 1024 }
+    ::= { cwspCacConfigEntry 37 }
+
+cwspLoadTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspLoadEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table specifying the load information for each
+        interface."
+    ::= { cwspLoad 1 }
+
+cwspLoadEntry OBJECT-TYPE
+    SYNTAX CwspLoadEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry contains the load information."
+    INDEX { ifIndex }
+    ::= { cwspLoadTable 1 }
+
+CwspLoadEntry ::= SEQUENCE {
+    cwspLoadBwTotal INTEGER,
+    cwspLoadMaxBwCbr INTEGER,
+    cwspLoadMaxBwRtVbr INTEGER,
+    cwspLoadMaxBwNrtVbr INTEGER,
+    cwspLoadMaxBwAbr INTEGER,
+    cwspLoadMaxBwUbr INTEGER,
+    cwspLoadBwAvail INTEGER,
+    cwspLoadAvlBwCbr INTEGER,
+    cwspLoadAvlBwRtVbr INTEGER,
+    cwspLoadAvlBwNrtVbr INTEGER,
+    cwspLoadAvlBwAbr INTEGER,
+    cwspLoadAvlBwUbr INTEGER,
+    cwspLoadVcAvail INTEGER,
+    cwspLoadAvlVcCbr INTEGER,
+    cwspLoadAvlVcRtVbr INTEGER,
+    cwspLoadAvlVcNrtVbr INTEGER,
+    cwspLoadAvlVcAbr INTEGER,
+    cwspLoadAvlVcUbr INTEGER,
+    cwspLoadCtdCbr INTEGER,
+    cwspLoadCtdRtVbr INTEGER,
+    cwspLoadCtdNrtVbr INTEGER,
+    cwspLoadCtdAbr INTEGER,
+    cwspLoadCtdUbr INTEGER,
+    cwspLoadCdvCbr INTEGER,
+    cwspLoadCdvRtVbr INTEGER,
+    cwspLoadCdvNrtVbr INTEGER,
+    cwspLoadCdvAbr INTEGER,
+    cwspLoadCdvUbr INTEGER,
+    cwspLoadClr0Cbr INTEGER,
+    cwspLoadClr0RtVbr INTEGER,
+    cwspLoadClr0NrtVbr INTEGER,
+    cwspLoadClr0Abr INTEGER,
+    cwspLoadClr0Ubr INTEGER,
+    cwspLoadClr01Cbr INTEGER,
+    cwspLoadClr01RtVbr INTEGER,
+    cwspLoadClr01NrtVbr INTEGER,
+    cwspLoadClr01Abr INTEGER,
+    cwspLoadClr01Ubr INTEGER,
+    cwspLoadMinGurCrCbr INTEGER,
+    cwspLoadMinGurCrRtVbr INTEGER,
+    cwspLoadMinGurCrNrtVbr INTEGER,
+    cwspLoadMinGurCrAbr INTEGER,
+    cwspLoadMinGurCrUbr INTEGER
+    }
+
+cwspLoadBwTotal OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total bandwidth of the interface."
+    ::= { cwspLoadEntry 1 }
+
+cwspLoadMaxBwCbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Maximum bandwith for CBR service."
+    ::= { cwspLoadEntry 2 }
+
+cwspLoadMaxBwRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum bandwith for real time VBR service."
+    ::= { cwspLoadEntry 3 }
+
+cwspLoadMaxBwNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum bandwith for non-real time VBR service."
+    ::= { cwspLoadEntry 4 }
+
+cwspLoadMaxBwAbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum bandwith for ABR service."
+    ::= { cwspLoadEntry 5 }
+
+cwspLoadMaxBwUbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The maximum bandwith for UBR service."
+    ::= { cwspLoadEntry 6 }
+
+cwspLoadBwAvail OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total available bandwidth of the interface."
+    ::= { cwspLoadEntry 7 }
+
+cwspLoadAvlBwCbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The available bandwith for CBR service."
+    ::= { cwspLoadEntry 8 }
+
+cwspLoadAvlBwRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The available bandwith for real time VBR service."
+    ::= { cwspLoadEntry 9 }
+
+cwspLoadAvlBwNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The available bandwith for non-real time VBR service."
+    ::= { cwspLoadEntry 10 }
+
+cwspLoadAvlBwAbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The available bandwith for ABR service."
+    ::= { cwspLoadEntry 11 }
+
+cwspLoadAvlBwUbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The available bandwith for UBR service."
+    ::= { cwspLoadEntry 12 }
+
+cwspLoadVcAvail OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of available VCs of the interface."
+    ::= { cwspLoadEntry 13 }
+
+cwspLoadAvlVcCbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of VCs used by CBR service."
+    ::= { cwspLoadEntry 14 }
+
+cwspLoadAvlVcRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of VCs used by real time VBR service."
+    ::= { cwspLoadEntry 15 }
+
+cwspLoadAvlVcNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of VCs used by non-real time VBR service."
+    ::= { cwspLoadEntry 16 }
+
+cwspLoadAvlVcAbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of VCs used by ABR service."
+    ::= { cwspLoadEntry 17 }
+
+cwspLoadAvlVcUbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The number of VCs used by UBR service."
+    ::= { cwspLoadEntry 18 }
+
+cwspLoadCtdCbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The cell transfer delay of CBR service."
+    ::= { cwspLoadEntry 19 }
+
+cwspLoadCtdRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cell transfer delay of real time VBR service."
+    ::= { cwspLoadEntry 20 }
+
+cwspLoadCtdNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cell transfer delay of non-real time VBR service."
+    ::= { cwspLoadEntry 21 }
+
+cwspLoadCtdAbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cell transfer delay of ABR service."
+    ::= { cwspLoadEntry 22 }
+
+cwspLoadCtdUbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The cell transfer delay of UBR service."
+    ::= { cwspLoadEntry 23 }
+
+cwspLoadCdvCbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The cell delay variation of CBR service."
+    ::= { cwspLoadEntry 24 }
+
+cwspLoadCdvRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cell delay variation of real time VBR service."
+    ::= { cwspLoadEntry 25 }
+
+cwspLoadCdvNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cell delay variation of non-real time VBR service."
+    ::= { cwspLoadEntry 26 }
+
+cwspLoadCdvAbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cell delay variation of ABR service."
+    ::= { cwspLoadEntry 27 }
+
+cwspLoadCdvUbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The cell delay variation of UBR service."
+    ::= { cwspLoadEntry 28 }
+
+cwspLoadClr0Cbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The cell loss ratio-0 of CBR service, -1 implies N/A."
+    ::= { cwspLoadEntry 29 }
+
+cwspLoadClr0RtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cell loss ratio-0 of real time VBR service, -1 implies 
+        N/A."
+    ::= { cwspLoadEntry 30 }
+
+cwspLoadClr0NrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cell loss ratio-0 of non-real time VBR service, -1 
+        implies N/A."
+    ::= { cwspLoadEntry 31 }
+
+cwspLoadClr0Abr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cell loss ratio-0 of ABR service, -1 implies N/A."
+    ::= { cwspLoadEntry 32 }
+
+cwspLoadClr0Ubr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The cell loss ratio-0 of UBR service, -1 implies N/A."
+    ::= { cwspLoadEntry 33 }
+
+cwspLoadClr01Cbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The cell loss ratio-1 of CBR service, -1 implies N/A."
+    ::= { cwspLoadEntry 34 }
+
+cwspLoadClr01RtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cell loss ratio-1 of real time VBR service, -1 implies 
+        N/A."
+    ::= { cwspLoadEntry 35 }
+
+cwspLoadClr01NrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cell loss ratio-1 of non-real time VBR service, -1 
+        implies N/A."
+    ::= { cwspLoadEntry 36 }
+
+cwspLoadClr01Abr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cell loss ratio-1 of ABR service, -1 implies N/A."
+    ::= { cwspLoadEntry 37 }
+
+cwspLoadClr01Ubr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The cell loss ratio-1 of UBR service, -1 implies N/A."
+    ::= { cwspLoadEntry 38 }
+
+cwspLoadMinGurCrCbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        " The minimum guaranteed cell rate capacity of CBR
+        service."
+    ::= { cwspLoadEntry 39 }
+
+cwspLoadMinGurCrRtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum guaranteed cell rate capacity of real time VBR
+        service."
+    ::= { cwspLoadEntry 40 }
+
+cwspLoadMinGurCrNrtVbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum guaranteed cell rate capacity of non-real time 
+        VBR service."
+    ::= { cwspLoadEntry 41 }
+
+cwspLoadMinGurCrAbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum guaranteed cell rate capacity of ABR
+        service."
+    ::= { cwspLoadEntry 42 }
+
+cwspLoadMinGurCrUbr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum guaranteed cell rate capacity of UBR
+        service."
+    ::= { cwspLoadEntry 43 }
+
+cwspCallTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspCallEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This Table contains the objects which show parameters 
+        associated with a Point-to-Point(p2p) or Point-to-MultiPoint 
+        (p2mp) SVC/SPVC call."
+    ::= { cwspCall 1 }
+
+cwspCallEntry OBJECT-TYPE
+    SYNTAX CwspCallEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the multiple key index to get the Call
+        record information. The key comprise of Interface Index,
+        VPI/VCI value and Call Reference Value for the call."
+    INDEX { ifIndex, cwspCallVpi, cwspCallVci, cwspCallLeafReference }
+    ::= { cwspCallTable 1 }
+
+CwspCallEntry ::= SEQUENCE {
+    cwspCallVpi INTEGER,
+    cwspCallVci INTEGER,
+    cwspCallLeafReference INTEGER,
+    cwspCallCallRef INTEGER,
+    cwspCallCallingAddress AtmAddress,
+    cwspCallCalledAddress AtmAddress,
+    cwspCallCallingSubAddr AtmAddress,
+    cwspCallCalledSubAddr AtmAddress,
+    cwspCallOtherIntfIndex INTEGER,
+    cwspCallOtherIntfVpi INTEGER,
+    cwspCallOtherIntfVci INTEGER,
+    cwspCallOtherIntfCallRef INTEGER,
+    cwspCallType INTEGER,
+    cwspCallStartTime TimeStamp,
+    cwspCallBearerClass INTEGER,
+    cwspCallServiceCategory INTEGER,
+    cwspCallCastType INTEGER,
+    cwspCallClipSusceptibility INTEGER,
+    cwspCallFwdConformance INTEGER,
+    cwspCallFwdPcr INTEGER,
+    cwspCallFwdScr INTEGER,
+    cwspCallFwdMbs INTEGER,
+    cwspCallFwdCdvt INTEGER,
+    cwspCallFwdFrameDiscard INTEGER,
+    cwspCallBwdConformance INTEGER,
+    cwspCallBwdPcr INTEGER,
+    cwspCallBwdScr INTEGER,
+    cwspCallBwdMbs INTEGER,
+    cwspCallBwdCdvt INTEGER,
+    cwspCallBwdFrameDiscard INTEGER,
+    cwspCallMaxCtd INTEGER,
+    cwspCallMaxFwdCdv INTEGER,
+    cwspCallMaxFwdClr INTEGER,
+    cwspCallMaxBwdCdv INTEGER,
+    cwspCallMaxBwdClr INTEGER
+    }
+
+cwspCallVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the VPI value of the call on this 
+        interface."
+    ::= { cwspCallEntry 1 }
+
+cwspCallVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows The VCI value of the call on this interface.
+         The value should be in the range of 32-65535 (0=SPVP)."
+    ::= { cwspCallEntry 2 }
+
+cwspCallLeafReference OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the value of the Leaf Reference
+         (EndPointReference) of the Call on this interface."
+    ::= { cwspCallEntry 3 }
+
+cwspCallCallRef OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Call Reference value of the call on 
+         this interface."
+    ::= { cwspCallEntry 4 }
+
+cwspCallCallingAddress OBJECT-TYPE
+    SYNTAX AtmAddress
+--    Rsyntax OCTET STRING(SIZE(8|20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Calling Party Address of the call."
+    ::= { cwspCallEntry 5 }
+
+cwspCallCalledAddress OBJECT-TYPE
+    SYNTAX AtmAddress
+--    Rsyntax OCTET STRING(SIZE(8|20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Called Party Address of the call."
+    ::= { cwspCallEntry 6 }
+
+cwspCallCallingSubAddr OBJECT-TYPE
+    SYNTAX AtmAddress
+--    Rsyntax OCTET STRING(SIZE(8|20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Calling Party Subaddress of the
+        call."
+    ::= { cwspCallEntry 7 }
+
+cwspCallCalledSubAddr OBJECT-TYPE
+    SYNTAX AtmAddress
+--    Rsyntax OCTET STRING(SIZE(8|20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Called Party Subaddress of the
+        call."
+    ::= { cwspCallEntry 8 }
+
+cwspCallOtherIntfIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Other Interface of the call. Generally,
+         this would be the outgoing/egress interface for the call."
+    ::= { cwspCallEntry 9 }
+
+cwspCallOtherIntfVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the VPI of the call on the partner 
+        interface."
+    ::= { cwspCallEntry 10 }
+
+cwspCallOtherIntfVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows The VCI of the call on the partner o
+        interface.
+        The value should be in the range of 32-65535 (0=SPVP)."
+    ::= { cwspCallEntry 11 }
+
+cwspCallOtherIntfCallRef OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Call Reference of the call on the 
+        partner interface."
+    ::= { cwspCallEntry 12 }
+
+cwspCallType OBJECT-TYPE
+    SYNTAX INTEGER {
+        svc(1),
+        spvc(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Call Type for the call on this 
+        interface.
+        The call type could be SVC or SPVC."
+    ::= { cwspCallEntry 13 }
+
+cwspCallStartTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the start time of the call. This is the
+         timestamp when the Setup Message (or Add Party Message) was
+         first received on this interface."
+    ::= { cwspCallEntry 14 }
+
+cwspCallBearerClass OBJECT-TYPE
+    SYNTAX INTEGER {
+        bcobA(1),
+        bcobC(2),
+        bcobX(3),
+        vp(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Bearer Class of the Call. It could be
+        BcobA, BcobC, BcobX or VP Service"
+    ::= { cwspCallEntry 15 }
+
+cwspCallServiceCategory OBJECT-TYPE
+    SYNTAX INTEGER {
+        cbr(1),
+        rtVbr(2),
+        nrtVbr(3),
+        abr(4),
+        ubr(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the service category of the call, which can
+        be CBR, rtVBR, nrtVBR, ABR or UBR"
+    ::= { cwspCallEntry 16 }
+
+cwspCallCastType OBJECT-TYPE
+    SYNTAX INTEGER {
+        p2p(1),
+        p2mp(2),
+        mp2p(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Cast Type of the call, which can be a 
+        Point-to-Point (p2p), Point-to-MultiPoint (p2mp) or 
+        MultiPoint-to-Point (mp2p) call."
+    ::= { cwspCallEntry 17 }
+
+cwspCallClipSusceptibility OBJECT-TYPE
+    SYNTAX INTEGER {
+        yes(1),
+        no(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows Susceptibility to Clipping. It can be
+        susceptible or not susceptible."
+    ::= { cwspCallEntry 18 }
+
+cwspCallFwdConformance OBJECT-TYPE
+    SYNTAX INTEGER {
+        cbr1(1),
+        cbr2(2),
+        cbr3(3),
+        vbr1(4),
+        vbr2(5),
+        vbr3(6),
+        abr(7),
+        ubr1(8),
+        ubr2(9)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the conformance of the call to the traffic
+         sets in the forward direction. It can be CBR.1, CBR.2, CBR.3,
+         VBR.1 VBR.2, VBR.3, ABR, UBR.1 or UBR.2. This is as defined in
+         ATMF Traffic Management 4.0 specification."
+    ::= { cwspCallEntry 19 }
+
+cwspCallFwdPcr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Peak Cell Rate(pcr) in the forward 
+         direction of the call."
+    ::= { cwspCallEntry 20 }
+
+cwspCallFwdScr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Sustainable Cell Rate(scr) in the 
+        forward  direction of the call."
+    ::= { cwspCallEntry 21 }
+
+cwspCallFwdMbs OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Maximum Burst Size(mbs) of the call 
+        in the forward direction."
+    ::= { cwspCallEntry 22 }
+
+cwspCallFwdCdvt OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Cell Delay Variation Tolerance(cdvt) 
+        in the forward direction for the call, for PCR and SCR."
+    ::= { cwspCallEntry 23 }
+
+cwspCallFwdFrameDiscard OBJECT-TYPE
+    SYNTAX INTEGER {
+        yes(1),
+        no(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows if the Frame Discard is enabled or disabled
+        in the forward direction for the call"
+    ::= { cwspCallEntry 24 }
+
+cwspCallBwdConformance OBJECT-TYPE
+    SYNTAX INTEGER {
+        cbr1(1),
+        cbr2(2),
+        cbr3(3),
+        vbr1(4),
+        vbr2(5),
+        vbr3(6),
+        abr(7),
+        ubr1(8),
+        ubr2(9)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the conformance of the call to the traffic
+        sets in the backward direction. It can be CBR.1, CBR.2, CBR.3,
+        VBR.1 VBR.2, VBR.3, ABR, UBR.1 or UBR.2. This is as defined in
+        ATMF Traffic Management 4.0 specification."
+    ::= { cwspCallEntry 25 }
+
+cwspCallBwdPcr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Peak Cell Rate in the backward direction
+        of the call."
+    ::= { cwspCallEntry 26 }
+
+cwspCallBwdScr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Sustainable Cell Rate in the backward
+        direction of the call."
+    ::= { cwspCallEntry 27 }
+
+cwspCallBwdMbs OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Maximum Burst Size of the call in the
+        backward direction."
+    ::= { cwspCallEntry 28 }
+
+cwspCallBwdCdvt OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Cell Delay Variation Tolerance in the
+        backward direction for the call, for PCR and SCR."
+    ::= { cwspCallEntry 29 }
+
+cwspCallBwdFrameDiscard OBJECT-TYPE
+    SYNTAX INTEGER {
+        yes(1),
+        no(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows if the Frame Discard is enabled or disabled
+        in the backward direction for the call."
+    ::= { cwspCallEntry 30 }
+
+cwspCallMaxCtd OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Maximum Cell Transfer Delay for the call
+        on this interface."
+    ::= { cwspCallEntry 31 }
+
+cwspCallMaxFwdCdv OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Maximum Cell Delay Variation in the
+        forward direction for this call on this interface."
+    ::= { cwspCallEntry 32 }
+
+cwspCallMaxFwdClr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Maximum Cell Loss Ratio in the forward
+        direction for this call on this interface."
+    ::= { cwspCallEntry 33 }
+
+cwspCallMaxBwdCdv OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Maximum Cell Delay Variation in the
+        backward direction for this call on this interface."
+    ::= { cwspCallEntry 34 }
+
+cwspCallMaxBwdClr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Maximum Cell Loss Ratio in the backward
+        direction for this call on this interface."
+    ::= { cwspCallEntry 35 }
+
+cwspAbrCallTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspAbrCallEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information for ABR calls on an 
+        interface."
+    ::= { cwspAbrCall 1 }
+
+cwspAbrCallEntry OBJECT-TYPE
+    SYNTAX CwspAbrCallEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing information about an ABR 
+        call."
+    INDEX { ifIndex, cwspAbrCallVpi, cwspAbrCallVci }
+    ::= { cwspAbrCallTable 1 }
+
+CwspAbrCallEntry ::= SEQUENCE {
+    cwspAbrCallVpi INTEGER,
+    cwspAbrCallVci INTEGER,
+    cwspAbrCallCallRef INTEGER,
+    cwspAbrCallClgAddress AtmAddress,
+    cwspAbrCallCldAddress AtmAddress,
+    cwspAbrCallClgSubAddr AtmAddress,
+    cwspAbrCallCldSubAddr AtmAddress,
+    cwspAbrCallOtherIntfIndex INTEGER,
+    cwspAbrCallOtherIntfVpi INTEGER,
+    cwspAbrCallOtherIntfVci INTEGER,
+    cwspAbrCallOtherIntfCallRef INTEGER,
+    cwspAbrCallType INTEGER,
+    cwspAbrCallStartTime TimeStamp,
+    cwspAbrCallBearerClass INTEGER,
+    cwspAbrCallServiceCategory INTEGER,
+    cwspAbrCallCastType INTEGER,
+    cwspAbrCallClipSusceptibility INTEGER,
+    cwspAbrCallFwdConformance INTEGER,
+    cwspAbrCallFwdPcr INTEGER,
+    cwspAbrCallFwdMcr INTEGER,
+    cwspAbrCallFwdIcr INTEGER,
+    cwspAbrCallFwdRif INTEGER,
+    cwspAbrCallFwdRdf INTEGER,
+    cwspAbrCallFwdTbe INTEGER,
+    cwspAbrCallFwdNrm INTEGER,
+    cwspAbrCallFwdTrm INTEGER,
+    cwspAbrCallFwdAdtf INTEGER,
+    cwspAbrCallFwdCdf INTEGER,
+    cwspAbrCallFwdFrameDiscard INTEGER,
+    cwspAbrCallBwdPcr INTEGER,
+    cwspAbrCallBwdMcr INTEGER,
+    cwspAbrCallBwdIcr INTEGER,
+    cwspAbrCallBwdRif INTEGER,
+    cwspAbrCallBwdRdf INTEGER,
+    cwspAbrCallBwdTbe INTEGER,
+    cwspAbrCallBwdNrm INTEGER,
+    cwspAbrCallBwdTrm INTEGER,
+    cwspAbrCallBwdAdtf INTEGER,
+    cwspAbrCallBwdCdf INTEGER,
+    cwspAbrCallBwdFrameDiscard INTEGER,
+    cwspAbrCallFrtt INTEGER,
+    cwspAbrCallMaxCtd INTEGER,
+    cwspAbrCallMaxFwdCdv INTEGER,
+    cwspAbrCallMaxFwdClr INTEGER,
+    cwspAbrCallMaxBwdCdv INTEGER,
+    cwspAbrCallMaxBwdClr INTEGER
+    }
+
+cwspAbrCallVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The VPI value of the ABR call on this interface."
+    ::= { cwspAbrCallEntry 1 }
+
+cwspAbrCallVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The VCI value of the ABR call on this interface.
+         The value should be in the range of 32-65535 (0=SPVP)."
+    ::= { cwspAbrCallEntry 2 }
+
+cwspAbrCallCallRef OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Call Reference value of the ABR call on this interface."
+    ::= { cwspAbrCallEntry 3 }
+
+cwspAbrCallClgAddress OBJECT-TYPE
+    SYNTAX AtmAddress
+--    Rsyntax OCTET STRING(SIZE(8|20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Calling Party Address of the ABR call."
+    ::= { cwspAbrCallEntry 4 }
+
+cwspAbrCallCldAddress OBJECT-TYPE
+    SYNTAX AtmAddress
+--    Rsyntax OCTET STRING(SIZE(8|20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Called Party Address of the ABR call."
+    ::= { cwspAbrCallEntry 5 }
+
+cwspAbrCallClgSubAddr OBJECT-TYPE
+    SYNTAX AtmAddress
+--    Rsyntax OCTET STRING(SIZE(8|20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Calling Party Subaddress of the ABR call."
+    ::= { cwspAbrCallEntry 6 }
+
+cwspAbrCallCldSubAddr OBJECT-TYPE
+    SYNTAX AtmAddress
+--    Rsyntax OCTET STRING(SIZE(8|20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Called Party Subaddress of the ABR call."
+    ::= { cwspAbrCallEntry 7 }
+
+cwspAbrCallOtherIntfIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Other Interface ID of the ABR call.  Generally this
+         would be the outgoing/egress interface for the call."
+    ::= { cwspAbrCallEntry 8 }
+
+cwspAbrCallOtherIntfVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The VPI value of the ABR call on the partner interface."
+    ::= { cwspAbrCallEntry 9 }
+
+cwspAbrCallOtherIntfVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The VCI value of the ABR call on the partner interface.
+         The value should be in the range of 32-65535 (0=SPVP)."
+    ::= { cwspAbrCallEntry 10 }
+
+cwspAbrCallOtherIntfCallRef OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Call Reference of the ABR call on the partner interface."
+    ::= { cwspAbrCallEntry 11 }
+
+cwspAbrCallType OBJECT-TYPE
+    SYNTAX INTEGER {
+        svc(1),
+        spvc(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Call Type for the ABR call on this interface.  The call
+         type could be SVC or SPVC."
+    ::= { cwspAbrCallEntry 12 }
+
+cwspAbrCallStartTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The start time of the ABR call.  This is the timestamp when
+         the Setup Message (or Add Party Message) was first received
+         on this interface."
+    ::= { cwspAbrCallEntry 13 }
+
+cwspAbrCallBearerClass OBJECT-TYPE
+    SYNTAX INTEGER {
+        bcobA(1),
+        bcobC(2),
+        bcobX(3),
+        vp(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Bearer Class of the ABR call.  It could be BCOB-A,
+         BCOB-C, BCOB-X or VP Service."
+    ::= { cwspAbrCallEntry 14 }
+
+cwspAbrCallServiceCategory OBJECT-TYPE
+    SYNTAX INTEGER {
+        abr(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Service Category of the ABR call, which is ABR."
+    ::= { cwspAbrCallEntry 15 }
+
+cwspAbrCallCastType OBJECT-TYPE
+    SYNTAX INTEGER {
+        p2p(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Cast Type of the ABR call, which can only be 
+        Point-to-Point(p2p) call."
+    ::= { cwspAbrCallEntry 16 }
+
+cwspAbrCallClipSusceptibility OBJECT-TYPE
+    SYNTAX INTEGER {
+        yes(1),
+        no(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Susceptibility to Clipping.  It can be susceptible or 
+        not susceptible."
+    ::= { cwspAbrCallEntry 17 }
+
+cwspAbrCallFwdConformance OBJECT-TYPE
+    SYNTAX INTEGER {
+        abr(7)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Conformance of the ABR call to the traffic sets in the
+        forward direction.  It can only be ABR as defined in ATMF
+        Traffic Management 4.0 specification."
+    ::= { cwspAbrCallEntry 18 }
+
+cwspAbrCallFwdPcr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Peak Cell Rate for the ABR call in the forward direction."
+    ::= { cwspAbrCallEntry 19 }
+
+cwspAbrCallFwdMcr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Minimum Cell Rate for the ABR call in the forward 
+        direction."
+    ::= { cwspAbrCallEntry 20 }
+
+cwspAbrCallFwdIcr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Initial Cell Rate for the ABR call in the forward 
+        direction.
+        This is the rate at which the source starts, both initially
+        and after an idle period.  The value must not be larger than
+        PCR, and is usually lower."
+    ::= { cwspAbrCallEntry 21 }
+
+cwspAbrCallFwdRif OBJECT-TYPE
+    SYNTAX INTEGER {
+        rifOneOver32768(1),
+        rifOneOver16384(2),
+        rifOneOver8192(3),
+        rifOneOver4096(4),
+        rifOneOver2048(5),
+        rifOneOver1024(6),
+        rifOneOver512(7),
+        rifOneOver256(8),
+        rifOneOver128(9),
+        rifOneOver64(10),
+        rifOneOver32(11),
+        rifOneOver16(12),
+        rifOneOver8(13),
+        rifOneOver4(14),
+        rifOneOver2(15),
+        rifOne(16)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Rate Increase Factor for the ABR call in the forward
+        direction. This controls the rate at which the rate increases,
+        when a backward RM-cell is received with CI=0 and NI=0.
+        Larger values lead to faster rate increase. The default
+        value is rifOneOver16(12)."
+    ::= { cwspAbrCallEntry 22 }
+
+cwspAbrCallFwdRdf OBJECT-TYPE
+    SYNTAX INTEGER {
+        rdfOneOver32768(1),
+        rdfOneOver16384(2),
+        rdfOneOver8192(3),
+        rdfOneOver4096(4),
+        rdfOneOver2048(5),
+        rdfOneOver1024(6),
+        rdfOneOver512(7),
+        rdfOneOver256(8),
+        rdfOneOver128(9),
+        rdfOneOver64(10),
+        rdfOneOver32(11),
+        rdfOneOver16(12),
+        rdfOneOver8(13),
+        rdfOneOver4(14),
+        rdfOneOver2(15),
+        rdfOne(16)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Rate Decrease Factor for the ABR call in the forward 
+        direction. This controls the rate decrease which occurs
+        when backward RM-cells with CI=1, are received. Larger
+        values lead to faster rate decrease. The default value
+        is rdfOneOver16(12)."
+    ::= { cwspAbrCallEntry 23 }
+
+cwspAbrCallFwdTbe OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Transient Buffer Exposure for the ABR call in the forward
+        direction. This is the negotiated number of cells that the
+        network would like to limit the source to sending during
+        setup periods, before the first RM-cell returns."
+    ::= { cwspAbrCallEntry 24 }
+
+cwspAbrCallFwdNrm OBJECT-TYPE
+    SYNTAX INTEGER {
+        nrm2(1),
+        nrm4(2),
+        nrm8(3),
+        nrm16(4),
+        nrm32(5),
+        nrm64(6),
+        nrm128(7),
+        nrm256(8)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Maximum Number of Cells a source may send for each
+        forward RM-cell in the forward direction for the ABR call. 
+        The default value is nrm32(5)."
+    ::= { cwspAbrCallEntry 25 }
+
+cwspAbrCallFwdTrm OBJECT-TYPE
+    SYNTAX INTEGER {
+        trm0point78125(1),
+        trm1point5625(2),
+        trm3point125(3),
+        trm6point25(4),
+        trm12point5(5),
+        trm25(6),
+        trm50(7),
+        trm100(8)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Upper Bound on the time between forward RM-cells in the 
+        forward direction for the ABR call."
+    ::= { cwspAbrCallEntry 26 }
+
+cwspAbrCallFwdAdtf OBJECT-TYPE
+    SYNTAX INTEGER(1..1023)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Allowed Cell Rate (ACR) Decrease Time Factor for the ABR 
+        call in the forward direction. This is the time permitted 
+        between sending RM-cells before the rate is decreased to ICR.
+        Range is 10 ms to 10.23 seconds. The unit is 10 msecs. For
+        example, the default value of 50 corresponds to a time factor
+        of 500 ms. Larger values allow a source to retain its current
+        rate longer, during periods of relative inactivity.  The
+        default is 50 (0.5 seconds)."
+    ::= { cwspAbrCallEntry 27 }
+
+cwspAbrCallFwdCdf OBJECT-TYPE
+    SYNTAX INTEGER {
+        cdf0(1),
+        cdfOneOver64(2),
+        cdfOneOver32(3),
+        cdfOneOver16(4),
+        cdfOneOver8(5),
+        cdfOneOver4(6),
+        cdfOneOver2(7),
+        cdfOne(8)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Cutoff Decrease Factor for the ABR call in the forward
+         direction.  This controls the decrease in Allowed Cell Rate
+         (ACR) associated with missing RM-cell count (CRM).  Larger
+         values result in faster rate decrease.  The default value
+         is cdfOneOver16(4)."
+    ::= { cwspAbrCallEntry 28 }
+
+cwspAbrCallFwdFrameDiscard OBJECT-TYPE
+    SYNTAX INTEGER {
+        yes(1),
+        no(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Whether Frame Discard is enabled or disabled in the forward
+        direction for the ABR call."
+    ::= { cwspAbrCallEntry 29 }
+
+cwspAbrCallBwdPcr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Peak Cell Rate for the ABR call in the backward 
+        direction."
+    ::= { cwspAbrCallEntry 30 }
+
+cwspAbrCallBwdMcr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Minimum Cell Rate for the ABR call in the backward 
+        direction."
+    ::= { cwspAbrCallEntry 31 }
+
+cwspAbrCallBwdIcr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Initial Cell Rate for the ABR call in the backward 
+        direction.
+        This is the rate at which the source starts, both initially
+        and after an idle period.  The value must not be larger than
+        PCR, and is usually lower."
+    ::= { cwspAbrCallEntry 32 }
+
+cwspAbrCallBwdRif OBJECT-TYPE
+    SYNTAX INTEGER {
+        rifOneOver32768(1),
+        rifOneOver16384(2),
+        rifOneOver8192(3),
+        rifOneOver4096(4),
+        rifOneOver2048(5),
+        rifOneOver1024(6),
+        rifOneOver512(7),
+        rifOneOver256(8),
+        rifOneOver128(9),
+        rifOneOver64(10),
+        rifOneOver32(11),
+        rifOneOver16(12),
+        rifOneOver8(13),
+        rifOneOver4(14),
+        rifOneOver2(15),
+        rifOne(16)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Rate Increase Factor for the ABR call in the backward
+         direction. This controls the rate at which the rate increases,
+         when a forward RM-cell is received with CI=0 and NI=0.
+         Larger values lead to faster rate increase. The default
+         value is rifOneOver16(12)."
+    ::= { cwspAbrCallEntry 33 }
+
+cwspAbrCallBwdRdf OBJECT-TYPE
+    SYNTAX INTEGER {
+        rdfOneOver32768(1),
+        rdfOneOver16384(2),
+        rdfOneOver8192(3),
+        rdfOneOver4096(4),
+        rdfOneOver2048(5),
+        rdfOneOver1024(6),
+        rdfOneOver512(7),
+        rdfOneOver256(8),
+        rdfOneOver128(9),
+        rdfOneOver64(10),
+        rdfOneOver32(11),
+        rdfOneOver16(12),
+        rdfOneOver8(13),
+        rdfOneOver4(14),
+        rdfOneOver2(15),
+        rdfOne(16)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Rate Decrease Factor for the ABR call in the backward 
+        direction. This controls the rate decrease which occurs
+        when forward RM-cells with CI=1, are received. Larger
+        values lead to faster rate decrease. The default value
+        is rdfOneOver16(12)."
+    ::= { cwspAbrCallEntry 34 }
+
+cwspAbrCallBwdTbe OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Transient Buffer Exposure for the ABR call in the backward
+        direction. This is the negotiated number of cells that the
+        network would like to limit the source to sending during
+        setup periods, before the first RM-cell returns."
+    ::= { cwspAbrCallEntry 35 }
+
+cwspAbrCallBwdNrm OBJECT-TYPE
+    SYNTAX INTEGER {
+        nrm2(1),
+        nrm4(2),
+        nrm8(3),
+        nrm16(4),
+        nrm32(5),
+        nrm64(6),
+        nrm128(7),
+        nrm256(8)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Maximum Number of Cells a source may send for each forward
+        RM-cell in the backward direction for the ABR call. The default
+        value is nrm32(5)."
+    ::= { cwspAbrCallEntry 36 }
+
+cwspAbrCallBwdTrm OBJECT-TYPE
+    SYNTAX INTEGER {
+        trm0point78125(1),
+        trm1point5625(2),
+        trm3point125(3),
+        trm6point25(4),
+        trm12point5(5),
+        trm25(6),
+        trm50(7),
+        trm100(8)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Upper Bound on the time between forward RM-cells in the 
+        backward direction for the ABR call."
+    ::= { cwspAbrCallEntry 37 }
+
+cwspAbrCallBwdAdtf OBJECT-TYPE
+    SYNTAX INTEGER(1..1023)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Allowed Cell Rate (ACR) Decrease Time Factor for the ABR 
+        call in the backward direction. This is the time permitted 
+        between sending RM-cells before the rate is decreased to ICR.
+        Range is 10 ms to 10.23 seconds. The unit is 10 msecs. For
+        example, the default value of 50 corresponds to a time factor
+        of 500 ms. Larger values allow a source to retain its current
+        rate longer, during periods of relative inactivity. The
+        default is 50 (0.5 seconds)."
+    ::= { cwspAbrCallEntry 38 }
+
+cwspAbrCallBwdCdf OBJECT-TYPE
+    SYNTAX INTEGER {
+        cdf0(1),
+        cdfOneOver64(2),
+        cdfOneOver32(3),
+        cdfOneOver16(4),
+        cdfOneOver8(5),
+        cdfOneOver4(6),
+        cdfOneOver2(7),
+        cdfOne(8)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Cutoff Decrease Factor for the ABR call in the backward
+        direction.  This controls the decrease in Allowed Cell Rate
+        (ACR) associated with missing RM-cell count (CRM).  Larger
+        values result in faster rate decrease.  The default value
+        is cdfOneOver16(4)."
+    ::= { cwspAbrCallEntry 39 }
+
+cwspAbrCallBwdFrameDiscard OBJECT-TYPE
+    SYNTAX INTEGER {
+        yes(1),
+        no(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Whether Frame Discard is enabled or disabled in the backward
+        direction for the ABR call."
+    ::= { cwspAbrCallEntry 40 }
+
+cwspAbrCallFrtt OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Fixed Round-Trip Time for the ABR call.  This is the sum
+        of the fixed and propagation delays from the source to the
+        furthest destination and back."
+    ::= { cwspAbrCallEntry 41 }
+
+cwspAbrCallMaxCtd OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Maximum Cell Transfer Delay for the ABR call on this 
+        interface."
+    ::= { cwspAbrCallEntry 42 }
+
+cwspAbrCallMaxFwdCdv OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Maximum Cell Delay Variation in the forward direction
+        for the ABR call on this interface."
+    ::= { cwspAbrCallEntry 43 }
+
+cwspAbrCallMaxFwdClr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Maximum Cell Loss Ratio in the forward direction for
+        the ABR call on this interface."
+    ::= { cwspAbrCallEntry 44 }
+
+cwspAbrCallMaxBwdCdv OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Maximum Cell Delay Variation in the backward direction
+        for the ABR call on this interface."
+    ::= { cwspAbrCallEntry 45 }
+
+cwspAbrCallMaxBwdClr OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Maximum Cell Loss Ratio in the backward direction for
+         the ABR call on this interface."
+    ::= { cwspAbrCallEntry 46 }
+
+cwspConnTraceAvail OBJECT-TYPE
+    SYNTAX INTEGER(1..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object tells the number of calls can be traced 
+        concurrently.
+        
+        Depending on the system resource, this object may vary sometime
+        to time.
+        
+        NMS should query this object to ensure there is system resource
+        available before creating a row in the cwspConnTraceCntlTable."
+    ::= { cwspConnTrace 1 }
+
+cwspConnTraceNextIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "When creating a row in the cwspConnTraceCntlTable, NMS should
+        query this object to obtain the index value to be used for row
+        creation."
+    ::= { cwspConnTrace 2 }
+
+cwspConnTraceCntlTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspConnTraceCntlEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This Table contains the objects which control the creation of
+        connection trace for the existing SVC call. "
+    ::= { cwspConnTrace 3 }
+
+cwspConnTraceCntlEntry OBJECT-TYPE
+    SYNTAX CwspConnTraceCntlEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the connection trace creation.
+        NMS needs to acquire the next index available to create
+        a row.  In addition, NMS needs to provide all read-create
+        objects in the same pdu with RowStatus to be CreateAndGo."
+    INDEX { cwspConnTraceIndex }
+    ::= { cwspConnTraceCntlTable 1 }
+
+CwspConnTraceCntlEntry ::= SEQUENCE {
+    cwspConnTraceIndex INTEGER,
+    cwspConnTraceifIndex InterfaceIndex,
+    cwspConnTraceSrcVpi INTEGER,
+    cwspConnTraceSrcVci INTEGER,
+    cwspConnTraceType INTEGER,
+    cwspConnTraceCallRef INTEGER,
+    cwspConnTraceLeafRef INTEGER,
+    cwspConnTraceDestVpi INTEGER,
+    cwspConnTraceDestVci INTEGER,
+    cwspConnTraceDestCallRef INTEGER,
+    cwspConnTraceResultStatus INTEGER,
+    cwspConnTraceQueryStatus RowStatus
+    }
+
+cwspConnTraceIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Index to a row of connection trace."
+    ::= { cwspConnTraceCntlEntry 1 }
+
+cwspConnTraceifIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The 'ifIndex' indicates the port to a trace connection."
+    ::= { cwspConnTraceCntlEntry 2 }
+
+cwspConnTraceSrcVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the VPI value of the starting point on
+        this interface."
+    ::= { cwspConnTraceCntlEntry 3 }
+
+cwspConnTraceSrcVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows The VCI value of the starting point on
+        this interface.
+        The value should be in the range of 32-65535 (0=SPVP)."
+    ::= { cwspConnTraceCntlEntry 4 }
+
+cwspConnTraceType OBJECT-TYPE
+    SYNTAX INTEGER {
+        p2p(1),
+        p2mp(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Setting this object to either p2p or p2mp to specify 
+        tracing a p2p or p2mp connection."
+    ::= { cwspConnTraceCntlEntry 5 }
+
+cwspConnTraceCallRef OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Call Reference value of the call on
+        this interface."
+    ::= { cwspConnTraceCntlEntry 6 }
+
+cwspConnTraceLeafRef OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the value of the Leaf Reference
+        (EndPointReference) of the Call on this interface, 
+        this value is  used to support p2mp call trace.  
+        For p2p call, this value should be set as 0 by NMS."
+    ::= { cwspConnTraceCntlEntry 7 }
+
+cwspConnTraceDestVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the endpoint VPI value of the call on
+        this interface."
+    ::= { cwspConnTraceCntlEntry 8 }
+
+cwspConnTraceDestVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the endpoint VCI value of the call on
+        this interface."
+    ::= { cwspConnTraceCntlEntry 9 }
+
+cwspConnTraceDestCallRef OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the endpoint call reference on
+        this interface."
+    ::= { cwspConnTraceCntlEntry 10 }
+
+cwspConnTraceResultStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        traceInProgress(1),
+        traceCompleted(2),
+        traceIncompleted(3),
+        traceExceededLength(4),
+        traceContRefused(5),
+        traceLackResource(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the result of tracing the call.  
+        NMS should get positive result (i.e. traceCompleted) for 
+        this attribute before query the cwspConnTraceTable."
+    ::= { cwspConnTraceCntlEntry 11 }
+
+cwspConnTraceQueryStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object used to manage rows in this table. However, 
+        only CreateAndGo, NotInService, Active, and Destroy are 
+        start up the trace. To remove a row, NMS set this value 
+        to Destroy.
+        The managed device will either return Active or 
+        NotInService."
+    ::= { cwspConnTraceCntlEntry 12 }
+
+cwspConnTraceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspConnTraceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the objects which show the traversed 
+        node information in the existing SVC call. "
+    ::= { cwspConnTrace 4 }
+
+cwspConnTraceEntry OBJECT-TYPE
+    SYNTAX CwspConnTraceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row of the cwspConnTraceTable used to return
+        information about all the nodes belongs to the connection
+        which search criteria is corresponding to instance of the
+        cwspConnTraceCntlTable. "
+    INDEX { cwspConnTraceIndex, cwspConnTraceDataIndex }
+    ::= { cwspConnTraceTable 1 }
+
+CwspConnTraceEntry ::= SEQUENCE {
+    cwspConnTraceDataIndex INTEGER,
+    cwspConnTraceNodeId PnniNodeId,
+    cwspConnTraceEgressPortId PnniPortId,
+    cwspConnTraceEgressVpi INTEGER,
+    cwspConnTraceEgressVci INTEGER,
+    cwspConnTraceEgressCallRef INTEGER,
+    cwspConnTraceEgressPhyPortId OCTET STRING,
+    cwspConnTraceLastNode TruthValue
+    }
+
+cwspConnTraceDataIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..100)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Along with cwspConnTraceIndex, this object specified an 
+        unique entry in the cwspConnTraceTable."
+    ::= { cwspConnTraceEntry 1 }
+
+cwspConnTraceNodeId OBJECT-TYPE
+    SYNTAX PnniNodeId
+--    Rsyntax OCTET STRING(SIZE(22))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This octet string represents 22 bytes nodeId in the 
+        traced connection."
+    ::= { cwspConnTraceEntry 2 }
+
+cwspConnTraceEgressPortId OBJECT-TYPE
+    SYNTAX PnniPortId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents 4 bytes logical port ID of the
+        traversed node.
+        When 0 is specified, the destination node for the trace is 
+        reached."
+    ::= { cwspConnTraceEntry 3 }
+
+cwspConnTraceEgressVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Egress port's VPI value for the traced
+        connection."
+    ::= { cwspConnTraceEntry 4 }
+
+cwspConnTraceEgressVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Egress port's VCI value for the traced
+        connection"
+    ::= { cwspConnTraceEntry 5 }
+
+cwspConnTraceEgressCallRef OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Egress port's call reference."
+    ::= { cwspConnTraceEntry 6 }
+
+cwspConnTraceEgressPhyPortId OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the Egress port's physical port Identifier
+        for the traversed node; if this object is 0 meaning that the
+        destination node for the traced connection has been reached. 
+        the meaning for the bytes are:
+        first byte -- flag (used by CLI to decode the rest of bytes )
+        2nd  byte -- shelf
+        3rd & 4th bytes -- slot
+        5th  byte -- subslot
+        6th & 7th bytes -- port
+        8th  byte -- subport"
+    ::= { cwspConnTraceEntry 7 }
+
+cwspConnTraceLastNode OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This value indicates if this entry contains the information
+         about the last node where this trace ends. 
+        
+         If it is the last node, this value is 'true(1)' or 
+         it is 'false(2)'. "
+    ::= { cwspConnTraceEntry 8 }
+
+ciscoWANPnniLinkStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        in2win(1),
+        out2win(2),
+        in2wout(3),
+        out2wout(4),
+        inCout(5),
+        outCout(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the status of a link has changed:
+            1 - the link entered the 2-Way Inside state,
+            2 - the link exit the 2-Way Inside state,
+            3 - the link entered the 2-Way Outside state,
+            4 - the link exit the 2-Way Outside state.
+            5 - the link entered the Common Outside state, or
+            6 - the link exit the Common Outside state and entered
+                the 1-Way Outside state."
+    ::= { ciscoWANPnniRouting 1 }
+
+ciscoWANPnniPglStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        ok(1),
+        hung(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the status of PGL process has changed:
+            1 - the PGL exit the hung-election state, or
+            2 - the PGL entered the hung-election state."
+    ::= { ciscoWANPnniRouting 2 }
+
+ciscoWANPnniReachability OBJECT-TYPE
+    SYNTAX INTEGER {
+        ok(1),
+        fail(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used in conjunction with
+        ciscoWANPnniRemoteNodeId to indicate the
+        reachability of the RemoteNode has changed:
+            1 - RemoteNode became reachable, or
+            2 - RemoteNode became unreachable."
+    ::= { ciscoWANPnniRouting 3 }
+
+ciscoWANPnniRemoteNodeId OBJECT-TYPE
+    SYNTAX PnniNodeId
+--    Rsyntax OCTET STRING(SIZE(22))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the node identifier of a remote node.
+        If the remote node ID is unknown, this attribute
+        is set to all zeros."
+    ::= { ciscoWANPnniRouting 4 }
+
+ciscoWANPnniPortId OBJECT-TYPE
+    SYNTAX PnniPortId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The port identifier of the port."
+    ::= { ciscoWANPnniRouting 5 }
+
+cwspOperationTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwspOperationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Interface operation table contains the runtime
+        negotiated values between platform, PNNI controller
+        and peer on an interface"
+    ::= { cwspOperation 1 }
+
+cwspOperationEntry OBJECT-TYPE
+    SYNTAX CwspOperationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the interface operation table containing
+         negotiated values of an interface"
+    INDEX { ifIndex }
+    ::= { cwspOperationTable 1 }
+
+CwspOperationEntry ::= SEQUENCE {
+    cwspOperIlmiEnable TruthValue,
+    cwspOperIfcType INTEGER,
+    cwspOperIfcSide INTEGER,
+    cwspOperMaxVPCs INTEGER,
+    cwspOperMaxVCCs INTEGER,
+    cwspOperMaxVpiBits INTEGER,
+    cwspOperMaxVciBits INTEGER,
+    cwspOperUniType INTEGER,
+    cwspOperUniVersion INTEGER,
+    cwspOperDeviceType INTEGER,
+    cwspOperIlmiVersion INTEGER,
+    cwspOperNniSigVersion INTEGER,
+    cwspOperMaxSvpcVpi INTEGER,
+    cwspOperMinSvpcVpi INTEGER,
+    cwspOperMaxSvccVpi INTEGER,
+    cwspOperMinSvccVpi INTEGER,
+    cwspOperMaxSvccVci INTEGER,
+    cwspOperMinSvccVci INTEGER,
+    cwspOperAddrPlanSupported INTEGER
+    }
+
+cwspOperIlmiEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The operational state of ILMI."
+    ::= { cwspOperationEntry 1 }
+
+cwspOperIfcType OBJECT-TYPE
+    SYNTAX INTEGER {
+        publicUni(1),
+        privateUni(2),
+        iisp(3),
+        pnni(4),
+        aini(5),
+        enni(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The interface type of an interface
+            publicUni -- Public User-Network Interface
+            privateUni -- Private User-Network Interface
+            iisp -- Interim Inter-Switch Signaling Protocol
+            pnni -- Private Network-Network Interface
+            aini -- ATM Inter-Network Interface
+            enni -- Enhanced Network-Network Interface, a cisco
+                    proprietary interfac type."
+    ::= { cwspOperationEntry 2 }
+
+cwspOperIfcSide OBJECT-TYPE
+    SYNTAX INTEGER {
+        userSide(1),
+        networkSide(2),
+        symmetric(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IME type of the ATM device which is concluded from 
+        automatic interface type determination procedure."
+    REFERENCE
+        "ATM Forum ILMI 4.0 Section 8.3.4.1"
+    ::= { cwspOperationEntry 3 }
+
+cwspOperMaxVPCs OBJECT-TYPE
+    SYNTAX INTEGER(0..4096)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of switched and permanent VPCs supported
+        on this ATM interface"
+    ::= { cwspOperationEntry 4 }
+
+cwspOperMaxVCCs OBJECT-TYPE
+    SYNTAX INTEGER(0..65536)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of switched and permanent VCCs supported
+        on this ATM interface"
+    ::= { cwspOperationEntry 5 }
+
+cwspOperMaxVpiBits OBJECT-TYPE
+    SYNTAX INTEGER(0..12)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of active VPI bits on this ATM interface."
+    ::= { cwspOperationEntry 6 }
+
+cwspOperMaxVciBits OBJECT-TYPE
+    SYNTAX INTEGER(0..16)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of active VCI bits on this ATM interface."
+    ::= { cwspOperationEntry 7 }
+
+cwspOperUniType OBJECT-TYPE
+    SYNTAX INTEGER {
+        public(1),
+        private(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the ATM device, either public or private."
+    ::= { cwspOperationEntry 8 }
+
+cwspOperUniVersion OBJECT-TYPE
+    SYNTAX INTEGER {
+        version2point0(1),
+        version3poing0(2),
+        version3poing1(3),
+        version4poing0(4),
+        unsupported(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An indication of the latest version of the ATM Forum UNI
+        Signaling Specification that is supported on this ATM
+        Interface.  If this value is not present, a version of the
+        UNI earlier than 3.1 is supported.
+        
+        If the peer IME's value of this object is the same as,
+        or later than the local IME's value, then the version
+        corresponding to the local IME's value should be
+        attempted.  Otherwise, if the peer IME's value of this
+        object is earlier, and supported locally, then the
+        local IME should attempt the version corresponding to
+        the peer IME's value.  Otherwise, compatibility of the
+        two IMEs cannot be assumed."
+    ::= { cwspOperationEntry 9 }
+
+cwspOperDeviceType OBJECT-TYPE
+    SYNTAX INTEGER {
+        user(1),
+        node(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object determines the type of the ATM device. This
+        object is used in automatic ATM Interface-Type determination
+        procedure such that a correct operational ATM
+        Interface-type can be determined. An ATM End System
+        shall take the value of user(1), and an ATM network
+        node shall take the value of node(2)."
+    ::= { cwspOperationEntry 10 }
+
+cwspOperIlmiVersion OBJECT-TYPE
+    SYNTAX INTEGER {
+        unsupported(1),
+        version4point0(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An indication of the latest version of the ATM Forum
+        ILMI Specification that is supported on this ATM Interface.
+        
+        If the peer IME's value of this object is the same as,
+        or later than the local IME's value, then the version
+        corresponding to the local IME's value should be
+        attempted.  Otherwise, if the peer IME's value of this
+        object is earlier, and supported locally, then the
+        local IME should attempt the version corresponding to
+        the peer IME's value.  Otherwise, compatibility of the
+        two IMEs cannot be assumed.
+        
+        If this object is not present, a version of the ILMI earlier
+        than 4.0 is supported."
+    ::= { cwspOperationEntry 11 }
+
+cwspOperNniSigVersion OBJECT-TYPE
+    SYNTAX INTEGER {
+        unsupported(1),
+        iisp(2),
+        pnniVersion1point0(3),
+        enni(4),
+        aini(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An indication of the latest version of the ATM Forum
+        PNNI Signaling Specification that is supported on this
+        ATM Interface. Note that the PNNI routing version is not
+        determined through ILMI.
+        
+        If the peer IME's value of this object is the same as,
+        or later than the local IME's value, then the version
+        corresponding to the local IME's value should be
+        attempted.  Otherwise, if the peer IME's value of this
+        object is earlier, and supported locally, then the
+        local IME should attempt the version corresponding to
+        the peer IME's value.  Otherwise, compatibility of the
+        two IMEs cannot be assumed.
+        
+        Note that 'enni' is not a signaling protocol."
+    ::= { cwspOperationEntry 12 }
+
+cwspOperMaxSvpcVpi OBJECT-TYPE
+    SYNTAX INTEGER(1..4095)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum switched VPC VPI."
+    ::= { cwspOperationEntry 13 }
+
+cwspOperMinSvpcVpi OBJECT-TYPE
+    SYNTAX INTEGER(1..4095)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum switched VPC VPI."
+    ::= { cwspOperationEntry 14 }
+
+cwspOperMaxSvccVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum switched VCC VPI."
+    ::= { cwspOperationEntry 15 }
+
+cwspOperMinSvccVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum switched VCC VPI."
+    ::= { cwspOperationEntry 16 }
+
+cwspOperMaxSvccVci OBJECT-TYPE
+    SYNTAX INTEGER(35..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum switched VCC VCI."
+    ::= { cwspOperationEntry 17 }
+
+cwspOperMinSvccVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum switched VCC VCI."
+    ::= { cwspOperationEntry 18 }
+
+cwspOperAddrPlanSupported OBJECT-TYPE
+    SYNTAX INTEGER {
+        both(1),
+        aesa(2),
+        e164(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The ATM address plan supported on a public UNI. For all other
+        interfaces, the value is aesa."
+    ::= { cwspOperationEntry 19 }
+
+cwspOperFailReason OBJECT-TYPE
+    SYNTAX INTEGER {
+        ilmiDown(1),
+        portDown(2),
+        vsiOperDown(3),
+        vccfailure(4),
+        neighIpChanged(5),
+        vsiRemove(6),
+        vsiAdminDown(7)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Defined SVC port failures.  
+        Note: this object is used as trap varbind only.
+        The NMS applications should not issue SNMP get,
+        get-next for this object."
+    ::= { cwspOperation 2 }
+
+ciscoWANSpvcFailReason OBJECT-TYPE
+    SYNTAX CwspSpvcState
+--    Rsyntax INTEGER {
+--        genSpvcErr(1),
+--        mPvcDelFail(2),
+--        sPvcDelFail(3),
+--        mRelPendHalfTmout(4),
+--        mInstlPvcFail(5),
+--        sInstlPvcFail(6),
+--        mRecmtPvcFail(7),
+--        sRecmtPvcFail(8),
+--        mCmtHalfFail(9),
+--        sCmtHalfFail(10),
+--        mInstlXconnFail(11),
+--        sRecvSetupConfmMismatch(12),
+--        sRecvSetupServMismatch(13),
+--        sRecvSetupTrafParmMismatch(14),
+--        masterSpvcAutoDelete(15),
+--        slaveSpvcAutoDelete(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Defines SPVC manager failures. Refer description
+        in the textual convention.
+        Note:  this object is for Supporting Varbinds used only
+        in trap definitions. The NMS applications should not
+        depend on the implementation of this object. The
+        SNMP Requests(GET,GET-NEXT) is not valid for
+        this object."
+    ::= { ciscoWANSpvc 1 }
+
+cwspSpvcNodePrefix OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(13))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Spvc node prefix for the pnni controller. This
+        node prefix identifies an SPVC node in the network."
+    ::= { ciscoWANSpvc 2 }
+
+cwsInfoGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing device level information.
+--  objects
+--    cwsSwRevision, cwsControllerStatus, 
+--    cwspPnniStndbyControllerStatus, cwspPnniControllerStatus, 
+--    cwspPnniControllerPhySlot
+
+cwspConfigGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing information about
+--    the controller interface operation and associated 
+--    parameters.
+--  objects
+--    cwspAdminStatus, cwspOperStatus, cwspSvcBlocked, 
+--    cwspSpvcBlocked, cwspIlmiAddrRegEnable, 
+--    cwspIlmiAutoConfEnable, cwspIlmiServRegEnable, 
+--    cwspPhyIdentifier, cwspSignallingVpi, cwspSignallingVci, 
+--    cwspRoutingVpi, cwspRoutingVci, cwspMaxVpiBits, 
+--    cwspMaxVciBits, cwspUniVersion, cwspNniVersion, cwspUniType, 
+--    cwspSide, cwspMaxP2pCalls, cwspMaxP2mpRoots, cwspMaxP2mpLeafs, 
+--    cwspMinSvccVpi, cwspMaxSvccVpi, cwspMinSvccVci, 
+--    cwspMaxSvccVci, cwspMinSvpcVpi, cwspMaxSvpcVpi, 
+--    cwspEnhancedIisp, cwspConfigTableRowStatus, 
+--    cwspAddrPlanSupported
+
+cwspCacConfigGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--             CAC information of a interface.
+--  objects
+--    cwspUtilFactorCbr, cwspUtilFactorRtVbr, cwspUtilFactorNrtVbr, 
+--    cwspUtilFactorAbr, cwspUtilFactorUbr, cwspMaxBwCbr, 
+--    cwspMaxBwRtVbr, cwspMaxBwNrtVbr, cwspMaxBwAbr, cwspMaxBwUbr, 
+--    cwspMinBwCbr, cwspMinBwRtVbr, cwspMinBwNrtVbr, cwspMinBwAbr, 
+--    cwspMinBwUbr, cwspMaxVcCbr, cwspMaxVcRtVbr, cwspMaxVcNrtVbr, 
+--    cwspMaxVcAbr, cwspMaxVcUbr, cwspMinVcCbr, cwspMinVcRtVbr, 
+--    cwspMinVcNrtVbr, cwspMinVcAbr, cwspMinVcUbr, cwspMaxVcBwCbr, 
+--    cwspMaxVcBwRtVbr, cwspMaxVcBwNrtVbr, cwspMaxVcBwAbr, 
+--    cwspMaxVcBwUbr, cwspDefaultCdvtCbr, cwspDefaultCdvtRtVbr, 
+--    cwspDefaultCdvtNrtVbr, cwspDefaultCdvtAbr, cwspDefaultCdvtUbr, 
+--    cwspDefaultMbsRtVbr, cwspDefaultMbsNrtVbr
+
+cwspCallStatsGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    call statistics of a interface.
+--  objects
+--    cwspCountReset, cwspInCallAttempts, cwspInCallEstabs, 
+--    cwspInCallFailures, cwspInFilterFailures, cwspInRouteFailures, 
+--    cwspInResrcFailures, cwspInTimerFailures, cwspInCrankbacks, 
+--    cwspOutCallAttempts, cwspOutCallEstabs, cwspOutCallFailures, 
+--    cwspOutFilterFailures, cwspOutRouteFailures, 
+--    cwspOutResrcFailures, cwspOutTimerFailures, cwspOutCrankbacks
+
+cwspSigStatsGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    signaling statistics.
+--  objects
+--    cwspSigCounterReset, cwspCallProcRcv, cwspConnectRcv, 
+--    cwspConnectAckRcv, cwspSetupRcv, cwspReleaseRcv, 
+--    cwspReleaseComplRcv, cwspRestartRcv, cwspRestartAckRcv, 
+--    cwspStatusRcv, cwspStatusEnqRcv, cwspNotifyRcv, cwspAlertRcv, 
+--    cwspProgressRcv, cwspAddPtyRcv, cwspAddPtyAckRcv, 
+--    cwspAddPtyRejRcv, cwspDropPtyRcv, cwspIncorrectMsgRcv, 
+--    cwspTimerExpiries, cwspLastCause, cwspLastDiagnostic, 
+--    cwspCallProcXmt, cwspConnectXmt, cwspConnectAckXmt, 
+--    cwspSetupXmt, cwspReleaseXmt, cwspReleaseComplXmt, 
+--    cwspRestartXmt, cwspRestartAckXmt, cwspStatusXmt, 
+--    cwspStatusEnqXmt, cwspNotifyXmt, cwspAlertXmt, 
+--    cwspProgressXmt, cwspAddPtyXmt, cwspAddPtyAckXmt, 
+--    cwspAddPtyRejXmt, cwspDropPtyXmt, cwspSscopStatus
+
+cwspCallGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    the p2p or p2mp SVC/SPVC calls and associated parameters.
+--  objects
+--    cwspCallCallRef, cwspCallCallingAddress, 
+--    cwspCallCalledAddress, cwspCallCallingSubAddr, 
+--    cwspCallCalledSubAddr, cwspCallOtherIntfIndex, 
+--    cwspCallOtherIntfVpi, cwspCallOtherIntfVci, 
+--    cwspCallOtherIntfCallRef, cwspCallType, cwspCallStartTime, 
+--    cwspCallBearerClass, cwspCallServiceCategory, 
+--    cwspCallCastType, cwspCallClipSusceptibility, 
+--    cwspCallFwdConformance, cwspCallFwdPcr, cwspCallFwdScr, 
+--    cwspCallFwdMbs, cwspCallFwdCdvt, cwspCallFwdFrameDiscard, 
+--    cwspCallBwdConformance, cwspCallBwdPcr, cwspCallBwdScr, 
+--    cwspCallBwdMbs, cwspCallBwdCdvt, cwspCallBwdFrameDiscard, 
+--    cwspCallMaxCtd, cwspCallMaxFwdCdv, cwspCallMaxFwdClr, 
+--    cwspCallMaxBwdCdv, cwspCallMaxBwdClr
+
+cwspAbrCallGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    ABR calls and associated parameters of a interface.
+--  objects
+--    cwspAbrCallCallRef, cwspAbrCallClgAddress, 
+--    cwspAbrCallCldAddress, cwspAbrCallClgSubAddr, 
+--    cwspAbrCallCldSubAddr, cwspAbrCallOtherIntfIndex, 
+--    cwspAbrCallOtherIntfVpi, cwspAbrCallOtherIntfVci, 
+--    cwspAbrCallOtherIntfCallRef, cwspAbrCallType, 
+--    cwspAbrCallStartTime, cwspAbrCallBearerClass, 
+--    cwspAbrCallServiceCategory, cwspAbrCallCastType, 
+--    cwspAbrCallClipSusceptibility, cwspAbrCallFwdConformance, 
+--    cwspAbrCallFwdPcr, cwspAbrCallFwdMcr, cwspAbrCallFwdIcr, 
+--    cwspAbrCallFwdRif, cwspAbrCallFwdRdf, cwspAbrCallFwdTbe, 
+--    cwspAbrCallFwdNrm, cwspAbrCallFwdTrm, cwspAbrCallFwdAdtf, 
+--    cwspAbrCallFwdCdf, cwspAbrCallFwdFrameDiscard, 
+--    cwspAbrCallBwdPcr, cwspAbrCallBwdMcr, cwspAbrCallBwdIcr, 
+--    cwspAbrCallBwdRif, cwspAbrCallBwdRdf, cwspAbrCallBwdTbe, 
+--    cwspAbrCallBwdNrm, cwspAbrCallBwdTrm, cwspAbrCallBwdAdtf, 
+--    cwspAbrCallBwdCdf, cwspAbrCallBwdFrameDiscard, 
+--    cwspAbrCallFrtt, cwspAbrCallMaxCtd, cwspAbrCallMaxFwdCdv, 
+--    cwspAbrCallMaxFwdClr, cwspAbrCallMaxBwdCdv, 
+--    cwspAbrCallMaxBwdClr
+
+cwspPrefixGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A table specifying the network prefix(es)
+--    used for ILMI address registration.
+--  objects
+--    cwspPrefixRowStatus
+
+cwspLoadGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    load information and associated parameters of a interface.
+--  objects
+--    cwspLoadBwTotal, cwspLoadMaxBwCbr, cwspLoadMaxBwRtVbr, 
+--    cwspLoadMaxBwNrtVbr, cwspLoadMaxBwAbr, cwspLoadMaxBwUbr, 
+--    cwspLoadBwAvail, cwspLoadAvlBwCbr, cwspLoadAvlBwRtVbr, 
+--    cwspLoadAvlBwNrtVbr, cwspLoadAvlBwAbr, cwspLoadAvlBwUbr, 
+--    cwspLoadVcAvail, cwspLoadAvlVcCbr, cwspLoadAvlVcRtVbr, 
+--    cwspLoadAvlVcNrtVbr, cwspLoadAvlVcAbr, cwspLoadAvlVcUbr, 
+--    cwspLoadCtdCbr, cwspLoadCtdRtVbr, cwspLoadCtdNrtVbr, 
+--    cwspLoadCtdAbr, cwspLoadCtdUbr, cwspLoadCdvCbr, 
+--    cwspLoadCdvRtVbr, cwspLoadCdvNrtVbr, cwspLoadCdvAbr, 
+--    cwspLoadCdvUbr, cwspLoadClr0Cbr, cwspLoadClr0RtVbr, 
+--    cwspLoadClr0NrtVbr, cwspLoadClr0Abr, cwspLoadClr0Ubr, 
+--    cwspLoadClr01Cbr, cwspLoadClr01RtVbr, cwspLoadClr01NrtVbr, 
+--    cwspLoadClr01Abr, cwspLoadClr01Ubr, cwspLoadMinGurCrCbr, 
+--    cwspLoadMinGurCrRtVbr, cwspLoadMinGurCrNrtVbr, 
+--    cwspLoadMinGurCrAbr, cwspLoadMinGurCrUbr
+
+cwspAddressGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    ATM End System Addresses.
+--  objects
+--    cwspAddrType, cwspAddrProto, cwspAddrPlan, cwspAddrScope, 
+--    cwspAddrRedistribute, cwspAddressRowStatus
+
+cwspSigConfigGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    signaling configuration and associated parameters.
+--  objects
+--    cwspSigCfgT301, cwspSigCfgT303, cwspSigCfgT308, 
+--    cwspSigCfgT310, cwspSigCfgT316, cwspSigCfgT317, 
+--    cwspSigCfgT322, cwspSigCfgT397, cwspSigCfgT398, 
+--    cwspSigCfgT399
+
+cwspSscopConfigGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    SSCOP configuration and associated parameters.
+--  objects
+--    cwspSscopTmrCC, cwspSscopTmrKeepAlive, cwspSscopTmrNoResp, 
+--    cwspSscopTmrPoll, cwspSscopTmtIdle, cwspSscopMaxCC, 
+--    cwspSscopMaxPD, cwspSscopMaxSTAT
+
+cwspSscopStatsGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 13 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    SSCOP statistics.
+--  objects
+--    cwspSscopCounterReset, cwspSscopIgnoredPduRcv, 
+--    cwspSscopBgnRcv, cwspSscopBgakRcv, cwspSscopEndRcv, 
+--    cwspSscopEndakRcv, cwspSscopRsRcv, cwspSscopRsakRcv, 
+--    cwspSscopBgrejRcv, cwspSscopSdRcv, cwspSscopSdpRcv, 
+--    cwspSscopPollRcv, cwspSscopStatRcv, cwspSscopUstatRcv, 
+--    cwspSscopUdRcv, cwspSscopMdRcv, cwspSscopErakRcv, 
+--    cwspSscopBgnXmt, cwspSscopBgakXmt, cwspSscopEndXmt, 
+--    cwspSscopEndakXmt, cwspSscopRsXmt, cwspSscopRsakXmt, 
+--    cwspSscopBgrejXmt, cwspSscopSdXmt, cwspSscopSdpXmt, 
+--    cwspSscopPollXmt, cwspSscopStatXmt, cwspSscopUstatXmt, 
+--    cwspSscopUdXmt, cwspSscopMdXmt, cwspSscopErakXmt
+
+cwspRegAddressGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    registed ATM address.
+--  objects
+--    cwspRegAtmAddress, cwspRegAddressOrgSscope
+
+cwspRoutingGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 15 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    PNNI topology.
+--  objects
+--    ciscoWANPnniLinkStatus, ciscoWANPnniPglStatus, 
+--    ciscoWANPnniReachability, ciscoWANPnniRemoteNodeId, 
+--    ciscoWANPnniPortId
+
+cwspConnTraceGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 16 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing trace information about
+--    SVC/PNNI connnection.
+--  objects
+--    cwspConnTraceAvail, cwspConnTraceNextIndex, 
+--    cwspConnTraceifIndex, cwspConnTraceSrcVpi, 
+--    cwspConnTraceSrcVci, cwspConnTraceType, cwspConnTraceCallRef, 
+--    cwspConnTraceLeafRef, cwspConnTraceDestVpi, 
+--    cwspConnTraceDestVci, cwspConnTraceDestCallRef, 
+--    cwspConnTraceResultStatus, cwspConnTraceQueryStatus, 
+--    cwspConnTraceNodeId, cwspConnTraceEgressPortId, 
+--    cwspConnTraceEgressVpi, cwspConnTraceEgressVci, 
+--    cwspConnTraceEgressCallRef, cwspConnTraceEgressPhyPortId
+
+cwspOperationGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 17 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--     runtime negotiated values between platform, PNNI
+--     controller and peer on an interface.
+--  objects
+--    cwspOperIlmiEnable, cwspOperIfcType, cwspOperIfcSide, 
+--    cwspOperMaxVPCs, cwspOperMaxVCCs, cwspOperMaxVpiBits, 
+--    cwspOperMaxVciBits, cwspOperUniType, cwspOperUniVersion, 
+--    cwspOperDeviceType, cwspOperIlmiVersion, 
+--    cwspOperNniSigVersion, cwspOperMaxSvpcVpi, cwspOperMinSvpcVpi, 
+--    cwspOperMaxSvccVpi, cwspOperMinSvccVpi, cwspOperMaxSvccVci, 
+--    cwspOperMinSvccVci, cwspOperFailReason, 
+--    cwspOperAddrPlanSupported, cwspIlmiSecureLink, 
+--    cwspIlmiAttachmentPoint, cwspIlmiLocalAttrStd, 
+--    cwspIlmiUCSMEnable
+
+cwspSpvcGrp OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 18 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing spvc related 
+--    information in pnni controller.
+--  objects
+--    ciscoWANSpvcFailReason, cwspSpvcNodePrefix
+
+cwspConnTraceGrp2 OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 19 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing trace information about
+--    SVC/PNNI connnection.
+--  objects
+--    cwspConnTraceAvail, cwspConnTraceNextIndex, 
+--    cwspConnTraceifIndex, cwspConnTraceSrcVpi, 
+--    cwspConnTraceSrcVci, cwspConnTraceType, cwspConnTraceCallRef, 
+--    cwspConnTraceLeafRef, cwspConnTraceDestVpi, 
+--    cwspConnTraceDestVci, cwspConnTraceDestCallRef, 
+--    cwspConnTraceResultStatus, cwspConnTraceQueryStatus, 
+--    cwspConnTraceNodeId, cwspConnTraceEgressPortId, 
+--    cwspConnTraceEgressVpi, cwspConnTraceEgressVci, 
+--    cwspConnTraceEgressCallRef, cwspConnTraceEgressPhyPortId, 
+--    cwspConnTraceLastNode
+
+cwspConfigGrp2 OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 20 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing information about
+--    the controller interface operation and associated parameters.
+--  objects
+--    cwspAdminStatus, cwspOperStatus, cwspSvcBlocked, 
+--    cwspSpvcBlocked, cwspIlmiAddrRegEnable, 
+--    cwspIlmiAutoConfEnable, cwspIlmiServRegEnable, 
+--    cwspPhyIdentifier, cwspSignallingVpi, cwspSignallingVci, 
+--    cwspRoutingVpi, cwspRoutingVci, cwspMaxVpiBits, 
+--    cwspMaxVciBits, cwspUniVersion, cwspNniVersion, cwspUniType, 
+--    cwspSide, cwspMaxP2pCalls, cwspMaxP2mpRoots, cwspMaxP2mpLeafs, 
+--    cwspMinSvccVpi, cwspMaxSvccVpi, cwspMinSvccVci, 
+--    cwspMaxSvccVci, cwspMinSvpcVpi, cwspMaxSvpcVpi, 
+--    cwspEnhancedIisp, cwspConfigTableRowStatus, 
+--    cwspAddrPlanSupported, cwspIlmiSecureLink, 
+--    cwspIlmiAttachmentPoint, cwspIlmiLocalAttrStd, 
+--    cwspIlmiUCSMEnable, cwspRoutingPriority
+
+cwspConfigGrp3 OBJECT IDENTIFIER ::= { ciscoWANSvcMIBGroups 21 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about
+--    the controller interface operation and associated parameters.
+--  objects
+--    cwspAdminStatus, cwspOperStatus, cwspSvcBlocked, 
+--    cwspSpvcBlocked, cwspIlmiAddrRegEnable, 
+--    cwspIlmiAutoConfEnable, cwspIlmiServRegEnable, 
+--    cwspPhyIdentifier, cwspSignallingVpi, cwspSignallingVci, 
+--    cwspRoutingVpi, cwspRoutingVci, cwspMaxVpiBits, 
+--    cwspMaxVciBits, cwspUniVersion, cwspNniVersion, cwspUniType, 
+--    cwspSide, cwspMaxP2pCalls, cwspMaxP2mpRoots, cwspMaxP2mpLeafs, 
+--    cwspMinSvccVpi, cwspMaxSvccVpi, cwspMinSvccVci, 
+--    cwspMaxSvccVci, cwspMinSvpcVpi, cwspMaxSvpcVpi, 
+--    cwspEnhancedIisp, cwspConfigTableRowStatus, 
+--    cwspAddrPlanSupported, cwspIlmiSecureLink, 
+--    cwspIlmiAttachmentPoint, cwspIlmiLocalAttrStd, 
+--    cwspIlmiUCSMEnable, cwspRoutingPriority, cwspSpvcAddress
+
+ciscoWANSvcMIBCompliance OBJECT IDENTIFIER ::= { ciscoWANSvcMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities that support
+--    the Cisco SVC MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cwsInfoGrp
+--   MandGroup
+--    cwspConfigGrp
+--   MandGroup
+--    cwspCacConfigGrp
+--   MandGroup
+--    cwspCallStatsGrp
+--   MandGroup
+--    cwspSigStatsGrp
+--   MandGroup
+--    cwspCallGrp
+--   MandGroup
+--    cwspAbrCallGrp
+--   MandGroup
+--    cwspPrefixGrp
+--   MandGroup
+--    cwspLoadGrp
+--   MandGroup
+--    cwspAddressGrp
+--   MandGroup
+--    cwspConnTraceGrp
+--   MandGroup
+--    cwspOperationGrp
+--   OptGroup
+--    cwspSigConfigGrp
+--   OptGroup
+--    cwspSscopConfigGrp
+--   OptGroup
+--    cwspSscopStatsGrp
+--   OptGroup
+--    cwspRegAddressGrp
+--   OptGroup
+--    cwspRoutingGrp
+--   OptGroup
+--    cwspSpvcGrp
+--   ObjVar
+--    cwspSpvcNodePrefix
+--   ObjVar
+--    cwspMaxP2pCalls
+
+ciscoWANSvcMIBCompliance2 OBJECT IDENTIFIER ::= { ciscoWANSvcMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities that support
+--    the Cisco SVC MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cwsInfoGrp
+--   MandGroup
+--    cwspConfigGrp
+--   MandGroup
+--    cwspCacConfigGrp
+--   MandGroup
+--    cwspCallStatsGrp
+--   MandGroup
+--    cwspSigStatsGrp
+--   MandGroup
+--    cwspCallGrp
+--   MandGroup
+--    cwspAbrCallGrp
+--   MandGroup
+--    cwspPrefixGrp
+--   MandGroup
+--    cwspLoadGrp
+--   MandGroup
+--    cwspAddressGrp
+--   MandGroup
+--    cwspConnTraceGrp2
+--   MandGroup
+--    cwspOperationGrp
+--   OptGroup
+--    cwspSigConfigGrp
+--   OptGroup
+--    cwspSscopConfigGrp
+--   OptGroup
+--    cwspSscopStatsGrp
+--   OptGroup
+--    cwspRegAddressGrp
+--   OptGroup
+--    cwspRoutingGrp
+--   OptGroup
+--    cwspSpvcGrp
+--   ObjVar
+--    cwspSpvcNodePrefix
+--   ObjVar
+--    cwspMaxP2pCalls
+
+ciscoWANSvcMIBCompliance3 OBJECT IDENTIFIER ::= { ciscoWANSvcMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities that support
+--    the Cisco SVC MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cwsInfoGrp
+--   MandGroup
+--    cwspConfigGrp3
+--   MandGroup
+--    cwspCacConfigGrp
+--   MandGroup
+--    cwspCallStatsGrp
+--   MandGroup
+--    cwspSigStatsGrp
+--   MandGroup
+--    cwspCallGrp
+--   MandGroup
+--    cwspAbrCallGrp
+--   MandGroup
+--    cwspPrefixGrp
+--   MandGroup
+--    cwspLoadGrp
+--   MandGroup
+--    cwspAddressGrp
+--   MandGroup
+--    cwspConnTraceGrp2
+--   MandGroup
+--    cwspOperationGrp
+--   OptGroup
+--    cwspSigConfigGrp
+--   OptGroup
+--    cwspSscopConfigGrp
+--   OptGroup
+--    cwspSscopStatsGrp
+--   OptGroup
+--    cwspRegAddressGrp
+--   OptGroup
+--    cwspRoutingGrp
+--   OptGroup
+--    cwspSpvcGrp
+--   ObjVar
+--    cwspSpvcNodePrefix
+--   ObjVar
+--    cwspMaxP2pCalls
+
+
+END
+

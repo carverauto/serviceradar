@@ -1,0 +1,521 @@
+-- *****************************************************************
+-- CISCO-VOICE-IF-MIB.my: Voice Interface MIB file
+--
+-- September 1996  Hongchi Shih
+--
+-- Copyright (c) 1996-1998, 1999, 2001, 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VOICE-IF-MIB  DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Integer32 
+                FROM SNMPv2-SMI
+        TruthValue,
+        DisplayString
+                FROM SNMPv2-TC
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        ifIndex
+                FROM IF-MIB
+        CountryCode
+                FROM CISCO-TC
+        ciscoMgmt
+                FROM CISCO-SMI;
+ 
+ 
+ciscoVoiceInterfaceMIB MODULE-IDENTITY
+        LAST-UPDATED    "200307180000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+ 
+                Tel: +1 800 553-NETS
+ 
+                E-mail: cs-voice@cisco.com"
+        DESCRIPTION
+                "Common Voice Interface MIB module.
+                 The MIB module manages the common voice related
+                 parameters for both voice analog and ISDN interfaces.
+                "
+        REVISION        "200307180000Z"
+        DESCRIPTION
+        "Add new value (tieline (4)) for the object 
+         cvIfCfgConnectionMode
+        "
+        REVISION        "200103080000Z"
+        DESCRIPTION
+        "Add new object and values for handling the following features:
+         [1] New echo canceller coverage values.
+         [2] Echo canceller worst-case Echo Return Loss in cvIfCfgEntry.
+         [3] Echo canceller identity in cvIfCfgEntry.
+        "
+        ::= { ciscoMgmt 64 }
+
+
+
+
+-- Common Voice Interface MIB objects definitions
+
+cvIfObjects          OBJECT IDENTIFIER ::= { ciscoVoiceInterfaceMIB 1 }
+cvIfCfgObjects       OBJECT IDENTIFIER ::= { cvIfObjects 1 }
+
+
+--
+-- Voice interface Layering model and ifStack usage             
+--
+-- Refer to section 2.2.1 of RFC2128 for Layering model and ifStack
+-- usage
+--
+
+--
+-- Voice interface Common Configuration Group
+--
+-- This group contains the common voice related configuration variables 
+-- that are used by both analog and digital telephony interfaces
+--
+
+--  
+-- Voice Common Configuration Table 
+--
+cvIfCfgTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CvIfCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "The Voice Common Configuration Table. It contains
+             information about the voice related configuration
+             parameters for both analog and digital telephony
+             interfaces. 
+            "
+       ::= { cvIfCfgObjects 1 }
+
+cvIfCfgEntry OBJECT-TYPE
+        SYNTAX      CvIfCfgEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "An entry in the configuration table for each voice analog
+             interface or voice feature associated ISDN D channel.
+             The entry is automatically created when a voice analog
+             interface hardware is found or ISDN D channel is
+             configured and the ISDN associated voice support hardware
+             is detected by the managed system.
+             For the ISDN D channel associated entry, the entry
+             is deleted after ISDN D channel is removed. 
+            "
+        INDEX    { ifIndex }
+      ::= { cvIfCfgTable 1 }
+
+CvIfCfgEntry ::=
+        SEQUENCE {
+            cvIfCfgNoiseRegEnable         TruthValue, 
+            cvIfCfgNonLinearProcEnable    TruthValue, 
+            cvIfCfgMusicOnHoldThreshold   Integer32, 
+            cvIfCfgInGain                 Integer32,
+            cvIfCfgOutAttn                Integer32,
+            cvIfCfgEchoCancelEnable       TruthValue,
+            cvIfCfgEchoCancelCoverage     INTEGER,
+            cvIfCfgConnectionMode         INTEGER, 
+            cvIfCfgConnectionNumber       DisplayString,
+            cvIfCfgInitialDigitTimeOut    Integer32,
+            cvIfCfgInterDigitTimeOut      Integer32,
+            cvIfCfgRegionalTone           CountryCode,
+            cvIfCfgEchoCancelWorstERL	  INTEGER,
+            cvIfCfgEchoCanceller	  INTEGER
+        }
+
+cvIfCfgNoiseRegEnable OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "The object indicates whether or not the background noise
+             should be played to fill silence gaps if VAD is
+             activated.
+             The default value of this object is enabled.
+            "
+        ::= { cvIfCfgEntry 1 }
+
+
+cvIfCfgNonLinearProcEnable OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "The object indicates whether or not the Nonlinear
+             Processing is enabled for the interface.
+             The default value of this object is enabled.
+            "
+        ::= { cvIfCfgEntry 2 }
+
+cvIfCfgMusicOnHoldThreshold OBJECT-TYPE
+        SYNTAX      Integer32 (-70..-30)
+        UNITS       "dBm" 
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "The object specifies the Music On Hold Threshold for
+             the interface.
+             The default value of this object is -38 dBm.
+            "
+        ::= { cvIfCfgEntry 3 }
+
+
+cvIfCfgInGain OBJECT-TYPE
+       SYNTAX     Integer32 (-6..14)
+       UNITS      "dB"
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+               "This object contains the amount of gain inserted at the
+                receiver side of the interface. The input gain settings
+                only define a gain/loss relative to the 0 dB setting.
+                The absolute loss at the 0 dB setting could be
+                implementation dependent based on the desired network
+                loss plan.
+                The default value of this object is 0 dB (decibel).
+               "
+        ::= { cvIfCfgEntry 4 }
+
+cvIfCfgOutAttn OBJECT-TYPE
+       SYNTAX      Integer32 (0..14)     
+       UNITS      "dB"
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+               "This object contains the amount of attenuation inserted
+                at the transmit side of the interface. 
+                The output attenuation settings only define a loss 
+                relative to the 0 dB setting.
+                The absolute loss at the 0 dB setting could be
+                implementation dependent based on the desired network
+                loss plan.
+                The default value of this object is 0 dB (decibel).
+               "
+       ::= { cvIfCfgEntry 5 }
+
+cvIfCfgEchoCancelEnable OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "The object specifies whether or not the Echo Cancellation 
+             is enabled for the interface.
+             The default value of this object is enabled.
+            "
+        ::= { cvIfCfgEntry 6 }
+
+cvIfCfgEchoCancelCoverage OBJECT-TYPE
+        SYNTAX      INTEGER {
+            echoCanceller16ms (1),
+            echoCanceller24ms (2),
+            echoCanceller32ms (3),
+            echoCanceller8ms  (4),
+            echoCanceller48ms (5),
+            echoCanceller64ms (6),
+            echoCanceller80ms (7),
+            echoCanceller96ms (8),
+            echoCanceller112ms (9),
+            echoCanceller128ms (10)
+        }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "The object specifies the Echo Canceller coverage for
+             the interface. This object is valid if the
+             cvIfCfgEchoCancelEnable object is 'true'.
+             echoCanceller8ms -     8 millisecs echo canceller coverage.
+             echoCanceller16ms -   16 millisecs echo canceller coverage.
+             echoCanceller24ms -   24 millisecs echo canceller coverage.
+             echoCanceller32ms -   32 millisecs echo canceller coverage.
+             echoCanceller48ms -   48 millisecs echo canceller coverage.
+             echoCanceller64ms -   64 millisecs echo canceller coverage.
+             echoCanceller80ms -   80 millisecs echo canceller coverage.
+             echoCanceller96ms -   96 millisecs echo canceller coverage.
+             echoCanceller112ms - 112 millisecs echo canceller coverage.
+             echoCanceller128ms - 128 millisecs echo canceller coverage.
+             The default value of this object is echoCanceller8ms or
+             echoCanceller64ms, depending on the particular echo 
+             canceller.
+            "
+        ::= { cvIfCfgEntry 7 }
+
+cvIfCfgConnectionMode OBJECT-TYPE
+        SYNTAX      INTEGER {
+              normal  (1),
+              trunk   (2),
+              plar    (3),
+              tieline (4)
+        }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "The object indicates the connection mode of the interface.
+             normal - the interface acts normally to handle incoming
+                      and outgoing call.
+             trunk  - the interface acts in trunking mode. trunking mode
+                      causes two interfaces (on either the same or
+                      different routers) to be always conferenced
+                      together, and for telephony signaling to be passed
+                      transparently through the VoIP system rather than
+                      trapped and interpreted by the session application
+                      on the router(s).
+             plar   - the interface acts in PLAR (private line automatic
+                      ringdown) mode. PLAR is handled by associating a
+                      peer directly with an interface such that when the
+                      interface goes off-hook, that peer is used to
+                      setup the second call leg and conference them
+                      together without the caller having to dial any
+                      digits.
+             tieline- the interface acts in tie-line mode. This
+                      specifies a connection that emulates a temporary 
+                      tie-line trunk to a PBX. A tie-line connection is 
+                      automatically set up for each call and torn down 
+                      when the call ends.
+            "
+        ::= { cvIfCfgEntry 8 }
+
+cvIfCfgConnectionNumber OBJECT-TYPE
+        SYNTAX      DisplayString (SIZE (0..32))           
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "This is the E.164 phone number that is used to 
+             establish connection with trunking mode or PLAR mode.
+             If the cvIfCfgConnectionMode is 'normal', then  this
+             object will be a zero length string.
+            "
+        ::= { cvIfCfgEntry 9 }
+
+cvIfCfgInitialDigitTimeOut OBJECT-TYPE
+        SYNTAX      Integer32 (0..120)
+        UNITS      "seconds"
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "This is the initial digit timeout that indicates the amount
+             of time the managed system waits for an initial input digit
+             from the caller. The timer is activated when the call is
+             accepted and is deactivated upon digit input. If the timer
+             expires, the caller is signaled through the appropriate
+             tone and the call is abandoned. The value of zero disables
+             the timer.
+             The default value of this object is 10 seconds.
+            "
+        ::= { cvIfCfgEntry 10 }
+
+cvIfCfgInterDigitTimeOut OBJECT-TYPE
+        SYNTAX      Integer32 (0..120)
+        UNITS      "seconds"
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "This is the inter-digit timeout that indicates the amount
+             of time the managed system waits for a subsequent input
+             digit from the caller. The timer is started upon receipt
+             of an input digit and restarted as each digit is received
+             until the destination address is identified. If the timer
+             expires and no destination address is identified, the
+             caller is signaled through the appropriate tone and the
+             call is abandoned. The value of zero disables the timer.
+             The default value of this object is 10 seconds.
+            "
+        ::= { cvIfCfgEntry 11 }
+
+cvIfCfgRegionalTone OBJECT-TYPE
+        SYNTAX      CountryCode
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "This object contains the country specific setting
+                 for the tone, ring, cadence parameters to be used by
+                 this interface.
+                "
+        ::= { cvIfCfgEntry 12 }
+
+cvIfCfgEchoCancelWorstERL OBJECT-TYPE
+        SYNTAX      INTEGER {
+	    echoCancellerWorstERLUnknown (1),
+            echoCancellerWorstERL6dB     (2),
+            echoCancellerWorstERL3dB     (3),
+            echoCancellerWorstERL0dB     (4)
+        }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "The object specifies the worst case Echo Return Loss for 
+             which the echo canceller must operate. To some echo 
+             cancellers this object may not apply. This object is 
+             valid if the cvIfCfgEchoCancelEnable object is 'true'.
+	     echoCancellerWorstERL6dB - 6 decibels worst case ERL.
+             echoCancellerWorstERL3dB - 3 decibels worst case ERL.
+             echoCancellerWorstERL0dB - 0 decibels worst case ERL.
+             echoCancellerWorstERLUnknown - the object does not apply 
+             to this echo canceller.
+	     The default value of this object is 
+             echoCancellerWorstERL6dB unless 
+             echoCancellerWorstERLUnknown is appropriate because 
+             the echo canceller is not configurable by this object.
+            "
+        ::= { cvIfCfgEntry 13 }
+
+cvIfCfgEchoCanceller OBJECT-TYPE
+        SYNTAX      INTEGER {
+	    echoCancellerStandard (1),
+            echoCancellerExtended (2)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The object specifies which echo canceller is present
+             on the interface.
+             echoCancellerStandard - for this echo canceller valid
+             values of cvIfCfgEchoCancelCoverage are echoCanceller8ms
+	     through echoCanceller32ms; cvIfCfgEchoCancelWorstERL is 
+             not valid.
+             echoCancellerExtended - for this echo canceller valid
+             values of cvIfCfgEchoCancelCoverage are echoCanceller24ms
+             through echoCanceller128ms; cvIfCfgEchoCancelWorstERL is
+	     valid.
+            "
+        ::= { cvIfCfgEntry 14 }
+
+cvIfConformance OBJECT IDENTIFIER ::=
+                                { ciscoVoiceInterfaceMIB 2 }
+cvIfCompliances OBJECT IDENTIFIER ::=
+                                { cvIfConformance 1 }
+cvIfGroups      OBJECT IDENTIFIER ::=
+                                { cvIfConformance 2 }
+
+-- compliance statements
+
+cvIfCompliance MODULE-COMPLIANCE
+        STATUS      current
+        DESCRIPTION
+            "The compliance statement for entities which
+             implement the Cisco Voice Interface MIB"
+        MODULE      -- this module
+        MANDATORY-GROUPS
+            { cvIfGroup }
+
+        GROUP cvIfConnectionGroup
+            DESCRIPTION
+               "The cvIfConnectionGroup is mandatory only for
+                voice analog interfaces.
+               "
+        OBJECT  cvIfCfgNoiseRegEnable
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        OBJECT  cvIfCfgNonLinearProcEnable
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        OBJECT  cvIfCfgMusicOnHoldThreshold
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        OBJECT  cvIfCfgInGain
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        OBJECT  cvIfCfgOutAttn
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        OBJECT  cvIfCfgEchoCancelEnable
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        OBJECT  cvIfCfgEchoCancelCoverage
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        OBJECT  cvIfCfgConnectionMode
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        OBJECT  cvIfCfgConnectionNumber
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        OBJECT  cvIfCfgInitialDigitTimeOut
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        OBJECT  cvIfCfgInterDigitTimeOut
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        OBJECT  cvIfCfgRegionalTone
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        OBJECT  cvIfCfgEchoCancelWorstERL
+            MIN-ACCESS  read-only
+            DESCRIPTION
+                "Write access is not required."
+
+        ::= { cvIfCompliances 1 }
+
+-- units of conformance
+
+
+cvIfGroup OBJECT-GROUP
+        OBJECTS {
+            cvIfCfgNoiseRegEnable, 
+            cvIfCfgNonLinearProcEnable , 
+            cvIfCfgMusicOnHoldThreshold, 
+            cvIfCfgInGain,
+            cvIfCfgOutAttn,
+            cvIfCfgEchoCancelEnable,
+            cvIfCfgEchoCancelCoverage,
+            cvIfCfgInitialDigitTimeOut,
+            cvIfCfgInterDigitTimeOut,
+            cvIfCfgRegionalTone,
+	    cvIfCfgEchoCancelWorstERL,
+            cvIfCfgEchoCanceller
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing the Common Voice
+             parameter related configuration for both analog and
+             digital voice interfaces."
+        ::= { cvIfGroups 1 }
+
+cvIfConnectionGroup OBJECT-GROUP
+        OBJECTS {
+            cvIfCfgConnectionMode, 
+            cvIfCfgConnectionNumber
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing trunking or PLAR
+             (private line automatic ringdown) related configuration
+             for voice analog interfaces.
+            "
+        ::= { cvIfGroups 2 }
+
+END

@@ -1,0 +1,2643 @@
+-- *********************************************************************
+-- CISCO-FICON-MIB.my: Cisco mib for FICON (FIber CONnection) 
+--                             
+-- July 2004, Charuhas Ghatge
+--
+-- Copyright (c) 2004, 2005, 2006 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FICON-MIB DEFINITIONS ::= BEGIN
+ 
+IMPORTS
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    MODULE-IDENTITY,
+    Integer32, Counter32, Unsigned32         FROM SNMPv2-SMI
+    TruthValue,RowStatus,DisplayString,
+    TEXTUAL-CONVENTION                       FROM SNMPv2-TC
+    SnmpAdminString                          FROM SNMP-FRAMEWORK-MIB   
+    MODULE-COMPLIANCE, OBJECT-GROUP,
+    NOTIFICATION-GROUP                       FROM SNMPv2-CONF
+    ifIndex, InterfaceIndex                  FROM IF-MIB
+    ciscoMgmt                                FROM CISCO-SMI
+    FcAddressId                              FROM CISCO-ST-TC
+    vsanIndex                                FROM CISCO-VSAN-MIB;
+
+ciscoFiconMIB    MODULE-IDENTITY
+        LAST-UPDATED    "200604070000Z"       -- 7 April, 2006
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-san@cisco.com"
+
+        DESCRIPTION
+                "This is the FICON (FIber CONnection) MIB module. 
+
+                 FICON is an IBM standard of transport mechanism 
+                 for communication between the mainframes and 
+                 devices and is a major consideration
+                 for enterprise data centers.
+
+                 The Cisco MDS Storage Area Network (SAN) switches
+                 provide the functionality of a FICON Director to 
+                 the customers. "
+
+        REVISION        "200604070000Z"       -- 7 April, 2006
+        DESCRIPTION
+                 "Changed DESCRIPTION of cficonDefaultPortBlock."
+        REVISION        "200603140000Z"       -- 14 March, 2006
+        DESCRIPTION
+                 "Added cficonDefaultPortBlock.
+                  Added cficonDefaultPortBlockGroup.
+                  Added ciscoFiconComplianceRev3.
+                  Added ciscoFiconGlobal."
+
+        REVISION        "200510210000Z"       -- 21 October, 2005
+        DESCRIPTION
+                 "Added cficonInterfaceSwapTable."
+
+        REVISION        "200510060000Z"       -- 6 October, 2005
+        DESCRIPTION
+                 "Added cficonPortMapTable, cficonPortMapMax,
+                  cficonSlotPortNumTable and cficonLogicReservedPN
+                  for FICON port-numbering scheme.
+                  Added cficonRlirErlTable."
+
+        REVISION        "200506010000Z"
+        DESCRIPTION
+                 "Initial version of this MIB module."
+        ::= { ciscoMgmt 375 } 
+ 
+ciscoFiconMIBNotifications OBJECT IDENTIFIER 
+                                    ::= { ciscoFiconMIB 0 }
+ciscoFiconMIBObjects       OBJECT IDENTIFIER 
+                                    ::= { ciscoFiconMIB 1 }
+ciscoFiconMIBConform       OBJECT IDENTIFIER 
+                                    ::= { ciscoFiconMIB 2 }
+
+ciscoFiconConfig           OBJECT IDENTIFIER
+                                    ::= { ciscoFiconMIBObjects 1 }
+ciscoFiconGlobal           OBJECT IDENTIFIER
+                                    ::= { ciscoFiconMIBObjects 2 }
+                                  
+-- Definitions and Glossary
+--
+-- FICON Director - This refers to a device that implements the
+--                  FICON Control Device functionality. 
+--
+-- Port Connectivity Attributes - At initial installation, the
+--                  FICON Director allows any port to
+--                  communicate with any other port. To restrict
+--                  this ability, the following connectivity
+--                  attributes are defined -
+-- 
+--                  Block - If this is ON, it prevents all 
+--                          communications on this port.
+--
+--                  Prohibit - Each port has a vector pf 256
+--                          bits specifying which ports it can
+--                          or cannot communicate.
+--
+-- External Ports - These are the physical ports present in a  
+--                  FICON Director.
+--
+-- Internal Ports - Internal ports provide an interface to the
+--                  internal functionality and do not have
+--                  a physical counterpart.
+--
+-- Installed Ports - An installed port is an external port for 
+--                   which port hardware has been installed.
+--
+-- Port Number    - This is a unique value that identifies a 
+--                  physical port on the FICON Director.
+--
+-- Port Address   - This is a unique value that identifies a 
+--                  port for all commands regarding Port
+--                  Connectivity Attributes. Port address has
+--                  static relationship with the Port Number.
+--                  After a port swap command, the Port Address
+--                  is changed but the Port Number remains same.
+--
+-- Control Unit Port (CUP) - A functionality that enables a host
+--                  to configure the FICON Director as if it is 
+--                  a Control Device which understands FICON
+--                  commands.
+
+-- Registered Link Incident Report (RLIR) - RLIR ELS is a means of
+--                  sending the Link Incident Reports.
+
+-- Established Registration List (ERL)  - A list of Nx_Ports
+--                  registered for receiving RLIR ELS.
+
+-- Textual Conventions
+
+CficonPortNumOrAddr ::= TEXTUAL-CONVENTION
+       STATUS       current
+       DESCRIPTION
+            "The port number or port address." 
+       SYNTAX    Integer32(0..255)
+
+--
+-- FICON port default state in new vsan
+--
+
+cficonDefaultPortBlock OBJECT-TYPE
+        SYNTAX         TruthValue 
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+            "This object indicates the default state which whether
+             to prohibit traffic or allow traffic among all External
+             Ports of a new FICON VSAN.
+
+             If 'true' the default state is prohibit all traffic,
+             else the default state is allow all traffic.
+
+             The default values of the cficonProhibitPortNumbers
+             and the cficonRunCfgProhibitPrtNums in a newly created
+             FICON VSAN are consistent with the state of this object."
+        ::= {ciscoFiconGlobal 1}
+
+--
+-- FICON port swap table 
+--
+
+cficonPortSwapTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CficonPortSwapEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "A table to issue the port swap command.
+
+             In FICON, lots of configuration in the host is associated
+             with a port-address. If the FICON port connecting the host
+             to the switch has some problem and the user 
+             wants to connect the host to a different port in the
+             switch, one needs to swap the configuration of the
+             two ports. This command transparently  swaps the
+             configuration of two ports without affecting the
+             host."
+        ::= { ciscoFiconConfig 1 }
+
+cficonPortSwapEntry OBJECT-TYPE
+        SYNTAX      CficonPortSwapEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "A cficonPortSwapTable entry.
+
+             A management station wishing to create an entry should
+             first generate a pseudo-random serial number to be used
+             as the index to this sparse table.  The station should
+             then create the associated instance of the row status
+             object. It must also, in the same PDU create the
+             associated instance of the cficonSwapPortNumberFirst
+             and cficonSwapPortNumberSecond objects.
+
+             Note that when creating a row in this table, the
+             cficonSwapPortEntryStatus, cficonSwapPortNumberFirst
+             and cficonSwapPortNumberSecond are all required.
+
+             Once the operation completes, the management station
+             should delete the entry.  "
+        INDEX   { cficonPortSwapIndex }
+        ::= { cficonPortSwapTable 1 }
+
+CficonPortSwapEntry  ::= SEQUENCE {
+            cficonPortSwapIndex        Integer32,
+            cficonSwapPortNumberFirst  CficonPortNumOrAddr,
+            cficonSwapPortNumberSecond CficonPortNumOrAddr,
+            cficonSwapPortEntryStatus  RowStatus
+            }
+
+cficonPortSwapIndex        OBJECT-TYPE
+        SYNTAX             Integer32(1..2147483647)
+        MAX-ACCESS         not-accessible 
+        STATUS             current
+        DESCRIPTION
+            "An arbitrary index for the swap command."
+        ::= {cficonPortSwapEntry 1}
+
+cficonSwapPortNumberFirst  OBJECT-TYPE
+        SYNTAX             CficonPortNumOrAddr
+        MAX-ACCESS         read-create
+        STATUS             current
+        DESCRIPTION 
+            "The first port number that needs to be swapped ."
+        ::= {cficonPortSwapEntry 2}
+ 
+cficonSwapPortNumberSecond  OBJECT-TYPE
+        SYNTAX              CficonPortNumOrAddr
+        MAX-ACCESS          read-create
+        STATUS              current
+        DESCRIPTION 
+            "The second port number that needs to be swapped."
+        ::= {cficonPortSwapEntry 3}
+        
+cficonSwapPortEntryStatus  OBJECT-TYPE
+        SYNTAX             RowStatus 
+        MAX-ACCESS         read-create
+        STATUS             current
+        DESCRIPTION 
+            "If this object is set to 'createAndGo(4)' then  
+             the port configurations of the ports specified 
+             by objects cficonSwapPortNumberFirst and
+             cficonSwapPortNumberSecond will be swapped."
+        ::= {cficonPortSwapEntry 4}
+
+--
+--  FICON Vsan Table
+--
+
+cficonVsanTable        OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CficonVsanEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+            "A table containing the objects to manage FICON 
+             functionality in a VSAN. "   
+        ::= { ciscoFiconConfig 2 }
+
+cficonVsanEntry        OBJECT-TYPE
+        SYNTAX         CficonVsanEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+             "A cficonVsanTable entry. Each entry, identified
+              by vsanIndex, provides the objects to manage
+              FICON functionality in this VSAN,
+              identified by vsanIndex. 
+
+              To create a vsan, only the 
+              cficonVsanEntryStatus needs to be set
+              in the PDU. A vsan will be created with default
+              values for all the objects in the entry.
+
+              Once the vsan is created, the values of all
+              the writable objects within a row can be 
+              modified.
+             "
+        INDEX   { vsanIndex }
+        ::= { cficonVsanTable 1 }
+
+CficonVsanEntry  ::= SEQUENCE {
+            cficonVsanHostControl             TruthValue,
+            cficonVsanHostControlSwOffline    TruthValue,
+            cficonVsanHostControlClkAlrtMode TruthValue,
+            cficonVsanSnmpControl             TruthValue,
+            cficonVsanAutoSavePortAddrCfg     TruthValue,
+            cficonVsanEnableCup               TruthValue,
+            cficonVsanCodePage                INTEGER,
+            cficonVsanCharSet                 INTEGER,
+            cficonVsanKeyCounter              Integer32,
+            cficonVsanUserAlertMode           TruthValue,
+            cficonVsanDeviceAllegience        INTEGER,
+            cficonVsanTime                    DisplayString,
+            cficonVsanHostOrDefaultTime       TruthValue,
+            cficonVsanCupName                 SnmpAdminString,
+            cficonSetHostTimeControl          TruthValue,
+            cficonVsanClearAllegience         INTEGER,
+            cficonVsanEntryStatus             RowStatus,
+            cficonVsanFiconState              INTEGER,
+            cficonVsanSerialNum               SnmpAdminString
+            }
+        
+cficonVsanHostControl  OBJECT-TYPE
+        SYNTAX       TruthValue 
+        MAX-ACCESS   read-create
+        STATUS       current
+        DESCRIPTION
+            "The object indicates whether the host is allowed to
+             alter FICON Director connectivity parameters.
+             If 'true' the host is allowed to alter the parameters,
+             else it cannot."
+        DEFVAL { true }
+        ::= { cficonVsanEntry 1 }
+
+cficonVsanHostControlSwOffline OBJECT-TYPE
+        SYNTAX               TruthValue 
+        MAX-ACCESS           read-create
+        STATUS               current
+        DESCRIPTION
+             "The object specifying whether the host can put the VSAN
+              offline.
+              If 'true' it allows the host to put the VSAN offline,
+              else it cannot."
+        DEFVAL { true }
+        ::= { cficonVsanEntry 2 }
+        
+cficonVsanHostControlClkAlrtMode OBJECT-TYPE
+        SYNTAX                 TruthValue 
+        MAX-ACCESS             read-create
+        STATUS                 current
+        DESCRIPTION
+             "The object indicates whether director clock alert mode
+              is enabled or disabled. 
+              If 'true', the mode is enabled, else it is disabled."
+        DEFVAL { false }
+        ::= { cficonVsanEntry 3 }
+
+cficonVsanSnmpControl OBJECT-TYPE
+        SYNTAX      TruthValue 
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+             "The object indicates whether network management system 
+              is allowed to alter FICON director connectivity 
+              parameters. If 'true', the network management system
+              is allowed to alter FICON director connectivity 
+              parameters, else, it cannot."
+        DEFVAL { true }
+        ::= { cficonVsanEntry 4 }
+
+cficonVsanAutoSavePortAddrCfg OBJECT-TYPE
+        SYNTAX                TruthValue 
+        MAX-ACCESS            read-create
+        STATUS                current
+        DESCRIPTION
+             "The object indicating whether the configuration will be
+              saved in the configuration file for this VSAN. 
+
+              When an operator modifies a configuration, the running
+              configuration is modified. If this object is 'true', then
+              the configuration is saved in the configuration file as
+              well. If this object is 'false', then the running
+              configuration is not saved in the configuration
+              file."
+        DEFVAL { false }  
+        ::= { cficonVsanEntry 5 }
+
+cficonVsanEnableCup  OBJECT-TYPE
+        SYNTAX       TruthValue 
+        MAX-ACCESS   read-create
+        STATUS       current
+        DESCRIPTION
+             "The object indicating Control Unit Port (CUP) is enabled.
+              If 'true', CUP is enabled, else it is disabled."
+        DEFVAL { true }  
+        ::= { cficonVsanEntry 6 }   
+        
+cficonVsanCodePage  OBJECT-TYPE
+        SYNTAX      INTEGER {
+                             usa(37),
+                             germany(273),
+                             brazil(275),
+                             italy(280),
+                             japan(281),
+                             spain(284),
+                             uk(285),
+                             france(297),
+                             interNational(500)
+                    } 
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+             "The EBCDIC Code page used for the exchange of 
+              information with the host in this VSAN."
+        DEFVAL { usa }
+        ::= { cficonVsanEntry 7 }
+
+cficonVsanCharSet   OBJECT-TYPE
+        SYNTAX      INTEGER {
+                             charSet697(1)
+                    } 
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+             "The Character Set used for the exchange of
+              of information with the host in this VSAN.
+             " 
+        DEFVAL { charSet697 }
+        ::= { cficonVsanEntry 8 }
+
+cficonVsanKeyCounter  OBJECT-TYPE
+        SYNTAX        Integer32 (1..2147483647)
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+             "A counter that is incremented every time there
+              is a configuration change. 
+
+              This counter is used by the Host to keep track
+              of the number of configuration changes that
+              have taken place."
+        ::= { cficonVsanEntry 9 }
+
+cficonVsanUserAlertMode OBJECT-TYPE
+        SYNTAX         TruthValue 
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+             "The object indicating whether director user alert
+              mode is enabled or disabled. 
+              If 'true', the mode is enabled. else it is 
+              disabled."
+        DEFVAL { false }
+        ::= { cficonVsanEntry 10 }
+
+cficonVsanDeviceAllegience OBJECT-TYPE
+        SYNTAX             INTEGER {
+                                    lockedByCLI(1),
+                                    lockedBySnmp(2),
+                                    lockedByHost(3),
+                                    unlocked(4)
+                           }
+        MAX-ACCESS         read-only
+        STATUS             current
+        DESCRIPTION
+             "The object indicating whether CUP is in a allegiance 
+              state. If it is in allegiance state with a channel,
+              it cannot accept any commands from any logical paths.
+
+              A CUP goes in an allegiance state when it accepts 
+              command from a channel and forms 'an allegiance'
+              with it until the successful completion of the 
+              channel program, at which point the CUP goes in 
+              a an 'unlocked' mode."
+        DEFVAL { unlocked }
+        ::= { cficonVsanEntry 11 }
+
+cficonVsanTime            OBJECT-TYPE
+        SYNTAX            DisplayString
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+            "The system time in the VSAN. This could be set
+             either by the host or be the default global time
+             in the FICON Director. The default global time
+             is the local time in the FICON Director.
+
+             The format is as follows  -
+
+             Wed Nov 5 18:53:52.172485 2003
+             "
+        ::= { cficonVsanEntry 12 }
+
+cficonVsanHostOrDefaultTime OBJECT-TYPE
+        SYNTAX              TruthValue
+        MAX-ACCESS          read-only
+        STATUS              current
+        DESCRIPTION
+             "The object indicating whether VSAN time is set by
+              the host or the time is global time within a FICON
+              Director. If 'true', the time was set by the host, 
+              else it is same as the FICON Director's global time."
+        DEFVAL { false }
+        ::= { cficonVsanEntry 13 }
+
+cficonVsanCupName      OBJECT-TYPE
+        SYNTAX         SnmpAdminString 
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+             "The name of CUP."
+        ::= { cficonVsanEntry 14 }
+
+cficonSetHostTimeControl   OBJECT-TYPE
+        SYNTAX             TruthValue
+        MAX-ACCESS         read-create
+        STATUS             current
+        DESCRIPTION
+             "The object indicating whether VSAN time can be
+              set by the host.
+
+              If 'true', the host can set the time, else it 
+              can not."
+        DEFVAL { true }
+        ::= { cficonVsanEntry 15 }
+
+cficonVsanClearAllegience  OBJECT-TYPE
+        SYNTAX             INTEGER {
+                                    clear(1)
+                           }
+        MAX-ACCESS         read-create
+        STATUS             current
+        DESCRIPTION
+             "The object used to clear a CUP allegiance.
+  
+              If this object is set with value, 'clear(1)'
+              the CUP goes in a 'non-allegiance' or 
+              'unlocked' mode as described in the description
+              of cficonVsanDeviceAllegience object above."
+        ::= { cficonVsanEntry 16 }
+
+cficonVsanEntryStatus  OBJECT-TYPE
+        SYNTAX         RowStatus
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+            "The status of this table entry."
+        ::= { cficonVsanEntry 17 }
+
+cficonVsanFiconState OBJECT-TYPE
+        SYNTAX             INTEGER {
+                                    offline(1),
+                                    online(2)
+                           }
+        MAX-ACCESS         read-create
+        STATUS             current
+        DESCRIPTION
+             "The object used to control the state of
+              the ports belonging to a vsan in the context
+              of the FICON functionality.
+
+              If this object is set to 'offline(1)'
+              all the ports belonging to the vsan, specified
+              by the vsanIndex are put in the suspended state.
+
+              If this object is set to 'online(2)'
+              all the ports belonging to the vsan, specified
+              by the vsanIndex are put in the operational state."
+        DEFVAL { online }
+        ::= { cficonVsanEntry 18 }
+
+cficonVsanSerialNum    OBJECT-TYPE
+        SYNTAX         SnmpAdminString
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+             "The serial number of the FICON director." 
+        ::= { cficonVsanEntry 19 }
+
+--
+-- FICON port table with configuration file
+--
+
+cficonPortTable        OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CficonPortEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+            "A table listing the port information as
+             stored in the configuration file. "   
+        ::= { ciscoFiconConfig 3 }
+
+cficonPortEntry        OBJECT-TYPE
+        SYNTAX         CficonPortEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+             "A cficonPortTable entry. Each entry provides the
+              information about a port, identified by cficonPortAddr,
+              in the configuration file, identified by 
+              cficonPortFilename, on this VSAN, identified by 
+              vsanIndex."
+        INDEX   { vsanIndex,cficonCfgFilename,cficonPortAddr }
+        ::= { cficonPortTable 1 }
+
+CficonPortEntry  ::= SEQUENCE {
+            cficonPortAddr              CficonPortNumOrAddr,
+            cficonPortBlock             TruthValue,
+            cficonPortName              SnmpAdminString,
+            cficonProhibitPortNumbers   OCTET STRING
+            }                     
+
+cficonPortAddr         OBJECT-TYPE
+        SYNTAX         CficonPortNumOrAddr 
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+             "The Port Address of this port."
+        ::= { cficonPortEntry 1 }
+        
+cficonPortBlock        OBJECT-TYPE
+        SYNTAX         TruthValue 
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+            "The object indicates whether to block or unblock this
+             port. This is one of the port-connectivity parameters.
+
+             If 'true' this port is blocked, else it is unblocked."
+        ::= { cficonPortEntry 2 }
+        
+cficonPortName         OBJECT-TYPE
+        SYNTAX         SnmpAdminString 
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+             "The name of this port."
+        ::= { cficonPortEntry 3 }
+        
+cficonProhibitPortNumbers OBJECT-TYPE
+        SYNTAX            OCTET STRING (SIZE (32)) 
+        MAX-ACCESS        read-write
+        STATUS            current
+        DESCRIPTION
+            "The list of ports that will be prohibited from
+             communication.
+
+             Each octet within the value of an object of this type,
+             specifies a set of eight ports, with the first 
+             octet specifying ports 1 through 8, the second
+             octet specifying ports 9 through 16, etc.
+             Within each octet, the most significant bit represents
+             the lowest numbered port and the least significant
+             bit represents the highest numbered port."
+        ::= { cficonPortEntry 4 }
+
+--
+-- FICON port table for running configuration
+--
+
+cficonPortRunCfgTable  OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CficonPortRunCfgEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+            "A table listing the port information as
+             stored in the running configuration. 
+
+             Each port is identified by the port
+             address in the context of its vsan Index."   
+        ::= { ciscoFiconConfig 4 }
+
+cficonPortRunCfgEntry  OBJECT-TYPE
+        SYNTAX         CficonPortRunCfgEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+             "A cficonPortRunCfgTable entry. Each entry provides the
+              information about a port (identified by cficonPortAddr),
+              on this VSAN (identified by vsanIndex), for the
+              running configuration."
+        INDEX   { vsanIndex, cficonPortRunCfgAddr }
+        ::= { cficonPortRunCfgTable 1 }
+
+CficonPortRunCfgEntry  ::= SEQUENCE {
+            cficonPortRunCfgAddr              CficonPortNumOrAddr,
+            cficonPortRunCfgBlock             TruthValue,
+            cficonPortRunCfgName              SnmpAdminString,
+            cficonRunCfgProhibitPrtNums       OCTET STRING,
+            cficonRunCfgTypeNumber            DisplayString,
+            cficonRunCfgModelNumber           DisplayString,
+            cficonRunCfgManufacturer          DisplayString,
+            cficonRunCfgPlantOfMfg            DisplayString,
+            cficonRunCfgSerialNumber          DisplayString,
+            cficonRunCfgUnitType              INTEGER,
+            cficonRunCfgPortId                Integer32,
+            cficonRunCfgStatus                INTEGER
+            }                     
+
+cficonPortRunCfgAddr   OBJECT-TYPE
+        SYNTAX         CficonPortNumOrAddr 
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+             "The address of this port."
+        ::= { cficonPortRunCfgEntry 1 }
+
+cficonPortRunCfgBlock  OBJECT-TYPE
+        SYNTAX         TruthValue 
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+            "The object indicating whether to block or unblock this
+             port.
+             If 'true' this port is blocked, else it is unblocked."
+        ::= { cficonPortRunCfgEntry 2 }
+
+cficonPortRunCfgName   OBJECT-TYPE
+        SYNTAX         SnmpAdminString 
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+             "The port name of this port."
+        ::= { cficonPortRunCfgEntry 3 }
+
+cficonRunCfgProhibitPrtNums OBJECT-TYPE
+        SYNTAX              OCTET STRING (SIZE (256)) 
+        MAX-ACCESS          read-write
+        STATUS              current
+        DESCRIPTION
+             "The list of ports that will be prohibited.
+              Each octet within the value of an object of this 
+              type specifies a set of eight ports, with the first 
+              octet specifying ports 1 through 8, the second
+              octet specifying ports 9 through 16, etc.
+
+              Within each octet, the most significant bit represents 
+              the lowest numbered port and the least significant bit
+              represents the highest numbered port."
+        ::= { cficonPortRunCfgEntry 4 }
+
+cficonRunCfgTypeNumber    OBJECT-TYPE
+        SYNTAX            DisplayString (SIZE (1..16))
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+            "The type number for this FICON Director."  
+        ::= { cficonPortRunCfgEntry 5 }
+
+cficonRunCfgModelNumber   OBJECT-TYPE
+        SYNTAX            DisplayString (SIZE (1..16))
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+            "The model number for this FICON Director. It is in the 
+             form of ASCII characters. "
+        ::= { cficonPortRunCfgEntry 6 }
+
+cficonRunCfgManufacturer  OBJECT-TYPE
+        SYNTAX            DisplayString (SIZE (1..16))
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+            "The name of the the company that
+             manufactured this FICON Director. 
+            "
+        ::= { cficonPortRunCfgEntry 7 }
+
+cficonRunCfgPlantOfMfg    OBJECT-TYPE
+        SYNTAX            DisplayString (SIZE (1..16))
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+            "The plant code that identifies the plant 
+             of manufacture of this FICON Director. 
+            "
+        ::= { cficonPortRunCfgEntry 8 }
+
+cficonRunCfgSerialNumber  OBJECT-TYPE
+        SYNTAX            DisplayString (SIZE (1..16))
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+            "The sequence number assigned to this FICON
+             Director during manufacturing."
+        ::= { cficonPortRunCfgEntry 9 }
+
+cficonRunCfgUnitType      OBJECT-TYPE
+        SYNTAX            INTEGER {
+                                   channel(1),
+                                   controlUnit(2),
+                                   fabric(3),
+                                   unknown(4)
+                          }
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+            "The peer type of the port that this port
+             is communicating.
+
+             channel      - Host
+             controlUnit  - Disk 
+             fabric       - Another SAN switch"
+        ::= { cficonPortRunCfgEntry 10 }
+
+cficonRunCfgPortId     OBJECT-TYPE
+        SYNTAX         Integer32(0..255) 
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+             "This is the identifier of the peer port.
+
+              If the peer port is channel, as described
+              by the instance of cficonRunCfgUnitType, then 
+              cficonRunCfgPortId will be the CHPID (Channel
+              Path Identifier) of the channel path that
+              contains this peer port.
+
+              If the peer port is controlUnit, then 
+              cficonRunCfgPortId will be 0.
+
+              If the peer port is fabric, then 
+              cficonRunCfgPortId will be port address of the
+              interface on the peer switch."
+        ::= { cficonPortRunCfgEntry 11 }
+
+cficonRunCfgStatus OBJECT-TYPE
+        SYNTAX         INTEGER {
+                                valid(1),
+                                invalid(2),
+                                old(3)
+                       } 
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+             "This object specifies the status of the row,
+              whether some specific columns in this row are
+              valid, invalid or old. These specific columns
+              are - cficonRunCfgProhibitPrtNums,   
+                    cficonRunCfgTypeNumber,
+                    cficonRunCfgModelNumber,
+                    cficonRunCfgManufacturer,
+                    cficonRunCfgPlantOfMfg,
+                    cficonRunCfgSerialNumber and
+                    cficonRunCfgUnitType.
+ 
+              The only value that can be assigned by the Network
+              Management System(NMS) is 'invalid'. The NMS
+              cannot set this object to any other value (i.e 'valid'
+              or 'old').
+
+             valid - The information ( values of the other columns) 
+                     is guaranteed to be correct.
+
+             old  - The information was valid before the port went
+                    down. Although the information has not vanished, 
+                    it cannot be guaranteed.
+
+             invalid - When the port does not have the information
+                    at all. (i.e. when the port comes up for the
+                    first time or the NMS clears the information.
+                 
+             "
+        ::= { cficonPortRunCfgEntry 12 }
+
+--
+-- per vsan configuration file table
+--
+
+cficonCfgFileTable     OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CficonCfgFileEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+            "A table listing the configuration files for each vsan."   
+        ::= { ciscoFiconConfig 5 }
+
+cficonCfgFileEntry     OBJECT-TYPE
+        SYNTAX         CficonCfgFileEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+             "A cficonCfgFileTable entry. Each entry provides the
+              configuration file for a vsan (identified by vsanIndex)
+              and a file (identified by cficonCfgFilename). 
+
+              Each entry lists the file status, the time the file
+              was last updated etc. 
+
+              The cficonCfgFileRowStatus object is used to
+              create or delete a configuration file. For
+              creation or deletion, only the cficonCfgFileRowStatus
+              object needs to be set in the PDU.
+
+              cficonCfgFileCmd object is used to apply this 
+              configuration file to the vsan specified by the
+              vsanIndex.
+
+              For example, 
+
+              To create a configuration file 'cfg' for vsan 1,
+              the management application must do the 
+              following -
+
+              cficonCfgFileRowStatus.1.cfg = createAndGo;
+
+              To delete the configuration file,
+
+              cficonCfgFileRowStatus.1.cfg = destroy;
+         
+              To apply this configuration file, 
+
+              cficonCfgFileCmd.1.cfg = apply;
+              "
+        INDEX   { vsanIndex,cficonCfgFilename }
+        ::= { cficonCfgFileTable 1 }
+
+CficonCfgFileEntry  ::= SEQUENCE {
+            cficonCfgFilename           SnmpAdminString,
+            cficonCfgFileDescr          SnmpAdminString,
+            cficonCfgFileStatus         INTEGER,
+            cficonCfgFileLastUpdated    SnmpAdminString,
+            cficonCfgFileCmd            INTEGER,
+            cficonCfgFileRowStatus      RowStatus,
+            cficonCfgFileCmdStatus      INTEGER,
+            cficonCfgFileCmdErrorString SnmpAdminString
+            }                     
+
+cficonCfgFilename      OBJECT-TYPE
+        SYNTAX         SnmpAdminString (SIZE(1..64)) 
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+             "The name of the configuration file."
+        ::= { cficonCfgFileEntry 1 }
+
+cficonCfgFileDescr     OBJECT-TYPE
+        SYNTAX         SnmpAdminString (SIZE(1..64))
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+              "The description of the configuration file."
+        ::= { cficonCfgFileEntry 2 }
+
+cficonCfgFileStatus    OBJECT-TYPE
+        SYNTAX         INTEGER {
+                                locked(1),
+                                unlocked(2)
+                       }
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+             "The status of filename containing these ports.
+
+              Network Management station must check this object
+              before it can read the contents of the 
+              configuration file. If it is 'locked', it means 
+              that the host or the CLI or the network management
+              station is in the process of writing the contents
+              of this file. If it is 'locked' the the file cannot
+              be read. If it is 'unlocked', then the file
+              is ready to be read." 
+        ::= { cficonCfgFileEntry 3 }
+
+cficonCfgFileLastUpdated     OBJECT-TYPE
+        SYNTAX               SnmpAdminString
+        MAX-ACCESS           read-only
+        STATUS               current
+        DESCRIPTION
+            "The time this file was last updated.
+             The format is as follows  -
+
+             Wed Nov 5 18:53:52.172485 2003
+            "
+        ::= { cficonCfgFileEntry 4 }
+
+cficonCfgFileCmd       OBJECT-TYPE
+        SYNTAX         INTEGER {
+                                apply(1),
+                                noOp(2),
+                                open(3),
+                                close(4)
+                       }
+        MAX-ACCESS     read-create
+        STATUS         current
+        DESCRIPTION
+            "The object to apply this configuration file to the
+             VSAN identified by the vsanIndex. When reading this
+             object, a noOp(2) is returned.
+
+             open(3) opens this file for modifying.
+             close(4) closes this file."
+        ::= { cficonCfgFileEntry 5 }
+
+cficonCfgFileRowStatus    OBJECT-TYPE
+        SYNTAX            RowStatus
+        MAX-ACCESS        read-create
+        STATUS            current
+        DESCRIPTION
+              "The rowStatus of this row."
+        ::= { cficonCfgFileEntry 6 }
+
+cficonCfgFileCmdStatus OBJECT-TYPE
+        SYNTAX         INTEGER {
+                                success(1),
+                                inProgress(2),
+                                failed(3),
+                                notApplicable(4)
+                       }
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+            "The object to describe the status of the last 'apply'
+             command.
+          
+             success       - The last apply command was successful.
+             inProgress    - The last apply command is still in the
+                             process of execution.
+             failed        - The last apply command failed.
+             notApplicable - The last apply command status is not
+                             available."
+        ::= { cficonCfgFileEntry 7 }
+
+cficonCfgFileCmdErrorString  OBJECT-TYPE
+        SYNTAX               SnmpAdminString (SIZE(1..128))
+        MAX-ACCESS           read-only
+        STATUS               current
+        DESCRIPTION
+            "The string describing the reason the the last 'apply'
+             command failed. This string needs to be polled only 
+             in the case when the value of the cficonCfgFileCmdStatus
+             is 'failed'.
+            "
+        ::= { cficonCfgFileEntry 8 }
+
+--
+--  Port number to ifIndex association table
+--
+
+cficonPortNumIfTable   OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CficonPortNumIfEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+            "A table listing the association of Port number to
+            its interface index. "   
+        ::= { ciscoFiconConfig 6 }
+
+cficonPortNumIfEntry   OBJECT-TYPE
+        SYNTAX         CficonPortNumIfEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+             "A cficonPortNumIfTable entry. Each entry provides 
+              a mapping between the port number and its
+              interface index."
+        INDEX   { cficonPortNumber }
+        ::= { cficonPortNumIfTable 1 }
+
+CficonPortNumIfEntry  ::= SEQUENCE {
+            cficonPortNumber           CficonPortNumOrAddr,       
+            cficonPortIfIndex          InterfaceIndex
+            }
+
+cficonPortNumber       OBJECT-TYPE
+        SYNTAX         CficonPortNumOrAddr 
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+             "The port number of this port."
+        ::= { cficonPortNumIfEntry 1 }
+        
+cficonPortIfIndex      OBJECT-TYPE
+        SYNTAX         InterfaceIndex 
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+            "The interface index of this port. For ports that  
+             are not installed, this object would be zero."
+        ::= { cficonPortNumIfEntry 2 }
+
+--
+-- Port address to Port number association table
+--
+
+cficonPortAddrNumTable OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CficonPortAddrNumEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+            "A table listing the association of Port address 
+             to port number. "   
+        ::= { ciscoFiconConfig 7 }
+
+cficonPortAddrNumEntry OBJECT-TYPE
+        SYNTAX         CficonPortAddrNumEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+             "A cficonPortAddrNumTable entry. Each entry 
+              provides the port address to port number 
+              mapping. "
+        INDEX   { cficonPortAddrPortAddr }
+
+        ::= { cficonPortAddrNumTable 1 }
+
+CficonPortAddrNumEntry  ::= SEQUENCE {
+            cficonPortAddrPortAddr    CficonPortNumOrAddr,       
+            cficonPortAddrPortNumber  CficonPortNumOrAddr       
+            }
+
+cficonPortAddrPortAddr   OBJECT-TYPE
+        SYNTAX           CficonPortNumOrAddr 
+        MAX-ACCESS       not-accessible
+        STATUS           current
+        DESCRIPTION
+            "The port address of this port."
+        ::= { cficonPortAddrNumEntry 1 }
+
+cficonPortAddrPortNumber OBJECT-TYPE
+        SYNTAX           CficonPortNumOrAddr 
+        MAX-ACCESS       read-only
+        STATUS           current
+        DESCRIPTION
+             "The port number of this port."
+        ::= { cficonPortAddrNumEntry 2 }
+        
+--
+--  Port number to portAddr association table
+--
+
+cficonPortNumAddrTable   OBJECT-TYPE
+        SYNTAX           SEQUENCE OF CficonPortNumAddrEntry
+        MAX-ACCESS       not-accessible
+        STATUS           current
+        DESCRIPTION
+            "A table listing the association of Port number to
+            its port number. "   
+        ::= { ciscoFiconConfig 8 }
+
+cficonPortNumAddrEntry   OBJECT-TYPE
+        SYNTAX           CficonPortNumAddrEntry
+        MAX-ACCESS       not-accessible
+        STATUS           current
+        DESCRIPTION
+             "A cficonPortNumAddrTable entry. Each entry provides 
+              a mapping between the port number and its
+              port number."
+        INDEX   { portAddrPortNumber }
+        ::= { cficonPortNumAddrTable 1 }
+
+CficonPortNumAddrEntry  ::= SEQUENCE {
+            portAddrPortNumber          CficonPortNumOrAddr,       
+            portAddress                 CficonPortNumOrAddr
+            }
+
+portAddrPortNumber       OBJECT-TYPE
+        SYNTAX           CficonPortNumOrAddr 
+        MAX-ACCESS       not-accessible
+        STATUS           current
+        DESCRIPTION
+             "The port number of this port."
+        ::= { cficonPortNumAddrEntry 1 }
+        
+portAddress            OBJECT-TYPE
+        SYNTAX         CficonPortNumOrAddr 
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+              "The port address of this port."  
+        ::= { cficonPortNumAddrEntry 2 }
+
+--
+-- Director History table 
+--
+
+cficonDirHistTable     OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CficonDirHistEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+            "A table listing the director history buffer.
+
+             Director History Buffer is a mechanism to 
+             determine those ports that have changed
+             their configuration for a particular
+             value of a key counter.
+
+             The FICON Director maintains a change vector
+             of 256 bits (32 bytes) and an associated
+             key counter. This table lists this vector
+             for a given key counter.
+            "   
+        ::= { ciscoFiconConfig 9 }
+
+cficonDirHistEntry     OBJECT-TYPE
+        SYNTAX         CficonDirHistEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+            "A row in the cficonDirHistTable, identified
+                 by the vsanIndex and the key counter.
+            "
+        INDEX   { vsanIndex,cficonDirHistKeyCounter }
+        ::= { cficonDirHistTable 1 }
+
+CficonDirHistEntry  ::= SEQUENCE {
+            cficonDirHistKeyCounter     Integer32,
+            cficonDirHistPortNumbers    OCTET STRING
+            }                     
+
+cficonDirHistKeyCounter  OBJECT-TYPE
+        SYNTAX           Integer32 (1..2147483647)
+        MAX-ACCESS       not-accessible
+        STATUS           current
+        DESCRIPTION
+             "The key counter."
+        ::= { cficonDirHistEntry 1 }
+        
+cficonDirHistPortNumbers OBJECT-TYPE
+        SYNTAX           OCTET STRING (SIZE (32)) 
+        MAX-ACCESS       read-only
+        STATUS           current
+        DESCRIPTION
+             "The list of ports that have configuration change for
+             a value of cficonDirHistKeyCounter. If a port has
+             configuration change, its bit position will be 1.
+
+             Each octet within the value of an object of this type,
+             specifies a set of eight ports, with the first 
+             octet specifying ports 1 through 8, the second
+             octet specifying ports 9 through 16, etc.
+             Within each octet, the most significant bit represents
+             the lowest numbered port and the least significant bit
+             represents the highest numbered port."
+        ::= { cficonDirHistEntry 2 }
+
+--
+-- FICON statistics Table 
+--
+
+cficonStatsTable       OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CficonStatsEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+            "A table listing the FICON Statistics ."   
+        ::= { ciscoFiconConfig 10 }
+
+cficonStatsEntry       OBJECT-TYPE
+        SYNTAX         CficonStatsEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+             "An entry listing the FICON statistics for
+              FICON port."
+        INDEX   { ifIndex }
+        ::= { cficonStatsTable 1 }
+
+CficonStatsEntry  ::= SEQUENCE {
+            cfStatsFramePacingTime         Counter32,
+            cfStatsDispErrorsInFrame       Counter32,
+            cfStatsEOFErrs                 Counter32,
+            cfStatsDispErrsOutOfFrame      Counter32,
+            cfStatsInvalidOrderSets        Counter32,
+            cfStatsErrorSummary            Counter32
+            }                     
+
+cfStatsFramePacingTime        OBJECT-TYPE
+        SYNTAX                Counter32 
+        MAX-ACCESS            read-only
+        STATUS                current
+        DESCRIPTION
+             "Number of 2.5 microsecond units that frame 
+              transmission is blocked due to zero credit."
+        ::= { cficonStatsEntry 1 }
+
+cfStatsDispErrorsInFrame        OBJECT-TYPE
+        SYNTAX                  Counter32 
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+             "Number of frames with disparity errors."
+        ::= { cficonStatsEntry 2 }
+
+cfStatsEOFErrs         OBJECT-TYPE
+        SYNTAX         Counter32 
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+             "Number of frames with EOF errors."
+        ::= { cficonStatsEntry 3 }
+
+cfStatsDispErrsOutOfFrame     OBJECT-TYPE
+        SYNTAX                Counter32 
+        MAX-ACCESS            read-only
+        STATUS                current
+        DESCRIPTION
+             "Number of frames with OOF errors."
+        ::= { cficonStatsEntry 4 }
+
+cfStatsInvalidOrderSets        OBJECT-TYPE
+        SYNTAX                 Counter32 
+        MAX-ACCESS             read-only
+        STATUS                 current
+        DESCRIPTION
+             "Number of invalid or unrecognizable Order
+              Sets outside of frames."
+        ::= { cficonStatsEntry 5 }
+
+cfStatsErrorSummary        OBJECT-TYPE
+        SYNTAX             Counter32 
+        MAX-ACCESS         read-only
+        STATUS             current
+        DESCRIPTION
+             "This counter contains a sum of the errors 
+              counted by a set of the other defined error
+              counters." 
+        ::= { cficonStatsEntry 6 }
+
+cficonShowPorts     OBJECT-TYPE
+        SYNTAX      INTEGER {
+                             all(1),
+                             installed(2)
+                    }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+             "An object to control which ports are displayed.
+
+              If set to all(1), all the ports, regardless whether
+              they are installed or not are displayed in the 
+              cficonPortTable and cificonPortRunCfgTable.
+
+              If set to 'installed', only the ports that are
+              installed ports are displayed in the 
+              cficonPortTable and cificonPortRunCfgTable.
+             "
+        DEFVAL { installed }
+        ::= { ciscoFiconConfig 11 }
+
+--
+-- FICON Link Incident Table 
+--
+
+cficonLinkIncidentTable  OBJECT-TYPE
+        SYNTAX           SEQUENCE OF CficonLinkIncidentEntry
+        MAX-ACCESS       not-accessible
+        STATUS           current
+        DESCRIPTION
+            "A table listing the link incidents in a FICON
+             interface. A Link incident is an event when
+             the interface experiences the conditions described 
+             in the cficonLinkIncident object."   
+        ::= { ciscoFiconConfig 12 }
+
+cficonLinkIncidentEntry       OBJECT-TYPE
+        SYNTAX                CficonLinkIncidentEntry
+        MAX-ACCESS            not-accessible
+        STATUS                current
+        DESCRIPTION
+             "An entry listing the cficonLinkIncidentTable." 
+        INDEX   { ifIndex }
+        ::= { cficonLinkIncidentTable 1 }
+
+CficonLinkIncidentEntry  ::= SEQUENCE {
+            cficonLinkIncident             INTEGER,
+            cficonLinkIncidentTime         DisplayString,
+            cficonLinkIncidentClear        INTEGER
+            }                     
+                     
+cficonLinkIncident            OBJECT-TYPE
+        SYNTAX                INTEGER  {
+                                        none(1),
+                                        bitErrThreshExceeded(2),
+                                        lossOfSignalOrSync(3),
+                                        nosReceived(4),
+                                        primitiveSeqTimeOut(5),
+                                        invalidPrimitiveSeq(6)
+                              }
+        MAX-ACCESS            read-only
+        STATUS                current
+        DESCRIPTION
+             "The type of link incident that occurred on an interface.
+
+              bitErrThreshExceeded - Bit Error Threshold exceeded.
+
+              lossOfSignalOrSync   - Loss of Signal or Sync message.
+  
+              nosReceived          - NOS msg Received
+                                     NOS - Non Operational State
+
+              primitiveSeqTimeOut  - Primitive Timeout
+
+              invalidPrimitiveSeq  - Invalid Primitive sequence
+             " 
+        ::= { cficonLinkIncidentEntry 1 }
+
+cficonLinkIncidentTime          OBJECT-TYPE
+        SYNTAX                  DisplayString (SIZE (1..32))
+        MAX-ACCESS              read-only
+        STATUS                  current
+        DESCRIPTION
+            "The time at which the link incident happened.
+             The format is as follows - 
+
+             Wed Nov 5 18:53:52.172485 2003
+            "
+        ::= { cficonLinkIncidentEntry 2 }
+
+cficonLinkIncidentClear         OBJECT-TYPE
+        SYNTAX                  INTEGER {
+                                         clear(1)
+                                } 
+        MAX-ACCESS              read-write
+        STATUS                  current
+        DESCRIPTION
+             "The object used to clear the link incident
+              for an interface."
+        ::= { cficonLinkIncidentEntry 3 }
+
+--
+-- per vsan configuration file CUP Nametable
+--
+
+cficonCfgFileCupNameTable  OBJECT-TYPE
+        SYNTAX             SEQUENCE OF CficonCfgFileCupNameEntry
+        MAX-ACCESS         not-accessible
+        STATUS             current
+        DESCRIPTION
+            "A table listing the CUP names for each vsan
+             in a configuration file." 
+        ::= { ciscoFiconConfig 13 }
+
+cficonCfgFileCupNameEntry  OBJECT-TYPE
+        SYNTAX             CficonCfgFileCupNameEntry
+        MAX-ACCESS         not-accessible
+        STATUS             current
+        DESCRIPTION
+             "A cficonCfgFileCupNameTable entry. Each entry 
+              provides the CUP name for a VSAN
+              (identified by vsanIndex)
+              and a file (identified by cficonCfgFilename). 
+              "
+        INDEX   { vsanIndex,cficonCfgFilename }
+        ::= { cficonCfgFileCupNameTable 1 }
+
+CficonCfgFileCupNameEntry  ::= SEQUENCE {
+            cficonCfgFileCupName        SnmpAdminString
+            }                     
+
+cficonCfgFileCupName   OBJECT-TYPE
+        SYNTAX         SnmpAdminString (SIZE(1..24))
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+              "The name of CUP."
+        ::= { cficonCfgFileCupNameEntry 1 }
+
+--
+--      Configuration copy table
+--
+
+cficonConfigCopyTable   OBJECT-TYPE
+        SYNTAX          SEQUENCE OF CficonConfigCopyEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "A table of config-copy requests."
+        ::= { ciscoFiconConfig 14 }
+
+
+cficonConfigCopyEntry   OBJECT-TYPE
+        SYNTAX          CficonConfigCopyEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "A config-copy request.
+
+                A management station wishing to create an entry should
+                first generate a random serial number to be used
+                as the index to this sparse table.  The station should
+                then create the associated instance of the row status
+                object.  
+
+                This config-copy operation is only to copy the running
+                configuration to startup configuration for FICON.
+
+                Once the appropriate instance of all the configuration
+                objects have been created, either by an explicit SNMP
+                set request or by default, the row status should be set
+                to active to initiate the request. Note that this entire
+                procedure may be initiated via a single set request 
+                which specifies a row status of createAndGo.
+
+                Once the config-copy request has been created (i.e. the
+                cfCopyEntryRowStatus has been made active), the entry
+                cannot be modified - the only operation possible
+                after this is to delete the row.
+
+                Once the request completes, the management station 
+                should retrieve the value of the status object 
+                and should then delete the entry.  In order 
+                to prevent old entries from clogging the table, 
+                entries will be aged out, but an entry will never be 
+                deleted within 5 minutes of completing."
+        INDEX { cficonConfigCopyIndex }
+        ::= { cficonConfigCopyTable 1 }
+
+CficonConfigCopyEntry ::=
+        SEQUENCE {
+                cficonConfigCopyIndex             Unsigned32,
+                cficonCopyState                   INTEGER,
+                cficonCopyFailReason              SnmpAdminString,
+                cficonCopyEntryRowStatus          RowStatus
+        }
+
+cficonConfigCopyIndex    OBJECT-TYPE
+        SYNTAX           Unsigned32(1..2147483647)
+        MAX-ACCESS       not-accessible
+        STATUS           current
+        DESCRIPTION
+                "Object which specifies a unique entry in the
+                cficonConfigCopyTable.  A management station wishing
+                to initiate a config-copy operation should use a
+                random value for this object when creating
+                an instance of a cficonConfigCopyEntry."
+        ::= { cficonConfigCopyEntry 1 }
+
+cficonCopyState    OBJECT-TYPE
+        SYNTAX     INTEGER {
+                            inProgress(1),
+                            success(2),
+                            failed(3)
+                   }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "Specifies the result of this config-copy request.
+                This value of this object is instantiated only after 
+                the row has been instantiated, i.e. after the 
+                cficonCopyEntryRowStatus has been made active."
+        ::= { cficonConfigCopyEntry 2 }
+
+cficonCopyFailReason   OBJECT-TYPE
+        SYNTAX         SnmpAdminString
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+             "An error string describing the reason the copy
+              failed."
+
+        ::= { cficonConfigCopyEntry 3 }
+
+cficonCopyEntryRowStatus OBJECT-TYPE
+        SYNTAX           RowStatus
+        MAX-ACCESS       read-create
+        STATUS           current
+        DESCRIPTION
+                "The status of this table entry.  Once the entry 
+                status is set to active, the associated entry cannot 
+                be modified until the request completes 
+                (cficonCopyState transitions to successful or
+                failed state)."
+        ::= { cficonConfigCopyEntry 4 }
+
+cficonAutoSaveState          OBJECT-TYPE
+        SYNTAX               TruthValue
+        MAX-ACCESS           read-only
+        STATUS               current
+        DESCRIPTION
+             "The object indicates whether auto save state is
+              enabled or disabled.
+
+              Enabling the auto save state, saves the configuration
+              to the configuration file whenever a configuration 
+              change is made.
+
+              If the cficonAutoSaveState is disabled (false), the
+              configuration change is not saved to the configuration
+              file."
+        DEFVAL { false }
+        ::= { ciscoFiconConfig 15 }
+
+ciscoFiconPortMap OBJECT IDENTIFIER ::= { ciscoFiconConfig 16 }
+
+cficonPortMap1          OBJECT-TYPE
+        SYNTAX          OCTET STRING (SIZE (0..255)) 
+        MAX-ACCESS      read-only
+        STATUS          deprecated
+                     -- deprecated by cficonPortMapObj
+        DESCRIPTION
+             "The port map1.
+              This object contains information specific to
+              third party vendor and the usage is vendor
+              specific.
+
+              Each record is 6 bytes long and there can be up to
+              42 records in this object.
+
+              Each record consists of the following -
+
+              0-3  bytes - IfIndex
+              byte 4     - Port Address
+              byte 5     - Unit Type
+             " 
+        ::= { ciscoFiconPortMap 1 }
+
+cficonPortMap2          OBJECT-TYPE
+        SYNTAX          OCTET STRING (SIZE (0..255))
+        MAX-ACCESS      read-only
+        STATUS          deprecated
+                     -- deprecated by cficonPortMapObj
+        DESCRIPTION
+             "The port map2.
+              This object contains information specific to
+              third party vendor and the usage is vendor
+              specific.
+
+              Each record is 6 bytes long and there can be up to 
+              42 records in this object.
+
+              Each record consists of the following -
+
+              0-3  bytes - IfIndex
+              byte 4     - Port Address
+              byte 5     - Unit Type
+             "
+
+        ::= { ciscoFiconPortMap 2 }
+
+cficonPortMap3          OBJECT-TYPE
+        SYNTAX          OCTET STRING (SIZE (0..255))
+        MAX-ACCESS      read-only
+        STATUS          deprecated
+                     -- deprecated by cficonPortMapObj
+        DESCRIPTION
+             "The port map3.
+              This object contains information specific to
+              third party vendor and the usage is vendor
+              specific.
+
+              Each record is 6 bytes long and there can be up to 
+              42 records in this object.
+
+              Each record consists of the following -
+
+              0-3  bytes - IfIndex
+              byte 4     - Port Address
+              byte 5     - Unit Type
+             "
+
+        ::= {  ciscoFiconPortMap 3 }
+
+cficonPortMap4          OBJECT-TYPE
+        SYNTAX          OCTET STRING (SIZE (0..255))
+        MAX-ACCESS      read-only
+        STATUS          deprecated
+                     -- deprecated by cficonPortMapObj
+        DESCRIPTION
+             "The port map4.
+              This object contains information specific to
+              third party vendor and the usage is vendor
+              specific.
+
+              Each record is 6 bytes long and there can be up to 
+              42 records in this object.
+
+              Each record consists of the following -
+
+              0-3  bytes - IfIndex
+              byte 4     - Port Address
+              byte 5     - Unit Type
+             "
+
+        ::= { ciscoFiconPortMap 4 }
+
+cficonPortMap5          OBJECT-TYPE
+        SYNTAX          OCTET STRING (SIZE (0..255))
+        MAX-ACCESS      read-only
+        STATUS          deprecated
+                     -- deprecated by cficonPortMapObj
+        DESCRIPTION
+             "The port map5.
+              This object contains information specific to
+              third party vendor and the usage is vendor
+              specific.
+
+              Each record is 6 bytes long and there can be up to 
+              42 records in this object.
+
+              Each record consists of the following -
+
+              0-3  bytes - IfIndex
+              byte 4     - Port Address
+              byte 5     - Unit Type
+             "
+
+        ::= { ciscoFiconPortMap 5 }
+
+cficonPortMap6          OBJECT-TYPE
+        SYNTAX          OCTET STRING (SIZE (0..255))
+        MAX-ACCESS      read-only
+        STATUS          deprecated
+                     -- deprecated by cficonPortMapObj
+        DESCRIPTION
+             "The port map6.
+              This object contains information specific to
+              third party vendor and the usage is vendor
+              specific.
+
+              Each record is 6 bytes long and there can be up to 
+              42 records in this object.
+
+              Each record consists of the following -
+
+              0-3  bytes - IfIndex
+              byte 4     - Port Address
+              byte 5     - Unit Type
+             "
+
+        ::= { ciscoFiconPortMap 6 }
+
+--
+--  Port Map Object number
+--
+                                                                       
+cficonPortMapMax        OBJECT-TYPE
+        SYNTAX          Integer32 (1..100)
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+             "Number of port map objects."
+        ::= { ciscoFiconPortMap 7 }
+
+--
+--  Port Map Object Table
+--
+                                                                       
+cficonPortMapTable      OBJECT-TYPE
+        SYNTAX          SEQUENCE OF CficonPortMapEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+             "The port map table. 
+              This table contains the list of port map objects
+              to carry the information of IfIndex, port Address,
+              unit Type and Port Number for all ports.
+             "
+        ::= { ciscoFiconPortMap 8 }
+                                                                       
+cficonPortMapEntry      OBJECT-TYPE
+        SYNTAX          CficonPortMapEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+             "The port map entry. 
+              This entry consists of a index number indicating
+              a set of ports and a port map object carrying
+              certain port attributes for these ports.
+             "
+        INDEX { cficonPortMapIndex }
+        ::= { cficonPortMapTable 1 }
+                                                                       
+CficonPortMapEntry ::= SEQUENCE {
+        cficonPortMapIndex        Integer32,
+        cficonPortMapObj          OCTET STRING
+        }
+                                                                       
+cficonPortMapIndex      OBJECT-TYPE
+        SYNTAX          Integer32 (1..100)
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+             "The port map index.
+              This number indicates the group of ports
+              described by the port map object.
+             "
+        ::= { cficonPortMapEntry 1 }
+                                                                       
+cficonPortMapObj        OBJECT-TYPE
+        SYNTAX          OCTET STRING (SIZE (0..255))
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+             "The port map object.
+              This object contains information specific to
+              third party vendor and the usage is vendor
+              specific.
+
+              Each record is 7 bytes long and there can be up to 
+              36 records in this object.
+
+              Each record consists of the following -
+
+              0-3  bytes - IfIndex
+              byte 4     - Port Address
+              byte 5     - Unit Type
+              byte 6     - Port Number
+             "
+
+        ::= { cficonPortMapEntry 2 }
+                                                                       
+--
+--  Reserved Port Number Table For Physical Ports
+--
+                                                                       
+cficonSlotPortNumTable  OBJECT-TYPE
+        SYNTAX          SEQUENCE OF CficonSlotPortNumEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+             "Chassis slot port number table.
+              This table contains the list of all reserved
+              port numbers for all slots of the chassis.
+             "
+        ::= { ciscoFiconConfig 17 }
+                                                                       
+cficonSlotPortNumEntry  OBJECT-TYPE
+        SYNTAX          CficonSlotPortNumEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+             "Chassis slot port number entry.
+              This entry has the slot number and reserved
+              port numbers for this slot.
+             "
+        INDEX { cficonSlotIndex }
+        ::= { cficonSlotPortNumTable 1 }
+                                                                       
+CficonSlotPortNumEntry ::= SEQUENCE {
+        cficonSlotIndex        Integer32,
+        cficonSlotReservedPN   OCTET STRING
+        }
+                                                                       
+cficonSlotIndex         OBJECT-TYPE
+        SYNTAX          Integer32 (1..32)
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+             "The chassis slot number."
+        ::= { cficonSlotPortNumEntry 1 }
+                                                                       
+cficonSlotReservedPN    OBJECT-TYPE
+        SYNTAX          OCTET STRING (SIZE (0..64))
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+             "Chassis slot port numbers.
+              Reserved port numbers for one chassis slot.
+              There can be up to 64 port numbers reserved
+              for each slot in the chassis.
+             " 
+        ::= { cficonSlotPortNumEntry 2 }
+                                                                       
+--
+--  Reserved Port Number Array For Logical Ports
+--
+                                                                       
+cficonLogicReservedPN   OBJECT-TYPE
+        SYNTAX          OCTET STRING (SIZE (0..256))
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+             "Reserved port numbers for logical ports.
+              There can be up to 256 port numbers reserved
+              for logical ports.
+             " 
+        ::= { ciscoFiconConfig 18 }
+
+--
+--  RLIR ERL table
+--
+
+cficonRlirErlTable OBJECT-TYPE
+        SYNTAX          SEQUENCE OF CficonRlirErlEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "A table of Nx_Ports that have registered to
+                 receive RLIRs on all VSANs on the local
+                 switch."
+        ::= { ciscoFiconConfig 19 }
+
+cficonRlirErlEntry OBJECT-TYPE
+        SYNTAX          CficonRlirErlEntry
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "An entry (conceptual row) containing
+                 information about an Nx_Port which has registered
+                 to receive RLIRs on the VSAN indicated by
+                 vsanIndex."
+        INDEX { vsanIndex, cficonRlirErlFcId, cficonRlirErlFormat }
+        ::= { cficonRlirErlTable 1 }
+
+CficonRlirErlEntry ::= SEQUENCE {
+        cficonRlirErlFcId      FcAddressId,
+        cficonRlirErlFormat    Unsigned32,
+        cficonRlirErlRegType   INTEGER
+}
+
+cficonRlirErlFcId OBJECT-TYPE
+        SYNTAX         FcAddressId
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+                "The Fibre Channel Identifier (FC-ID) of the
+                 subscribing Nx_Port."
+        ::= { cficonRlirErlEntry 1 }
+
+cficonRlirErlFormat OBJECT-TYPE
+        SYNTAX         Unsigned32 (0..255)
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+                "Indicates the device type for which the Nx_Port
+                 is interested in receiving RLIR ELS."
+        ::= { cficonRlirErlEntry 2 }
+
+cficonRlirErlRegType OBJECT-TYPE
+        SYNTAX         INTEGER {
+                          conditionalRx(1),
+                          alwaysRx(2)
+                       }
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+                "This object indicates the type of registration
+                 desired by the subscriber.
+
+                 conditionalRx(1) - the Nx_Port is registered as
+                                    a valid recipient of 
+                                    subsequent RLIRs. But such an
+                                    Nx_Port is chosen as the
+                                    recipient of a link incident
+                                    record only if no other
+                                    recipients from the ERL on
+                                    this VSAN have been chosen.
+
+                  alwaysRx(2)     - the Nx_Port is registered as
+                                    a valid recipient of
+                                    subsequent RLIRs. Such an
+                                    Nx_Port is always chosen as a 
+                                    recipient of a link incident
+                                    record."
+         REFERENCE
+                "Fibre Channel Framing and Signaling (FC-FS),
+                 Rev 1.70, Section 12.3.2.32"      
+        ::= { cficonRlirErlEntry 3 }
+
+--
+-- FICON interface swap table 
+--
+
+cficonInterfaceSwapNextIndex   OBJECT-TYPE
+        SYNTAX                 Integer32(1..2147483647)
+        MAX-ACCESS             read-only 
+        STATUS                 current
+        DESCRIPTION
+            "Next unique index available for creating new entry
+             in the FICON interface swap table."
+        ::= {ciscoFiconConfig 21}
+
+cficonInterfaceSwapTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CficonInterfaceSwapEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "This table provides a management application with the
+             capability to swap the configuration of two specified
+             interfaces.
+
+             In FICON, a host associates a great deal of configuration
+             data with a port-address.  If the FICON port connecting
+             the host to the switch has some problem and the user 
+             wants to connect the host to a different port in the
+             switch, one needs to swap the configuration of the
+             two ports.  This command transparently swaps the
+             configuration of two ports without affecting the
+             host. "
+        ::= { ciscoFiconConfig 20 }
+
+cficonInterfaceSwapEntry OBJECT-TYPE
+        SYNTAX      CficonInterfaceSwapEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "A cficonInterfaceSwapTable entry contains 2 interface
+             indices to be swapped among other objects.
+
+             A management station wishing to create an entry should
+             first obtain a unique serial number, e.g. get the
+             cficonInterfaceSwapNextIndex scalar as the index
+             to this sparse table.  The station should
+             then create the associated instance of the row status
+             object.
+
+             Note that when creating a row in this table, the
+             cficonSwapPortEntryStatus, cficonSwapInterfaceIndexFirst
+             and cficonSwapInterfaceIndexSecond are all required.
+             The values of cficonSwapInterfaceIndexFirst and
+             cficonSwapInterfaceIndexSecond should be different.
+             If for any reason the new row can not be created,
+             no swap action will be performed.
+
+             If the table entry creation is successful, the value of
+             cficonSwapInterfaceActionStatus will be pending(1) first
+             and the SNMP response will be returned as success.
+             When the swap starts, the value will be executing(2).
+             After the swap action is done, the value will be either
+             success(3) or failure(4).  cficonSwapInterfaceFailReason
+             contains the failure reason to indicate where the failure
+             is from.  cficonSwapInterfaceSystemError is a user
+             readable description given by the failure causing
+             sub-module.
+
+             The management station should delete the entry after
+             the value of cficonSwapInterfaceActionStatus being either
+             success(3) or failure(4). "
+        INDEX   { cficonInterfaceSwapIndex }
+        ::= { cficonInterfaceSwapTable 1 }
+
+CficonInterfaceSwapEntry  ::= SEQUENCE {
+            cficonInterfaceSwapIndex         Integer32,
+            cficonSwapInterfaceIndexFirst    InterfaceIndex,
+            cficonSwapInterfaceIndexSecond   InterfaceIndex,
+            cficonSwapInterfaceActionStatus  INTEGER,
+            cficonSwapInterfaceFailReason    INTEGER,
+            cficonSwapInterfaceSystemError   SnmpAdminString,
+            cficonSwapInterfaceEntryStatus   RowStatus
+            }
+
+cficonInterfaceSwapIndex        OBJECT-TYPE
+        SYNTAX             Integer32(1..2147483647)
+        MAX-ACCESS         not-accessible 
+        STATUS             current
+        DESCRIPTION
+            "An arbitrary index for the swap command."
+        ::= {cficonInterfaceSwapEntry 1}
+
+cficonSwapInterfaceIndexFirst  OBJECT-TYPE
+        SYNTAX             InterfaceIndex
+        MAX-ACCESS         read-create
+        STATUS             current
+        DESCRIPTION 
+            "The first port number that needs to be swapped ."
+        ::= {cficonInterfaceSwapEntry 2}
+ 
+cficonSwapInterfaceIndexSecond  OBJECT-TYPE
+        SYNTAX              InterfaceIndex
+        MAX-ACCESS          read-create
+        STATUS              current
+        DESCRIPTION 
+            "The second port number that needs to be swapped."
+        ::= {cficonInterfaceSwapEntry 3}
+
+cficonSwapInterfaceActionStatus   OBJECT-TYPE
+        SYNTAX            INTEGER {
+                                   pending(1),
+                                   executing(2),
+                                   success(3),
+                                   failure(4)
+                          }
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+            "The status of the port swap request.
+
+             pending - the request is waiting to be processed by 
+                       the device.
+             executing - the request is currently being processed
+                         by the device.
+             success - the request has been completed successfully by
+                       the device.
+             failure - the request failed."
+        ::= {cficonInterfaceSwapEntry 4}
+        
+cficonSwapInterfaceFailReason OBJECT-TYPE
+        SYNTAX            INTEGER {
+                                   other(1),
+                                   none(2),
+                                   dmFailure(3),
+                                   ficonFailure(4),
+                                   pmFailure(5),
+                                   psmFailure(6),
+                                   qosFailure(7),
+                                   spanFailure(8),
+                                   zsFailure(9)
+                          }
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+            "The reason of failed port swap request
+
+             other - the failure is caused by other sub-module.
+             none - no failure.
+             dmFailure - the failure is caused by Domain Manager.
+             ficonFailure - the failure is caused by FICON Manager.
+             pmFailure - the failure is caused by Port Manager.
+             psmFailure - the failure is caused by Port Security
+                          Manager.
+             qosFailure - the failure is caused by QOS sub-module.
+             spanFailure - the failure is caused by SPAN sub-module.
+             zsFailure - the failure is caused by Zone Server. "
+        ::= {cficonInterfaceSwapEntry 5}
+
+cficonSwapInterfaceSystemError   OBJECT-TYPE
+        SYNTAX                   SnmpAdminString
+        MAX-ACCESS               read-only
+        STATUS                   current
+        DESCRIPTION
+             "A system error string readable by user for the failed
+              swap action."
+
+        ::= {cficonInterfaceSwapEntry 6}
+
+cficonSwapInterfaceEntryStatus  OBJECT-TYPE
+        SYNTAX             RowStatus 
+        MAX-ACCESS         read-create
+        STATUS             current
+        DESCRIPTION 
+            "If this object is set to 'active(1)' then  
+             the port configurations of the ports specified 
+             by objects cficonSwapInterfaceIndexFirst and
+             cficonSwapInterfaceIndexSecond will be swapped."
+        ::= {cficonInterfaceSwapEntry 7}
+
+--
+--  Notifications
+--
+
+cficonPortInfoChange NOTIFICATION-TYPE
+    OBJECTS   { 
+                cficonRunCfgUnitType,
+                ifIndex
+              }
+    STATUS    current
+    DESCRIPTION
+            "A FICON Port Change notification is 
+             generated whenever the unit type of
+             the port changes."
+    ::= { ciscoFiconMIBNotifications 1 }
+
+-- 
+-- Conformance 
+--
+
+ciscoFiconCompliances  OBJECT IDENTIFIER 
+                              ::= { ciscoFiconMIBConform 1 }
+ciscoFiconGroups       OBJECT IDENTIFIER 
+                              ::= { ciscoFiconMIBConform 2 }
+
+ciscoFiconCompliance MODULE-COMPLIANCE
+     STATUS deprecated
+         -- deprecated by ciscoFiconComplianceRev1
+     DESCRIPTION
+         "Compliance statement for FICON MIB. "
+     MODULE       -- this module
+     MANDATORY-GROUPS {
+         cficonPortSwapGroup,
+         cficonVsanGroup,
+         cficonPortGroup,
+         cficonPortRunCfgGroup,
+         cficonCfgFileGroup,
+         cficonPortNumIfGroup,
+         cficonPortAddrNumGroup,
+         cficonPortNumAddrGroup,
+         cficonDirHistGroup,
+         cficonStatsGroup,
+         cifconShowPortGroup,
+         cficonLinkIncidentGroup,
+         cficonCfgFileCupNameGroup,
+         cficonConfigCopyGroup,
+         cficonAutoSaveStateGroup,
+         cficonPortMapGroup,
+         cficonNotificationGroup
+     }
+     
+     OBJECT  cficonVsanEntryStatus 
+     SYNTAX  INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+     DESCRIPTION 
+         "Only three values 'createAndGo', 'destroy' and 'active' 
+         out of the six enumerated values need to be supported."
+         
+     OBJECT  cficonVsanEnableCup
+     MIN-ACCESS read-only
+     DESCRIPTION
+         "Write access is not required."
+
+     OBJECT  cficonVsanCharSet
+     MIN-ACCESS read-only
+     DESCRIPTION
+         "Write access is not required."
+
+     OBJECT  cficonCfgFileDescr
+     MIN-ACCESS read-only
+     DESCRIPTION
+         "Write access is not required."
+
+     ::= { ciscoFiconCompliances 1 }
+
+ciscoFiconComplianceRev1 MODULE-COMPLIANCE
+     STATUS deprecated
+         -- deprecated by ciscoFiconComplianceRev2
+     DESCRIPTION
+         "Compliance statement for FICON MIB. "
+     MODULE       -- this module
+     MANDATORY-GROUPS {
+         cficonPortSwapGroup,
+         cficonVsanGroup,
+         cficonPortGroup,
+         cficonPortRunCfgGroup,
+         cficonCfgFileGroup,
+         cficonPortNumIfGroup,
+         cficonPortAddrNumGroup,
+         cficonPortNumAddrGroup,
+         cficonDirHistGroup,
+         cficonStatsGroup,
+         cifconShowPortGroup,
+         cficonLinkIncidentGroup,
+         cficonCfgFileCupNameGroup,
+         cficonConfigCopyGroup,
+         cficonAutoSaveStateGroup,
+         cficonNotificationGroup,
+         cficonPortMapGroupRev1,
+         cficonReservedPortNumGroup,
+         cficonRlirErlGroup
+     }
+     
+     OBJECT  cficonVsanEntryStatus 
+     SYNTAX  INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+     DESCRIPTION 
+         "Only three values 'createAndGo', 'destroy' and 'active' 
+         out of the six enumerated values need to be supported."
+         
+     OBJECT  cficonVsanEnableCup
+     MIN-ACCESS read-only
+     DESCRIPTION
+         "Write access is not required."
+
+     OBJECT  cficonVsanCharSet
+     MIN-ACCESS read-only
+     DESCRIPTION
+         "Write access is not required."
+
+     OBJECT  cficonCfgFileDescr
+     MIN-ACCESS read-only
+     DESCRIPTION
+         "Write access is not required."
+
+     ::= { ciscoFiconCompliances 2 }
+
+ciscoFiconComplianceRev2 MODULE-COMPLIANCE
+     STATUS deprecated
+         -- deprecated by ciscoFiconComplianceRev3
+     DESCRIPTION
+         "Compliance statement for FICON MIB. "
+     MODULE       -- this module
+     MANDATORY-GROUPS {
+         cficonPortSwapGroup,
+         cficonVsanGroup,
+         cficonPortGroup,
+         cficonPortRunCfgGroup,
+         cficonCfgFileGroup,
+         cficonPortNumIfGroup,
+         cficonPortAddrNumGroup,
+         cficonPortNumAddrGroup,
+         cficonDirHistGroup,
+         cficonStatsGroup,
+         cifconShowPortGroup,
+         cficonLinkIncidentGroup,
+         cficonCfgFileCupNameGroup,
+         cficonConfigCopyGroup,
+         cficonAutoSaveStateGroup,
+         cficonNotificationGroup,
+         cficonPortMapGroupRev1,
+         cficonReservedPortNumGroup,
+         cficonRlirErlGroup,
+         cficonInterfaceSwapGroup
+     }
+     
+     OBJECT  cficonVsanEntryStatus 
+     SYNTAX  INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+     DESCRIPTION 
+         "Only three values 'createAndGo', 'destroy' and 'active' 
+         out of the six enumerated values need to be supported."
+         
+     OBJECT  cficonVsanEnableCup
+     MIN-ACCESS read-only
+     DESCRIPTION
+         "Write access is not required."
+
+     OBJECT  cficonVsanCharSet
+     MIN-ACCESS read-only
+     DESCRIPTION
+         "Write access is not required."
+
+     OBJECT  cficonCfgFileDescr
+     MIN-ACCESS read-only
+     DESCRIPTION
+         "Write access is not required."
+
+     ::= { ciscoFiconCompliances 3 }
+
+ciscoFiconComplianceRev3 MODULE-COMPLIANCE
+     STATUS current
+     DESCRIPTION
+         "Compliance statement for FICON MIB. "
+     MODULE       -- this module
+     MANDATORY-GROUPS {
+         cficonPortSwapGroup,
+         cficonVsanGroup,
+         cficonPortGroup,
+         cficonPortRunCfgGroup,
+         cficonCfgFileGroup,
+         cficonPortNumIfGroup,
+         cficonPortAddrNumGroup,
+         cficonPortNumAddrGroup,
+         cficonDirHistGroup,
+         cficonStatsGroup,
+         cifconShowPortGroup,
+         cficonLinkIncidentGroup,
+         cficonCfgFileCupNameGroup,
+         cficonConfigCopyGroup,
+         cficonAutoSaveStateGroup,
+         cficonNotificationGroup,
+         cficonPortMapGroupRev1,
+         cficonReservedPortNumGroup,
+         cficonRlirErlGroup,
+         cficonInterfaceSwapGroup,
+         cficonDefaultPortBlockGroup
+     }
+     
+     OBJECT  cficonVsanEntryStatus 
+     SYNTAX  INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+     DESCRIPTION 
+         "Only three values 'createAndGo', 'destroy' and 'active' 
+         out of the six enumerated values need to be supported."
+         
+     OBJECT  cficonVsanEnableCup
+     MIN-ACCESS read-only
+     DESCRIPTION
+         "Write access is not required."
+
+     OBJECT  cficonVsanCharSet
+     MIN-ACCESS read-only
+     DESCRIPTION
+         "Write access is not required."
+
+     OBJECT  cficonCfgFileDescr
+     MIN-ACCESS read-only
+     DESCRIPTION
+         "Write access is not required."
+
+     ::= { ciscoFiconCompliances 4 }
+ 
+-- Units of Conformance
+
+cficonPortSwapGroup OBJECT-GROUP
+     OBJECTS { 
+               cficonSwapPortNumberFirst,
+               cficonSwapPortNumberSecond,
+               cficonSwapPortEntryStatus
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects providing port swap functionality."
+     ::= { ciscoFiconGroups 1 }
+
+cficonVsanGroup OBJECT-GROUP
+     OBJECTS {
+               cficonVsanHostControl,
+               cficonVsanHostControlSwOffline,
+               cficonVsanHostControlClkAlrtMode,
+               cficonVsanSnmpControl,
+               cficonVsanAutoSavePortAddrCfg,
+               cficonVsanEnableCup,
+               cficonVsanCodePage,
+               cficonVsanCharSet,
+               cficonVsanKeyCounter,
+               cficonVsanUserAlertMode,
+               cficonVsanDeviceAllegience,
+               cficonVsanTime,
+               cficonVsanHostOrDefaultTime,
+               cficonVsanCupName,
+               cficonSetHostTimeControl,
+               cficonVsanClearAllegience,
+               cficonVsanEntryStatus,
+               cficonVsanFiconState,
+               cficonVsanSerialNum
+     }
+     STATUS current
+     DESCRIPTION
+         "A group containing objects providing ficon information
+         in a vsan."
+     ::= { ciscoFiconGroups 2 }
+
+cficonPortGroup OBJECT-GROUP
+     OBJECTS { 
+               cficonPortBlock,
+               cficonPortName,
+               cficonProhibitPortNumbers
+     }
+     STATUS current
+     DESCRIPTION
+         "A group containing an object providing ficon port 
+         information."
+     ::= { ciscoFiconGroups 3 }
+
+cficonPortRunCfgGroup OBJECT-GROUP
+     OBJECTS {
+               cficonPortRunCfgBlock,
+               cficonPortRunCfgName,
+               cficonRunCfgProhibitPrtNums,
+               cficonRunCfgTypeNumber,
+               cficonRunCfgModelNumber,
+               cficonRunCfgManufacturer,
+               cficonRunCfgPlantOfMfg,
+               cficonRunCfgSerialNumber,
+               cficonRunCfgUnitType,
+               cficonRunCfgPortId,
+               cficonRunCfgStatus
+     }
+     STATUS current 
+     DESCRIPTION
+         "A group containing an object providing ficon port
+         information."
+     ::= { ciscoFiconGroups 4 }
+
+cficonCfgFileGroup OBJECT-GROUP
+     OBJECTS { 
+               cficonCfgFileDescr,
+               cficonCfgFileStatus,
+               cficonCfgFileLastUpdated,
+               cficonCfgFileCmd,
+               cficonCfgFileRowStatus,
+               cficonCfgFileCmdStatus,
+               cficonCfgFileCmdErrorString
+     }
+     STATUS current 
+     DESCRIPTION
+         "A collection of objects for the per VSAN config
+          file table."
+     ::= { ciscoFiconGroups 5 }
+
+cficonPortNumIfGroup OBJECT-GROUP
+     OBJECTS {
+               cficonPortIfIndex
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects giving association of a Port Number
+         to Interface Index of the Port."
+     ::= { ciscoFiconGroups 6 }
+
+cficonPortAddrNumGroup OBJECT-GROUP
+     OBJECTS {
+               cficonPortAddrPortNumber
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects giving association of a port address
+         to port number and interface index of the port."
+     ::= { ciscoFiconGroups 7 }
+
+cficonPortNumAddrGroup OBJECT-GROUP
+     OBJECTS {
+              portAddress
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects for the port number to
+          port Address translation table."
+     ::= { ciscoFiconGroups 8 }
+
+cficonDirHistGroup  OBJECT-GROUP
+     OBJECTS {
+              cficonDirHistPortNumbers 
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects for the Director History 
+          table."
+     ::= { ciscoFiconGroups 9 }
+
+cficonStatsGroup  OBJECT-GROUP
+     OBJECTS {
+               cfStatsFramePacingTime,
+               cfStatsDispErrorsInFrame,
+               cfStatsEOFErrs,
+               cfStatsDispErrsOutOfFrame,
+               cfStatsInvalidOrderSets,
+               cfStatsErrorSummary
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects for the FICON statistics 
+          table."
+     ::= { ciscoFiconGroups 10 }
+
+cifconShowPortGroup  OBJECT-GROUP
+     OBJECTS {
+               cficonShowPorts
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects for the FICON statistics
+          table."
+     ::= { ciscoFiconGroups 11 }
+
+cficonLinkIncidentGroup  OBJECT-GROUP
+     OBJECTS {
+               cficonLinkIncident,
+               cficonLinkIncidentTime,
+               cficonLinkIncidentClear
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects for the FICON incidents
+          table."
+     ::= { ciscoFiconGroups 12 }
+
+cficonCfgFileCupNameGroup  OBJECT-GROUP
+     OBJECTS {
+               cficonCfgFileCupName
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects for the FICON CUP
+          name for the vsan in the configuration
+          files."
+     ::= { ciscoFiconGroups 13 }
+
+cficonConfigCopyGroup OBJECT-GROUP
+     OBJECTS {
+               cficonCopyState,
+               cficonCopyFailReason,
+               cficonCopyEntryRowStatus
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects for the FICON 
+          configuration copy operation."
+     ::= { ciscoFiconGroups 14 }
+
+cficonAutoSaveStateGroup  OBJECT-GROUP
+     OBJECTS {
+               cficonAutoSaveState
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects for the FICON
+          configuration copy auto save operation."
+     ::= { ciscoFiconGroups 15 }
+
+cficonPortMapGroup  OBJECT-GROUP
+     OBJECTS {
+               cficonPortMap1,
+               cficonPortMap2,
+               cficonPortMap3,
+               cficonPortMap4,
+               cficonPortMap5,
+               cficonPortMap6
+     }
+     STATUS deprecated
+         -- deprecated by cficonPortMapGroupRev1
+     DESCRIPTION
+         "A collection of objects for the FICON
+          port maps."
+     ::= { ciscoFiconGroups 16 }
+
+cficonNotificationGroup  NOTIFICATION-GROUP
+     NOTIFICATIONS {
+                    cficonPortInfoChange
+                   }
+     STATUS current
+     DESCRIPTION
+         "A collection of FICON notifications."
+     ::= { ciscoFiconGroups 17 }
+
+cficonPortMapGroupRev1  OBJECT-GROUP
+     OBJECTS {
+               cficonPortMapMax,
+               cficonPortMapObj
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects for the FICON
+          port maps."
+     ::= { ciscoFiconGroups 18 }
+                                                                       
+cficonReservedPortNumGroup  OBJECT-GROUP
+     OBJECTS {
+               cficonSlotReservedPN,
+               cficonLogicReservedPN
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects for the reserved
+          FICON port numbers."
+     ::= { ciscoFiconGroups 19 }
+
+cficonRlirErlGroup OBJECT-GROUP
+     OBJECTS {
+               cficonRlirErlRegType
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects for displaying RLIR
+          ERL."
+     ::= { ciscoFiconGroups 20 }
+
+cficonInterfaceSwapGroup OBJECT-GROUP
+     OBJECTS { 
+               cficonSwapInterfaceIndexFirst,
+               cficonSwapInterfaceIndexSecond,
+               cficonSwapInterfaceActionStatus,
+               cficonSwapInterfaceFailReason,
+               cficonSwapInterfaceSystemError,
+               cficonSwapInterfaceEntryStatus,
+               cficonInterfaceSwapNextIndex
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects providing port swap functionality."
+     ::= { ciscoFiconGroups 21 }
+
+cficonDefaultPortBlockGroup OBJECT-GROUP
+     OBJECTS {
+               cficonDefaultPortBlock
+     }
+     STATUS current
+     DESCRIPTION
+         "A collection of objects providing default port block state."
+     ::= { ciscoFiconGroups 22 }
+
+END
+

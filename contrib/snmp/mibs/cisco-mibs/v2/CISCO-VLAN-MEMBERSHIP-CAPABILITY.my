@@ -1,0 +1,294 @@
+-- *****************************************************************
+-- CISCO-VLAN-MEMBERSHIP-CAPABILITY.my:
+-- CISCO-VLAN-MEMBERSHIP-MIB AGENT-CAPABILITIES
+--   
+-- September 2003, Wen Xu
+--   
+-- Copyright (c) 2003, 2004, 2007, 2010 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-VLAN-MEMBERSHIP-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoVlanMembershipCapability MODULE-IDENTITY
+    LAST-UPDATED    "201010290000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-VLAN-MEMBERSHIP-MIB."
+    REVISION        "201010290000Z"
+    DESCRIPTION
+        "Added capability statement cVlanMemberCapV12R0250SYPCat6K."
+    REVISION        "201003210000Z"
+    DESCRIPTION
+        "Added capability statement cVlanMemberCapV12R0233SXI4PCat6K."
+    REVISION        "200707120000Z"
+    DESCRIPTION
+        "Added cVlanMemberCapV12R0233SXHPCat6K."
+    REVISION        "200401150000Z"
+    DESCRIPTION
+        "Added cVlanMembershipCapCatOSV08R0301 agent
+        capability statement."
+    REVISION        "200309150000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 316 }
+
+
+
+cVlanMembershipCapV12R0119ECat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(19E) on Catalyst 6000/6500
+                        and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-MEMBERSHIP-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-MEMBERSHIP-MIB
+    INCLUDES        {
+                        vmMembershipGroup,
+                        vmVoiceVlanGroup
+                    }
+    VARIATION       vmVlanType
+    SYNTAX          INTEGER  {
+                        static(1)
+                    }
+    DESCRIPTION
+        "dynamic(2) and multiVlan(3) are
+        not supported."
+
+    VARIATION       vmPortStatus
+    SYNTAX          INTEGER  {
+                        inactive(1),
+                        active(2)
+                    }
+    DESCRIPTION
+        "shutdown(3) is not supported."
+
+    ::= { ciscoVlanMembershipCapability 1 }
+
+cVlanMembershipCapV12R0217SXCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(17SX) on Catalyst 6000/6500
+                        and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-MEMBERSHIP-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-MEMBERSHIP-MIB
+    INCLUDES        {
+                        vmMembershipGroup,
+                        vmMembershipGroup3,
+                        vmVoiceVlanGroup
+                    }
+    VARIATION       vmVlanType
+    SYNTAX          INTEGER  {
+                        static(1)
+                    }
+    DESCRIPTION
+        "dynamic(2) and multiVlan(3) are
+        not supported."
+
+    VARIATION       vmPortStatus
+    SYNTAX          INTEGER  {
+                        inactive(1),
+                        active(2)
+                    }
+    DESCRIPTION
+        "shutdown(3) is not supported."
+
+    ::= { ciscoVlanMembershipCapability 2 }
+
+ciscoVlanMembershipCapCatOSV08R0101 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-MEMBERSHIP-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-MEMBERSHIP-MIB
+    INCLUDES        {
+                        vmMembershipGroup,
+                        vmVQPClientGroup,
+                        vmVQPNotificationsGroup,
+                        vmStatusGroup,
+                        vmVoiceVlanGroup
+                    }
+    ::= { ciscoVlanMembershipCapability 3 }
+
+ciscoVlanMembershipCapCatOSV08R0201 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.2(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-MEMBERSHIP-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-MEMBERSHIP-MIB
+    INCLUDES        {
+                        vmMembershipGroup,
+                        vmMembershipGroup3,
+                        vmVQPClientGroup,
+                        vmVQPNotificationsGroup,
+                        vmStatusGroup,
+                        vmVoiceVlanGroup
+                    }
+    ::= { ciscoVlanMembershipCapability 4 }
+
+cVlanMembershipCapCatOSV08R0301 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500
+                        and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-MEMBERSHIP-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-MEMBERSHIP-MIB
+    INCLUDES        {
+                        vmMembershipGroup,
+                        vmMembershipGroup3,
+                        vmVQPClientGroup,
+                        vmVQPNotificationsGroup,
+                        vmStatusGroup,
+                        vmVoiceVlanGroup,
+                        vmVoiceVlanExtGroup
+                    }
+    ::= { ciscoVlanMembershipCapability 5 }
+
+cVlanMemberCapV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                        and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-MEMBERSHIP-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-MEMBERSHIP-MIB
+    INCLUDES        {
+                        vmMembershipGroup,
+                        vmMembershipGroup3,
+                        vmStatusGroup,
+                        vmVoiceVlanGroup,
+                        vmMembershipExtGroup
+                    }
+    VARIATION       vmVlanType
+    SYNTAX          INTEGER  {
+                        static(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vmPortStatus
+    SYNTAX          INTEGER  {
+                        inactive(1),
+                        active(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vmNotificationsEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoVlanMembershipCapability 6 }
+
+cVlanMemberCapV12R0233SXI4PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 
+                    6000/6500 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-MEMBERSHIP-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-MEMBERSHIP-MIB
+    INCLUDES        {
+                        vmMembershipGroup,
+                        vmMembershipGroup3,
+                        vmStatusGroup,
+                        vmVoiceVlanGroup,
+                        vmMembershipExtGroup,
+                        vmVlanCreationGroup
+                    }
+    VARIATION       vmVlanType
+    SYNTAX          INTEGER  {
+                        static(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vmPortStatus
+    SYNTAX          INTEGER  {
+                        inactive(1),
+                        active(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vmNotificationsEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoVlanMembershipCapability 7 }
+
+cVlanMemberCapV12R0250SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 
+                    6000/6500 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VLAN-MEMBERSHIP-MIB capabilities."
+
+    SUPPORTS        CISCO-VLAN-MEMBERSHIP-MIB
+    INCLUDES        {
+                        vmMembershipGroup,
+                        vmMembershipGroup3,
+                        vmStatusGroup,
+                        vmVoiceVlanGroup,
+                        vmMembershipExtGroup,
+                        vmVlanCreationGroup
+                    }
+    VARIATION       vmVlanType
+    SYNTAX          INTEGER  {
+                        static(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vmPortStatus
+    SYNTAX          INTEGER  {
+                        inactive(1),
+                        active(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        is supported."
+
+    VARIATION       vmNotificationsEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoVlanMembershipCapability 8 }
+
+END
+
+
+

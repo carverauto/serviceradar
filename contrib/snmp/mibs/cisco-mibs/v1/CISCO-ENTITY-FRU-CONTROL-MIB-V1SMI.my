@@ -1,0 +1,2863 @@
+-- MIB file created 22-Aug-2013 11:12:14, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ENTITY-FRU-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ENTITY-FRU-CONTROL-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DisplayString, TimeStamp, TruthValue
+            FROM SNMPv2-TC-v1
+    entPhysicalIndex, entPhysicalContainedIn, entPhysicalModelName, 
+    entPhysicalClass, entPhysicalVendorType, entPhysicalName
+            FROM ENTITY-MIB
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoEntityFRUControlMIB OBJECT IDENTIFIER ::= { ciscoMgmt 117 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201308190000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Postal: Cisco Systems, Inc.
+--    170 West Tasman Drive
+--    San Jose, CA 95134-1706
+--    USA
+--    
+--    Tel: +1 408 526 4000
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    The CISCO-ENTITY-FRU-CONTROL-MIB is used to monitor
+--    and configure operational status of 
+--    Field Replaceable Units (FRUs) and other managable 
+--    physical entities of the system listed in the 
+--    Entity-MIB (RFC 2737) entPhysicalTable. 
+--    
+--    FRUs include assemblies such as power supplies, fans, 
+--    processor modules, interface modules, etc.
+--  RevDate
+--    201308190000Z
+--  RevDescr
+--    Added fwMismatchFound(25), fwDownloadSuccess(26)
+--    and fwDownloadFailure(27) to the
+--    Textual Convention ModuleOperType
+--  RevDate
+--    201112220000Z
+--  RevDescr
+--    Added new enumeration value mdr(24) to
+--    ModuleOperType Textual Convention.
+--  RevDate
+--    201103180000Z
+--  RevDescr
+--    Added FRUCoolingUnit Textual Convention.
+--    Added psRedundantSingleInput(7) to Textual
+--    Convention PowerRedundancyType.
+--    
+--    Added the following groups:
+--        cefcFRUPowerRealTimeStatusGroup
+--        cefcFRUPowerCapabilityGroup
+--        cefcFRUCoolingUnitGroup
+--        cefcFRUFanCoolingUnitGroup
+--    
+--    Deprecated cefcCoolingGroup and replaced with
+--    cefcCoolingGroup2 and cefcFanCoolingGroup.
+--  RevDate
+--    201012100000Z
+--  RevDescr
+--    Added cefcMIBModuleLocalSwitchingGroup.
+--  RevDate
+--    200810080000Z
+--  RevDescr
+--    Added two new enumeration values
+--    upgrading(22) and okButAuthFailed(23) to
+--    ModuleOperType Textual Convention.
+--  RevDate
+--    200706210000Z
+--  RevDescr
+--    * Added two new enumeration values :
+--    psRedundant(5) and inPwrSrcRedundant(6) to 
+--    PowerRedundancyType Textual Convention.
+--  RevDate
+--    200703140000Z
+--  RevDescr
+--    * Added cefcTotalDrawnInlineCurrent and
+--    cefcMIBInLinePowerCurrentGroup.
+--    * Added cefcPowerNonRedundantReason and 
+--    cefcMIBPowerRedundancyInfoGroup. 
+--    * Added cefcFanCoolingCapTable and 
+--    cefcFanCoolingCapGroup.
+--    * Added cefcMIBPowerCompliance8.
+--  RevDate
+--    200606230000Z
+--  RevDescr
+--    * Added new value 'onButInlinePowerFail(12)' to PowerOperType.
+--  RevDate
+--    200509060000Z
+--  RevDescr
+--    * Added cefcPowerCapacityGroup,
+--    cefcCoolingGroup and cefcConnectorRatingGroup.
+--    * Added new enumerator 'powerCycle' to the TC 
+--    PowerAdminType. 
+--    * Added two new enumerators 'offCooling'
+--    and 'offConnectorRating' to the TC PowerOperType.
+--    * Added cefcMIBNotificationEnablesGroup2 
+--    and cefcMgmtNotificationsGroup3.
+--  RevDate
+--    200412090000Z
+--  RevDescr
+--    Removed the additional varbind 'entPhysicalDescr' added
+--    in 'cefcFRUInserted' & 'cefcFRURemoved' notifications.
+--  RevDate
+--    200410190000Z
+--  RevDescr
+--    * Added the enumeration 'syncInProgress' to
+--    ModuleOperType Textual Convention.
+--    Added an additional varbind 'entPhysicalDescr' in
+--    'cefcFRUInserted' & 'cefcFRURemoved' notifications.
+--  RevDate
+--    200311240000Z
+--  RevDescr
+--    * Added the enumerations okButPowerOverWarning
+--    and okButPowerOverCritical to ModuleOperType
+--    Textual Convention.
+--  RevDate
+--    200310270000Z
+--  RevDescr
+--    Added poweredDown,poweredUp, powerDenied,powerCycled
+--    to ModuleOperType.
+--  RevDate
+--    200310230000Z
+--  RevDescr
+--    * Added cefcModuleStateChangeReasonDescr and
+--    cefcModuleUpTime in the cefcModuleTable.
+--    * Added cefcIntelliModuleTable to provide the
+--    IP address information for intelligent
+--    modules.
+--  RevDate
+--    200307220000Z
+--  RevDescr
+--    * Modified the description for cefcPowerRedudancyMode to
+--    indicate that this object reflects the administrative
+--    power supply redundancy mode.
+--    * Added cefcPowerRedundancyOperMode to reflect the 
+--    operational status of the power supply redundancy mode.
+--    * Deprecated cefcMaxDefaultInLinePower and added
+--    cefcMaxDefaultHighInLinePower to replace it.
+--    * Modified the DESCRIPTION for cefcFanTrayStatusTable
+--    and cefcFanTrayStatusEntry to reflect the right 
+--    situation.
+--  RevDate
+--    200210160000Z
+--  RevDescr
+--    Added:
+--    * Added cefcFanTrayStatusChange notification
+--    * Added cefcFanTrayStatusChange to 
+--      cefcMgmtNotificationsGroup2
+--  RevDate
+--    200210030000Z
+--  RevDescr
+--    Added:
+--    * cefcFanTrayStatus table containing fan tray status 
+--      information.
+--    * added cefcPhysical table containing status information
+--      of the physical entity.
+--    * added cefcUnrecognizedFRU notification.
+--    * added cefcMIBFanTrayStatusGroup.
+--    * added cefcMIBPhysicalGroup.
+--  RevDate
+--    200209150000Z
+--  RevDescr
+--    Added:
+--    * powerSupplyValue table containing information such 
+--      as, total and used inline and data power, for variable 
+--      power supplies.
+--    
+--    * added following object group
+--      cefcMIBPowerFRUValueGroup
+--  RevDate
+--    200207120000Z
+--  RevDescr
+--    Added:
+--    cefcModuleLastClearConfigTime  
+--    cefcModuleResetReasonDescription
+--    cefcModuleGroupRev1
+--    Modified:
+--    Added enumerations watchDogTimeoutReset,
+--    resourceOverflowReset, missingTaskReset,
+--    lowVoltageReset, controllerReset, systemReset,
+--    switchoverReset, upgradeReset, downgradeReset,
+--    cacheErrorReset, deviceDriverReset, 
+--    softwareExceptionReset, restoreConfigReset,
+--    abortRevReset, burnBootReset,
+--    standbyCdHealthierReset, nonNativeConfigClearReset,
+--    and memoryProtectionErrorReset to 
+--    ModuleResetReasonType TC.
+--  RevDate
+--    200105220000Z
+--  RevDescr
+--    Modified the description for cefcTotalAvailableCurrent.
+--    Changed 'cefcPowerRedundancy' in the description to
+--    'cefcPowerRedundancyMode'
+--    Also made the file conform to the 72 char line limit.
+--    Imported NOTIFICATION-GROUP
+--    Added cefcMgmtNotificationsGroup.
+--  RevDate
+--    200001130000Z
+--  RevDescr
+--    Following changes are made in this revision
+--    
+--    * added following enumerations to ModuleOperType TC:
+--      dormant, outOfServiceAdmin, outOfServiceEnvTemp
+--    
+--    * added outOfServiceAdmin to ModuleAdminType TC
+--    
+--    * added following notifications:
+--      cefcMIBNotificationEnables
+--      cefcMIBEnableStatusNotification
+--      cefcPowerStatusChange
+--      cefcFRUInserted
+--      cefcFRURemoved
+--    
+--    * added following object groups:
+--      cefcMIBInLinePowerControlGroup
+--      cefcMIBNotificationEnablesGroup
+--  RevDate
+--    9904050000Z
+--  RevDescr
+--    Added module table containing the status information.
+
+cefcMIBObjects  OBJECT IDENTIFIER ::= { ciscoEntityFRUControlMIB 1 }
+cefcFRUMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoEntityFRUControlMIB 2 }
+cefcMIBConformance OBJECT IDENTIFIER ::= { ciscoEntityFRUControlMIB 3 }
+cefcFRUPower    OBJECT IDENTIFIER ::= { cefcMIBObjects 1 }
+cefcModule      OBJECT IDENTIFIER ::= { cefcMIBObjects 2 }
+cefcMIBNotificationEnables OBJECT IDENTIFIER ::= { cefcMIBObjects 3 }
+cefcFRUFan      OBJECT IDENTIFIER ::= { cefcMIBObjects 4 }
+cefcPhysical    OBJECT IDENTIFIER ::= { cefcMIBObjects 5 }
+cefcPowerCapacity OBJECT IDENTIFIER ::= { cefcMIBObjects 6 }
+cefcCooling     OBJECT IDENTIFIER ::= { cefcMIBObjects 7 }
+cefcConnector   OBJECT IDENTIFIER ::= { cefcMIBObjects 8 }
+cefcMIBNotifications OBJECT IDENTIFIER ::= { cefcFRUMIBNotificationPrefix 0 }
+cefcMIBCompliances OBJECT IDENTIFIER ::= { cefcMIBConformance 1 }
+cefcMIBGroups   OBJECT IDENTIFIER ::= { cefcMIBConformance 2 }
+
+PowerRedundancyType ::= INTEGER {
+        notsupported(1),
+        redundant(2),
+        combined(3),
+        nonRedundant(4),
+        psRedundant(5),
+        inPwrSrcRedundant(6),
+        psRedundantSingleInput(7)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    power supply redundancy modes.  valid values are:
+--    
+--    notsupported(1): Read-only operational state, indicates
+--        that the requested administrative state (redundant(2),
+--        combined(3), psRedundant(5), inPwrSrcRedundant(6)
+--        or psRedundantSingleInput(7)) is not supported
+--        by the system.
+--    
+--    redundant(2): A single power supply output can power
+--        the entire system, although there are more than
+--        one matched supply in the system.
+--    
+--        In the systems which support multiple level of
+--        redundancy, such as input power redundancy, this
+--        state indicates that redundancy is enabled on
+--        all levels.
+--    
+--    combined(3): The combined output of the power supplies
+--        are available to operate the system when there are
+--        more than one matched power supply in the system.
+--    
+--        In the platforms which support multiple level of
+--        redundancy, such as input redundancy, this state
+--        indicates that no redundancy on all levels.
+--    
+--    nonRedundant(4): Read-only operational state, indicates
+--        that there is only one power supply or there are
+--        unmatched power supplies in the system.
+--    
+--    psRedundant(5): Only the power output redundancy
+--        is enabled in the systems which support multiple
+--        levels of redundancy.  All other types of redundancy,
+--        such as input power redundancy, are disabled.
+--    
+--        This value is only supported by the systems which
+--        support multiple levels of redundancy.
+--    
+--    inPwrSrcRedundant(6): Only the input power redundancy
+--        is enabled in the systems which support multiple
+--        levels of redundancy.  All other types of redundancy,
+--        such as output power redundancy, are disabled.
+--    
+--        This value is only supported by the systems which
+--        support input power redundancy.
+--    
+--     psRedundantSingleInput(7): Only the power redundancy with
+--        single input is enabled in the systems which support
+--        multiple levels of redundancy.  All other types of
+--        redundancy, such as output power redundancy, are disabled.
+--    
+--        This value is only supported by the systems which
+--        support power redundancy with single input.
+
+PowerAdminType ::= INTEGER {
+        on(1),
+        off(2),
+        inlineAuto(3),
+        inlineOn(4),
+        powerCycle(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Administratively desired FRU power state types.  valid values
+--    are:
+--    on(1):  Turn FRU on.
+--    off(2): Turn FRU off.
+--    
+--    The inline power means that the FRU itself won't cost any power,
+--    but the external device connecting to the FRU will drain the
+--    power from FRU.  For example, the IP phone device.  The FRU is a
+--    port of a switch with voice ability and IP phone will cost power
+--    from the port once it connects to the port.
+--    
+--    inlineAuto(3): Turn FRU inline power to auto mode. It means that
+--    the FRU will try to detect whether the connecting device needs
+--    power or not.  If it needs power, the FRU will supply power.  If
+--    it doesn't, the FRU will treat the device as a regular network
+--    device.
+--    
+--    inlineOn(4): Turn FRU inline power to on mode.  It means that
+--    once the device connects to the FRU, the FRU will always supply
+--    power to the device no matter the device needs the power or not.
+--    
+--    powerCycle(5): Power cycle the FRU.  This value may be specified
+--    in a management protocol set operation, it will not be returned 
+--    in response to a management protocol retrieval operation.
+
+PowerOperType ::= INTEGER {
+        offEnvOther(1),
+        on(2),
+        offAdmin(3),
+        offDenied(4),
+        offEnvPower(5),
+        offEnvTemp(6),
+        offEnvFan(7),
+        failed(8),
+        onButFanFail(9),
+        offCooling(10),
+        offConnectorRating(11),
+        onButInlinePowerFail(12)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Operational FRU Status types.  valid values are:
+--    
+--    offEnvOther(1)   FRU is powered off because of a problem not
+--                     listed below.
+--    
+--    on(2):           FRU is powered on.
+--    
+--    offAdmin(3):     Administratively off.
+--    
+--    offDenied(4):    FRU is powered off because available
+--                     system power is insufficient.
+--    
+--    offEnvPower(5):  FRU is powered off because of power problem in
+--                     the FRU.  for example, the FRU's power
+--                     translation (DC-DC converter) or distribution
+--                     failed.
+--    
+--    offEnvTemp(6):   FRU is powered off because of temperature
+--                     problem.
+--    
+--    offEnvFan(7):    FRU is powered off because of fan problems.
+--    
+--    failed(8):       FRU is in failed state. 
+--    
+--    onButFanFail(9): FRU is on, but fan has failed.
+--    
+--    offCooling(10):  FRU is powered off because of the system's 
+--                     insufficient cooling capacity.
+--    
+--    offConnectorRating(11): FRU is powered off because of the 
+--                            system's connector rating exceeded.
+--    
+--    onButInlinePowerFail(12): The FRU on, but no inline power
+--                              is being delivered as the
+--                              data/inline power component of the
+--                              FRU has failed.
+
+FRUCurrentType ::= INTEGER(-1000000000..1000000000)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    a current measurement, on the system power supply
+--    primary output, expressed in cefcPowerUnits.  Range is 
+--    from negative 1 million to positive one million
+--    amperes.  
+--    
+--    A negative value expresses current used by the FRU.
+--    A positive value expresses current supplied by the FRU.
+
+ModuleAdminType ::= INTEGER {
+        enabled(1),
+        disabled(2),
+        reset(3),
+        outOfServiceAdmin(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Administratively desired module states.  Valid values are:
+--    
+--    enabled(1)     module is operational.
+--    disabled(2)    module is not operational.
+--    reset(3)       module is reset. This value may be specified
+--                   in a management protocol set operation, it will
+--                   not be returned in response to a management 
+--                   protocol retrieval operation. 
+--    outOfServiceAdmin(4)   module is powered on but out of 
+--                           service, set by CLI.
+
+ModuleOperType ::= INTEGER {
+        unknown(1),
+        ok(2),
+        disabled(3),
+        okButDiagFailed(4),
+        boot(5),
+        selfTest(6),
+        failed(7),
+        missing(8),
+        mismatchWithParent(9),
+        mismatchConfig(10),
+        diagFailed(11),
+        dormant(12),
+        outOfServiceAdmin(13),
+        outOfServiceEnvTemp(14),
+        poweredDown(15),
+        poweredUp(16),
+        powerDenied(17),
+        powerCycled(18),
+        okButPowerOverWarning(19),
+        okButPowerOverCritical(20),
+        syncInProgress(21),
+        upgrading(22),
+        okButAuthFailed(23),
+        mdr(24),
+        fwMismatchFound(25),
+        fwDownloadSuccess(26),
+        fwDownloadFailure(27)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Operational module states.  Valid values are :
+--    
+--    unknown(1)           Module is not in one of other states
+--    
+--     normal operational states:
+--    
+--    ok(2)                 Module is operational.
+--    
+--    disabled(3)           Module is administratively disabled.
+--    
+--    okButDiagFailed(4)    Module is operational but there is some
+--                         diagnostic information available.
+--    
+--     transitional states:
+--    
+--    boot(5)               Module is currently in the process of
+--                         bringing up image.  After boot, it starts
+--                         its operational software and transitions
+--                         to the appropriate state.
+--    
+--    selfTest(6)           Module is performing selfTest.
+--    
+--    
+--     failure states:
+--    
+--    failed(7)              Module has failed due to some condition
+--                          not stated above.
+--    
+--    missing(8)             Module has been provisioned, but it is
+--                          missing
+--    
+--    mismatchWithParent(9)  Module is not compatible with parent
+--                          entity. Module has not been provisioned
+--                          and wrong type of module is plugged in.
+--                          This state can be cleared by plugging
+--                          in the appropriate module.
+--    
+--    mismatchConfig(10)     Module is not compatible with the
+--    current
+--                          configuration. Module was correctly
+--                          provisioned earlier, however the module
+--                          was replaced by an incompatible module.
+--                          This state can be resolved by clearing
+--                          the configuration, or replacing with the
+--                          appropriate module.
+--    
+--    diagFailed(11)         Module diagnostic test failed due to
+--    some
+--                          hardware failure.
+--    
+--    dormant(12)            Module is waiting for an external or
+--                          internal event to become operational.
+--    
+--    outOfServiceAdmin(13)  module is administratively set to be
+--                          powered on but out of service.
+--    
+--    outOfServiceEnvTemp(14)Module is powered on but out of service,
+--                          due to environmental temperature problem.
+--                          An out-o-service module consumes less
+--                          power thus will cool down the board.
+--    
+--    poweredDown(15)       Module is in powered down state.
+--    
+--    poweredUp(16)         Module is in powered up state.
+--    
+--    powerDenied(17)       System does not have enough power in
+--                          power budget to power on this module.
+--    
+--    powerCycled(18)       Module is being power cycled.
+--    
+--    okButPowerOverWarning(19) Module is drawing more power than 
+--                          allocated to this module. The module
+--                          is still operational but may go into
+--                          a failure state. This state may be
+--                          caused by misconfiguration of power 
+--                          requirements (especially for inline 
+--                          power). 
+--    
+--    okButPowerOverCritical(20) Module is drawing more power
+--                          than this module is designed to 
+--                          handle. The module is still 
+--                          operational but may go into a 
+--                          failure state and could potentially
+--                          take the system down. This state
+--                          may be caused by gross misconfi-
+--                          guration of power requirements      
+--                          (especially for inline power). 
+--    
+--    syncInProgress(21)    Synchronization in progress.
+--                          In a high availability system there 
+--                          will be 2 control modules, active and 
+--                          standby. 
+--                          This transitional state specifies the
+--                          synchronization of data between the
+--                          active and standby modules.
+--    
+--    upgrading(22)         Module is upgrading.
+--    
+--    okButAuthFailed(23)   Module is operational but did not pass 
+--                          hardware integrity verification.
+--    
+--    mdr(24)               Module is undergoing a Minimum 
+--                          Disruptive Restart (MDR) upgrade.
+--    
+--     firmware download states:
+--    
+--    fwMismatchFound(25)   Mistmatch found between current firmware 
+--                          version and the firmware version in the 
+--                          system image.
+--    
+--    fwDownloadSuccess(26) Module firmware download succeeded.
+--    
+--    fwDownloadFailure(27) Module firmware download failed.
+
+ModuleResetReasonType ::= INTEGER {
+        unknown(1),
+        powerUp(2),
+        parityError(3),
+        clearConfigReset(4),
+        manualReset(5),
+        watchDogTimeoutReset(6),
+        resourceOverflowReset(7),
+        missingTaskReset(8),
+        lowVoltageReset(9),
+        controllerReset(10),
+        systemReset(11),
+        switchoverReset(12),
+        upgradeReset(13),
+        downgradeReset(14),
+        cacheErrorReset(15),
+        deviceDriverReset(16),
+        softwareExceptionReset(17),
+        restoreConfigReset(18),
+        abortRevReset(19),
+        burnBootReset(20),
+        standbyCdHealthierReset(21),
+        nonNativeConfigClearReset(22),
+        memoryProtectionErrorReset(23)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Describes the reason for the last module reset operation.
+--    
+--    unknown(1)                      source of the reset is not 
+--                                    identified
+--    
+--    powerUp(2)                      system power up operation
+--    
+--    parityError(3)                  parity error during system 
+--                                    bring up operation
+--    
+--    clearConfigReset(4)             reset due to clear 
+--                                    configuration operation
+--    
+--    manualReset(5)                  reset due to administrative 
+--                                    request
+--    
+--    watchDogTimeoutReset(6)         reset due to watchdog timeout
+--    
+--    resourceOverflowReset(7)        reset due to resource overflow
+--    
+--    missingTaskReset(8)             reset due to missing task
+--    
+--    lowVoltageReset(9)              reset due to low voltage
+--    
+--    controllerReset(10)             reset by controller
+--    
+--    systemReset(11)                 system reset
+--    
+--    switchoverReset(12)             reset due to user initiated 
+--                                    graceful switchover
+--    
+--    upgradeReset(13)                reset due to upgrade
+--    
+--    downgradeReset(14)              reset due to downgrade
+--    
+--    cacheErrorReset(15)             reset due to cache error
+--    
+--    deviceDriverReset(16)           reset due to device driver 
+--                                    error
+--    
+--    softwareExceptionReset(17)      reset due to software 
+--                                    exception
+--    
+--    restoreConfigReset(18)          reset due to configuration
+--                                    restoration
+--    
+--    abortRevReset(19)               reset due to revision change 
+--                                    abort
+--    
+--    burnBootReset(20)               reset due to boot image 
+--                                    change
+--    
+--    standbyCdHealthierReset(21)     reset to switch to healthier 
+--                                    standby card
+--    
+--    nonNativeConfigClearReset(22)   reset due clearing of 
+--                                    non-native configuration
+--    
+--    memoryProtectionErrorReset(23)  reset due to memory protection 
+--                                    violation.
+
+FRUTimeSeconds ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This is a non-negative integer which represents
+--    the time in second between two epochs.
+--    
+--    Since time is not discrete, it is rounded up to
+--    the nearest second. For example, if the elapsed
+--    time is greater than zero and less or equal to
+--    one second, then one second is returned, etc.
+--    
+--    When objects are defined which use this type, the
+--    description of the object identifies both of the
+--    reference epochs.
+
+FRUCoolingUnit ::= INTEGER {
+        cfm(1),
+        watts(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The unit for the cooling capacity and requirement.
+--    
+--    cfm(1)    Cubic feet per minute
+--    watts(2)  Watts
+
+cefcFRUPowerSupplyGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcFRUPowerSupplyGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the redundancy mode and the
+        operational status of the power supply groups
+        in the system."
+    ::= { cefcFRUPower 1 }
+
+cefcFRUPowerSupplyGroupEntry OBJECT-TYPE
+    SYNTAX CefcFRUPowerSupplyGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An cefcFRUPowerSupplyGroupTable entry lists the desired
+        redundancy mode, the units of the power outputs and the 
+        available and drawn current for the power supply group.
+        
+        Entries are created by the agent when a power supply group
+        is added to the entPhysicalTable. Entries are deleted by 
+        the agent at power supply group removal."
+    INDEX { entPhysicalIndex }
+    ::= { cefcFRUPowerSupplyGroupTable 1 }
+
+CefcFRUPowerSupplyGroupEntry ::= SEQUENCE {
+    cefcPowerRedundancyMode PowerRedundancyType,
+    cefcPowerUnits DisplayString,
+    cefcTotalAvailableCurrent FRUCurrentType,
+    cefcTotalDrawnCurrent FRUCurrentType,
+    cefcPowerRedundancyOperMode PowerRedundancyType,
+    cefcPowerNonRedundantReason INTEGER,
+    cefcTotalDrawnInlineCurrent FRUCurrentType
+    }
+
+cefcPowerRedundancyMode OBJECT-TYPE
+    SYNTAX PowerRedundancyType
+--    Rsyntax INTEGER {
+--        notsupported(1),
+--        redundant(2),
+--        combined(3),
+--        nonRedundant(4),
+--        psRedundant(5),
+--        inPwrSrcRedundant(6),
+--        psRedundantSingleInput(7)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The administratively desired power supply redundancy
+        mode."
+    ::= { cefcFRUPowerSupplyGroupEntry 1 }
+
+cefcPowerUnits OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The units of primary supply to interpret
+        cefcTotalAvailableCurrent and cefcTotalDrawnCurrent
+        as power.
+        
+        For example, one 1000-watt power supply could 
+        deliver 100 amperes at 10 volts DC.  So the value
+        of cefcPowerUnits would be 'at 10 volts DC'.
+        
+        cefcPowerUnits is for display purposes only."
+    ::= { cefcFRUPowerSupplyGroupEntry 2 }
+
+cefcTotalAvailableCurrent OBJECT-TYPE
+    SYNTAX FRUCurrentType
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total current available for FRU usage."
+    ::= { cefcFRUPowerSupplyGroupEntry 3 }
+
+cefcTotalDrawnCurrent OBJECT-TYPE
+    SYNTAX FRUCurrentType
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total current drawn by powered-on FRUs."
+    ::= { cefcFRUPowerSupplyGroupEntry 4 }
+
+cefcPowerRedundancyOperMode OBJECT-TYPE
+    SYNTAX PowerRedundancyType
+--    Rsyntax INTEGER {
+--        notsupported(1),
+--        redundant(2),
+--        combined(3),
+--        nonRedundant(4),
+--        psRedundant(5),
+--        inPwrSrcRedundant(6),
+--        psRedundantSingleInput(7)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The power supply redundancy operational mode."
+    ::= { cefcFRUPowerSupplyGroupEntry 5 }
+
+cefcPowerNonRedundantReason OBJECT-TYPE
+    SYNTAX INTEGER {
+        notApplicable(1),
+        unknown(2),
+        singleSupply(3),
+        mismatchedSupplies(4),
+        supplyError(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object has the value of notApplicable(1) when
+        cefcPowerRedundancyOperMode of the instance does not
+        have the value of nonRedundant(4).
+        
+        The other values explain the reason why 
+        cefcPowerRedundancyOperMode is nonRedundant(4), e.g.
+        
+        unknown(2)             the reason is not identified.
+        
+        singleSupply(3)        There is only one power supply
+                               in the group.
+        
+        mismatchedSupplies(4)  There are more than one power
+                               supplies in the groups. However
+                               they are mismatched and can not
+                               work redundantly.
+        
+        supplyError(5)         Some power supply or supplies
+                               does or do not working properly."
+    ::= { cefcFRUPowerSupplyGroupEntry 6 }
+
+cefcTotalDrawnInlineCurrent OBJECT-TYPE
+    SYNTAX FRUCurrentType
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total inline current drawn for inline operation."
+    ::= { cefcFRUPowerSupplyGroupEntry 7 }
+
+cefcFRUPowerStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcFRUPowerStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the power-related administrative status
+        and operational status of the manageable components
+        in the system."
+    ::= { cefcFRUPower 2 }
+
+cefcFRUPowerStatusEntry OBJECT-TYPE
+    SYNTAX CefcFRUPowerStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An cefcFRUPowerStatusTable entry lists the desired
+        administrative status, the operational status of the 
+        power manageable component, and the current required by 
+        the component for operation.
+        
+        Entries are created by the agent at system power-up or 
+        the insertion of the component.  Entries are deleted by
+        the agent at the removal of the component.
+        
+        Only components with power control are listed in the 
+        table."
+    INDEX { entPhysicalIndex }
+    ::= { cefcFRUPowerStatusTable 1 }
+
+CefcFRUPowerStatusEntry ::= SEQUENCE {
+    cefcFRUPowerAdminStatus PowerAdminType,
+    cefcFRUPowerOperStatus PowerOperType,
+    cefcFRUCurrent FRUCurrentType,
+    cefcFRUPowerCapability OCTET STRING,
+    cefcFRURealTimeCurrent FRUCurrentType
+    }
+
+cefcFRUPowerAdminStatus OBJECT-TYPE
+    SYNTAX PowerAdminType
+--    Rsyntax INTEGER {
+--        on(1),
+--        off(2),
+--        inlineAuto(3),
+--        inlineOn(4),
+--        powerCycle(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Administratively desired FRU power state."
+    ::= { cefcFRUPowerStatusEntry 1 }
+
+cefcFRUPowerOperStatus OBJECT-TYPE
+    SYNTAX PowerOperType
+--    Rsyntax INTEGER {
+--        offEnvOther(1),
+--        on(2),
+--        offAdmin(3),
+--        offDenied(4),
+--        offEnvPower(5),
+--        offEnvTemp(6),
+--        offEnvFan(7),
+--        failed(8),
+--        onButFanFail(9),
+--        offCooling(10),
+--        offConnectorRating(11),
+--        onButInlinePowerFail(12)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Operational FRU power state."
+    ::= { cefcFRUPowerStatusEntry 2 }
+
+cefcFRUCurrent OBJECT-TYPE
+    SYNTAX FRUCurrentType
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current supplied by the FRU (positive values)
+        or current required to operate the FRU (negative values)."
+    ::= { cefcFRUPowerStatusEntry 3 }
+
+cefcFRUPowerCapability OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   realTimeCurrent(0)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the set of supported power capabilities
+        of the FRU.
+        
+        realTimeCurrent(0) -
+            cefcFRURealTimeCurrent is supported by the FRU."
+    ::= { cefcFRUPowerStatusEntry 4 }
+
+cefcFRURealTimeCurrent OBJECT-TYPE
+    SYNTAX FRUCurrentType
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the realtime value of current supplied
+        by the FRU (positive values) or the realtime value of current
+        drawn by the FRU (negative values)."
+    ::= { cefcFRUPowerStatusEntry 5 }
+
+cefcMaxDefaultInLinePower OBJECT-TYPE
+    SYNTAX INTEGER(0..12500)
+--  Units
+--    miliwatts
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "The system will provide power to the device connecting
+        to the FRU if the device needs power, like an IP Phone.
+        We call the providing power inline power.
+        
+        This MIB object controls the maximum default inline power
+        for the device connecting to the FRU in the system. If the
+        maximum default inline power of the device is greater than
+        the maximum value reportable by this object, then this
+        object should report its maximum reportable value (12500)
+        and cefcMaxDefaultHighInLinePower must be used to report
+        the actual maximum default inline power."
+    DEFVAL { 12500 }
+    ::= { cefcFRUPower 3 }
+
+cefcFRUPowerSupplyValueTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcFRUPowerSupplyValueEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the power capacity of a power FRU in the
+        system if it provides variable power. Power supplies usually
+        provide either system or inline power. They cannot be 
+        controlled by software to dictate how they distribute power.
+        We can also have what are known as variable power supplies.
+        They can provide both system and inline power and can be 
+        varied within hardware defined ranges for system and inline
+        limited by a total maximum combined output. They could be
+        configured by the user via CLI or SNMP or be controlled by
+        software internally.
+        This table supplements the information in the
+        cefcFRUPowerStatusTable for power supply FRUs. The 
+        cefcFRUCurrent attribute in that table provides the overall
+        current the power supply FRU can provide while this table 
+        gives us the individual contribution towards system and 
+        inline power."
+    ::= { cefcFRUPower 4 }
+
+cefcFRUPowerSupplyValueEntry OBJECT-TYPE
+    SYNTAX CefcFRUPowerSupplyValueEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An cefcFRUPowerSupplyValueTable entry lists the current
+        provided by the FRU for operation.
+        
+        Entries are created by the agent at system power-up or 
+        FRU insertion.  Entries are deleted by the agent at FRU
+        removal.
+        
+        Only power supply FRUs are listed in the table."
+    INDEX { entPhysicalIndex }
+    ::= { cefcFRUPowerSupplyValueTable 1 }
+
+CefcFRUPowerSupplyValueEntry ::= SEQUENCE {
+    cefcFRUTotalSystemCurrent FRUCurrentType,
+    cefcFRUDrawnSystemCurrent FRUCurrentType,
+    cefcFRUTotalInlineCurrent FRUCurrentType,
+    cefcFRUDrawnInlineCurrent FRUCurrentType
+    }
+
+cefcFRUTotalSystemCurrent OBJECT-TYPE
+    SYNTAX FRUCurrentType
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Total current that could be supplied by the FRU (positive
+        values) for system operations."
+    ::= { cefcFRUPowerSupplyValueEntry 1 }
+
+cefcFRUDrawnSystemCurrent OBJECT-TYPE
+    SYNTAX FRUCurrentType
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Amount of current drawn by the FRU's in the system towards
+        system operations from this FRU"
+    ::= { cefcFRUPowerSupplyValueEntry 2 }
+
+cefcFRUTotalInlineCurrent OBJECT-TYPE
+    SYNTAX FRUCurrentType
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Total current supplied by the FRU (positive values) for
+        inline operations."
+    ::= { cefcFRUPowerSupplyValueEntry 3 }
+
+cefcFRUDrawnInlineCurrent OBJECT-TYPE
+    SYNTAX FRUCurrentType
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Amount of current that is being drawn from this FRU for inline
+        operation."
+    ::= { cefcFRUPowerSupplyValueEntry 4 }
+
+cefcMaxDefaultHighInLinePower OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    miliwatts
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The system will provide power to the device connecting
+        to the FRU if the device needs power, like an IP Phone.
+        We call the providing power inline power.
+        
+        This MIB object controls the maximum default inline power
+        for the device connecting to the FRU in the system."
+    ::= { cefcFRUPower 5 }
+
+cefcModuleTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcModuleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A cefcModuleTable entry lists the operational and
+        administrative status information for ENTITY-MIB
+        entPhysicalTable entries for manageable components
+        of type PhysicalClass module(9)."
+    ::= { cefcModule 1 }
+
+cefcModuleEntry OBJECT-TYPE
+    SYNTAX CefcModuleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A cefcModuleStatusTable entry lists the operational and
+        administrative status information for ENTITY-MIB
+        entPhysicalTable entries for manageable components 
+        of type PhysicalClass module(9).
+        
+        Entries are created by the agent at the system power-up or
+        module insertion.
+        
+        Entries are deleted by the agent upon module removal."
+    INDEX { entPhysicalIndex }
+    ::= { cefcModuleTable 1 }
+
+CefcModuleEntry ::= SEQUENCE {
+    cefcModuleAdminStatus ModuleAdminType,
+    cefcModuleOperStatus ModuleOperType,
+    cefcModuleResetReason ModuleResetReasonType,
+    cefcModuleStatusLastChangeTime TimeStamp,
+    cefcModuleLastClearConfigTime TimeStamp,
+    cefcModuleResetReasonDescription DisplayString,
+    cefcModuleStateChangeReasonDescr DisplayString,
+    cefcModuleUpTime FRUTimeSeconds
+    }
+
+cefcModuleAdminStatus OBJECT-TYPE
+    SYNTAX ModuleAdminType
+--    Rsyntax INTEGER {
+--        enabled(1),
+--        disabled(2),
+--        reset(3),
+--        outOfServiceAdmin(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object provides administrative control of the
+        module."
+    ::= { cefcModuleEntry 1 }
+
+cefcModuleOperStatus OBJECT-TYPE
+    SYNTAX ModuleOperType
+--    Rsyntax INTEGER {
+--        unknown(1),
+--        ok(2),
+--        disabled(3),
+--        okButDiagFailed(4),
+--        boot(5),
+--        selfTest(6),
+--        failed(7),
+--        missing(8),
+--        mismatchWithParent(9),
+--        mismatchConfig(10),
+--        diagFailed(11),
+--        dormant(12),
+--        outOfServiceAdmin(13),
+--        outOfServiceEnvTemp(14),
+--        poweredDown(15),
+--        poweredUp(16),
+--        powerDenied(17),
+--        powerCycled(18),
+--        okButPowerOverWarning(19),
+--        okButPowerOverCritical(20),
+--        syncInProgress(21),
+--        upgrading(22),
+--        okButAuthFailed(23),
+--        mdr(24),
+--        fwMismatchFound(25),
+--        fwDownloadSuccess(26),
+--        fwDownloadFailure(27)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object shows the module's operational state."
+    ::= { cefcModuleEntry 2 }
+
+cefcModuleResetReason OBJECT-TYPE
+    SYNTAX ModuleResetReasonType
+--    Rsyntax INTEGER {
+--        unknown(1),
+--        powerUp(2),
+--        parityError(3),
+--        clearConfigReset(4),
+--        manualReset(5),
+--        watchDogTimeoutReset(6),
+--        resourceOverflowReset(7),
+--        missingTaskReset(8),
+--        lowVoltageReset(9),
+--        controllerReset(10),
+--        systemReset(11),
+--        switchoverReset(12),
+--        upgradeReset(13),
+--        downgradeReset(14),
+--        cacheErrorReset(15),
+--        deviceDriverReset(16),
+--        softwareExceptionReset(17),
+--        restoreConfigReset(18),
+--        abortRevReset(19),
+--        burnBootReset(20),
+--        standbyCdHealthierReset(21),
+--        nonNativeConfigClearReset(22),
+--        memoryProtectionErrorReset(23)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the reason for the last reset performed
+        on the module."
+    ::= { cefcModuleEntry 3 }
+
+cefcModuleStatusLastChangeTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime at the time the cefcModuleOperStatus
+        is changed."
+    ::= { cefcModuleEntry 4 }
+
+cefcModuleLastClearConfigTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the
+        configuration was most recently cleared."
+    ::= { cefcModuleEntry 5 }
+
+cefcModuleResetReasonDescription OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A description qualifying the module reset reason
+        specified in cefcModuleResetReason. 
+        
+        Examples:
+          command xyz              
+          missing task
+          switch over
+          watchdog timeout    
+          etc.
+        
+        cefcModuleResetReasonDescription is for display purposes only.
+        NMS applications must not parse."
+    ::= { cefcModuleEntry 6 }
+
+cefcModuleStateChangeReasonDescr OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object displays human-readable textual string which
+        describes the cause of the last state change of the
+        module. This object contains zero length string
+        if no meaningful reason could be provided.
+        
+        Examples:
+        'Invalid software version'
+        'Software download failed'
+        'Software version mismatch'
+        'Module is in standby state'
+        etc.
+        
+        This object is for display purposes only.
+        NMS applications must not parse this object
+        and take any decision based on its value."
+    ::= { cefcModuleEntry 7 }
+
+cefcModuleUpTime OBJECT-TYPE
+    SYNTAX FRUTimeSeconds
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object provides the up time for the module
+        since it was last re-initialized.
+        
+        This object is not persistent; if a module reset,
+        restart, power off, the up time starts from zero."
+    ::= { cefcModuleEntry 8 }
+
+cefcIntelliModuleTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcIntelliModuleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table sparsely augments the
+        cefcModuleTable (i.e., every row in
+        this table corresponds to a row in
+        the cefcModuleTable but not necessarily
+        vice-versa).
+        
+        A cefcIntelliModuleTable entry lists the
+        information specific to intelligent
+        modules which cannot be provided by the
+        cefcModuleTable."
+    ::= { cefcModule 2 }
+
+cefcIntelliModuleEntry OBJECT-TYPE
+    SYNTAX CefcIntelliModuleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A cefcIntelliModuleTable entry lists the
+        information specific to an intelligent
+        module which cannot be provided by
+        this module's corresponding instance in
+        the cefcModuleTable. Only an intelligent
+        module with Internet address configured has
+        its entry here.
+        
+        An entry of this table is created if an 
+        intelligent module is detected by the 
+        managed system and its management Internet
+        address is configured on the intelligent 
+        module.
+        
+        An entry of this table is deleted if the 
+        removal of Internet address configuration of 
+        this module or the module itself."
+    INDEX { entPhysicalIndex }
+    ::= { cefcIntelliModuleTable 1 }
+
+CefcIntelliModuleEntry ::= SEQUENCE {
+    cefcIntelliModuleIPAddrType InetAddressType,
+    cefcIntelliModuleIPAddr InetAddress
+    }
+
+cefcIntelliModuleIPAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address by which the
+        intelligent module is reachable."
+    ::= { cefcIntelliModuleEntry 1 }
+
+cefcIntelliModuleIPAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address configured
+        for the intelligent module.
+        The type of this address is 
+        determined by the value of the object 
+        cefcIntelliModuleIPAddrType."
+    ::= { cefcIntelliModuleEntry 2 }
+
+cefcModuleLocalSwitchingTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcModuleLocalSwitchingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table sparsely augments the cefcModuleTable
+        (i.e., every row in this table corresponds to a row in
+        the cefcModuleTable but not necessarily vice-versa).
+        
+        A cefcModuleLocalSwitchingTable entry lists the
+        information specific to local switching capable
+        modules which cannot be provided by the
+        cefcModuleTable."
+    ::= { cefcModule 3 }
+
+cefcModuleLocalSwitchingEntry OBJECT-TYPE
+    SYNTAX CefcModuleLocalSwitchingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A cefcModuleLocalSwitchingTable entry lists the
+        information specific to a local switching capable
+        module which cannot be provided by this module's
+        corresponding instance in the cefcModuleTable.
+        Only a module which is capable of local switching
+        has its entry here.
+        
+        An entry of this table is created if a module which
+        is capable of local switching is detected by the
+        managed system.
+        
+        An entry of this table is deleted if the
+        removal of this module."
+    INDEX { entPhysicalIndex }
+    ::= { cefcModuleLocalSwitchingTable 1 }
+
+CefcModuleLocalSwitchingEntry ::= SEQUENCE {
+    cefcModuleLocalSwitchingMode INTEGER
+    }
+
+cefcModuleLocalSwitchingMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the mode of local switching.
+        
+        enabled(1)  - local switching is enabled.
+        disabled(2) - local switching is disabled."
+    ::= { cefcModuleLocalSwitchingEntry 1 }
+
+cefcFanTrayStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcFanTrayStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the operational status information
+        for all ENTITY-MIB entPhysicalTable entries which have 
+        an entPhysicalClass of 'fan'; specifically, all  
+        entPhysicalTable entries which represent either: one 
+        physical fan, or a single physical 'fan tray' which is a
+        manufactured (inseparable in the field) combination of 
+        multiple fans."
+    ::= { cefcFRUFan 1 }
+
+cefcFanTrayStatusEntry OBJECT-TYPE
+    SYNTAX CefcFanTrayStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An cefcFanTrayStatusTable entry lists the operational
+        status information for the ENTITY-MIB entPhysicalTable 
+        entry which is identified by the value of entPhysicalIndex.
+        The value of entPhysicalClass for the identified entry will
+        be 'fan', and the represented physical entity will be 
+        either: one physical fan, or a single physical 'fan tray' 
+        which is a manufactured (inseparable in the field) 
+        combination of multiple fans.
+        
+        Entries are created by the agent at system power-up or 
+        fan or fan tray insertion.  Entries are deleted 
+        by the agent at the fan or fan tray removal."
+    INDEX { entPhysicalIndex }
+    ::= { cefcFanTrayStatusTable 1 }
+
+CefcFanTrayStatusEntry ::= SEQUENCE {
+    cefcFanTrayOperStatus INTEGER
+    }
+
+cefcFanTrayOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        up(2),
+        down(3),
+        warning(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The operational state of the fan or fan tray.
+        unknown(1) - unknown.
+        up(2) - powered on.
+        down(3) - powered down.
+        warning(4) - partial failure, needs replacement 
+                     as soon as possible."
+    ::= { cefcFanTrayStatusEntry 1 }
+
+cefcPhysicalTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcPhysicalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains one row per physical entity."
+    ::= { cefcPhysical 1 }
+
+cefcPhysicalEntry OBJECT-TYPE
+    SYNTAX CefcPhysicalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about a particular physical entity."
+    INDEX { entPhysicalIndex }
+    ::= { cefcPhysicalTable 1 }
+
+CefcPhysicalEntry ::= SEQUENCE {
+    cefcPhysicalStatus INTEGER
+    }
+
+cefcPhysicalStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        supported(2),
+        unsupported(3),
+        incompatible(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this physical entity.
+        other(1) - the status is not any of the listed below.
+        supported(2) - this entity is supported.
+        unsupported(3) - this entity is unsupported.
+        incompatible(4) - this entity is incompatible.
+        It would be unsupported(3), if the ID read from Serial
+        EPROM is not supported. It would be incompatible(4), if
+        in the present configuration this FRU is not supported."
+    ::= { cefcPhysicalEntry 1 }
+
+cefcPowerSupplyInputTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcPowerSupplyInputEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the power input information
+        for all the power supplies that have entPhysicalTable
+        entries with 'powerSupply' in the entPhysicalClass. 
+        
+        The entries are created by the agent at the system
+        power-up or power supply insertion.
+        
+        Entries are deleted by the agent upon power supply
+        removal.
+        
+        The number of entries is determined by the number of
+        power supplies and number of power inputs on the power 
+        supply."
+    ::= { cefcPowerCapacity 1 }
+
+cefcPowerSupplyInputEntry OBJECT-TYPE
+    SYNTAX CefcPowerSupplyInputEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing power input management information
+        applicable to a particular power supply and input."
+    INDEX { entPhysicalIndex, cefcPowerSupplyInputIndex }
+    ::= { cefcPowerSupplyInputTable 1 }
+
+CefcPowerSupplyInputEntry ::= SEQUENCE {
+    cefcPowerSupplyInputIndex Gauge,
+    cefcPowerSupplyInputType INTEGER
+    }
+
+cefcPowerSupplyInputIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique value, greater than zero, for each input on
+        a power supply."
+    ::= { cefcPowerSupplyInputEntry 1 }
+
+cefcPowerSupplyInputType OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        acLow(2),
+        acHigh(3),
+        dcLow(4),
+        dcHigh(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of an input power detected on the power
+        supply.
+        
+        unknown(1): No input power is detected.
+        
+        acLow(2): Lower rating AC input power is detected.
+        
+        acHigh(3): Higher rating AC input power is detected.
+        
+        dcLow(4): Lower rating DC input power is detected.
+        
+        dcHigh(5): Higher rating DC input power is detected."
+    ::= { cefcPowerSupplyInputEntry 2 }
+
+cefcPowerSupplyOutputTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcPowerSupplyOutputEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains a list of possible output
+        mode for the power supplies, whose ENTITY-MIB
+        entPhysicalTable entries have an entPhysicalClass
+        of 'powerSupply'. It also indicate which mode
+        is the operational mode within the system."
+    ::= { cefcPowerCapacity 2 }
+
+cefcPowerSupplyOutputEntry OBJECT-TYPE
+    SYNTAX CefcPowerSupplyOutputEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A cefcPowerSupplyOutputTable entry lists the
+        power output capacity and its operational status
+        for manageable components of type PhysicalClass
+        'powerSupply'.
+        
+        Entries are created by the agent at the system
+        power-up or power supply insertion.
+        
+        Entries are deleted by the agent upon power supply
+        removal.
+        
+        The number of entries of a power supply is determined
+        by the power supply."
+    INDEX { entPhysicalIndex, cefcPSOutputModeIndex }
+    ::= { cefcPowerSupplyOutputTable 1 }
+
+CefcPowerSupplyOutputEntry ::= SEQUENCE {
+    cefcPSOutputModeIndex Gauge,
+    cefcPSOutputModeCurrent FRUCurrentType,
+    cefcPSOutputModeInOperation TruthValue
+    }
+
+cefcPSOutputModeIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique value, greater than zero, for each
+        possible output mode on a power supply."
+    ::= { cefcPowerSupplyOutputEntry 1 }
+
+cefcPSOutputModeCurrent OBJECT-TYPE
+    SYNTAX FRUCurrentType
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The output capacity of the power supply."
+    ::= { cefcPowerSupplyOutputEntry 2 }
+
+cefcPSOutputModeInOperation OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A value of 'true' indicates that this mode is the
+        operational mode of the power supply output
+        capacity.
+        
+        A value of 'false' indicates that this mode is not
+        the operational mode of the power supply output
+        capacity.
+        
+        For a given power supply's entPhysicalIndex, 
+        at most one instance of this object can have the
+        value of true(1)."
+    ::= { cefcPowerSupplyOutputEntry 3 }
+
+cefcChassisCoolingTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcChassisCoolingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the cooling capacity
+        information of the chassis whose ENTITY-MIB
+        entPhysicalTable entries have an
+        entPhysicalClass of 'chassis'."
+    ::= { cefcCooling 1 }
+
+cefcChassisCoolingEntry OBJECT-TYPE
+    SYNTAX CefcChassisCoolingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A cefcChassisCoolingEntry lists the maximum
+        cooling capacity that could be provided 
+        for one slot on the manageable components of type
+        PhysicalClass 'chassis'.
+        
+        Entries are created by the agent if the corresponding
+        entry is created in ENTITY-MIB entPhysicalTable.
+        
+        Entries are deleted by the agent if the corresponding
+        entry is deleted in ENTITY-MIB entPhysicalTable."
+    INDEX { entPhysicalIndex }
+    ::= { cefcChassisCoolingTable 1 }
+
+CefcChassisCoolingEntry ::= SEQUENCE {
+    cefcChassisPerSlotCoolingCap Gauge,
+    cefcChassisPerSlotCoolingUnit FRUCoolingUnit
+    }
+
+cefcChassisPerSlotCoolingCap OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum cooling capacity that could be provided
+        for any slot in this chassis.
+        
+        The default unit of the cooling capacity is 'cfm', if
+        cefcChassisPerSlotCoolingUnit is not supported."
+    ::= { cefcChassisCoolingEntry 1 }
+
+cefcChassisPerSlotCoolingUnit OBJECT-TYPE
+    SYNTAX FRUCoolingUnit
+--    Rsyntax INTEGER {
+--        cfm(1),
+--        watts(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The unit of the maximum cooling capacity for any slot
+        in this chassis."
+    ::= { cefcChassisCoolingEntry 2 }
+
+cefcFanCoolingTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcFanCoolingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the cooling capacity
+        information of the fans whose ENTITY-MIB
+        entPhysicalTable entries have an
+        entPhysicalClass of 'fan'."
+    ::= { cefcCooling 2 }
+
+cefcFanCoolingEntry OBJECT-TYPE
+    SYNTAX CefcFanCoolingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A cefcFanCoolingEntry lists the cooling
+        capacity that is provided by the 
+        manageable components of type PhysicalClass 
+        'fan'.
+        
+        Entries are created by the agent if the corresponding
+        entry is created in ENTITY-MIB entPhysicalTable.
+        
+        Entries are deleted by the agent if the corresponding
+        entry is deleted in ENTITY-MIB entPhysicalTable."
+    INDEX { entPhysicalIndex }
+    ::= { cefcFanCoolingTable 1 }
+
+CefcFanCoolingEntry ::= SEQUENCE {
+    cefcFanCoolingCapacity Gauge,
+    cefcFanCoolingCapacityUnit FRUCoolingUnit
+    }
+
+cefcFanCoolingCapacity OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cooling capacity that is provided by this fan.
+        
+        The default unit of the fan cooling capacity is 'cfm',
+        if cefcFanCoolingCapacityUnit is not supported."
+    ::= { cefcFanCoolingEntry 1 }
+
+cefcFanCoolingCapacityUnit OBJECT-TYPE
+    SYNTAX FRUCoolingUnit
+--    Rsyntax INTEGER {
+--        cfm(1),
+--        watts(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The unit of the fan cooling capacity."
+    ::= { cefcFanCoolingEntry 2 }
+
+cefcModuleCoolingTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcModuleCoolingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the cooling requirement for
+        all the manageable components of type entPhysicalClass
+        'module'."
+    ::= { cefcCooling 3 }
+
+cefcModuleCoolingEntry OBJECT-TYPE
+    SYNTAX CefcModuleCoolingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A cefcModuleCoolingEntry lists the cooling
+        requirement for a manageable components of type
+        entPhysicalClass 'module'.
+        
+        Entries are created by the agent at the system
+        power-up or module insertion.
+        
+        Entries are deleted by the agent upon module
+        removal."
+    INDEX { entPhysicalIndex }
+    ::= { cefcModuleCoolingTable 1 }
+
+CefcModuleCoolingEntry ::= SEQUENCE {
+    cefcModuleCooling Gauge,
+    cefcModuleCoolingUnit FRUCoolingUnit
+    }
+
+cefcModuleCooling OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cooling requirement of the module and its daughter
+        cards.
+        
+        The default unit of the module cooling requirement is
+        'cfm', if cefcModuleCoolingUnit is not supported."
+    ::= { cefcModuleCoolingEntry 1 }
+
+cefcModuleCoolingUnit OBJECT-TYPE
+    SYNTAX FRUCoolingUnit
+--    Rsyntax INTEGER {
+--        cfm(1),
+--        watts(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The unit of the cooling requirement of the module and its
+        daughter cards."
+    ::= { cefcModuleCoolingEntry 2 }
+
+cefcFanCoolingCapTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcFanCoolingCapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains a list of the possible cooling
+        capacity modes and properties of the fans, whose 
+        ENTITY-MIB entPhysicalTable entries have an 
+        entPhysicalClass of 'fan'."
+    ::= { cefcCooling 4 }
+
+cefcFanCoolingCapEntry OBJECT-TYPE
+    SYNTAX CefcFanCoolingCapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A cefcFanCoolingCapacityEntry lists the cooling
+        capacity mode of a manageable components of type
+        entPhysicalClass 'fan'. It also lists the corresponding
+        cooling capacity provided and the power consumed
+        by the fan on this mode.
+        
+        
+        Entries are created by the agent if the corresponding
+        entry is created in ENTITY-MIB entPhysicalTable.
+        
+        Entries are deleted by the agent if the corresponding
+        entry is deleted in ENTITY-MIB entPhysicalTable."
+    INDEX { entPhysicalIndex, cefcFanCoolingCapIndex }
+    ::= { cefcFanCoolingCapTable 1 }
+
+CefcFanCoolingCapEntry ::= SEQUENCE {
+    cefcFanCoolingCapIndex Gauge,
+    cefcFanCoolingCapModeDescr SnmpAdminString,
+    cefcFanCoolingCapCapacity Gauge,
+    cefcFanCoolingCapCurrent FRUCurrentType,
+    cefcFanCoolingCapCapacityUnit FRUCoolingUnit
+    }
+
+cefcFanCoolingCapIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary value that uniquely identifies a
+        cooling capacity mode for a fan."
+    ::= { cefcFanCoolingCapEntry 1 }
+
+cefcFanCoolingCapModeDescr OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A textual description of the cooling capacity
+        mode of the fan."
+    ::= { cefcFanCoolingCapEntry 2 }
+
+cefcFanCoolingCapCapacity OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cooling capacity that could be provided
+        when the fan is operating in this mode.
+        
+        The default unit of the cooling capacity is 'cfm',
+        if cefcFanCoolingCapCapacityUnit is not supported."
+    ::= { cefcFanCoolingCapEntry 3 }
+
+cefcFanCoolingCapCurrent OBJECT-TYPE
+    SYNTAX FRUCurrentType
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The power consumption of the fan when operating in
+        in this mode."
+    ::= { cefcFanCoolingCapEntry 4 }
+
+cefcFanCoolingCapCapacityUnit OBJECT-TYPE
+    SYNTAX FRUCoolingUnit
+--    Rsyntax INTEGER {
+--        cfm(1),
+--        watts(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The unit of the fan cooling capacity when operating
+        in this mode."
+    ::= { cefcFanCoolingCapEntry 5 }
+
+cefcConnectorRatingTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcConnectorRatingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the connector power
+        ratings of FRUs. 
+        
+        Only components with power connector rating 
+        management are listed in this table."
+    ::= { cefcConnector 1 }
+
+cefcConnectorRatingEntry OBJECT-TYPE
+    SYNTAX CefcConnectorRatingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A cefcConnectorRatingEntry lists the
+        power connector rating information of a 
+        component in the system.
+        
+        An entry or entries are created by the agent
+        when an physical entity with connector rating 
+        management is added to the ENTITY-MIB 
+        entPhysicalTable. An entry is deleted 
+        by the agent at the entity removal."
+    INDEX { entPhysicalIndex }
+    ::= { cefcConnectorRatingTable 1 }
+
+CefcConnectorRatingEntry ::= SEQUENCE {
+    cefcConnectorRating FRUCurrentType
+    }
+
+cefcConnectorRating OBJECT-TYPE
+    SYNTAX FRUCurrentType
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum power that the component's
+        connector can withdraw."
+    ::= { cefcConnectorRatingEntry 1 }
+
+cefcModulePowerConsumptionTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CefcModulePowerConsumptionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the total power consumption
+        information for modules whose ENTITY-MIB 
+        entPhysicalTable entries have an entPhysicalClass 
+        of 'module'."
+    ::= { cefcConnector 2 }
+
+cefcModulePowerConsumptionEntry OBJECT-TYPE
+    SYNTAX CefcModulePowerConsumptionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A cefcModulePowerConsumptionEntry lists the total
+        power consumption of a manageable components of type
+        entPhysicalClass 'module'.
+        
+        Entries are created by the agent at the system
+        power-up or module insertion.
+        
+        Entries are deleted by the agent upon module
+        removal."
+    INDEX { entPhysicalIndex }
+    ::= { cefcModulePowerConsumptionTable 1 }
+
+CefcModulePowerConsumptionEntry ::= SEQUENCE {
+    cefcModulePowerConsumption FRUCurrentType
+    }
+
+cefcModulePowerConsumption OBJECT-TYPE
+    SYNTAX FRUCurrentType
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The combined power consumption to operate the module
+        and its submodule(s) and inline-power device(s)."
+    ::= { cefcModulePowerConsumptionEntry 1 }
+
+cefcMIBEnableStatusNotification OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable indicates whether the system
+        produces the following notifications:
+        cefcModuleStatusChange, cefcPowerStatusChange, 
+        cefcFRUInserted, cefcFRURemoved, 
+        cefcUnrecognizedFRU and cefcFanTrayStatusChange.
+        
+        A false value will prevent these notifications
+        from being generated."
+    DEFVAL { false }
+    ::= { cefcMIBNotificationEnables 1 }
+
+cefcEnablePSOutputChangeNotif OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable indicates whether the system
+        produces the cefcPowerSupplyOutputChange 
+        notifications when the output capacity of 
+        a power supply has changed. A false value 
+        will prevent this notification to generated."
+    DEFVAL { false }
+    ::= { cefcMIBNotificationEnables 2 }
+
+cefcModuleStatusChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cefcFRUMIBNotificationPrefix
+    VARIABLES {
+        cefcModuleOperStatus, cefcModuleStatusLastChangeTime }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the value of
+        cefcModuleOperStatus changes. It can be utilized by 
+        an NMS to update the status of the module it is
+        managing."
+    ::= 1
+
+cefcPowerStatusChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cefcFRUMIBNotificationPrefix
+    VARIABLES {
+        cefcFRUPowerOperStatus, cefcFRUPowerAdminStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The cefcFRUPowerStatusChange notification indicates that
+        the power status of a FRU has changed. The varbind for this
+        notification indicates the entPhysicalIndex of the FRU,
+        and the new operational-status of the FRU."
+    ::= 2
+
+cefcFRUInserted TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cefcFRUMIBNotificationPrefix
+    VARIABLES {
+        entPhysicalContainedIn }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The cecfFRUInserted notification indicates that a FRU was
+        inserted. The varbind for this notification indicates the
+        entPhysicalIndex of the inserted FRU, and the entPhysicalIndex
+        of the FRU's container."
+    ::= 3
+
+cefcFRURemoved TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cefcFRUMIBNotificationPrefix
+    VARIABLES {
+        entPhysicalContainedIn }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The cefcFRURemoved notification indicates that a FRU was
+        removed. The varbind for this notification indicates the
+        entPhysicalIndex of the removed FRU, and the entPhysicalIndex
+        of the FRU's container."
+    ::= 4
+
+cefcUnrecognizedFRU TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cefcFRUMIBNotificationPrefix
+    VARIABLES {
+        entPhysicalClass, entPhysicalVendorType, entPhysicalName, 
+        entPhysicalModelName, cefcPhysicalStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The cefcUnrecognizedFRU notification indicates that a FRU was
+        inserted whose product ID is not supported. The varbind for
+        this notification indicates the entPhysicalIndex of the 
+        inserted FRU, the entPhysicalClass this FRU belongs to, the
+        entPhysicalVendorType of this FRU, the entPhysicalName
+        of the FRU, the entPhysicalModelName of the inserted FRU, and
+        the cefcPhysicalStatus telling the reason code for sending this
+        notification."
+    ::= 5
+
+cefcFanTrayStatusChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cefcFRUMIBNotificationPrefix
+    VARIABLES {
+        cefcFanTrayOperStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the value of
+        cefcFanTrayOperStatus changes."
+    ::= 6
+
+cefcPowerSupplyOutputChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cefcFRUMIBNotificationPrefix
+    VARIABLES {
+        entPhysicalName, entPhysicalModelName, 
+        cefcPSOutputModeCurrent }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The notification indicates that the power
+        supply's output capacity has changed.
+        
+        This notification is triggered whenever one instance 
+        of the power supply's cefcPSOutputModeInOperation 
+        has transitioned from 'false' to 'true'."
+    ::= 7
+
+cefcMIBPowerModeGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used
+--    to configure and monitor power-control for
+--    FRUs.
+--  objects
+--    cefcPowerRedundancyMode, cefcPowerUnits, 
+--    cefcTotalAvailableCurrent, cefcTotalDrawnCurrent
+
+cefcMIBPowerFRUControlGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used
+--    to configure and monitor power-control for
+--    FRUs.
+--  objects
+--    cefcFRUPowerAdminStatus, cefcFRUPowerOperStatus, 
+--    cefcFRUCurrent
+
+cefcMIBModuleGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to get the
+--    operational state and redundancy state of the modules
+--  objects
+--    cefcModuleAdminStatus, cefcModuleOperStatus, 
+--    cefcModuleResetReason, cefcModuleStatusLastChangeTime
+
+cefcMIBInLinePowerControlGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    The collection of objects which are used to
+--    configure and monitor inline power control for
+--    FRUs.
+--  objects
+--    cefcMaxDefaultInLinePower
+
+cefcMIBNotificationEnablesGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to
+--    enable notification.
+--  objects
+--    cefcMIBEnableStatusNotification
+
+cefcModuleGroupRev1 OBJECT IDENTIFIER ::= { cefcMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to get the
+--    operational state and redundancy state of the modules
+--  objects
+--    cefcModuleLastClearConfigTime, 
+--    cefcModuleResetReasonDescription
+
+cefcMIBPowerFRUValueGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to retrieve
+--    the total and used capacity of a power supply for both
+--    system and inline power.
+--  objects
+--    cefcFRUTotalSystemCurrent, cefcFRUDrawnSystemCurrent, 
+--    cefcFRUTotalInlineCurrent, cefcFRUDrawnInlineCurrent
+
+cefcMIBFanTrayStatusGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which show information of the
+--    status of Fan Tray FRUs.
+--  objects
+--    cefcFanTrayOperStatus
+
+cefcMIBPhysicalGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which show information of the
+--    Physical Entity.
+--  objects
+--    cefcPhysicalStatus
+
+cefcMIBPowerOperModeGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used
+--    to monitor the device's power supply operational
+--    redundancy mode.
+--  objects
+--    cefcPowerRedundancyOperMode
+
+cefcMIBInLinePowerControlGroupRev1 OBJECT IDENTIFIER ::= { cefcMIBGroups 13 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to
+--    configure and monitor inline power control for
+--    FRUs.
+--  objects
+--    cefcMaxDefaultHighInLinePower
+
+cefcModuleExtGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to get the
+--    state change reason and up time of the modules.
+--  objects
+--    cefcModuleStateChangeReasonDescr, cefcModuleUpTime
+
+cefcIntelliModuleGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 15 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to get the
+--    information specific to intelligent modules.
+--  objects
+--    cefcIntelliModuleIPAddrType, cefcIntelliModuleIPAddr
+
+cefcPowerCapacityGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 16 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to get the
+--    power capacity information
+--  objects
+--    cefcPowerSupplyInputType, cefcPSOutputModeCurrent, 
+--    cefcPSOutputModeInOperation
+
+cefcCoolingGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 17 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    The collection of objects which are used to get the
+--    cooling capacity information.
+--  objects
+--    cefcChassisPerSlotCoolingCap, cefcFanCoolingCapacity, 
+--    cefcModuleCooling
+
+cefcConnectorRatingGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 18 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to get the
+--    power connector rating and module power total 
+--    consumption information.
+--  objects
+--    cefcConnectorRating, cefcModulePowerConsumption
+
+cefcMIBNotificationEnablesGroup2 OBJECT IDENTIFIER ::= { cefcMIBGroups 19 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to
+--    enable additional group of notifications.
+--  objects
+--    cefcEnablePSOutputChangeNotif
+
+cefcMIBInLinePowerCurrentGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 21 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to
+--    monitor inline power usage for FRUs.
+--  objects
+--    cefcTotalDrawnInlineCurrent
+
+cefcMIBPowerRedundancyInfoGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 22 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects provide additional
+--    information about the device's power supply 
+--    redundancy.
+--  objects
+--    cefcPowerNonRedundantReason
+
+cefcFanCoolingCapGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 23 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects provide the cooling
+--    capacity modes and properties of the fans.
+--  objects
+--    cefcFanCoolingCapModeDescr, cefcFanCoolingCapCapacity, 
+--    cefcFanCoolingCapCurrent
+
+cefcMIBModuleLocalSwitchingGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 24 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which show information of the
+--    local switching status of modules.
+--  objects
+--    cefcModuleLocalSwitchingMode
+
+cefcFRUPowerRealTimeStatusGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 25 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects provide the power-related
+--    realtime information of the manageable entities.
+--  objects
+--    cefcFRURealTimeCurrent
+
+cefcFRUPowerCapabilityGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 26 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects provide the power-related
+--    capability information of the manageable entities.
+--  objects
+--    cefcFRUPowerCapability
+
+cefcFRUCoolingUnitGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 27 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects provide the cooling unit
+--    information of the manageable entities.
+--  objects
+--    cefcChassisPerSlotCoolingUnit, cefcModuleCoolingUnit
+
+cefcFRUFanCoolingUnitGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 28 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects provide the cooling unit
+--    information of the manageable fan entities.
+--  objects
+--    cefcFanCoolingCapacityUnit, cefcFanCoolingCapCapacityUnit
+
+cefcCoolingGroup2 OBJECT IDENTIFIER ::= { cefcMIBGroups 29 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to get the
+--    cooling capacity or requirement information.
+--  objects
+--    cefcChassisPerSlotCoolingCap, cefcModuleCooling
+
+cefcFanCoolingGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 30 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects provide the cooling
+--    capacity modes and properties of the fans.
+--  objects
+--    cefcFanCoolingCapacity
+
+cefcMgmtNotificationsGroup OBJECT IDENTIFIER ::= { cefcMIBGroups 6 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The notifications which a FRU Management entity is
+--    required to implement.
+--  notifications
+--    cefcModuleStatusChange, cefcPowerStatusChange, 
+--    cefcFRUInserted, cefcFRURemoved
+
+cefcMgmtNotificationsGroup2 OBJECT IDENTIFIER ::= { cefcMIBGroups 11 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The additional notifications for FRU status.
+--  notifications
+--    cefcUnrecognizedFRU, cefcFanTrayStatusChange
+
+cefcMgmtNotificationsGroup3 OBJECT IDENTIFIER ::= { cefcMIBGroups 20 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The additional notification for notify the
+--    power capacity mode change.
+--  notifications
+--    cefcPowerSupplyOutputChange
+
+cefcMIBPowerCompliance OBJECT IDENTIFIER ::= { cefcMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    obsolete
+--  Descr
+--    An Entity-MIB implementation can implement this group to
+--    provide FRU power status and control.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cefcMIBPowerModeGroup
+--   OptGroup
+--    cefcMIBPowerFRUControlGroup
+
+cefcMIBPowerCompliance2 OBJECT IDENTIFIER ::= { cefcMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    An Entity-MIB implementation can implement this group to
+--    provide FRU power status and control.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cefcMIBPowerModeGroup
+--   MandGroup
+--    cefcMgmtNotificationsGroup
+--   OptGroup
+--    cefcMIBPowerFRUControlGroup
+--   OptGroup
+--    cefcMIBModuleGroup
+--   OptGroup
+--    cefcMIBInLinePowerControlGroup
+--   OptGroup
+--    cefcMIBNotificationEnablesGroup
+
+cefcMIBPowerCompliance3 OBJECT IDENTIFIER ::= { cefcMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    An Entity-MIB implementation can implement this group to
+--    provide FRU power status and control.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cefcMIBPowerModeGroup
+--   MandGroup
+--    cefcMgmtNotificationsGroup
+--   OptGroup
+--    cefcMIBPowerFRUControlGroup
+--   OptGroup
+--    cefcMIBModuleGroup
+--   OptGroup
+--    cefcMIBInLinePowerControlGroup
+--   OptGroup
+--    cefcMIBNotificationEnablesGroup
+--   OptGroup
+--    cefcModuleGroupRev1
+
+cefcMIBPowerCompliance4 OBJECT IDENTIFIER ::= { cefcMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    An Entity-MIB implementation can implement this group to
+--    provide FRU power status and control.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cefcMIBPowerModeGroup
+--   MandGroup
+--    cefcMgmtNotificationsGroup
+--   OptGroup
+--    cefcMIBPowerFRUControlGroup
+--   OptGroup
+--    cefcMIBModuleGroup
+--   OptGroup
+--    cefcMIBInLinePowerControlGroup
+--   OptGroup
+--    cefcMIBNotificationEnablesGroup
+--   OptGroup
+--    cefcModuleGroupRev1
+--   OptGroup
+--    cefcMIBPowerFRUValueGroup
+--   ObjVar
+--    cefcFRUTotalSystemCurrent
+--   ObjVar
+--    cefcFRUDrawnSystemCurrent
+--   ObjVar
+--    cefcFRUTotalInlineCurrent
+--   ObjVar
+--    cefcFRUDrawnInlineCurrent
+
+cefcMIBPowerCompliance5 OBJECT IDENTIFIER ::= { cefcMIBCompliances 5 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    An Entity-MIB implementation can implement this group to
+--    provide FRU power status and control.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cefcMIBPowerModeGroup
+--   MandGroup
+--    cefcMgmtNotificationsGroup
+--   MandGroup
+--    cefcMgmtNotificationsGroup2
+--   OptGroup
+--    cefcMIBPowerFRUControlGroup
+--   OptGroup
+--    cefcMIBModuleGroup
+--   OptGroup
+--    cefcMIBInLinePowerControlGroup
+--   OptGroup
+--    cefcMIBNotificationEnablesGroup
+--   OptGroup
+--    cefcModuleGroupRev1
+--   OptGroup
+--    cefcMIBPowerFRUValueGroup
+--   OptGroup
+--    cefcMIBFanTrayStatusGroup
+--   OptGroup
+--    cefcMIBPhysicalGroup
+--   ObjVar
+--    cefcFRUTotalSystemCurrent
+--   ObjVar
+--    cefcFRUDrawnSystemCurrent
+--   ObjVar
+--    cefcFRUTotalInlineCurrent
+--   ObjVar
+--    cefcFRUDrawnInlineCurrent
+
+cefcMIBPowerCompliance6 OBJECT IDENTIFIER ::= { cefcMIBCompliances 6 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    An Entity-MIB implementation can implement this group to
+--    provide FRU power status and control.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cefcMIBPowerModeGroup
+--   MandGroup
+--    cefcMgmtNotificationsGroup
+--   OptGroup
+--    cefcMIBPowerFRUControlGroup
+--   OptGroup
+--    cefcMIBModuleGroup
+--   OptGroup
+--    cefcMIBInLinePowerControlGroupRev1
+--   OptGroup
+--    cefcMIBNotificationEnablesGroup
+--   OptGroup
+--    cefcModuleGroupRev1
+--   OptGroup
+--    cefcMIBPowerFRUValueGroup
+--   OptGroup
+--    cefcMIBFanTrayStatusGroup
+--   OptGroup
+--    cefcMIBPhysicalGroup
+--   OptGroup
+--    cefcMgmtNotificationsGroup2
+--   OptGroup
+--    cefcMIBPowerOperModeGroup
+--   OptGroup
+--    cefcModuleExtGroup
+--   OptGroup
+--    cefcIntelliModuleGroup
+--   ObjVar
+--    cefcFRUTotalSystemCurrent
+--   ObjVar
+--    cefcFRUDrawnSystemCurrent
+--   ObjVar
+--    cefcFRUTotalInlineCurrent
+--   ObjVar
+--    cefcFRUDrawnInlineCurrent
+--   ObjVar
+--    cefcIntelliModuleIPAddrType
+
+cefcMIBPowerCompliance7 OBJECT IDENTIFIER ::= { cefcMIBCompliances 7 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    An Entity-MIB implementation can implement this group to
+--    provide FRU power status and control.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cefcMIBPowerModeGroup
+--   MandGroup
+--    cefcMgmtNotificationsGroup
+--   OptGroup
+--    cefcMIBPowerFRUControlGroup
+--   OptGroup
+--    cefcMIBModuleGroup
+--   OptGroup
+--    cefcMIBInLinePowerControlGroupRev1
+--   OptGroup
+--    cefcMIBNotificationEnablesGroup
+--   OptGroup
+--    cefcModuleGroupRev1
+--   OptGroup
+--    cefcMIBPowerFRUValueGroup
+--   OptGroup
+--    cefcMIBFanTrayStatusGroup
+--   OptGroup
+--    cefcMIBPhysicalGroup
+--   OptGroup
+--    cefcMgmtNotificationsGroup2
+--   OptGroup
+--    cefcMIBPowerOperModeGroup
+--   OptGroup
+--    cefcModuleExtGroup
+--   OptGroup
+--    cefcIntelliModuleGroup
+--   OptGroup
+--    cefcPowerCapacityGroup
+--   OptGroup
+--    cefcCoolingGroup
+--   OptGroup
+--    cefcConnectorRatingGroup
+--   OptGroup
+--    cefcMIBNotificationEnablesGroup2
+--   OptGroup
+--    cefcMgmtNotificationsGroup3
+--   ObjVar
+--    cefcFRUTotalSystemCurrent
+--   ObjVar
+--    cefcFRUDrawnSystemCurrent
+--   ObjVar
+--    cefcFRUTotalInlineCurrent
+--   ObjVar
+--    cefcFRUDrawnInlineCurrent
+--   ObjVar
+--    cefcIntelliModuleIPAddrType
+
+cefcMIBPowerCompliance8 OBJECT IDENTIFIER ::= { cefcMIBCompliances 8 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    An Entity-MIB implementation can implement this group to
+--    provide FRU power status and control.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cefcMIBPowerModeGroup
+--   MandGroup
+--    cefcMgmtNotificationsGroup
+--   OptGroup
+--    cefcMIBPowerFRUControlGroup
+--   OptGroup
+--    cefcMIBModuleGroup
+--   OptGroup
+--    cefcMIBInLinePowerControlGroupRev1
+--   OptGroup
+--    cefcMIBNotificationEnablesGroup
+--   OptGroup
+--    cefcModuleGroupRev1
+--   OptGroup
+--    cefcMIBPowerFRUValueGroup
+--   OptGroup
+--    cefcMIBFanTrayStatusGroup
+--   OptGroup
+--    cefcMIBPhysicalGroup
+--   OptGroup
+--    cefcMgmtNotificationsGroup2
+--   OptGroup
+--    cefcMIBPowerOperModeGroup
+--   OptGroup
+--    cefcModuleExtGroup
+--   OptGroup
+--    cefcIntelliModuleGroup
+--   OptGroup
+--    cefcPowerCapacityGroup
+--   OptGroup
+--    cefcCoolingGroup
+--   OptGroup
+--    cefcConnectorRatingGroup
+--   OptGroup
+--    cefcMIBNotificationEnablesGroup2
+--   OptGroup
+--    cefcMgmtNotificationsGroup3
+--   OptGroup
+--    cefcMIBInLinePowerCurrentGroup
+--   OptGroup
+--    cefcMIBPowerRedundancyInfoGroup
+--   OptGroup
+--    cefcFanCoolingCapGroup
+--   ObjVar
+--    cefcFRUTotalSystemCurrent
+--   ObjVar
+--    cefcFRUDrawnSystemCurrent
+--   ObjVar
+--    cefcFRUTotalInlineCurrent
+--   ObjVar
+--    cefcFRUDrawnInlineCurrent
+--   ObjVar
+--    cefcIntelliModuleIPAddrType
+
+cefcMIBPowerCompliance9 OBJECT IDENTIFIER ::= { cefcMIBCompliances 9 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    An Entity-MIB implementation can implement this group to
+--    provide FRU power status and control.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cefcMIBPowerModeGroup
+--   MandGroup
+--    cefcMgmtNotificationsGroup
+--   OptGroup
+--    cefcMIBPowerFRUControlGroup
+--   OptGroup
+--    cefcMIBModuleGroup
+--   OptGroup
+--    cefcMIBInLinePowerControlGroupRev1
+--   OptGroup
+--    cefcMIBNotificationEnablesGroup
+--   OptGroup
+--    cefcModuleGroupRev1
+--   OptGroup
+--    cefcMIBPowerFRUValueGroup
+--   OptGroup
+--    cefcMIBFanTrayStatusGroup
+--   OptGroup
+--    cefcMIBPhysicalGroup
+--   OptGroup
+--    cefcMgmtNotificationsGroup2
+--   OptGroup
+--    cefcMIBPowerOperModeGroup
+--   OptGroup
+--    cefcModuleExtGroup
+--   OptGroup
+--    cefcIntelliModuleGroup
+--   OptGroup
+--    cefcPowerCapacityGroup
+--   OptGroup
+--    cefcConnectorRatingGroup
+--   OptGroup
+--    cefcMIBNotificationEnablesGroup2
+--   OptGroup
+--    cefcMgmtNotificationsGroup3
+--   OptGroup
+--    cefcMIBInLinePowerCurrentGroup
+--   OptGroup
+--    cefcMIBPowerRedundancyInfoGroup
+--   OptGroup
+--    cefcFanCoolingCapGroup
+--   OptGroup
+--    cefcMIBModuleLocalSwitchingGroup
+--   OptGroup
+--    cefcFRUPowerRealTimeStatusGroup
+--   OptGroup
+--    cefcFRUPowerCapabilityGroup
+--   OptGroup
+--    cefcFRUCoolingUnitGroup
+--   OptGroup
+--    cefcFRUFanCoolingUnitGroup
+--   OptGroup
+--    cefcCoolingGroup2
+--   OptGroup
+--    cefcFanCoolingGroup
+--   ObjVar
+--    cefcFRUTotalSystemCurrent
+--   ObjVar
+--    cefcFRUDrawnSystemCurrent
+--   ObjVar
+--    cefcFRUTotalInlineCurrent
+--   ObjVar
+--    cefcFRUDrawnInlineCurrent
+--   ObjVar
+--    cefcModuleLocalSwitchingMode
+--   ObjVar
+--    cefcIntelliModuleIPAddrType
+
+
+END
+

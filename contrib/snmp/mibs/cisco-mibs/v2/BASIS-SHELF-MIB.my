@@ -1,0 +1,1114 @@
+-- *****************************************************************
+-- BASIS SHELF MIB
+--
+-- August 2001
+--
+-- Copyright (c) 1996-2001 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+-- 
+-- LAST-UPDATED "200109210000Z"
+-- DESCRIPTION "This MIB contains information on the shelf and
+--              redundancy configuration.
+--              The shelf information constitutes the card types
+--              for the front modules and the module state.
+--
+--              The redundancy information constitutes the
+--              configuring the redundancy between the service modules
+--              and service resource modules."
+--
+-- REVISION "200109210000Z"
+-- DESCRIPTION
+--    "Added following enumerations in <shelfFunctionModuleState>,
+--     <redPrimaryState> and <redSecondaryState>
+--     notResponding(14)
+--     cardinit(17)
+--    "
+--
+-- REVISION "200108230000Z"
+-- DESCRIPTION
+--    "- 
+--
+
+BASIS-SHELF-MIB DEFINITIONS ::= BEGIN
+ 
+IMPORTS
+    IpAddress                           FROM RFC1155-SMI
+    OBJECT-TYPE                         FROM RFC-1212
+    DisplayString                       FROM RFC1213-MIB
+    basisShelf,axisRedundancy           FROM BASIS-MIB;
+ 
+ 
+ 
+-- shelfTable              OBJECT IDENTIFIER ::= {basisShelf 1}
+-- shelfNumOfValidEntries  OBJECT IDENTIFIER ::= {basisShelf 2}
+-- shelfNodeName           OBJECT IDENTIFIER ::= {basisShelf 3}
+-- shelfDate               OBJECT IDENTIFIER ::= {basisShelf 4}
+-- shelfTime               OBJECT IDENTIFIER ::= {basisShelf 5}
+-- shelfTmZn               OBJECT IDENTIFIER ::= {basisShelf 6}
+-- shelfTmZnGMTOff         OBJECT IDENTIFIER ::= {basisShelf 7}
+-- shelfBkPlnType          OBJECT IDENTIFIER ::= {basisShelf 8}
+-- shelfBkplnSerialNum     OBJECT IDENTIFIER ::= {basisShelf 9}
+-- statsMasterIpAddress    OBJECT IDENTIFIER ::= {basisShelf 10}
+-- statsCollectionInterval OBJECT IDENTIFIER ::= {basisShelf 11}
+-- statsBucketInterval     OBJECT IDENTIFIER ::= {basisShelf 12}
+-- userName		   OBJECT IDENTIFIER ::= {basisShelf 13}
+-- shelfIntegratedAlarm	   OBJECT IDENTIFIER ::= {basisShelf 14}
+-- shelfAlarmCardBitMap	   OBJECT IDENTIFIER ::= {basisShelf 15}
+-- axisFeederTkNo	   OBJECT IDENTIFIER ::= {basisShelf 16}
+-- axisSvcBillingColInterval  OBJECT IDENTIFIER ::= {basisShelf 17}
+-- axisSvcBillingBucketInterval	   OBJECT IDENTIFIER ::= {basisShelf 18}
+-- apsIpAddress	   	   OBJECT IDENTIFIER ::= {basisShelf 19}
+-- redundantApsIpAddress   OBJECT IDENTIFIER ::= {basisShelf 20}
+-- axisSvcBilling	   OBJECT IDENTIFIER ::= {basisShelf 21}
+-- shelfCBClkRateTable	   OBJECT IDENTIFIER ::= {basisShelf 22}
+-- shelfPowerSupplyVoltage OBJECT IDENTIFIER ::= {basisShelf 23}
+--
+--
+-- shelf table                                      
+--
+--
+-- ----------------------------------------------------------------
+shelfTable   OBJECT-TYPE
+    SYNTAX  SEQUENCE OF ShelfEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "The table has the Physical slot number and state of the cards
+        "
+    ::= { basisShelf 1 }
+
+shelfEntry   OBJECT-TYPE
+    SYNTAX  ShelfEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "An entry for the slot
+        "
+    INDEX   { shelfNum, shelfSlotNum }
+    ::= { shelfTable 1}
+ 
+ShelfEntry ::=
+    SEQUENCE {
+        shelfNum
+            INTEGER,
+        shelfSlotNum 
+            INTEGER,
+	shelfBkplnSerialNumDeprecated
+	    INTEGER,
+        shelfFunctionModuleState  
+            INTEGER,
+        shelfFunctionModuleType
+            INTEGER,
+        shelfFunctionModuleHoldReset
+            INTEGER
+    }
+
+
+shelfNum OBJECT-TYPE
+    SYNTAX  INTEGER (1..4)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A unique value for each shelf. Its value
+         ranges between 1 and the maxvalue of shelfNumber.
+        "
+    ::= { shelfEntry 1 }
+
+
+shelfSlotNum OBJECT-TYPE
+    SYNTAX  INTEGER (1..33)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Slot number of a card.
+         BASIS can have maximum 16 slots in one shelf.
+	 17 is used to reset the whole shelf.
+         Some MGX Series can have maximum 32 slots in one shelf.
+         33 is used to reset the whole shelf.
+	 For MGX8220:
+	 INTEGER (1..17)
+         For other selected MGX series:
+	 INTEGER (1..33)
+        "
+    ::= { shelfEntry 2 }
+
+shelfBkplnSerialNumDeprecated OBJECT-TYPE
+   SYNTAX  INTEGER (1..4)
+   ACCESS  read-only
+   STATUS  mandatory
+   DESCRIPTION
+	"This entry has been deprecated. It is available as the 9th
+	 entry in basisShelf. It is included here to prevent a hole
+	 in the shelfEntry table.
+	"
+   ::= { shelfEntry 3 }
+
+shelfFunctionModuleState OBJECT-TYPE
+    SYNTAX  INTEGER{ 
+        nocard (1),
+        standby (2),
+        active (3),
+        failed (4),
+        selfTest (5),
+        heldInReset (6),
+        boot (7),
+        mismatch (8),
+        unknown (9),
+        coreCardMismatch (10),
+        blocked (11),
+        reserved (12),
+-- hold state applies to PXM during Graceful Upgrade.
+        hold (13),
+        notResponding (14),
+        cardinit (17)
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object holds the status of a card in a particular shelf-slot.
+         The hold state is applicable only to MGX8800 Platform.
+         The Slave PXM assumes the hold state during PXM Upgrades. In this 
+         state the Slave PXM will be running a different fw but will be
+         receiving all Standby updates(BRAM and Database). 
+         The description for the two new states is as follows:
+         'notResponding' - Response from the Service module has become slow
+         probably due to overloading of CPU.
+         No recovery action is required on user part.
+         At present, this state is implemented only for RPM card.
+         'cardinit' - When the physical presence of card has been detected 
+         but the communication hasn't yet been established between the
+         controller card (PXM) and Service Module.
+        "
+    ::= { shelfEntry 4 }
+
+shelfFunctionModuleType OBJECT-TYPE
+    SYNTAX  INTEGER {
+        other     (1),
+        asc       (2),
+        bnm-T3    (10),
+	bnm-E3	  (11),
+	bnm-155   (12),
+        srm-4T1E1 (20),
+        srm-3T3   (21),
+-- SRME cards
+        srme-1OC3 (22),
+        srme-1STS3(23),
+        srme-NOBC(24),
+        srm-3T3-NOBC(25),
+
+        frsm-4T1  (30),
+        frsm-4E1  (31),
+	frsm-4T1-C(32),
+	frsm-4E1-C(33),
+-- HSSI: 
+	frsm-hs1  (34),
+-- HSSI
+	frsm-8T1  (35),
+  	frsm-8E1  (36),
+	frsm-hs1b (37),
+        ausm-4T1  (40),
+        ausm-4E1  (41),
+	ausm-8T1  (50),
+	ausm-8E1  (51),
+-- AUSM Model B : 
+	ausmB-8T1  (52),
+	ausmB-8E1  (53),
+        cesm-4T1  (60),
+        cesm-4E1  (61),
+	imatm-T3T1 (70),
+	imatm-E3E1 (71),
+	imatmB-T1 (72),
+	imatmB-E1 (73),
+
+	frasm-8T1 (80),
+
+	cesm-8T1  (90),
+        cesm-8E1  (91),
+
+-- SM from Netro
+	bscsm-2	   (100),
+    	bscsm-4	   (101),
+
+-- testers
+	atmt-8T1   (110),
+	atmt-8E1   (111),
+	frt-8T1    (120),
+	frt-8E1    (121),
+	
+-- frsm_vhs cards
+    frsm-2ct3 (130),
+	frsm-2t3  (131),
+	frsm-2e3  (132),
+	frsm-hs2  (133),
+	frsm-2t3b (134),
+	frsm-2e3b (135),
+	frsm-hs2b-hssi (136),
+	frsm-hs2b-12In1 (137),
+
+	cesm-T3    (140),
+        cesm-E3    (141),
+
+-- VISM
+        vism-8T1   (150),
+        vism-8E1   (151),
+
+	pxm1	   (1000),
+	pxm1-2t3e3  (1001),
+	pxm1-4oc3   (1002),
+	pxm1-oc12  (1003),
+
+	rpm	   (2000),
+	rpm-pr     (2001)
+
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object holds the type of a card in 
+         a particular shelf-slot.
+        "
+    DEFVAL { other }
+    ::= { shelfEntry 5 }
+
+shelfFunctionModuleHoldReset OBJECT-TYPE
+    SYNTAX  INTEGER {
+        doNotHold  (1),
+        holdInReset(2) 
+    }
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "This object holds the card in 
+         a particular shelf-slot, in reset,
+         If the object is set to holdInReset.
+	 If the object is set to doNotHold, then
+	 it only reset the card in the specified
+	 slot, if slot number is 17 then it'll
+	 reset the whole shelf.
+        "
+    ::= { shelfEntry 6 }
+-- --------------------------------------------------------------
+
+shelfNumOfValidEntries   OBJECT-TYPE
+    SYNTAX INTEGER (0..64)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of rows in shelfTable.
+         In some MGX series, it is equal to the number of slots
+         in the shelf.
+        "
+    ::= { basisShelf 2 }
+ 
+shelfNodeName   OBJECT-TYPE
+    SYNTAX  DisplayString (SIZE (1..10))
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "Has the node name of BASIS for MGX8220 only.
+	 For others NodeName supplied by PAR will be returned,
+         A set on this MIB is not allowed.
+         The NodeName of the shelf can be set using
+         the PAR MIB.
+        "
+    ::= { basisShelf 3 }
+
+shelfDate  OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (10))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object sets/gets the DATE. The syntax is mm/dd/yyyy
+        "
+    DEFVAL { "01/01/1994" }
+    ::= { basisShelf 4 }
+ 
+shelfTime  OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (8))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object sets/gets the TIME. The syntax is hh:mm:ss
+        "
+    DEFVAL { "12:00:00" }
+    ::= { basisShelf 5 }
+ 
+shelfTmZn  OBJECT-TYPE
+    SYNTAX INTEGER{
+        gmt (1),
+        est (2),
+        cst (3),
+        mst (4),
+        pst (5),
+	edt (6),
+	cdt (7),
+	mdt (8),
+	pdt (9)
+	
+    }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Object defines standard time.  GMT for greenwich mean time,
+         est for Eastern std time (USA EST).
+         cst for Central std time (USA CST).
+         mst for Mountain std time (USA MST).
+         pst for Pacific std time (USA PST).
+         edt for Eastern daylight time (USA EDT).
+         cdt for Central daylight time (USA CDT).
+         mdt for Mountain daylight time (USA MDT).
+         pdt for Pacific daylight time (USA PDT).
+         To define a std time that are not defined in here use the
+         GMT and set the offset from the GMT in the shelfTmZnGMTOff object.
+        "
+    DEFVAL { pst }
+    ::= { basisShelf 6 }
+ 
+shelfTmZnGMTOff  OBJECT-TYPE
+    SYNTAX INTEGER (-12..12)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the offset from greenwich mean time in
+         hours, if configuring for std time in shelfTmZn object, set this
+         object to 0.  If configuring for non standard times use this
+         object as an offset from the GMT.
+        "
+    DEFVAL { 0 }
+    ::= { basisShelf 7 }
+
+
+shelfBkPlnType  OBJECT-TYPE
+    SYNTAX INTEGER (1..10)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the back plane type.
+         The possible values are :
+         1 - For 336Mbps backplane
+         2 - For 1.2Gbps backplane
+         3 - For 45Gbps backplane
+        "
+    ::= { basisShelf 8 }
+
+shelfBkplnSerialNum OBJECT-TYPE
+    SYNTAX  DisplayString (SIZE (0..11))
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A unique value for each shelf, entered in nvram
+         by manf. The serial No. is on the non-volatile RAM on the
+         backplane.
+        "
+    ::= { basisShelf 9 }
+
+statsMasterIpAddress OBJECT-TYPE
+    SYNTAX  IpAddress
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "IP address of the Stats Master.
+        "
+    ::= { basisShelf 10 }
+
+statsCollectionInterval OBJECT-TYPE
+    SYNTAX INTEGER (0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Statistics collection interval (in minutes).
+        "
+    DEFVAL { 0 }
+    ::= { basisShelf 11 }
+
+
+statsBucketInterval OBJECT-TYPE
+    SYNTAX INTEGER (0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Statistics bucket interval (in minutes).
+        "
+    DEFVAL { 0 }
+    ::= { basisShelf 12 }
+
+userName OBJECT-TYPE
+    SYNTAX  DisplayString (SIZE (1..20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "username of the person logging in  or logging out. used only in traps
+         currently only limit to 12 chars
+        "
+    ::= { basisShelf 13 }
+
+ 
+shelfIntegratedAlarm OBJECT-TYPE
+   SYNTAX  INTEGER {
+        clear (1),
+        minor (2),
+        major (3),
+	critical (4)
+        }
+   ACCESS  read-only
+   STATUS  mandatory
+   DESCRIPTION
+        "Alarm status of the shelf.An implementation may not support 
+	 all the values.
+         
+	 possible values are :
+	
+          clear (1)	: shelf is not in alarm
+	  minor (2)     : Indicates that a non-service affecting condition
+                          has occurred and that corrective action should
+			  be taken in order to prevent a more serious fault.
+	  major (3)	: Indicates that a service affecting condition
+	                  has occurred and urgent corrective action is 
+			  required.
+	  critical (4)	: Indicates that a service affecting condition has
+			  occurred and immediate corrective action is required.
+	 The definition for minor(2),major(3),critical(4) are taken from
+	 Bell Core document : GR-1248-CORE.
+        "
+   DEFVAL { clear }
+   ::= { basisShelf 14 }
+ 
+ 
+shelfAlarmCardBitMap OBJECT-TYPE
+   SYNTAX  INTEGER
+   ACCESS  read-only
+   STATUS  mandatory
+   DESCRIPTION
+        "
+         default value is 0, none of the cards is in alarm
+	 bit position represents the card physical slot 
+	 number which is in alarm
+        "
+   DEFVAL { 0 }
+   ::= { basisShelf 15 }
+
+
+apsIpAddress	 OBJECT-TYPE
+	SYNTAX IpAddress
+	ACCESS read-write
+	STATUS mandatory
+	DESCRIPTION
+		"the IP address of the APS"
+	::= {basisShelf 19}
+
+redundantApsIpAddress OBJECT-TYPE
+	SYNTAX IpAddress
+	ACCESS read-write
+	STATUS mandatory
+	DESCRIPTION
+		"the IP address of the redundant APS"
+	::= {basisShelf 20}
+
+axisFeederTkNo OBJECT-TYPE
+	SYNTAX INTEGER (0..65535)
+	ACCESS read-write
+	STATUS mandatory
+	DESCRIPTION
+		"ASC creates its cell/frame file based on the feeder trunk number."
+	::= { basisShelf 16}
+
+axisSvcBillingColInterval OBJECT-TYPE
+	SYNTAX INTEGER {
+		a0minutes (1),
+		a15minutes (2),
+		a30minutes (3)
+	}
+	ACCESS read-write
+	STATUS mandatory		
+        DESCRIPTION
+		"SVC billing collection interval (in 0, 15, 30 minute steps).
+		"
+	DEFVAL { a30minutes }
+	::= { basisShelf 17 }
+
+axisSvcBillingBucketInterval OBJECT-TYPE
+	SYNTAX INTEGER {
+		a0minutes (1),
+		a5minutes (2),
+		a15minutes (3),
+		a30minutes (4)
+	}
+	ACCESS read-write
+	STATUS mandatory
+	DESCRIPTION
+		"SVC billing bucket interval (in 0, 5, 15, 30 minute steps).
+		"
+	DEFVAL { a15minutes }
+	::= { basisShelf 18 }
+
+axisSvcBilling OBJECT-TYPE
+	SYNTAX INTEGER {
+		enable (1),
+		disable (2)
+	}		
+	ACCESS read-write
+	STATUS mandatory
+	DESCRIPTION
+		"SVC billing feature.
+		"
+	DEFVAL {disable}
+	::= { basisShelf 21}
+
+shelfCBClkRateTable   OBJECT-TYPE
+    SYNTAX  SEQUENCE OF ShelfCBClkRateEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "The table has the Clock Rates of each Cell Bus
+        "
+    ::= { basisShelf 22 }
+
+shelfCBClkRateEntry   OBJECT-TYPE
+    SYNTAX  ShelfCBClkRateEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "An entry for the Cell Bus
+        "
+    INDEX   { cBNum }
+    ::= { shelfCBClkRateTable 1}
+ 
+ShelfCBClkRateEntry ::=
+    SEQUENCE {
+        cBNum
+            INTEGER,
+        clkRate 
+            INTEGER
+    }
+
+cBNum OBJECT-TYPE
+    SYNTAX  INTEGER (1..8)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The number (1-8) designation for the Cell Bus.
+        "
+    ::= { shelfCBClkRateEntry 1 }
+
+
+clkRate OBJECT-TYPE
+    SYNTAX  INTEGER { 
+        twentyOne-Mhz (1),
+        fortyTwo-Mhz (2)
+    }
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "The Cell Bus Clock Rate designation.
+        "
+    ::= { shelfCBClkRateEntry 2 }
+
+
+shelfPowerSupplyVoltage OBJECT-TYPE
+	SYNTAX INTEGER {
+		two-twenty (1),
+		one-ten (2)
+
+		}
+	ACCESS read-only
+	STATUS mandatory
+	DESCRIPTION
+		"Power Supply voltage rating for some selected
+                 MGX Series.
+		two-twenty (1): 220Volts AC.
+		one-ten (2): 110Volts AC. 
+		"
+
+	::= { basisShelf 23}
+
+-- ----------------------------------------------------------------
+--
+-- Group "axisRedundancy"
+-- This group contains information of the redundancy mapping
+--
+-- Terminology:
+--
+-- Core-Card set in MGX8220 includes : ASC,BNM and SRM
+--	ASC - Axis Shelf Controller
+--	BNM - Broadband Network Module
+--	SRM - Service Redundancy/Resource Module
+--
+-- Core-Card set in MGX8850 includes : PXM,SRM
+--	PXM - Processor Switch Module
+--	SRM - Service Redundancy/Resource module
+--
+-- Core-Card set in some systems include : PXM only
+--
+-- The slot numbers where the Core-Card set can be plugged in may
+-- be different in different products.
+--
+-- A "redundant pair" is a set of cards/modules that may operate
+-- in a redundant manner. At any time one or more cards/modules
+-- of the pair are 'active', while other is 'standby', such
+-- that if an active member fails,one of the standby member becomes
+-- active instead.
+--
+
+
+smRedMapTable   OBJECT-TYPE
+    SYNTAX  SEQUENCE OF SmRedMapEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "The table has the redundancy map for a service module.
+         This table is for configuring redundancy for service modules.
+         This table might contain entries for Core-Card set,in some 
+         implementations.
+        "
+    ::= { axisRedundancy 1 }
+
+smRedMapEntry   OBJECT-TYPE
+    SYNTAX  SmRedMapEntry
+    ACCESS  not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "An entry for module(Service Module,Core-Card set) redundancy.
+         Some implementations might have entries for the core-card set. 
+         The entries for core-card set may not be added , modified or deleted.
+         An entry has to be created in this table to configure Service Modules
+         in redundant configuration.
+	
+         For a 1:1 (Y cable ) redundancy configuration,an entry exists for
+         each redundant pair with redPrimarySlotNum as the index.
+
+  	 For 1:N Redundancy configuration,an entry exists with different
+         primary slot numbers(redPrimarySlot value) with the same 
+         secondary slot numbers(redSecondarySlot value).
+        "
+    INDEX   { redPrimarySlotNum }
+    ::= { smRedMapTable 1}
+ 
+SmRedMapEntry ::=
+    SEQUENCE {
+        redPrimarySlotNum
+            INTEGER,
+        redRowStatus 
+            INTEGER,
+        redPrimaryType  
+            INTEGER,
+        redPrimaryState
+            INTEGER,
+        redSecondarySlotNum
+            INTEGER,
+        redSecondaryType
+            INTEGER,
+        redSecondaryState
+            INTEGER,
+	redType
+	    INTEGER,
+	redCoveringSlot
+	    INTEGER,
+	redFeature
+	    INTEGER,
+	redLineModuleType
+	    INTEGER
+    }
+
+
+redPrimarySlotNum OBJECT-TYPE
+    SYNTAX  INTEGER (1..32)
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+	" The index to the table. This is the slot number of the 
+          primary module in the redundant configuration.
+
+          For MGX8850 Release 1.x,skip PXM slot 7,8,23,24, SRM slot 15,16,31,32.
+
+          For MGX8220(Formerly known as AXIS), values 5-14 are supported.
+
+	  For systems, where the entries are created by the agent
+          for the Core-Card set, the implied slot numbers are used
+          for this object. The implied slot number values are depend
+          on the system.
+        "
+    ::= { smRedMapEntry 1 }
+
+
+redRowStatus OBJECT-TYPE
+    SYNTAX  INTEGER {
+            add(1),
+            del(2),
+            mod(3)
+            }
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+      "This will add, delete or modify the redundancy
+       Note that mod is NOT used but it is there for consistency.
+
+       This object is for creating and deleting an entry in
+       smRedMapTable.
+       This object is set to add(1) to create an entry in the table.
+       The values of redPrimarySlot and redSecondarySlot objects 
+       constitute the redundant Pairs. The slot numbers specified for
+       redPrimarySlot and redSecondarySlot should be in the same half
+       of the shelf for half-height service modules.
+
+       This object is set to del(2) to delete an entry from the table.
+      "
+    DEFVAL { del }
+    ::= { smRedMapEntry 2 }
+
+redPrimaryType OBJECT-TYPE
+    SYNTAX  INTEGER {
+        other     (1),
+        bsc       (2),
+        aum-T3    (10),
+        tim       (20),
+        frsm-4T1   (30),
+        frsm-4E1   (31),
+	frsm-hs1   (34),
+	frsm-8T1   (35),
+	frsm-8E1   (36),
+	frsm-hs1b  (37),
+        ausm-4T1   (40),
+        ausm-4E1   (41),
+        ausm-8T1  (50),
+        ausm-8E1   (51),
+-- AUSM Model B
+        ausmB-8T1  (52),
+        ausmB-8E1  (53),
+        cesm-4T1   (60),
+        cesm-4E1   (61),
+        imatm-T3T1 (70),
+        imatm-E3E1 (71),
+        imatmB-T1 (72),
+        imatmB-E1 (73),
+
+	frasm-8T1 (80),
+
+	cesm-8T1  (90),
+        cesm-8E1  (91),
+
+-- SM from Netro
+	bscsm-2	   (100),
+    	bscsm-4	   (101),
+
+-- frsm_vhs cards
+    frsm-2ct3 (130),
+	frsm-2t3  (131),
+	frsm-2e3  (132),
+	frsm-hs2  (133),
+	frsm-2t3b (134),
+	frsm-2e3b (135),
+	frsm-hs2b-hssi (136),
+	frsm-hs2b-12In1 (137),
+
+-- cesm-t3e3 cards
+	cesm-T3    (140),
+        cesm-E3    (141),
+
+-- testers
+	atmt-8T1   (110),
+	atmt-8E1   (111),
+	frt-8T1    (120),
+	frt-8E1    (121),
+
+-- VISM
+        vism-8T1   (150),
+        vism-8E1   (151),
+
+-- reserved for MGX8850 after 1000
+        pxm1       (1000),
+        pxm1-2t3e3  (1001),
+        pxm1-4oc3   (1002),
+        pxm1-oc12  (1003),
+ 
+        rpm        (2000),
+	rpm-pr     (2001)
+
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object holds the type of the primary card
+	 Some of the card types are not supported in the table but
+	 they are defined here for consistency with the shelf card types.
+        "
+    ::= { smRedMapEntry 3 }
+ 
+redPrimaryState OBJECT-TYPE
+    SYNTAX  INTEGER{ 
+        nocard (1),
+        standby (2),
+        active (3),
+        failed (4),
+        selfTest (5),
+        heldInReset (6),
+        boot (7),
+        mismatch (8),
+        unknown (9),
+        unusedCoreCardMisMatch (10),
+	blocked (11),
+        reserved (12),
+-- Hold state applies to PXM during Graceful Upgrade.
+        unusedHold (13),
+        notResponding (14),
+        cardinit (17)
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object holds the state of the primary card
+	 Some of the states are not supported in the table but
+	 they are defined here for consistency with the cardStates.
+	 heldInReset, boot and unknown are not supported.
+
+	 Supported values are :
+
+          nocard  (1) : Module not present in the slot
+          standby (2) : Module is in 'standby' state
+          active  (3) : Module is in 'active' state
+          failed  (4) : Module is in 'failed' state due to some condition
+          selfTest(5) : Module is performing selftest
+          mismatch(8) : Module is not compatible with the current configuration 
+          or a wrong type of back-card/line-module is plugged in.
+          notResponding(14) : Response from the Service module has become slow
+          probably due to overloading of CPU.
+          No recovery action is required on user part.
+          At present, this state is implemented only for RPM card.
+          cardinit(17) : When the physical presence of card has been detected 
+          but the communication hasn't yet been established between the
+          controller card (PXM) and Service Module.
+        "
+    ::= { smRedMapEntry 4 }
+
+redSecondarySlotNum OBJECT-TYPE
+    SYNTAX  INTEGER (0..32)
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        " This is the slot number of the redundant card for the
+	  primary card. SecondarySlotNum will be 0 when no secondary
+          card covering the primary card. SecondarySlotNum in case
+          of MGX8850 shloud be from the same half of the shelf. Like
+          if primary card is in the top then secondary card also
+          should be in the top and will be covered by top SRM.
+        "
+    ::= { smRedMapEntry 5 }
+ 
+ 
+redSecondaryType OBJECT-TYPE
+    SYNTAX  INTEGER {
+        other     (1),
+        bsc       (2),
+        aum-T3    (10),
+        tim       (20),
+        frsm-4T1   (30),
+        frsm-4E1   (31),
+	frsm-hs1   (34),
+	frsm-8T1   (35),
+	frsm-8E1   (36),
+	frsm-hs1b  (37),
+        ausm-4T1   (40),
+        ausm-4E1   (41),
+        ausm-8T1  (50),
+        ausm-8E1   (51),
+        ausmB-8T1  (52),
+        ausmB-8E1  (53),
+        cesm-4T1   (60),
+        cesm-4E1   (61),
+        imatm-T3T1 (70),
+        imatm-E3E1 (71),
+        imatmB-T1 (72),
+        imatmB-E1 (73),
+
+	frasm-8T1 (80),
+
+	cesm-8T1  (90),
+        cesm-8E1  (91),
+
+-- SM from Netro
+	bscsm-2	   (100),
+	bscsm-4	   (101),
+
+-- frsm_vhs cards
+    frsm-2ct3 (130),
+	frsm-2t3  (131),
+	frsm-2e3  (132),
+	frsm-hs2  (133),
+	frsm-2t3b (134),
+	frsm-2e3b (135),
+	frsm-hs2b-hssi (136),
+	frsm-hs2b-12In1 (137),
+
+-- cesm-t3e3 cards
+	cesm-T3    (140),
+        cesm-E3    (141),
+
+-- testers
+	atmt-8T1   (110),
+	atmt-8E1   (111),
+	frt-8T1    (120),
+	frt-8E1    (121),
+
+-- VISM
+        vism-8T1   (150),
+        vism-8E1   (151),
+
+-- reserved for MGX8850 after 1000
+        pxm1       (1000),
+        pxm1-2t3e3  (1001),
+        pxm1-4oc3   (1002),
+        pxm1-oc12  (1003),
+ 
+        rpm        (2000),
+	rpm-pr     (2001)	
+
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object holds the type of the redundant card
+	 Note that redSecondaryType is the same as redPrimaryType
+	 unless it is changed for a new service module.
+	 Some of the card types are not supported in the table but
+	 they are defined here for consistency with the shelf card types.
+        "
+    ::= { smRedMapEntry 6 }
+ 
+redSecondaryState OBJECT-TYPE
+    SYNTAX  INTEGER{
+        nocard (1),
+        standby (2),
+        active (3),
+        failed (4),
+        selfTest (5),
+        heldInReset (6),
+        boot (7),
+        mismatch (8),
+        unknown (9),
+        unusedCoreCardMisMatch (10),
+	blocked (11),
+        reserved (12),
+-- Hold state applies to PXM during Graceful Upgrade.
+        unusedHold (13),
+        notResponding (14),
+        cardinit (17)
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object holds the state of the secondary card
+
+	 Supported values are :
+
+          nocard  (1) : Module not present in the slot
+          standby (2) : Module is in 'standby' state
+          active  (3) : Module is in 'active' state
+          failed  (4) : Module is in 'failed' state due to some condition
+          selfTest(5) : Module is performing selftest
+          mismatch(8) : Module is not compatible with the current configuration
+          or a wrong type of back-card/line-module is plugged in.
+          notResponding(14) : Response from the Service module has become slow
+          probably due to overloading of CPU.
+          No recovery action is required on user part.
+          At present, this state is implemented only for RPM card.
+          cardinit(17) : When the physical presence of card has been detected 
+          but the communication hasn't yet been established between the
+          controller card (PXM) and Service Module.
+        "
+    ::= { smRedMapEntry 7 }
+
+redType OBJECT-TYPE
+    SYNTAX  INTEGER {
+	yCable (1),
+	oneToN (2)
+    }
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+	"This object describes the type of redundancy.
+         The supported values are :
+         yCable (1) : 1:1 (y cable) redundancy configuration. In this 
+                      configuration,there is only one module which acts 
+ 		      as the backup for the other.
+         oneToN (2) : 1:N redundancy configuration. In this configuration,
+		      there is one module(secondary)which acts as the
+                      backup for other primary modules. There are multiple
+		      primary modules and one secondary module in this
+		      configuration. At any point of time, the secondary 
+		      module is backup for only one failed primary 	
+		      module. If more than one primary module fails,
+		      then the failed primary modules are not covered
+		      by the secondary module.
+	"
+    ::= { smRedMapEntry 8 }
+
+redCoveringSlot OBJECT-TYPE
+    SYNTAX  INTEGER (0..32)
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        " This is the slot number of the primary card for which
+          the secondary card is covering 
+	  Note that redCoveringSlot is set to 0 when the primary
+	  is not being protected. If this primary card is being
+	  protected by its redundant card then this object would 
+	  be the primary slot number. 
+        "
+    ::= { smRedMapEntry 9 }
+
+redFeature OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+	"This is the feature of the primary card.
+	"
+    ::= { smRedMapEntry 10 }
+
+redLineModuleType OBJECT-TYPE
+    SYNTAX  INTEGER
+	{
+        lm-DB15-4T1  (16),
+        lm-DB15-4E1  (17),
+        lm-BNC-4E1   (18),
+        lm-DB15-4T1-R(19),
+        lm-DB15-4E1-R(20),
+        lm-BNC-4E1-R (21),
+        lm-RJ48-8T1  (22),
+        lm-RJ48-8E1  (23),
+        lm-SMB-8E1   (24),
+        lm-RJ48-T3T1 (25),
+        lm-RJ48-E3E1 (26),
+        lm-RJ48-T3E1 (27),
+        lm-SMB-E3E1  (28),
+	lm-RJ48-E3T1 (29),
+	lm-SMB-T3E1  (30),
+        lm-T3E3-D    (32),
+        lm-T3E3-B    (33),
+        lm-RJ48-8T1-R(48),
+        lm-RJ48-8E1-R(49),
+        lm-SMB-8E1-R (50),
+-- HSSI/X.21 Added by Suheel
+	lm-HS1-4X21  (60),
+	lm-HS1-3HSSI (61),
+-- HSSI/X.21
+	lm-HS1-4V35 (62),
+
+	lm-12In1-8s (63)
+	}
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+    	"This is the line module type for the primary card. 
+	 This object is NOT configurable and it only has the type
+	 of the current line module that is present in this slot.
+	 Note that the types that end with a -R are of redundant
+	 back card type which do not have a connector on the
+	 its faceplate and they are used for the redundant card
+	 but they can be plugged into the primary by mistake and 
+	 this object would show its type.
+	"
+    ::= { smRedMapEntry 11 }
+END
+

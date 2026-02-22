@@ -1,0 +1,1826 @@
+-- ********************************************************************
+-- CISCO-CABLE-WIDEBAND-MIB.my:
+-- Cisco Cable Wideband MIB file for support of Wideband DOCSIS
+-- on the Cable Modem Termination System (CMTS).
+--   
+-- Jun 2006, Sunethra Jawahar
+--   
+-- Copyright (c) 2006, 2008, 2010-2011 by Cisco Systems Inc.
+-- All rights reserved.
+-- ********************************************************************
+
+CISCO-CABLE-WIDEBAND-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Gauge32,
+    Counter64,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP,
+    MODULE-COMPLIANCE
+        FROM SNMPv2-CONF
+    MacAddress,
+    StorageType,
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    InetAddress,
+    InetAddressType,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    InterfaceIndex,
+    InterfaceIndexOrZero,
+    ifIndex
+        FROM IF-MIB
+    PhysicalIndexOrZero,
+    entPhysicalIndex,
+    entPhysicalName
+        FROM ENTITY-MIB
+    docsIfCmtsCmStatusIndex
+        FROM DOCS-IF-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCableWidebandMIB MODULE-IDENTITY
+    LAST-UPDATED    "201101050000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: Cisco Systems
+            170 West Tasman Drive
+            San Jose, CA 95134
+            U.S.A.
+            Phone:  +1 800 553-NETS
+            E-mail: cs-ubr@cisco.com"
+    DESCRIPTION
+        "This is the MIB module for the support of Channel Bonding
+        Protocol for the Cable Modem Termination System (CMTS).
+
+        Wideband DOCSIS is a method of increasing downstream
+        bandwidth by simultaneously transmitting DOCSIS data
+        over multiple RF channels. This DOCSIS data is
+        organized as a sequence of 188-byte MPEG-TS data packets.
+
+        A Wideband CMTS (WCMTS) is a CMTS that also transmits
+        Wideband MPEG-TS packets.
+
+        An Edge QAM (Quadrature Amplitude Modulation) device is one
+        which provides the QAM and used to couple the Wideband MPEG-TS
+        packet onto the HFC plant.
+
+        A Wideband Cable Modem (WCM) is a CableModem (CM) that
+        is able to receive Wideband MPEG-TS packets.
+
+        A wideband channel or Bonded Group (BG) is a logical
+        grouping of one or more physical RF channels over which
+        MPEG-TS packets are carried. Wideband channel carries DOCSIS
+        bonded packets encapsulated in MPEG-TS packets from a
+        WCMTS to one or more WCMs.
+
+        Packets outgoing from WCMTS to the WCM are formatted with
+        the DOCSIS Header. The DOCSIS packets are then formatted into
+        MPEG-TS data packets. These are 188 byte MPEG packets
+        containing the DOCSIS information.
+        Within DOCSIS Header of the WB Channel there is an extended
+        header called, DOCSIS Bonding Extended Header, the format of
+        which is shown below:
+
+         --------------------------------------------------------
+        |  ----------------------------------------------------  |
+        | |  TYPE | LEN |       BSID           |      SEQ        |
+        |  ----------------------------------------------------  |
+        | |    byte 0   |     byte 1-2         |    byte 3-4     |
+        |--------------------------------------------------------|
+                      DOCSIS Bonding Extended Header
+
+        BSID is the Bonding Service IDentifier, it defines a sequence
+        number for a Wideband channel. It is used by the WCM to
+        re-sequence packets received over downstream channels to
+        maintain packet order. SEQ is per service flow sequence number.
+        Whereas TYPE is the type of the Bonding Extended Header and LEN
+        specifies its length.
+
+        A Narrowband Channel is a standard DOCSIS downstream channel
+        which contains exactly one RF channel.
+        The wideband protocol utilizes the existing narrowband
+        downstream channel for carrying the MAC management and
+        signaling messages and the associated narrowband upstream
+        for return data traffic and signaling.
+
+        The channel bonding protocol supports multiple wideband
+        bonded groups. This will allow the WCM to listen to multiple
+        bonded groups at the same time. This would support (for example)
+        multicast video being sent to a CPE device on the LAN side of
+        the WCM in addition to standard DOCSIS data.
+
+        Channel Bonding allows two types of Bonding Group (BG) interfaces.
+        These are Secondary BG interface and non-Secondary BG
+        interface. The Secondary BG interfaces will carry the multicast
+        traffic, whereas, the non-Secondary BG interface will carry the
+        non-multicast traffic.
+        This MIB also allows for configuration of the RF channels
+        on the WCMTS, as well as the association between the RF and
+        narrowband downstream channels with the BG channel.
+
+        Fiber Node is an optical node which terminates the fiber based
+        downstream signal as an electrical signal onto a coaxial RF cable.
+
+        DEPI:  Downstream external physical interface. 
+        TSID:  MPEG2 Transport Stream ID.
+        SFP:   Small Form-Factor Pluggable."
+    REVISION        "201101050000Z"
+    DESCRIPTION
+        "Added ccwbWidebandObjGroupSup2 and ccwbWidebandNotifGroup."
+    REVISION        "201007150000Z"
+    DESCRIPTION
+        "Added ccwbWidebandObjGroupRev1.
+        Deprecated ccwbWidebandObjGroup."
+    REVISION        "200812030000Z"
+    DESCRIPTION
+        "Added ccwbRFChannelUtilization and ccwbRFChanUtilInterval."
+    REVISION        "200606060000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 479 }
+
+
+ciscoCableWidebandMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCableWidebandMIB 0 }
+
+ciscoCableWidebandMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCableWidebandMIB 1 }
+
+ciscoCableWidebandMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoCableWidebandMIB 2 }
+
+
+ccwbRFChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcwbRFChannelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains attributes of the physical
+        RF channels. MPEG-TS packets are sent across RF
+        channels within a wideband channel.
+
+        These physical RF channels might be present on a
+        different system but the WCMTS entity requires
+        the knowledge of that system for its operation."
+    ::= { ciscoCableWidebandMIBObjects 1 }
+
+ccwbRFChannelEntry OBJECT-TYPE
+    SYNTAX          CcwbRFChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry provides a list of attributes for a single
+        downstream RF channel per WCMTS entity.
+
+        An entry in this table exists for each configured
+        RF channel on the WCMTS entity that provides the
+        wideband DOCSIS functionality. The index, entPhysicalIndex,
+        used here is the physical index of the wideband controller
+        card. Since RF channels are considered part of the Wideband
+        controller card, hence entPhysicalIndex is used for
+        associating RF channels."
+    INDEX           {
+                        entPhysicalIndex,
+                        ccwbRFChannelNum
+                    } 
+    ::= { ccwbRFChannelTable 1 }
+
+CcwbRFChannelEntry ::= SEQUENCE {
+        ccwbRFChannelNum           Unsigned32,
+        ccwbRFChannelFrequency     Unsigned32,
+        ccwbRFChannelWidth         Unsigned32,
+        ccwbRFChannelModulation    INTEGER,
+        ccwbRFChannelAnnex         INTEGER,
+        ccwbRFChannelMpegPkts      Counter64,
+        ccwbRFChannelStorageType   StorageType,
+        ccwbRFChannelRowStatus     RowStatus,
+        ccwbRFChannelUtilization   Unsigned32,
+        ccwbRFChannelFrequencyRev1 Unsigned32
+}
+
+ccwbRFChannelNum OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The WCMTS identification of the RF channel.
+        The range of this object is limited to 0-18 in the
+        case of annex A/256qam, and 0-23 for Annex B and C." 
+    ::= { ccwbRFChannelEntry 1 }
+
+ccwbRFChannelFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..1000000000)
+    UNITS           "hertz"
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "The center of the downstream frequency associated with
+        this RF channel. The final downstream RF frequency
+        may be provided by an edge QAM device or the CMTS itself.
+        See the associated compliance object for a description of
+        valid frequencies that may be written to this object.
+
+        If the downstream frequency associated with this
+        RF channel is greater than the maximum value reportable
+        by this object then this object should report its
+        maximum value (1,000,000,000) and ccwbRFChannelFrequencyRev1
+        must be used to report the downstream frequency.
+
+        This object is deprecated and replaced by
+        ccwbRFChannelFrequencyRev1."
+    REFERENCE
+        "DOCSIS-RFI-SPEC: SP-RFIv1.1-I05-000714, Tables 4-1, 6-14." 
+    ::= { ccwbRFChannelEntry 2 }
+
+ccwbRFChannelWidth OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..16000000)
+    UNITS           "hertz"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The bandwidth of this downstream RF channel. Most
+        implementations are expected to support a channel width
+        of 6 MHz (North America) and/or 8 MHz (Europe).
+        See the associated compliance object for a description of
+        the valid channel widths for this object."
+    REFERENCE
+        "DOCSIS-RFI-SPEC: SP-RFIv1.1-I05-000714, Table 6-14." 
+    ::= { ccwbRFChannelEntry 3 }
+
+ccwbRFChannelModulation OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        qam64(1),
+                        qam256(2),
+                        qam1024(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The modulation type associated with this downstream RF
+        channel. See the associated conformance object for write
+        conditions an limitations. See the DOCSIS specification
+        for specifics on the modulation profiles implied by qam64
+        qam256 and qam1024.
+        qam64, qam256 and qam1024 are various modulation schemes
+        often used in digital cable and cable modem applications.
+        The numbers 64/256/1024 in qam represent constellation
+        points, which is the measurement of qam transmission
+        capability, the higher the number, higher the bits that
+        can be transmitted."
+    REFERENCE
+        "DOCSIS-RFI-SPEC: SP-RFIv1.1-I05-000714, Table 6-14." 
+    ::= { ccwbRFChannelEntry 4 }
+
+ccwbRFChannelAnnex OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        annexA(1),
+                        annexB(2),
+                        annexC(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value of this object indicates the conformance of
+        the implementation to important regional cable standards.
+        annexA : Annex A from ITU-J83 is used.
+        annexB : Annex B from ITU-J83 is used.
+        annexC : Annex C from ITU-J83 is used."
+    REFERENCE
+        "DOCSIS-RFI-SPEC: SP-RFIv1.1-I05-000714, Section 2.2." 
+    ::= { ccwbRFChannelEntry 5 }
+
+ccwbRFChannelMpegPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of MPEG packets transmitted on this RF
+        channel." 
+    ::= { ccwbRFChannelEntry 6 }
+
+ccwbRFChannelStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL          { volatile } 
+    ::= { ccwbRFChannelEntry 7 }
+
+ccwbRFChannelRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Controls and reflects the status of rows in this table.
+        It can be used for creating and deleting
+        entries in this table.
+
+        The ccwbRFChannelAnnex and ccwbRFChannelModulation must
+        be valid for a row to be created." 
+    ::= { ccwbRFChannelEntry 8 }
+
+ccwbRFChannelUtilization OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The calculated and truncated utilization for
+        this RF channel over the previous complete measuring
+        interval. The configured duration of the measurement
+        intervals is defined in the ccwbRFChanUtilInterval object.
+
+        The utilization index is a percentage expressing the
+        ratio between bytes used to transmit data versus the
+        total number of bytes transmitted in the raw bandwidth
+        of the RF channel." 
+    ::= { ccwbRFChannelEntry 9 }
+
+ccwbRFChannelFrequencyRev1 OBJECT-TYPE
+    SYNTAX          Unsigned32 (55000000..1050000000)
+    UNITS           "hertz"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The center of the downstream frequency associated with
+        this RF channel. The final downstream RF frequency
+        may be provided by an edge QAM device or the CMTS itself.
+        See the associated compliance object for a description of
+        valid frequencies that may be written to this object."
+    REFERENCE
+        "DOCSIS-RFI-SPEC: SP-RFIv1.1-I05-000714, Tables 4-1, 6-14." 
+    ::= { ccwbRFChannelEntry 10 }
+ 
+
+
+ccwbRFChannelQamTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcwbRFChannelQamEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains information of the external edge QAM
+        which provide the physical RF channels which are available
+        to the wideband channels."
+    ::= { ciscoCableWidebandMIBObjects 2 }
+
+ccwbRFChannelQamEntry OBJECT-TYPE
+    SYNTAX          CcwbRFChannelQamEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry provides a list of attributes for a single
+        RF channel which can be physically present on an external
+        edge QAM device.
+
+        An entry in this table exists for each configured
+        RF channel on the WCMTS module that provides the
+        wideband DOCSIS functionality."
+    AUGMENTS           { ccwbRFChannelEntry  } 
+    ::= { ccwbRFChannelQamTable 1 }
+
+CcwbRFChannelQamEntry ::= SEQUENCE {
+        ccwbRFChanQamIPAddressType InetAddressType,
+        ccwbRFChanQamIPAddress     InetAddress,
+        ccwbRFChanQamMacAddress    MacAddress,
+        ccwbRFChanQamUdpPort       InetPortNumber,
+        ccwbRFChanQamTos           Unsigned32,
+        ccwbRFChanQamVlanId        Unsigned32,
+        ccwbRFChanQamPriorityBits  Unsigned32,
+        ccwbRFChanQamDepiRemoteId  Unsigned32,
+        ccwbRFChanQamDepiTunnel    SnmpAdminString,
+        ccwbRFChanQamTsid          Unsigned32
+}
+
+ccwbRFChanQamIPAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The type of internet address. This object identifies
+        the internet address type specified by
+        ccwbRFChanQamIPAddress object."
+    DEFVAL          { ipv4 } 
+    ::= { ccwbRFChannelQamEntry 1 }
+
+ccwbRFChanQamIPAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The IP address of the edge QAM device or the CMTS cable
+        interface which provides the physical RF channel.
+        The IP address will be of the type represented by
+        object ccwbRFChanQamIPAddressType." 
+    ::= { ccwbRFChannelQamEntry 2 }
+
+ccwbRFChanQamMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The MAC address of the edge QAM device or next hop router
+        which might be present between the WCMTS and the edge QAM." 
+    ::= { ccwbRFChannelQamEntry 3 }
+
+ccwbRFChanQamUdpPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The port number on the edge QAM associated with
+        this RF channel." 
+    ::= { ccwbRFChannelQamEntry 4 }
+
+ccwbRFChanQamTos OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value of the TOS field in the IP header for all
+        Ethernet frames destined for the given RF channel."
+    DEFVAL          { 0 } 
+    ::= { ccwbRFChannelQamEntry 5 }
+
+ccwbRFChanQamVlanId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4095)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The VLAN ID to be inserted in the Ethernet frames when
+        using 802.1q frames instead of normal 802.1 frames for the
+        given RF channel. The value of 0 indicates that 802.1 frames
+        are being used and is not supported in setting this object." 
+    ::= { ccwbRFChannelQamEntry 6 }
+
+ccwbRFChanQamPriorityBits OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..7)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The priority bits used when inserting Ethernet 802.1q VLAN
+        tags into the Ethernet frames destined for a given RF
+        channel.
+        Priority Bits (0=Best effort, 1=background, 2=spare,
+        3=excellent effort, 4=controlled load, 5=video,
+        6=voice, 7=network control)." 
+    ::= { ccwbRFChannelQamEntry 7 }
+
+ccwbRFChanQamDepiRemoteId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The DEPI remote ID on edge QAM associated with this RF channel." 
+    ::= { ccwbRFChannelQamEntry 8 }
+
+ccwbRFChanQamDepiTunnel OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the DEPI tunnel which determines
+        the DEPI data session configuration associated with this RF channel." 
+    ::= { ccwbRFChannelQamEntry 9 }
+
+ccwbRFChanQamTsid OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the MPEG2 transport stream ID which is
+        associated with this RF channel." 
+    ::= { ccwbRFChannelQamEntry 10 }
+ 
+
+
+ccwbWBtoRFMappingTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcwbWBtoRFMappingEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A wideband channel is a logical grouping of one or more
+        physical RF channels over which Wideband MPEG-TS packets
+        are carried.
+
+        This table contains association information of the wideband
+        channels to the RF channels that are available for the WCMTS."
+    ::= { ciscoCableWidebandMIBObjects 3 }
+
+ccwbWBtoRFMappingEntry OBJECT-TYPE
+    SYNTAX          CcwbWBtoRFMappingEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry provides a list of attributes for a single
+        association between a wideband channel and a RF channel.
+
+        An entry in this table exists for each association
+        between a wideband channel and RF channel on the WCMTS.
+        It is indexed by the ifIndex of the wideband channel
+        and entPhysicalIndex and ccwbRFChannelNum which
+        represents the RF channel.
+
+        This object may be modified or deleted once they are
+        already created."
+    INDEX           {
+                        ifIndex,
+                        entPhysicalIndex,
+                        ccwbRFChannelNum
+                    } 
+    ::= { ccwbWBtoRFMappingTable 1 }
+
+CcwbWBtoRFMappingEntry ::= SEQUENCE {
+        ccwbWBtoRFBandwidth   Gauge32,
+        ccwbWBtoRFStorageType StorageType,
+        ccwbWBtoRFRowStatus   RowStatus
+}
+
+ccwbWBtoRFBandwidth OBJECT-TYPE
+    SYNTAX          Gauge32 (1..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The percentage of the RF channel bandwidth allocated
+        for this wideband channel."
+    DEFVAL          { 100 } 
+    ::= { ccwbWBtoRFMappingEntry 1 }
+
+ccwbWBtoRFStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL          { volatile } 
+    ::= { ccwbWBtoRFMappingEntry 2 }
+
+ccwbWBtoRFRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Controls and reflects the status of rows in this table.
+        It can be used for creating and deleting
+        entries in this table.
+
+        The ccwbWBtoRFBandwidth must be valid for a row to be
+        created. When ccwbWBtoRFRowStatus is 'active', the object
+        ccwbWBtoRFBandwidth can be modified." 
+    ::= { ccwbWBtoRFMappingEntry 3 }
+ 
+
+
+ccwbWBtoNBMappingTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcwbWBtoNBMappingEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains information of the mapping
+        of the wideband channels to the Narrowband channels
+        that are available on the WCMTS.
+
+        The wideband protocol utilizes the existing narrowband
+        downstream channel for carrying the MAC management and
+        signaling messages and the associated narrowband upstream
+        for return data traffic and signaling."
+    ::= { ciscoCableWidebandMIBObjects 4 }
+
+ccwbWBtoNBMappingEntry OBJECT-TYPE
+    SYNTAX          CcwbWBtoNBMappingEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry provides a list of attributes for a
+        association between a wideband channel and a narrowband
+        channel.
+
+        An entry in this table exists for each association
+        between a wideband channel and narrowband channel on the
+        WCMTS. The valid ifType for the ifIndex used here is,
+        ciscoDocsCableWBDownstream(224)."
+    INDEX           {
+                        ifIndex,
+                        ccwbWBtoNBifIndexForNB
+                    } 
+    ::= { ccwbWBtoNBMappingTable 1 }
+
+CcwbWBtoNBMappingEntry ::= SEQUENCE {
+        ccwbWBtoNBifIndexForNB InterfaceIndex,
+        ccwbWBtoNBStorageType  StorageType,
+        ccwbWBtoNBRowStatus    RowStatus
+}
+
+ccwbWBtoNBifIndexForNB OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The ifIndex of the narrowband cable interface
+        associated with this wideband channel." 
+    ::= { ccwbWBtoNBMappingEntry 1 }
+
+ccwbWBtoNBStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL          { volatile } 
+    ::= { ccwbWBtoNBMappingEntry 2 }
+
+ccwbWBtoNBRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Controls and reflects the status of rows in this table.
+        It can be used for creating and deleting
+        entries in this table. The object ccwbWBtoNBifIndexForNB
+        must be valid in order for row to be created." 
+    ::= { ccwbWBtoNBMappingEntry 3 }
+ 
+
+
+ccwbWBBondGrpTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcwbWBBondGrpEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides information about a
+        Wideband BG interface, whether its configured
+        to carry multicast or non-multicast traffic.
+        For multicast the BG interface type is
+        Secondary and for non-multicast its non-Secondary.
+        Other objects could be added to this later in
+        the future."
+    ::= { ciscoCableWidebandMIBObjects 5 }
+
+ccwbWBBondGrpEntry OBJECT-TYPE
+    SYNTAX          CcwbWBBondGrpEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table provides information
+        about each Wideband BG interface whose ifType is
+        ciscoDocsCableWBDownstream(224)."
+    INDEX           { ifIndex } 
+    ::= { ccwbWBBondGrpTable 1 }
+
+CcwbWBBondGrpEntry ::= SEQUENCE {
+        ccwbWBBondGrpSecondary TruthValue
+}
+
+ccwbWBBondGrpSecondary OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object has the value 'true(1)' if the WB
+        interface(BG) is Seconday and the value
+        'false(2)' for non-Secondary." 
+    ::= { ccwbWBBondGrpEntry 1 }
+ 
+
+
+ccwbWBCmStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcwbWBCmStatusEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains Wideband Cable Modem(WCM) connectivity state.
+        A WCM connectivity state can be associated with multiple
+        Wideband interfaces."
+    ::= { ciscoCableWidebandMIBObjects 6 }
+
+ccwbWBCmStatusEntry OBJECT-TYPE
+    SYNTAX          CcwbWBCmStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Status information for a single Wideband Cable Modem.
+        An entry in this table exists for each Wideband Cable Modem
+        that is connected to the WCMTS."
+    INDEX           { docsIfCmtsCmStatusIndex } 
+    ::= { ccwbWBCmStatusTable 1 }
+
+CcwbWBCmStatusEntry ::= SEQUENCE {
+        ccwbWBCmStatusValue INTEGER
+}
+
+ccwbWBCmStatusValue OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        offline(1),
+                        others(2),
+                        initRangingRcvd(3),
+                        initDhcpReqRcvd(4),
+                        onlineNetAccessDisabled(5),
+                        onlineKekAssigned(6),
+                        onlineTekAssigned(7),
+                        rejectBadMic(8),
+                        rejectBadCos(9),
+                        kekRejected(10),
+                        tekRejected(11),
+                        online(12),
+                        initTftpPacketRcvd(13),
+                        initTodRequestRcvd(14),
+                        reset(15),
+                        rangingInProgress(16),
+                        dhcpGotIpAddr(17),
+                        rejStaleConfig(18),
+                        rejIpSpoof(19),
+                        rejClassFail(20),
+                        rejRegNack(21),
+                        bpiKekExpired(22),
+                        bpiTekExpired(23),
+                        shutdown(24),
+                        channelChgInitRangingRcvd(25),
+                        channelChgRangingInProgress(26),
+                        wbOnline(27),
+                        wbOnlinePrivacy(28),
+                        wbOnlineKekAssigned(29),
+                        wbOnlineTekAssigned(30),
+                        wbOnlineNetAccessDis(31),
+                        wbKekReject(32),
+                        wbTekReject(33),
+                        wbNetAccessDisReject(34),
+                        wbPrivacyEnabReject(35),
+                        wbKekExpire(36),
+                        wbTekExpire(37),
+                        wbNetAccessDisExpire(38),
+                        wbPrivacyEnabExpire(39)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Current WB Cable Modem connectivity state, as specified
+        in the RF Interface Specification. Returned status
+        information is the WCM status as assumed by the WCMTS,
+        and indicates the following events:
+
+        The enumerations are:
+        offline(1)                : modem considered offline.
+        others(2)                 : states is in
+                                    ccwbWBCmStatusValue.
+        initRangingRcvd(3)        : modem sent initial ranging.
+        initDhcpReqRcvd(4)        : dhcp request received.
+        onlineNetAccessDisabled(5): modem registered, but network
+                                    access for the WCM is disabled.
+        onlineKekAssigned(6)      : modem registered, BPI enabled
+                                    and KEK assigned.
+        onlineTekAssigned(7)      : modem registered, BPI enabled
+                                    and TEK assigned.
+        rejectBadMic(8)           : modem did attempt to register
+                                    but registration was refused
+                                    due to bad mic.
+        rejectBadCos(9)           : modem did attempt to register
+                                    but registration was refused
+                                    due to bad COS.
+        kekRejected(10)           : KEK modem key assignment
+                                    rejected.
+        tekRejected(11)           : TEK modem key assignment
+                                    rejected.
+        online(12)                : modem registered, enabled for
+                                    data.
+        initTftpPacketRcvd(13)    : tftp packet received and option
+                                    file transfer started.
+        initTodRquestRcvd(14)     : Time of the Day (TOD) request
+                                    received.
+        reset(15)                 : modem is resetting.
+        rangingInProgress(16)     : initial ranging is in progress.
+        dhcpGotIpAddr(17)         : modem has got an IP address
+        rejStaleConfig(18)        : modem did attempt to register
+                                    but registration was refused
+                                    due to stale Config.
+        rejIpSpoof(19)            : modem did attempt to register
+                                    but registration was refused
+                                    due to IP Spoof.
+        rejClassFail(20)          : modem did attempt to register
+                                    but registration was refused
+                                    due to Class failure.
+        rejRegNack(21)            : modem did attempt to register
+                                    but no acknowledgement was
+                                    received.
+        bpiKekExpired(22)         : KEK modem key assignment
+                                    expired.
+        bpiTekExpired(23)         : TEK modem key assignment
+                                    expired.
+        shutdown(24)              : modem is in shutdown state.
+        channelChgInitRangingRcvd(25)  : modem sent initial ranging
+                                          during channel change.
+        channelChgRangingInProgress(26) : initial ranging is in
+                                          progress during channel
+                                          change.
+        wbOnline(27)               : Wideband modem is online.
+        wbOnlinePrivacy(28)        : Wideband modem is online Privacy
+                                     enabled.
+        wbOnlineKekAssigned(29)    : Wideband modem is online
+                                     and KEK assigned.
+        wbOnlineTekAssigned(30)    : Wideband modem is online
+                                     and TEK assigned.
+        wbOnlineNetAccessDis(31)   : Wideband modem registered but
+                                     Network access disabled.
+        wbKekReject(32)            : KEK wideband modem key assignment
+                                     rejected.
+        wbTekReject(33)            : TEK wideband modem key assignment
+                                     rejected.
+        wbNetAccessDisReject(34)   : wideband modem rejected -
+                                     Net access disabled.
+        wbPrivacyEnabReject(35)    : wideband modem rejected
+                                     Privacy enabled.
+        wbKekExpire(36)            : KEK Wideband modem key assignment
+                                     expired.
+        wbTekExpire(37)            : TEK wideband modem key assignment
+                                     rejected.
+        wbNetAccessDisExpire(38)   : wideband modem expire - Network
+                                     access disabled.
+        wbPrivacyEnabExpire(39)    : wideband modem expire - Privacy
+                                     enabled.
+
+
+        This ccwbWBCmStatusValue could return initRangingRcvd(3)
+        or rangingInProgress(16) when the ccwbWBCmStatusValue
+        is ranging(2).
+
+        This ccwbWBCmStatusValue will return others(2) when the
+        ccwbWBCmStatusValue states is either rangingAborted(3),
+        rangingComplete(4), and ipComplete(5).
+
+        This ccwbWBCmStatusValue could return wbonline(27), or
+        onlineNetAccessDisabled(5) for WCM with BPI disabled, or
+        onlineNetAccessDisabled(5) or onlineTekAssigned(7) for
+        WCM with BPI enabled, when the ccwbWBCmStatusValue
+        is registrationComplete(6).
+
+        This ccwbWBCmStatusValue could return either rejectBadMic(8),
+        rejectBadCos(9) rejStaleConfig(19) or rejRegNack(22) when
+        the ccwbWBCmStatusValue is accessDenied(7) for possible
+        reasons of cable modem registration abort.
+
+        This ccwbWBCmStatusValue could return either onlineKekAssigned(6),
+        kekRejected(10), tekRejected(11), or online(12) for the WCM with
+        BPI enabled when the ccwbWBCmStatusValue is
+        registeredBPIInitializing(9).
+
+        The state rejectBadCos(9) is not applicable for DOCSIS1.1 modems.
+        The WCMTS only needs to report states it is able to detect." 
+    ::= { ccwbWBCmStatusEntry 1 }
+ 
+
+
+ccwbWBCmStatusExtTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcwbWBCmStatusExtEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table exists for each Wideband
+        Cable Modem which links to one or more WB interface."
+    ::= { ciscoCableWidebandMIBObjects 7 }
+
+ccwbWBCmStatusExtEntry OBJECT-TYPE
+    SYNTAX          CcwbWBCmStatusExtEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry exists for each Wideband Cable Modem(WCM)
+        which links to one or more WB interface."
+    INDEX           {
+                        docsIfCmtsCmStatusIndex,
+                        ccwbWBCmStatusExtIndex
+                    } 
+    ::= { ccwbWBCmStatusExtTable 1 }
+
+CcwbWBCmStatusExtEntry ::= SEQUENCE {
+        ccwbWBCmStatusExtIndex Integer32,
+        ccwbWBCmWBIfindex      InterfaceIndex
+}
+
+ccwbWBCmStatusExtIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The value of this object uniquely identifies an
+        association between a WCM and a BG." 
+    ::= { ccwbWBCmStatusExtEntry 1 }
+
+ccwbWBCmWBIfindex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "ifIndex of the wideband channel associated with the WCM." 
+    ::= { ccwbWBCmStatusExtEntry 2 }
+ 
+
+
+ccwbFiberNodeDescrTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcwbFiberNodeDescrEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the description of a Fiber Node
+        on a CMTS. An entry in this table exists for each
+        FiberNode ID."
+    ::= { ciscoCableWidebandMIBObjects 8 }
+
+ccwbFiberNodeDescrEntry OBJECT-TYPE
+    SYNTAX          CcwbFiberNodeDescrEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry provides the description of each fiber node
+        on the CMTS and it is part of the Fiber node configuration."
+    INDEX           { ccwbFiberNodeID } 
+    ::= { ccwbFiberNodeDescrTable 1 }
+
+CcwbFiberNodeDescrEntry ::= SEQUENCE {
+        ccwbFiberNodeDescription      SnmpAdminString,
+        ccwbFiberNodeDescrStorageType StorageType,
+        ccwbFiberNodeDescrRowStatus   RowStatus
+}
+
+ccwbFiberNodeDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object contains the user configured
+        description string of the fiber node." 
+    ::= { ccwbFiberNodeDescrEntry 1 }
+
+ccwbFiberNodeDescrStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL          { volatile } 
+    ::= { ccwbFiberNodeDescrEntry 2 }
+
+ccwbFiberNodeDescrRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Controls and reflects the status of rows in this table.
+        It can be used for creating and deleting
+        entries in this table. ccwbFiberNodeDescription must
+        not be null in order for row to be created." 
+    ::= { ccwbFiberNodeDescrEntry 3 }
+ 
+
+
+ccwbFiberNodeTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcwbFiberNodeEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides configuration information of each Fiber node.
+        It will provide topology information of each Fiber node, which
+        includes information such as, Narrowband and Wideband QAMs."
+    ::= { ciscoCableWidebandMIBObjects 9 }
+
+ccwbFiberNodeEntry OBJECT-TYPE
+    SYNTAX          CcwbFiberNodeEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table exists for each FiberNode ID that is in use.
+        It uses two indices, i.e. ccwbFiberNodeID which is the
+        Fiber node ID, and ccwbFiberNodeGlobRFID, which is the combined
+        bit mask of Narrowband RF channels and Wideband
+        rf-ports(rf-channels)."
+    INDEX           {
+                        ccwbFiberNodeID,
+                        ccwbFiberNodeGlobRFID
+                    } 
+    ::= { ccwbFiberNodeTable 1 }
+
+CcwbFiberNodeEntry ::= SEQUENCE {
+        ccwbFiberNodeID              Unsigned32,
+        ccwbFiberNodeGlobRFID        Unsigned32,
+        ccwbFiberNodeNBIfIndx        InterfaceIndexOrZero,
+        ccwbFiberNodeWBContlrPhyIndx PhysicalIndexOrZero,
+        ccwbFiberNodeWBRFPort        Integer32,
+        ccwbFiberNodeStorageType     StorageType,
+        ccwbFiberNodeRowStatus       RowStatus
+}
+
+ccwbFiberNodeID OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the Fiber node ID.
+        Each Fiber node configuration on the CMTS is
+        assigned a unique Fiber node ID." 
+    ::= { ccwbFiberNodeEntry 1 }
+
+ccwbFiberNodeGlobRFID OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..1024)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is the RF ID of both Narrowband and
+        Wideband QAMs(rf-channels) combined." 
+    ::= { ccwbFiberNodeEntry 2 }
+
+ccwbFiberNodeNBIfIndx OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the Narrowband Ifindex
+        of the  RF downstream channel which is part
+        of the Fiber node configuation."
+    DEFVAL          { 0 } 
+    ::= { ccwbFiberNodeEntry 3 }
+
+ccwbFiberNodeWBContlrPhyIndx OBJECT-TYPE
+    SYNTAX          PhysicalIndexOrZero
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the entity physical index of
+        Wideband controller card. This card contains the RF
+        port which is part of the ccwbFiberNodeGlobRFID
+        bit mask. A value of zero means the index is invalid.
+        ccwbFiberNodeWBRFPort and ccwbFiberNodeWBContlrPhyIndx
+        are mutually inclusive."
+    DEFVAL          { 0 } 
+    ::= { ccwbFiberNodeEntry 4 }
+
+ccwbFiberNodeWBRFPort OBJECT-TYPE
+    SYNTAX          Integer32 (0..1024)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the RF downstream channel IDs
+        (rf-ports) of the wideband controller card.
+        Each Wideband controller can have 24 RF channels.
+        ccwbFiberNodeWBRFPort and ccwbFiberNodeWBContlrPhyIndx
+        are mutually inclusive."
+    DEFVAL          { 0 } 
+    ::= { ccwbFiberNodeEntry 5 }
+
+ccwbFiberNodeStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL          { volatile } 
+    ::= { ccwbFiberNodeEntry 6 }
+
+ccwbFiberNodeRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Controls and reflects the status of rows in this table.
+        It can be used for creating and deleting
+        entries in this table." 
+    ::= { ccwbFiberNodeEntry 7 }
+ 
+
+
+ccwbRFChanUtilInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..86400)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The time interval in seconds over which the RF channels
+        utilization index is calculated. All RF channels use the
+        same interval.
+
+        Setting a value of zero disables utilization reporting.
+
+        This value should be persisted accross CMTS
+        reinitializations."
+    DEFVAL          { 0 } 
+    ::= { ciscoCableWidebandMIBObjects 10 }
+
+ccwbSFPLinkTrapEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether ccwbSFPLinkDownNotification and
+        ccwbSFPLinkUpNotification are generated." 
+    ::= { ciscoCableWidebandMIBObjects 11 }
+ciscoCableWidebandMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCableWidebandMIBConform 1 }
+
+ciscoCableWidebandMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCableWidebandMIBConform 2 }
+
+
+ccwbSFPLinkDownNotification NOTIFICATION-TYPE
+    OBJECTS         { entPhysicalName }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when link of SFP port is
+        lost. entPhysicalName identifies the SFP port."
+   ::= { ciscoCableWidebandMIBNotifs 1 }
+
+ccwbSFPLinkUpNotification NOTIFICATION-TYPE
+    OBJECTS         { entPhysicalName }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated when link of SFP port is
+        up. entPhysicalName identifies the SFP port."
+   ::= { ciscoCableWidebandMIBNotifs 2 }
+
+-- compliance statements
+
+ciscoCableWidebandMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for WCMTS devices that implement
+        the Wideband DOCSIS feature."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ccwbWidebandObjGroup }
+
+    OBJECT          ccwbRFChannelFrequency
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "A range of 54MHz to 860MHz is appropriate for a cable
+        plant using a North American Sub-Split channel plan.
+        The spectrum range has been expanded to accommodate
+        a lower edge of 47MHz and an upper edge of 862MHz
+        for some European channel plans."
+
+    OBJECT          ccwbRFChannelWidth
+    WRITE-SYNTAX    Unsigned32(6000000 | 8000000)
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "It is conformant to implement this object as read-only.
+        The value of 6 MHz is appropriate for cable
+        plants running under NTSC (National Television
+        Standards Committee) standards.  The value of 8 MHz is
+        appropriate for cable plants running under ETSI
+        standards."
+
+    OBJECT          ccwbRFChanQamIPAddressType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Internet address type 'ipv4' need to be supported."
+
+    OBJECT          ccwbRFChannelRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "For this object above enumerations need to be supported."
+
+    OBJECT          ccwbWBtoRFRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "All enumerations listed above need to be supported."
+
+    OBJECT          ccwbRFChannelAnnex
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "The value of this object will be same for all
+        RF channels."
+
+    OBJECT          ccwbRFChannelModulation
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Currently the value of this object must be the same for
+        all RF channels."
+
+    OBJECT          ccwbWBCmStatusValue
+    SYNTAX          INTEGER  {
+                        wbOnline(27),
+                        wbOnlinePrivacy(28),
+                        wbOnlineKekAssigned(29),
+                        wbOnlineTekAssigned(30),
+                        wbOnlineNetAccessDis(31),
+                        wbKekReject(32),
+                        wbTekReject(33),
+                        wbNetAccessDisReject(34),
+                        wbPrivacyEnabReject(35),
+                        wbKekExpire(36),
+                        wbTekExpire(37),
+                        wbNetAccessDisExpire(38),
+                        wbPrivacyEnabExpire(39)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "The above numerations lists the possbile states
+        for WBCM Status."
+
+    OBJECT          ccwbFiberNodeDescription
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Read and write operations are not needed for
+        agents for which the associated value of the
+        description string is null."
+
+    OBJECT          ccwbFiberNodeNBIfIndx
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write operation is not required for agents
+        for which the associated value of if-index
+        is not valid."
+
+    OBJECT          ccwbFiberNodeWBContlrPhyIndx
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write operation is not needed for agents
+        that do not have valid physical entity value."
+
+    OBJECT          ccwbFiberNodeWBRFPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write operation is not needed for agents
+        that do not have valid physical entity value."
+    ::= { ciscoCableWidebandMIBCompliances 1 }
+
+ciscoCableWidebandMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for WCMTS devices that
+        implement the Wideband DOCSIS feature."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ccwbWidebandObjGroup,
+                        ccwbWidebandObjGroupSup1
+                    }
+
+    OBJECT          ccwbRFChannelFrequency
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "A range of 54MHz to 860MHz is appropriate for a cable
+        plant using a North American Sub-Split channel plan.
+        The spectrum range has been expanded to accommodate
+        a lower edge of 47MHz and an upper edge of 862MHz
+        for some European channel plans."
+
+    OBJECT          ccwbRFChannelWidth
+    WRITE-SYNTAX    Unsigned32(6000000 | 8000000)
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "It is conformant to implement this object as read-only.
+        The value of 6 MHz is appropriate for cable
+        plants running under NTSC (National Television
+        Standards Committee) standards.  The value of 8 MHz is
+        appropriate for cable plants running under ETSI
+        standards."
+
+    OBJECT          ccwbRFChanQamIPAddressType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Internet address type 'ipv4' need to be supported."
+
+    OBJECT          ccwbRFChannelRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "For this object above enumerations need to be supported."
+
+    OBJECT          ccwbWBtoRFRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "All enumerations listed above need to be supported."
+
+    OBJECT          ccwbRFChannelAnnex
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "The value of this object will be same for all
+        RF channels."
+
+    OBJECT          ccwbRFChannelModulation
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Currently the value of this object must be the same for
+        all RF channels."
+
+    OBJECT          ccwbWBCmStatusValue
+    SYNTAX          INTEGER  {
+                        wbOnline(27),
+                        wbOnlinePrivacy(28),
+                        wbOnlineKekAssigned(29),
+                        wbOnlineTekAssigned(30),
+                        wbOnlineNetAccessDis(31),
+                        wbKekReject(32),
+                        wbTekReject(33),
+                        wbNetAccessDisReject(34),
+                        wbPrivacyEnabReject(35),
+                        wbKekExpire(36),
+                        wbTekExpire(37),
+                        wbNetAccessDisExpire(38),
+                        wbPrivacyEnabExpire(39)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "The above numerations lists the possbile states
+        for WBCM Status."
+
+    OBJECT          ccwbFiberNodeDescription
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Read and write operations are not needed for
+        agents for which the associated value of the
+        description string is null."
+
+    OBJECT          ccwbFiberNodeNBIfIndx
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write operation is not required for agents
+        for which the associated value of if-index
+        is not valid."
+
+    OBJECT          ccwbFiberNodeWBContlrPhyIndx
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write operation is not needed for agents
+        that do not have valid physical entity value."
+
+    OBJECT          ccwbFiberNodeWBRFPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write operation is not needed for agents
+        that do not have valid physical entity value."
+    ::= { ciscoCableWidebandMIBCompliances 2 }
+
+ciscoCableWidebandMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for WCMTS devices that
+        implement the Wideband DOCSIS feature."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ccwbWidebandObjGroupRev1,
+                        ccwbWidebandObjGroupSup1
+                    }
+
+    OBJECT          ccwbRFChannelFrequencyRev1
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+
+        A range of 54MHz to 860MHz is appropriate for a cable
+        plant using a North American Sub-Split channel plan.
+        The spectrum range has been expanded to accommodate
+        a lower edge of 47MHz and an upper edge of 862MHz
+        for some European channel plans."
+
+    OBJECT          ccwbRFChannelWidth
+    WRITE-SYNTAX    Unsigned32(6000000 | 8000000)
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+        An implementation is only required to
+        support 6000000 and 8000000.
+
+        It is conformant to implement this object as read-only.
+        The value of 6 MHz is appropriate for cable
+        plants running under NTSC (National Television
+        Standards Committee) standards.  The value of 8 MHz is
+        appropriate for cable plants running under ETSI
+        standards."
+
+    OBJECT          ccwbRFChanQamIPAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+        An implementation is only required to support
+        IPv4 addresses."
+
+    OBJECT          ccwbRFChannelRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+        Support for 'createAndWait' and 'notInService'
+        is not required."
+
+    OBJECT          ccwbWBtoRFRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+        Support for 'createAndWait' and 'notInService'
+        is not required."
+
+    OBJECT          ccwbRFChannelAnnex
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+
+        The value of this object will be same for all
+        RF channels."
+
+    OBJECT          ccwbRFChannelModulation
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+
+        Currently the value of this object must be the same for
+        all RF channels."
+
+    OBJECT          ccwbWBCmStatusValue
+    SYNTAX          INTEGER  {
+                        wbOnline(27),
+                        wbOnlinePrivacy(28),
+                        wbOnlineKekAssigned(29),
+                        wbOnlineTekAssigned(30),
+                        wbOnlineNetAccessDis(31),
+                        wbKekReject(32),
+                        wbTekReject(33),
+                        wbNetAccessDisReject(34),
+                        wbPrivacyEnabReject(35),
+                        wbKekExpire(36),
+                        wbTekExpire(37),
+                        wbNetAccessDisExpire(38),
+                        wbPrivacyEnabExpire(39)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+        An implementation is only required to support
+        the above numerated values."
+
+    OBJECT          ccwbFiberNodeDescription
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Read and write operations are not needed for
+        agents for which the associated value of the
+        description string is null."
+
+    OBJECT          ccwbFiberNodeNBIfIndx
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write operation is not required for agents
+        for which the associated value of if-index
+        is not valid."
+
+    OBJECT          ccwbFiberNodeWBContlrPhyIndx
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write operation is not needed for agents
+        that do not have valid physical entity value."
+
+    OBJECT          ccwbFiberNodeWBRFPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write operation is not needed for agents
+        that do not have valid physical entity value."
+    ::= { ciscoCableWidebandMIBCompliances 3 }
+
+ciscoCableWidebandMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for WCMTS devices that
+        implement the Wideband DOCSIS feature."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ccwbWidebandObjGroupRev1,
+                        ccwbWidebandObjGroupSup1,
+                        ccwbWidebandObjGroupSup2,
+                        ccwbWidebandNotifGroup
+                    }
+
+    OBJECT          ccwbRFChannelFrequencyRev1
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+
+        A range of 54MHz to 860MHz is appropriate for a cable
+        plant using a North American Sub-Split channel plan.
+        The spectrum range has been expanded to accommodate
+        a lower edge of 47MHz and an upper edge of 862MHz
+        for some European channel plans."
+
+    OBJECT          ccwbRFChannelWidth
+    WRITE-SYNTAX    Unsigned32(6000000 | 8000000)
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+        An implementation is only required to
+        support 6000000 and 8000000.
+
+        It is conformant to implement this object as read-only.
+        The value of 6 MHz is appropriate for cable
+        plants running under NTSC (National Television
+        Standards Committee) standards.  The value of 8 MHz is
+        appropriate for cable plants running under ETSI
+        standards."
+
+    OBJECT          ccwbRFChanQamIPAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+        An implementation is only required to support
+        IPv4 addresses."
+
+    OBJECT          ccwbRFChannelRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+        Support for 'createAndWait' and 'notInService'
+        is not required."
+
+    OBJECT          ccwbWBtoRFRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+        Support for 'createAndWait' and 'notInService'
+        is not required."
+
+    OBJECT          ccwbRFChannelAnnex
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+
+        The value of this object will be same for all
+        RF channels."
+
+    OBJECT          ccwbRFChannelModulation
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+
+        Currently the value of this object must be the same for
+        all RF channels."
+
+    OBJECT          ccwbWBCmStatusValue
+    SYNTAX          INTEGER  {
+                        wbOnline(27),
+                        wbOnlinePrivacy(28),
+                        wbOnlineKekAssigned(29),
+                        wbOnlineTekAssigned(30),
+                        wbOnlineNetAccessDis(31),
+                        wbKekReject(32),
+                        wbTekReject(33),
+                        wbNetAccessDisReject(34),
+                        wbPrivacyEnabReject(35),
+                        wbKekExpire(36),
+                        wbTekExpire(37),
+                        wbNetAccessDisExpire(38),
+                        wbPrivacyEnabExpire(39)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+        An implementation is only required to support
+        the above numerated values."
+
+    OBJECT          ccwbFiberNodeDescription
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Read and write operations are not needed for
+        agents for which the associated value of the
+        description string is null."
+
+    OBJECT          ccwbFiberNodeNBIfIndx
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write operation is not required for agents
+        for which the associated value of if-index
+        is not valid."
+
+    OBJECT          ccwbFiberNodeWBContlrPhyIndx
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write operation is not needed for agents
+        that do not have valid physical entity value."
+
+    OBJECT          ccwbFiberNodeWBRFPort
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write operation is not needed for agents
+        that do not have valid physical entity value."
+    ::= { ciscoCableWidebandMIBCompliances 4 }
+
+-- units of conformance
+
+ccwbWidebandObjGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccwbRFChannelFrequency,
+                        ccwbRFChannelWidth,
+                        ccwbRFChannelModulation,
+                        ccwbRFChannelAnnex,
+                        ccwbRFChannelStorageType,
+                        ccwbRFChannelRowStatus,
+                        ccwbRFChannelMpegPkts,
+                        ccwbRFChanQamIPAddressType,
+                        ccwbRFChanQamIPAddress,
+                        ccwbRFChanQamMacAddress,
+                        ccwbRFChanQamUdpPort,
+                        ccwbRFChanQamTos,
+                        ccwbRFChanQamVlanId,
+                        ccwbRFChanQamPriorityBits,
+                        ccwbWBtoRFBandwidth,
+                        ccwbWBtoRFStorageType,
+                        ccwbWBtoRFRowStatus,
+                        ccwbWBtoNBStorageType,
+                        ccwbWBtoNBRowStatus,
+                        ccwbWBBondGrpSecondary,
+                        ccwbWBCmStatusValue,
+                        ccwbWBCmWBIfindex,
+                        ccwbFiberNodeDescription,
+                        ccwbFiberNodeDescrStorageType,
+                        ccwbFiberNodeDescrRowStatus,
+                        ccwbFiberNodeNBIfIndx,
+                        ccwbFiberNodeWBContlrPhyIndx,
+                        ccwbFiberNodeWBRFPort,
+                        ccwbFiberNodeStorageType,
+                        ccwbFiberNodeRowStatus
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "Group of objects implemented in WCMTS
+        providing for Wideband DOCSIS feature."
+    ::= { ciscoCableWidebandMIBGroups 1 }
+
+ccwbWidebandObjGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        ccwbRFChannelUtilization,
+                        ccwbRFChanUtilInterval
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Group of objects implemented in WCMTS
+        for RF channel utilization calculation."
+    ::= { ciscoCableWidebandMIBGroups 2 }
+
+ccwbWidebandObjGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        ccwbRFChannelFrequencyRev1,
+                        ccwbRFChannelWidth,
+                        ccwbRFChannelModulation,
+                        ccwbRFChannelAnnex,
+                        ccwbRFChannelStorageType,
+                        ccwbRFChannelRowStatus,
+                        ccwbRFChannelMpegPkts,
+                        ccwbRFChanQamIPAddressType,
+                        ccwbRFChanQamIPAddress,
+                        ccwbRFChanQamMacAddress,
+                        ccwbRFChanQamUdpPort,
+                        ccwbRFChanQamTos,
+                        ccwbRFChanQamVlanId,
+                        ccwbRFChanQamPriorityBits,
+                        ccwbRFChanQamDepiRemoteId,
+                        ccwbWBtoRFBandwidth,
+                        ccwbWBtoRFStorageType,
+                        ccwbWBtoRFRowStatus,
+                        ccwbWBtoNBStorageType,
+                        ccwbWBtoNBRowStatus,
+                        ccwbWBBondGrpSecondary,
+                        ccwbWBCmStatusValue,
+                        ccwbWBCmWBIfindex,
+                        ccwbFiberNodeDescription,
+                        ccwbFiberNodeDescrStorageType,
+                        ccwbFiberNodeDescrRowStatus,
+                        ccwbFiberNodeNBIfIndx,
+                        ccwbFiberNodeWBContlrPhyIndx,
+                        ccwbFiberNodeWBRFPort,
+                        ccwbFiberNodeStorageType,
+                        ccwbFiberNodeRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Group of objects implemented in WCMTS
+        providing for Wideband DOCSIS feature."
+    ::= { ciscoCableWidebandMIBGroups 3 }
+
+ccwbWidebandObjGroupSup2 OBJECT-GROUP
+    OBJECTS         {
+                        ccwbRFChanQamDepiTunnel,
+                        ccwbRFChanQamTsid,
+                        ccwbSFPLinkTrapEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Group of objects implemented in WCMTS
+        for SFP Port information."
+    ::= { ciscoCableWidebandMIBGroups 4 }
+
+ccwbWidebandNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ccwbSFPLinkDownNotification,
+                        ccwbSFPLinkUpNotification
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications which provides
+        SFP linkup/linkdown state."
+    ::= { ciscoCableWidebandMIBGroups 5 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

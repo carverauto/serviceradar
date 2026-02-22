@@ -1,0 +1,1815 @@
+
+-- ------------------------------------------------------------------------
+--                                                                       --
+-- Copyright (c) 1995 Cisco Systems, Inc.                --
+-- All rights reserved.                                                  --
+--                                                                       --
+-- Reproduction of this document is authorized on condition that this    --
+-- copyright notice is included.  This Cisco Systems' SNMP Management    --
+-- Information Base Specification (Specification) embodies Cisco         --
+-- Systems, Inc.'s (Cisco) proprietary intellectual property.        --
+-- Cisco retains all title and ownership in the Specification, including --
+-- any revisions.                                                        --
+--                                                                       --
+-- It is Cisco's intent to encourage the widespread use of this          --
+-- Specification in connection with the management of Cisco products.    --
+-- Cisco grants vendors, end-users, and other interested parties a       --
+-- non-exclusive license to use this Specification in connection         --
+-- with the management of Cisco products.                                --
+--                                                                       --
+-- This Specification is supplied "AS IS," and Cisco makes no warranty,  --
+-- either expressed or implied, as to the use, operation, condition,     --
+-- or performance of the Specification.                                  --
+--                                                                       --
+-- ------------------------------------------------------------------------
+
+
+-- This product line supports the full MIB-II, much of which applies to
+-- the protocol layers supporting the switch's SNMP agent.
+-- In addition, substantial private MIB extentions are required in order
+-- to support full management of the switch's functionality.  This file
+-- lists the extentions which support the management of hot-swappable
+-- modules.
+
+-- These MIB extentions are written in accordance with RFC 1221,
+-- "Concise MIB Definitions," an Internet memo defining a format
+-- for producing MIB definition modules.
+
+
+ES-MODULE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    enterprises, Counter, TimeTicks
+        FROM RFC1155-SMI
+    OBJECT-TYPE
+        FROM RFC-1212
+    DisplayString
+        FROM RFC1213-MIB;
+
+-- Cisco Systems, Inc. Enterprise
+
+grandjunction     OBJECT IDENTIFIER ::= { enterprises 437 }
+
+
+-- categories
+
+products          OBJECT IDENTIFIER ::= { grandjunction 1 }
+
+
+-- product family
+
+fastLink          OBJECT IDENTIFIER ::= { products 1 }
+
+
+-- groups
+
+seriesG2xx        OBJECT IDENTIFIER ::= { fastLink 2 }
+
+-- the following group manages G2xx modules
+
+esModuleBasic     OBJECT IDENTIFIER ::= { seriesG2xx 1 }
+esModuleSpecific  OBJECT IDENTIFIER ::= { seriesG2xx 2 }
+
+
+
+
+-- ------------------------------------------------------------------------
+--                                                                       --
+--                 Module Basic                      --
+--                                                                       --
+-- ------------------------------------------------------------------------
+
+-- All objects below are in the esModuleBasic group. This group is used to
+-- manage removeable modules. Any attempt to manage a different Cisco switch
+-- using this group will result in noSuchName.
+--
+
+-- ------------------------------------------------------------------------
+--                                                                       --
+--             Module Basic Information                  --
+--                                                                       --
+-- ------------------------------------------------------------------------
+--
+-- Configuration, status, and control objects for the overall unit.
+--
+--
+
+esModuleBasicInfo   OBJECT IDENTIFIER ::= { esModuleBasic 1 }
+
+esModuleCapacity OBJECT-TYPE
+    SYNTAX    INTEGER
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+        "The esModuleCapacity is the number of expansion slots
+         that are available in the unit. "
+
+    ::= { esModuleBasicInfo 1 }
+
+
+
+-- ------------------------------------------------------------------------
+--                                                                       --
+--              Module Basic Table                   --
+--                                                                       --
+-- ------------------------------------------------------------------------
+
+esModuleInfo    OBJECT IDENTIFIER ::= { esModuleBasic 2 }
+
+esModuleTable  OBJECT-TYPE
+    SYNTAX    SEQUENCE OF EsModuleEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+        "Table of descriptive and status information about
+         the modules."
+
+    ::= { esModuleInfo 1 }
+
+esModuleEntry   OBJECT-TYPE
+    SYNTAX    EsModuleEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+        "An entry in the table, containing information
+         about one of the modules."
+    INDEX    { esModuleIndex }
+    ::= { esModuleTable 1 }
+
+EsModuleEntry ::=
+    SEQUENCE {
+        esModuleIndex
+            INTEGER,
+        esModuleStatus
+            INTEGER,
+        esModuleAdminStatus
+            INTEGER,
+        esModuleDescr
+            DisplayString,
+        esModuleID
+            DisplayString,
+        esModuleVersion
+            INTEGER,
+        esModuleObjectID
+            OBJECT IDENTIFIER,
+        esModulePortCapacity
+            INTEGER,
+        esModuleReset
+            INTEGER,
+        esModuleLastStatusChange
+            TimeTicks,
+        esModuleCollisionPeriods
+            Counter,
+        esModuleLinkDisplayMap
+            OCTET STRING,
+        esModuleDisabledDisplayMap
+            OCTET STRING,
+        esModuleBroadcastStormBlocked
+            INTEGER,
+        esModuleFirmwareVersion
+            DisplayString,
+        esModuleBOOTCodeVersion
+            DisplayString,
+        esModuleFlashStatus
+            DisplayString,
+        esModuleResetToFactoryDefaults
+            INTEGER,
+        esModuleSwPortIndex
+            INTEGER
+    }
+
+esModuleIndex   OBJECT-TYPE
+    SYNTAX    INTEGER
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+        "This object identifies the module for which
+         this entry contains information.  This value
+         is never greater than esModuleCapacity."
+
+    ::= { esModuleEntry 1 }
+
+
+esModuleStatus  OBJECT-TYPE
+    SYNTAX  INTEGER {
+        enabled(1),
+        disabled-mgmt(2),
+        suspended-linkbeat(3),
+        suspended-jabber(4),
+        suspended-violation(5),
+        disabled-violation(7),
+        suspended-not-present(9),
+        suspended-not-recognized(10),
+        reset(11),
+        suspended-ringdown(12),
+        suspended-stp(13),
+        disabled-self-test(14),
+        enabled-degraded(15),
+        suspended-atm-lane-down(16),
+        suspended-no-vlan(17),
+        disabled-no-vlan(18),
+        suspended-atm-network-down(19),
+        suspended-disl(20)
+    }
+
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Current operational status of the module. This value
+         is the same as swPortStatus for the corresponding
+         switched port.  Possible values are:
+         enabled              : normal operation (transmit and receive)
+         disabled-mgmt        : disabled by explicit management action
+         suspended-linkbeat   : suspended due to absence of linkbeat
+         suspended-jabber     : suspended because port is jabbering
+         suspended-violation  : suspended due to a secured address
+                                violation
+         disabled-violation   : disabled due to a secured address
+                                violation
+         suspended-not-present: there is no module inserted in the
+                                expansion slot.
+         suspended-not-recognized: there is an unrecognized module inserted
+                                in the expansion slot.
+         reset                : the module is currently in the reset state
+         suspended-ringdown   : suspended due to a ring-down condition
+         suspended-stp        : Spanning Tree Protocol non forwarding state
+         disabled-self-test   : disabled because port fails self-test
+         suspended-atm-lane-down: Non-trunk ATM module using LANE suspended
+                                  because there is no active LANE client.
+         suspended-no-vlan    : the module is not assigned to a VLAN or the
+                                assigned VLAN does not exist.
+         disabled-no-vlan     : vlan of the module is suspended or does not exist.
+         suspended-atm-network-down: ATM module suspended due to ATM network down,
+                                     or ATM physical layer down.
+         suspended-disl       : suspended while module is negotiating trunking
+                                mode using the Dynamic Inter Switch Link
+                                protocol.
+
+         The default value is enabled(1), unless POST has detected
+         a failure on the module switch port, in which case, it is
+         disabled-mgmt(2).  Any esModuleStatus of type disabled-xxxx (except
+         disabled-self-test) is saved across a system reset so a module
+         may also come up with such a status."
+
+    ::= { esModuleEntry 2 }
+
+esModuleAdminStatus OBJECT-TYPE
+    SYNTAX  INTEGER {
+        enabled(1),
+        disabled(2)
+    }
+
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "By explicit management action, change the port status
+         to either
+         enabled      : normal status (transmit and receive)
+         disabled-mgmt: port is no longer in use.
+         This value is the same as swPortAdminStatus for the
+         corresponding switched port."
+
+    ::= { esModuleEntry 3 }
+
+esModuleDescr       OBJECT-TYPE
+    SYNTAX  DisplayString (SIZE(0..80))
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A text string which includes the full name and
+         version identification of the module's hardware
+         type."
+
+    ::= { esModuleEntry 4 }
+
+esModuleID          OBJECT-TYPE
+    SYNTAX  DisplayString (SIZE(0..60))
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A text representation of the Cisco specified
+         identifier for the installed module, or 'notPresent'."
+
+    ::= { esModuleEntry 5 }
+
+esModuleVersion     OBJECT-TYPE
+    SYNTAX      INTEGER
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION
+        "The Cisco specified unique identification
+         for the module version, ranging from 1 to 254."
+    ::= { esModuleEntry 6 }
+
+esModuleObjectID    OBJECT-TYPE
+    SYNTAX    OBJECT IDENTIFIER
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+        "The vendor's authoritative identification of the
+         module.  This value may be allocated within the SMI
+         enterprises subtree (1.3.6.1.4.1) and provides a
+         straight-forward and unambiguous means for
+         determining what kind of group is being managed.
+
+         For example, this object could take the value
+         1.3.6.1.4.1.4242.1.2.14 if vendor 'Flintstones,
+         Inc.' was assigned the subtree 1.3.6.1.4.1.4242,
+         and had assigned the identifier
+         1.3.6.1.4.1.4242.1.2.14 to its 'Wilma Flintstone
+         4-Port Fast Ethernet Plug-in Module.'"
+
+    ::= { esModuleEntry 7 }
+
+esModulePortCapacity    OBJECT-TYPE
+    SYNTAX      INTEGER
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION
+        "The number of external port attachments provided by the
+         module."
+    ::= { esModuleEntry 8 }
+
+esModuleReset           OBJECT-TYPE
+    SYNTAX      INTEGER {
+        reset(1),
+        noReset(2)
+    }
+    ACCESS      read-write
+    STATUS      mandatory
+    DESCRIPTION
+        "Setting this object to reset causes the module to be
+         forced into a reset state.  The reset state is a module
+         specific condition in which the module's packet operations
+         will cease while the module resets to a known state."
+    ::= { esModuleEntry 9 }
+
+esModuleLastStatusChange    OBJECT-TYPE
+    SYNTAX      TimeTicks
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION
+        "Contains the value of sysUpTime at the time that the value
+         of the esModuleStatus object for this module last changed.
+         A value of zero indicates that the group's operational
+         status has not changed since the agent last restarted."
+    ::= { esModuleEntry 10 }
+
+esModuleCollisionPeriods    OBJECT-TYPE
+    SYNTAX      Counter
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION
+        "Contains the count of times the firmware has toggled the
+         front panel module collision LED from the off state to the
+         on state.  Successive reads of the counter may network
+         management software an indication of the rate of collision
+         activity, though an actual count of collisions is not
+         available."
+    ::= { esModuleEntry 11 }
+
+esModuleLinkDisplayMap      OBJECT-TYPE
+    SYNTAX  OCTET STRING
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A bit array where the presence of a particular bit
+         indicates a lit link LED for a module port.
+
+         Each octet within the value of this object specifies a
+         set of eight link LEDs, with the first octet specifying
+         link LEDs for ports 1 through 8, the second octet
+         specifying link LEDs 9 through 16, etc.   Within each
+         octet, the most significant bit represents the lowest
+         numbered LED, and the least significant bit represents the
+         highest numbered LED.  Thus, each LED is represented by a
+         single bit within the value of this object.  If that bit
+         has a value of '1' then that LED is currently lit;
+         the LED is not lit if its bit has a value of '0'."
+
+    ::= { esModuleEntry 12 }
+
+esModuleDisabledDisplayMap  OBJECT-TYPE
+    SYNTAX  OCTET STRING
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A bit array where the presence of a particular bit
+         indicates a lit disabled LED for a module port.
+
+         Each octet within the value of this object specifies a
+         set of eight disabled LEDs, with the first octet specifying
+         disabled LEDs for ports 1 through 8, the second octet
+         specifying disabled LEDs 9 through 16, etc.   Within each
+         octet, the most significant bit represents the lowest
+         numbered LED, and the least significant bit represents the
+         highest numbered LED.  Thus, each LED is represented by a
+         single bit within the value of this object.  If that bit
+         has a value of '1' then that LED is currently lit;
+         the LED is not lit if its bit has a value of '0'."
+
+    ::= { esModuleEntry 13 }
+
+
+esModuleBroadcastStormBlocked OBJECT-TYPE
+    SYNTAX  INTEGER { notBlocked(1), blocked(2) }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The current broadcast forwarding status of this module.
+         If this module is blocked by broadcast storm control, the
+         switch drops all broadcasts received from the module.
+         If the module is a multi-port repeater, broadcast
+         received from a repeater port is forwarded to all
+         the other repeater ports in the same module.
+         The broadcast is not forwarded other switched ports."
+
+    ::= { esModuleEntry 14 }
+
+esModuleFirmwareVersion    OBJECT-TYPE
+    SYNTAX  DisplayString (SIZE(0..80))
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object returns the version number of the
+         firmware stored in FLASH memory on the
+         module.  The string has the
+         format 'v1.00' for the FDDI module.
+     For the ATM module, the string is longer."
+    ::= { esModuleEntry 15 }
+
+esModuleBOOTCodeVersion    OBJECT-TYPE
+    SYNTAX  DisplayString (SIZE(0..80))
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object returns the version number of the
+         BOOT code stored in permanent FLASH memory on
+         the module.  The string has the
+         format 'v1.00' for the FDDI module.
+     For the ATM module, the string is longer."
+    ::= { esModuleEntry 16 }
+
+esModuleFlashStatus    OBJECT-TYPE
+    SYNTAX  DisplayString (SIZE(0..80))
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A string of up to 80 characters indicating the
+         status of the firmware stored in the module's
+     FLASH memory.  The string includes the firmware
+     revision, the data and time of the last upgrade,
+     the source of the upgrade, as well as the validity
+     of the firmware.  The string is in net ASCII and
+     conforms to one of the following formats:
+     For the FDDI module:
+
+         For factory installed firmware:
+
+         ' v1.00 factory installed: valid'
+
+         For out-of-band upgrades:
+
+         ' v1.00 written 07-22-1994 08:19:15 from serial terminal: valid'
+
+         For in-band upgrades:
+
+         ' v1.00 written 07-22-1994 12:19:15 from 192.009.200.200: invalid'
+
+     For the ATM module, the formats are similar, but the part of the
+     string containing the version number is longer."
+
+    ::= { esModuleEntry 17 }
+
+esModuleResetToFactoryDefaults OBJECT-TYPE
+    SYNTAX  INTEGER {
+            noReset(1),
+            reset(2)
+            }
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "Setting this object to reset(2) will cause the
+         settings on the module to revert to factory
+         defaults.  The module will then be reset by the
+         system.  The module's packet operations will
+         cease while the module resets to a known state.  A read
+         of this object will always return the value noReset(1).
+         Setting this object to noReset(1) has no effect."
+
+    ::= { esModuleEntry 18 }
+
+esModuleSwPortIndex OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This is the value of swPortIndex object in the
+         STANDALONE-ETHERNET-SWITCH-MIB corresponding
+         to the module."
+    ::= { esModuleEntry 19 }
+
+-- ------------------------------------------------------------------------
+--                                                                       --
+--              Module Port Table                    --
+--                                                                       --
+-- ------------------------------------------------------------------------
+
+esModulePortInfo  OBJECT IDENTIFIER ::= { esModuleBasic 3 }
+
+esModulePortTable  OBJECT-TYPE
+    SYNTAX    SEQUENCE OF EsModulePortEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+        "Table of descriptive and status information about
+         the individual ports in a module."
+
+    ::= { esModulePortInfo 1 }
+
+esModulePortEntry   OBJECT-TYPE
+    SYNTAX    EsModulePortEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+        "An entry in the table, containing information
+         about one of the repeater ports."
+    INDEX    { esModuleSlotIndex, esModulePortIndex }
+    ::= { esModulePortTable 1 }
+
+EsModulePortEntry ::=
+    SEQUENCE {
+        esModuleSlotIndex
+            INTEGER,
+        esModulePortIndex
+            INTEGER,
+        esModulePortDescr
+            DisplayString,
+        esModulePortAdminStatus
+            INTEGER,
+        esModulePortAutoPartitionState
+            INTEGER,
+        esModulePortOperStatus
+            INTEGER,
+        esModulePortLinkbeatStatus
+            INTEGER,
+        esModulePortConnectorType
+            INTEGER,
+        esModulePortReceivePeriods
+            Counter
+    }
+
+esModuleSlotIndex   OBJECT-TYPE
+    SYNTAX    INTEGER
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+        "This is the value of esModuleIndex object of the module
+         which this port belongs to. This value is never greater
+         than esModuleCapacity."
+
+    ::= { esModulePortEntry 1 }
+
+
+esModulePortIndex   OBJECT-TYPE
+    SYNTAX    INTEGER
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+        "This object identifies the port for which
+         this entry contains information.  This value
+         is never greater than esModulePortCapacity."
+
+    ::= { esModulePortEntry 2 }
+
+esModulePortDescr   OBJECT-TYPE
+    SYNTAX    DisplayString (SIZE (0..60))
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+        "A descriptive string of up to 60 characters used by the
+         network administrator to name the port."
+
+    ::= { esModulePortEntry 3 }
+
+
+esModulePortAdminStatus OBJECT-TYPE
+    SYNTAX  INTEGER {
+        enabled(1),
+        disabled(2)
+    }
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "By explicit management action, change the port status
+        to either
+            enabled      : normal status (transmit and receive)
+            disabled     : the port neither transmits nor receives.
+                           Once disabled, a port must be explicitly
+                           enabled to restore operation."
+    ::= { esModulePortEntry 4 }
+
+
+esModulePortAutoPartitionState OBJECT-TYPE
+    SYNTAX  INTEGER {
+        notAutoPartitioned(1),
+        autoPartitioned(2)
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Indicates whether the port is currently partitioned by
+         the repeater's auto-partition protection."
+    ::= { esModulePortEntry 5 }
+
+
+esModulePortOperStatus  OBJECT-TYPE
+    SYNTAX  INTEGER {
+        enabled(1),
+        disabled(2),
+        suspended-not-present(3)
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "Indicates the port's operational status.
+         enabled              : port is enabled and working
+         notOperational       : the port neither transmits nor receives
+         suspended-not-present: the module group is not installed."
+    ::= { esModulePortEntry 6 }
+
+
+
+esModulePortLinkbeatStatus OBJECT-TYPE
+    SYNTAX  INTEGER {
+        linkbeat(1),
+        noLinkbeat(2)
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The port's current linkbeat status."
+    ::= { esModulePortEntry 7 }
+
+
+esModulePortConnectorType OBJECT-TYPE
+    SYNTAX  INTEGER {
+        other(1),
+        rj45(2),
+        bnc(3),
+        aui(4),
+        fiber-sc(5),
+        fiber-st(6),
+        empty(7),
+        fddi-mic(8)
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The connector type for the port.
+         It is one of
+
+            other    : none of the following (unknown)
+            rj45     : common unshielded twisted pair connector
+            bnc      : thin-coax (BNC)
+            aui      : thick-coax (AUI)
+            fiber-sc : fiber fast ethernet connector
+            fiber-st : fiber fast ethernet connector
+            empty    : the port is not installed
+            fddi-mic : FDDI fiber optic connector."
+
+    ::= { esModulePortEntry 8 }
+
+
+esModulePortReceivePeriods      OBJECT-TYPE
+    SYNTAX      Counter
+    ACCESS      read-only
+    STATUS      mandatory
+    DESCRIPTION
+        "Contains the count of times the front panel port receive
+         activity LED has been toggled from the off state to the on
+         state.  Successive reads of this counter give network
+         management software an indication of receive activity for
+         each individual port, though an actual count of receives
+         per port is not available."
+    ::= { esModulePortEntry 9 }
+
+
+
+-- ------------------------------------------------------------------------
+--                                                                       --
+--                  Module Specific                  --
+--                                                                       --
+-- ------------------------------------------------------------------------
+
+-- All objects below are in the esModuleSpecific group. This group is used to
+-- to manage removeable modules. Any attempt to manage a different Cisco switch
+-- using this group will result in noSuchName.
+--
+
+fmFDDIBasic        OBJECT IDENTIFIER ::= { esModuleSpecific 1 }
+
+fmFDDICfgInfo      OBJECT IDENTIFIER ::= { fmFDDIBasic 1 }
+
+fmCfgTable  OBJECT-TYPE
+    SYNTAX    SEQUENCE OF FmCfgEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+        "Table of configuration and status information about
+         FDDI modules."
+
+    ::= { fmFDDICfgInfo 1}
+
+fmCfgEntry   OBJECT-TYPE
+    SYNTAX    FmCfgEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+        "An entry in the table, containing information
+         about one a FDDI module."
+    INDEX    { fmCfgIndex }
+    ::= { fmCfgTable 1 }
+
+FmCfgEntry ::=
+    SEQUENCE {
+        fmCfgIndex
+            INTEGER,
+        fmCfgFirmwareVersion
+            DisplayString,
+        fmCfgBOOTCodeVersion
+            DisplayString,
+        fmCfgPOSTResult
+            INTEGER,
+        fmCfgPOSTTest
+            INTEGER,
+        fmCfgPOSTLoopbackResult
+            INTEGER,
+        fmCfgFlashStatus
+            DisplayString,
+        fmCfgResetToFactoryDefaults
+            INTEGER,
+        fmCfgResetModule
+            INTEGER,
+        fmCfgNovellFDDISNAPTranslation
+            INTEGER,
+        fmCfgUnmatchedSNAPDestination
+            INTEGER,
+        fmCfgAuthorizationChecking
+            INTEGER,
+        fmCfgAuthorizationString
+            DisplayString
+    }
+
+fmCfgIndex  OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object identifies the module for which
+         this entry contains information.  This value
+         is never greater than esModuleCapacity."
+
+    ::= { fmCfgEntry 1 }
+
+fmCfgFirmwareVersion    OBJECT-TYPE
+    SYNTAX  DisplayString (SIZE(0..10))
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object returns the version number of the
+         firmware stored in FLASH memory on the
+         FDDI module.  The string has the
+         format 'v1.00'."
+
+    ::= { fmCfgEntry 2 }
+
+fmCfgBOOTCodeVersion    OBJECT-TYPE
+    SYNTAX  DisplayString (SIZE(0..10))
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object returns the version number of the
+         BOOT code stored in permanent FLASH memory on
+         the FDDI module.  The string has the
+         format 'v1.00'."
+
+    ::= { fmCfgEntry 3 }
+
+fmCfgPOSTResult OBJECT-TYPE
+    SYNTAX  INTEGER {
+        noFailure(1),
+        prom(2),
+        cpu(3),
+        flash(4),
+        dram(5),
+        arbiter(6),
+        shared-ram(7),
+        ethernet(8),
+        fddi-mac(9),
+        fddi-phy-a(10),
+        fddi-phy-b(11),
+        packet-ram(12)
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object indicates the result of the FDDI
+         module's Power On Self Test (POST).  If the module
+         passed POST, this item will return noFailure(1)."
+    ::= { fmCfgEntry 4 }
+
+fmCfgPOSTTest OBJECT-TYPE
+    SYNTAX  INTEGER {
+        noFailure(1),
+        invalid-marker(2),
+        checksum(3),
+        ram-quick-scan(4),
+        ram-byte-test(5),
+        checkerboard(6),
+        arbiter-id(7),
+        read-only-register(8),
+        read-write-register(9),
+        ethernet-interrupt(10),
+        loopback(11),
+        invalid-version(12)
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object indicates the specific test that caused
+         the POST to fail.  If the module passed POST, this
+         item will return noFailure(1)."
+
+    ::= { fmCfgEntry 5 }
+
+fmCfgPOSTLoopbackResult OBJECT-TYPE
+    SYNTAX  INTEGER {
+        noFailure(1),
+        cannot-transmit(2),
+        receive-timeout(3),
+        data-mismatch(4),
+        length-mismatch(5),
+        receiver-error(6),
+        buffer-error(7)
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "In the event that the FDDI module fails the loopback
+         test during POST, this object will indicate which
+         portion of the test caused the failure.  If the value
+         of fmCfgPOSTTest is anything other than loopback(11),
+         this object will have the value noFailure(1)."
+
+    ::= { fmCfgEntry 6 }
+
+fmCfgFlashStatus    OBJECT-TYPE
+    SYNTAX  DisplayString (SIZE(0..80))
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A string of up to 80 characters indicating the
+         status of the firmware stored in the FDDI module's
+         FLASH memory.  The string includes the firmware
+         revision, the data and time of the last upgrade,
+         the source of the upgrade, as well as the validity
+         of the firmware.  The string is in net ASCII and
+         conforms to one of the following formats:
+
+         For factory installed firmware:
+
+         ' v1.00 factory installed: valid'
+
+         For out-of-band upgrades:
+
+         ' v1.00 written 07-22-1994 08:19:15 from serial terminal: valid'
+
+         For in-band upgrades:
+
+         ' v1.00 written 07-22-1994 12:19:15 from 192.009.200.200: invalid'"
+
+    ::= { fmCfgEntry 7 }
+
+fmCfgResetToFactoryDefaults OBJECT-TYPE
+    SYNTAX  INTEGER {
+        noReset(1),
+        reset(2)
+    }
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "Setting this object to reset(2) will cause the
+         settings on the FDDI module to revert to factory
+         defaults.  The module will then be reset by the
+         system.  The module's packet operations will
+         cease while the module resets to a known state.A read
+         of this object will always return the value noReset(1).
+         Setting this object to noReset(1) has no effect."
+
+    ::= { fmCfgEntry 8 }
+
+fmCfgResetModule OBJECT-TYPE
+    SYNTAX  INTEGER {
+        noReset(1),
+        reset(2)
+    }
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "Setting this object to reset(2) causes the module to be
+         forced into a reset state.  During the reset state, the
+         module's packet operations will cease while the module
+         resets to a known state."
+    ::= { fmCfgEntry 9 }
+
+fmCfgNovellFDDISNAPTranslation OBJECT-TYPE
+    SYNTAX  INTEGER {
+        automatic(1),
+        ethernet-8023(2),
+        ethernet-SNAP(3),
+        ethernet-II(4),
+        drop(5)
+    }
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "This object specifies the Ethernet frame type that
+         the FDDI module will translate Novell SNAP FDDI frames into.
+
+          automatic(1):     the FDDI module will automatically
+                            learn which frame type to use
+          ethernet-8023(2): the FDDI module will convert
+                            Novell SNAP FDDI frames to Ethernet 802.3
+          ethernet-SNAP(3): the FDDI module will convert
+                            Novell SNAP FDDI frames to Ethernet SNAP
+          ethernet-II(4):   the FDDI module will convert
+                            Novell SNAP FDDI frames to Ethernet II
+          drop(5):          the FDDI module will not forward
+                            Novell SNAP FDDI frames to Ethernet."
+    ::= { fmCfgEntry 10}
+
+fmCfgUnmatchedSNAPDestination OBJECT-TYPE
+    SYNTAX  INTEGER {
+        all(1),
+        ethernet-8023(2),
+        ethernet-SNAP(3),
+        ethernet-II(4),
+        drop(5)
+    }
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "This object specifies what the FDDI module is to do with
+         Novell SNAP FDDI frames whose destination frame type cannot
+         be determined.  The value of this object is only valid when
+         fmCfgNovellFDDISNAPTranslation is set to automatic(1).
+
+          all(1):           the unmatched Novell SNAP FDDI frames
+                            will be converted into all three
+                            possible frame types.
+          ethernet-8023(2): the unmatched Novell SNAP FDDI frames
+                            will be converted into Ethernet 802.3
+          ethernet-SNAP(3): the unmatched Novell SNAP FDDI frames
+                            will be converted into Ethernet SNAP
+          ethernet-II(4):   the unmatched Novell SNAP FDDI frames
+                            will be converted into Ethernet II
+          drop:             the FDDI module will not forward
+                            unmatched Novell SNAP FDDI frames to
+                            Ethernet."
+    ::= { fmCfgEntry 11 }
+
+fmCfgAuthorizationChecking OBJECT-TYPE
+    SYNTAX  INTEGER {
+        enabled(1),
+        disabled(2)
+    }
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "This object controls enabling and disabling of authorization
+         string checking by the SMT entity.  When enabled, the FDDI
+         module will use the current authorization string to verify SMT
+         requests from remote stations.  This item is disabled by default."
+
+    ::= { fmCfgEntry 12 }
+
+fmCfgAuthorizationString OBJECT-TYPE
+    SYNTAX  DisplayString (SIZE(0..32))
+    ACCESS  read-write
+    STATUS  mandatory
+    DESCRIPTION
+        "This item specifies the string to be used in the authentication
+         of SMT requests.  The length is from 0 to 32 bytes and must be
+         a multiple of 4 bytes.  This item is only used when authorization
+         string checking is enabled."
+
+    ::= { fmCfgEntry 13 }
+
+
+
+-- ------------------------------------------------------------------------
+--                                                                       --
+--               FDDI Translation to Ethernet Table          --
+--                                                                       --
+-- ------------------------------------------------------------------------
+
+fmFDDIXlateToEthInfo      OBJECT IDENTIFIER ::= { fmFDDIBasic 2 }
+
+fmXlateToEthTable  OBJECT-TYPE
+    SYNTAX    SEQUENCE OF FmXlateToEthEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+        "Table of statistics that count the number of
+         frames successfully forwarded from the FDDI
+         module to the switch forwarding engine."
+
+    ::= { fmFDDIXlateToEthInfo 1}
+
+fmXlateToEthEntry   OBJECT-TYPE
+    SYNTAX    FmXlateToEthEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+        "An entry in the table, containing information
+         about a FDDI module."
+    INDEX    { fmXlateToEthIndex }
+    ::= { fmXlateToEthTable 1 }
+
+FmXlateToEthEntry ::=
+    SEQUENCE {
+        fmXlateToEthIndex
+            INTEGER,
+        fmXlateToEthNovellSnapToRaw8023Frames
+            Counter,
+        fmXlateToEthNovellSnapToEthIIFrames
+            Counter,
+        fmXlateToEthNovellSnapToSnapFrames
+            Counter,
+        fmXlateToEthAppleTalkSnapToSnapFrames
+            Counter,
+        fmXlateToEthIpSnapForFragmentationFrames
+            Counter,
+        fmXlateToEthIpSnapFragmentedFrames
+            Counter,
+        fmXlateToEthBridgeTunnelToEthIIFrames
+            Counter,
+        fmXlateToEthOtherSnapToEthIIFrames
+            Counter,
+        fmXlateToEthOtherSnapToSnapFrames
+            Counter,
+        fmXlateToEth8022To8022Frames
+            Counter
+    }
+
+fmXlateToEthIndex  OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object identifies the module for which
+         this entry contains information.  This value
+         is never greater than esModuleCapacity."
+
+    ::= { fmXlateToEthEntry 1 }
+
+fmXlateToEthNovellSnapToRaw8023Frames   OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of Novell SNAP
+         FDDI frames that have been converted to Raw 802.3
+         Ethernet frames."
+
+    ::= { fmXlateToEthEntry 2 }
+
+fmXlateToEthNovellSnapToEthIIFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of Novell SNAP
+         FDDI frames that have been converted to Ethernet II
+         frames."
+
+    ::= { fmXlateToEthEntry 3 }
+
+fmXlateToEthNovellSnapToSnapFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of Novell SNAP
+         FDDI frames that have been converted to Novell SNAP
+         Ethernet frames."
+
+    ::= { fmXlateToEthEntry 4 }
+
+fmXlateToEthAppleTalkSnapToSnapFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of AppleTalk SNAP
+         FDDI frames that have been converted to Novell SNAP
+         Ethernet frames."
+
+    ::= { fmXlateToEthEntry 5 }
+
+fmXlateToEthIpSnapForFragmentationFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of IP FDDI frames
+         that were fragmented."
+
+    ::= { fmXlateToEthEntry 6 }
+
+fmXlateToEthIpSnapFragmentedFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of Ethernet frames
+         that were forwarded to the switch forwarding engine as
+         a result of IP fragmentation."
+
+    ::= { fmXlateToEthEntry 7 }
+
+fmXlateToEthBridgeTunnelToEthIIFrames   OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of Bridge Tunnel
+         FDDI frames that have been converted to Ethernet II
+         frames."
+
+    ::= { fmXlateToEthEntry 8 }
+
+fmXlateToEthOtherSnapToEthIIFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of SNAP FDDI frames that
+         do not fall into one of the previous SNAP FDDI categories
+         that have been converted to Ethernet II frames."
+
+    ::= { fmXlateToEthEntry 9 }
+
+fmXlateToEthOtherSnapToSnapFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of SNAP FDDI frames that
+         do not fall into one of the previous SNAP FDDI categories
+         that have been converted to Ethernet SNAP frames."
+
+    ::= { fmXlateToEthEntry 10 }
+
+fmXlateToEth8022To8022Frames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of 802.2 FDDI frames
+         that have been converted to Ethernet 802.2 frames."
+
+    ::= { fmXlateToEthEntry 11 }
+
+
+
+
+-- ------------------------------------------------------------------------
+--                                                                       --
+--              FDDI Translation to FDDI Table               --
+--                                                                       --
+-- ------------------------------------------------------------------------
+
+
+fmFDDIXlateToFDDIInfo      OBJECT IDENTIFIER ::= { fmFDDIBasic 3 }
+
+fmXlateToFDDITable  OBJECT-TYPE
+    SYNTAX    SEQUENCE OF FmXlateToFDDIEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+        "Table of statistics that count the number of
+         frames successfully forwarded from the switch
+         forwarding engine to the FDDI ring."
+
+    ::= { fmFDDIXlateToFDDIInfo 1}
+
+fmXlateToFDDIEntry   OBJECT-TYPE
+    SYNTAX    FmXlateToFDDIEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+        "An entry in the table, containing information
+         about a FDDI module."
+    INDEX    { fmXlateToFDDIIndex }
+    ::= { fmXlateToFDDITable 1 }
+
+FmXlateToFDDIEntry ::=
+    SEQUENCE {
+        fmXlateToFDDIIndex
+            INTEGER,
+        fmXlateToFDDINovellRaw8023ToSnapFrames
+            Counter,
+        fmXlateToFDDINovellEthIIToSnapFrames
+            Counter,
+        fmXlateToFDDINovellSnapToSnapFrames
+            Counter,
+        fmXlateToFDDIEthIIToBridgeTunnelFrames
+            Counter,
+        fmXlateToFDDIEthIIToSnapFrames
+            Counter,
+        fmXlateToFDDIOtherSnapToSnapFrames
+            Counter,
+        fmXlateToFDDI8022To8022Frames
+            Counter
+    }
+
+fmXlateToFDDIIndex  OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object identifies the module for which
+         this entry contains information.  This value
+         is never greater than esModuleCapacity."
+
+    ::= { fmXlateToFDDIEntry 1 }
+
+fmXlateToFDDINovellRaw8023ToSnapFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of Novell Raw 802.3
+         Ethernet frames that have been converted to SNAP FDDI
+         frames."
+    ::= { fmXlateToFDDIEntry 2 }
+
+fmXlateToFDDINovellEthIIToSnapFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of Ethernet II
+         frames that have been converted to SNAP FDDI frames."
+    ::= { fmXlateToFDDIEntry 3 }
+
+fmXlateToFDDINovellSnapToSnapFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of Novell SNAP Ethernet
+         frames that have been converted to SNAP FDDI frames."
+    ::= { fmXlateToFDDIEntry 4 }
+
+fmXlateToFDDIEthIIToBridgeTunnelFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of Ethernet II frames
+         that have been converted to Bridge Tunnel FDDI frames."
+    ::= { fmXlateToFDDIEntry 5 }
+
+fmXlateToFDDIEthIIToSnapFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of Ethernet II
+         frames that have been converted to SNAP FDDI frames."
+    ::= { fmXlateToFDDIEntry 6 }
+
+fmXlateToFDDIOtherSnapToSnapFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of SNAP frames that
+         do not fall into one of the above listed SNAP type categories
+         that have been translated to Ethernet II."
+    ::= { fmXlateToFDDIEntry 7 }
+
+fmXlateToFDDI8022To8022Frames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI 802.2
+         frames that have been converted to Ethernet 802.2 frames."
+    ::= { fmXlateToFDDIEntry 8 }
+
+
+
+-- ------------------------------------------------------------------------
+--                                                                       --
+--                  FDDI Filter Table                    --
+--                                                                       --
+-- ------------------------------------------------------------------------
+
+
+fmFDDIFilterInfo      OBJECT IDENTIFIER ::= { fmFDDIBasic 4 }
+
+fmFilterTable  OBJECT-TYPE
+    SYNTAX    SEQUENCE OF FmFilterEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+        "Table of statistics that count the number of
+         frames that were not forwarded by the FDDI module."
+
+    ::= { fmFDDIFilterInfo 1}
+
+fmFilterEntry   OBJECT-TYPE
+    SYNTAX    FmFilterEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+        "An entry in the table, containing information
+         about a FDDI module."
+    INDEX    { fmFilterIndex }
+    ::= { fmFilterTable 1 }
+
+FmFilterEntry ::=
+    SEQUENCE {
+        fmFilterIndex
+            INTEGER,
+        fmFilterFcsInvalidFrames
+            Counter,
+        fmFilterDataLengthFrames
+            Counter,
+        fmFilterErrorIndFrames
+            Counter,
+        fmFilterFddiFifoOverrunFrames
+            Counter,
+        fmFilterFddiInternalErrorFrames
+            Counter,
+        fmFilterNoBufferSpaceFrames
+            Counter,
+        fmFilterNoEndDelimitFrames
+            Counter,
+        fmFilterNoLlcHeaderFrames
+            Counter,
+        fmFilterSourceRouteFrames
+            Counter,
+        fmFilterNoSnapHeaderFrames
+            Counter,
+        fmFilterTooLargeFrames
+            Counter,
+        fmFilterNovellSnapFilteredFrames
+            Counter,
+        fmFilterCantFragmentFrames
+            Counter,
+        fmFilterBadIpHeaderFrames
+            Counter,
+        fmFilterRingDownDiscards
+            Counter,
+        fmFilterNovellOtherFilteredFrames
+            Counter
+    }
+
+fmFilterIndex  OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object identifies the module for which
+         this entry contains information.  This value
+         is never greater than esModuleCapacity."
+    ::= { fmFilterEntry 1 }
+
+fmFilterFcsInvalidFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI frames
+         that were not forwarded because the frame contained
+         an invalid FCS."
+    ::= { fmFilterEntry 2 }
+
+fmFilterDataLengthFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI frames
+         that were not forwarded because the frame contained
+         an invalid data length."
+    ::= { fmFilterEntry 3 }
+
+fmFilterErrorIndFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI frames
+         that were not forwarded because the frame's error
+         indication flag was set."
+    ::= { fmFilterEntry 4 }
+
+fmFilterFddiFifoOverrunFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI frames
+         that were not forwarded because the FDDI FIFO experienced
+         an overflow."
+    ::= { fmFilterEntry 5 }
+
+fmFilterFddiInternalErrorFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI frames
+         that were not forwarded because the module experienced
+         an internal error."
+    ::= { fmFilterEntry 6 }
+
+fmFilterNoBufferSpaceFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI frames
+         that were not forwarded because the module did not
+         have sufficient buffer space."
+    ::= { fmFilterEntry 7 }
+
+fmFilterNoEndDelimitFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI frames
+         that were not forwarded because the frame did not
+         have a valid end delimiter."
+    ::= { fmFilterEntry 8 }
+
+fmFilterNoLlcHeaderFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI frames
+         that were not forwarded because the frame did not
+         have a valid LLC header."
+    ::= { fmFilterEntry 9 }
+
+fmFilterSourceRouteFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The FDDI module does not forward source routing frames.
+         This object is a count of the number of such frames
+         that were filtered."
+    ::= { fmFilterEntry 10 }
+
+fmFilterNoSnapHeaderFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI frames
+         that were not forwarded because the frame did not have
+         a valid SNAP header."
+    ::= { fmFilterEntry 11 }
+
+fmFilterTooLargeFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI frames
+         that were not forwarded because the frame was too large."
+    ::= { fmFilterEntry 12 }
+
+fmFilterNovellSnapFilteredFrames     OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of Novell SNAP
+         FDDI frames that were filtered by the module."
+    ::= { fmFilterEntry 13 }
+
+fmFilterCantFragmentFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI IP frames
+         that were not forwarded because the module was unable
+         to fragment the frame."
+    ::= { fmFilterEntry 14 }
+
+fmFilterBadIpHeaderFrames  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI frames
+         that were not forwarded because the frame contained
+         an invalid IP header."
+    ::= { fmFilterEntry 15 }
+
+fmFilterRingDownDiscards   OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is a count of the number of FDDI frames
+         that were not forwarded because the FDDI ring was
+     not operational."
+    ::= { fmFilterEntry 16 }
+
+fmFilterNovellOtherFilteredFrames OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object is the sum of the Novell Ethernet frames that
+         were not forwarded because they contained an invalid size field
+         and the number of Novell Ethernet frames that were not
+         forwarded because the FDDI module was configured to filter
+         Novell SNAP FDDI frames."
+    ::= { fmFilterEntry 17 }
+
+-- ------------------------------------------
+--
+-- The following objects are module-specific
+-- objects for the ATM module.
+--
+-- ------------------------------------------
+
+fmAtmBasic         OBJECT IDENTIFIER ::= { esModuleSpecific 2 }
+
+fmAtmCfgInfo       OBJECT IDENTIFIER ::= { fmAtmBasic 1 }
+
+fmAtmCfgTable  OBJECT-TYPE
+    SYNTAX      SEQUENCE OF FmAtmCfgEntry
+    ACCESS      not-accessible
+    STATUS      mandatory
+    DESCRIPTION
+        "Table of configuration and status information about
+         ATM modules."
+    ::= { fmAtmCfgInfo 1}
+
+fmAtmCfgEntry   OBJECT-TYPE
+    SYNTAX      FmAtmCfgEntry
+    ACCESS      not-accessible
+    STATUS      mandatory
+    DESCRIPTION
+        "An entry in the table, containing information
+         about one ATM module."
+    INDEX    { fmAtmCfgIndex }
+    ::= { fmAtmCfgTable 1 }
+
+FmAtmCfgEntry ::=
+    SEQUENCE {
+        fmAtmCfgIndex
+            INTEGER,
+        fmAtmCfgPOSTResult
+            INTEGER,
+        fmAtmCfgPOSTTest
+            INTEGER,
+        fmAtmCfgPOSTLoopbackResult
+            INTEGER,
+        fmAtmCfgFramingMode
+            INTEGER
+    }
+
+fmAtmCfgIndex  OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object identifies the module for which
+         this entry contains information.  This value
+         is never greater than esModuleCapacity."
+    ::= { fmAtmCfgEntry 1 }
+
+fmAtmCfgPOSTResult   OBJECT-TYPE
+    SYNTAX  INTEGER {
+            other(1),           -- other than the following
+            unknown(2),
+            no-failure(3),
+            fpga(4),
+            shared-memory(5),
+            host-interface(6),
+            ethernet-controller(7),
+            sar-controller(8),
+            sar-memory(9),
+            framer(10),
+            traffic-co-processor(11),
+            traffic-co-processor-memory(12),
+            flash(13)
+            }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object indicates the result of the ATM
+         module's Power On Self Test (POST), that is,  which
+         module component, if any, failed POST.  If the module
+         passed POST, this item will return no-failure(2)."
+    ::= { fmAtmCfgEntry 2 }
+
+fmAtmCfgPOSTTest   OBJECT-TYPE
+    SYNTAX  INTEGER {
+            other(1),           -- other than the following
+            unknown(2),
+        no-failure(3),
+            refresh(4),
+            quick-scan-word(5),
+            quick-scan-byte(6),
+            byte-pattern(7),
+            checkerboard(8),
+            no-response(9),
+            data-mismatch(10),
+            interrupt(11),
+            control-memory(12),
+            checksum(13),
+            read-only-configuration-register(14),
+            read-write-configuration-register(15),
+            read-only-register(16),
+            read-write-register(17),
+            local-loopback(18),
+            host-loopback(19),
+            module-to-host-interrupt(20),
+            host-to-module-interrupt(21)
+            }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object indicates the specific test that caused the
+         POST to fail.  If the ATM module passed POST, this
+         item will return no-failure(2)."
+    ::= { fmAtmCfgEntry 3 }
+
+fmAtmCfgPOSTLoopbackResult   OBJECT-TYPE
+    SYNTAX  INTEGER {
+            other(1),           -- other than the following
+            unknown(2),
+        no-failure(3),
+            cannot-transmit(4),
+            receive-timeout(5),
+            data-mismatch(6),
+            length-mismatch(7),
+            receiver-error(8),
+            buffer-error(9)
+            }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "In the event that the ATM module fails a loopback
+         test during POST, this object will indicate which
+         portion of the test caused the failure.  If the value
+         of fmAtmCfgPOSTTest is anything other than
+         local-loopback(17) or host-loopback(18)
+         this object will have the value no-failure(2)."
+    ::= { fmAtmCfgEntry 4 }
+
+fmAtmCfgFramingMode   OBJECT-TYPE
+    SYNTAX  INTEGER {
+            sts-3c(1),
+            stm-1(2)
+            }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "The mode of operation for the SONET PLIM.
+         The default value is sts-3c(1)."
+    ::= { fmAtmCfgEntry 5 }
+
+fmAtmStatsInfo      OBJECT IDENTIFIER ::= { fmAtmBasic 2 }
+
+fmAtmRxStatTable  OBJECT-TYPE
+    SYNTAX      SEQUENCE OF FmAtmRxStatEntry
+    ACCESS      not-accessible
+    STATUS      mandatory
+    DESCRIPTION
+        "Table of receive statistics on ATM modules."
+    ::= { fmAtmStatsInfo 1}
+
+fmAtmRxStatEntry   OBJECT-TYPE
+    SYNTAX      FmAtmRxStatEntry
+    ACCESS      not-accessible
+    STATUS      mandatory
+    DESCRIPTION
+        "An entry in the table, containing receive statistics
+         about one ATM module."
+    INDEX    { fmAtmRxStatIndex }
+    ::= { fmAtmRxStatTable 1 }
+
+FmAtmRxStatEntry ::=
+    SEQUENCE {
+        fmAtmRxStatIndex
+            INTEGER,
+        fmAtmRxControlFrames
+            Counter,
+        fmAtmRxLocalLecFrames
+            Counter,
+        fmAtmRxNoBufferDiscards
+            Counter,
+        fmAtmRxCRCErrors
+            Counter,
+        fmAtmRxFrameTooLongs
+            Counter,
+        fmAtmRxOtherDiscards
+            Counter,
+        fmAtmRxHecCellErrors
+            Counter
+    }
+
+fmAtmRxStatIndex  OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object identifies the module for which
+         this entry contains information.  This value
+         is never greater than esModuleCapacity."
+    ::= { fmAtmRxStatEntry 1 }
+
+fmAtmRxControlFrames OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A count of number of AAL5 control frames received by
+         the module."
+    ::= { fmAtmRxStatEntry 2 }
+
+fmAtmRxLocalLecFrames OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A count of AAL5 frames received with LEC ids
+         matching the module's LEC id. These frames
+         are discarded."
+    ::= { fmAtmRxStatEntry 3 }
+
+fmAtmRxNoBufferDiscards OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A count of AAL5 frames received that were discarded due
+         to a lack of frame buffer resources in the module's
+         forwarding engine."
+    ::= { fmAtmRxStatEntry 4 }
+
+fmAtmRxCRCErrors OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A count of AAL5 frames received that were discarded due
+         to CRC errors."
+    ::= { fmAtmRxStatEntry 5 }
+
+fmAtmRxFrameTooLongs OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A count of AAL5 frames received that exceed the maximum
+         permitted frame size as defined by ifMtu object the port."
+    ::= { fmAtmRxStatEntry 6 }
+
+fmAtmRxOtherDiscards OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A count of AAL5 frames received that were discarded due
+         to reasons other than a lack of frame buffer resources in the
+         module's forwarding engine, errors, frames exceeding maximum
+         frame size, or frames with LEC id matching the module's LEC id."
+    ::= { fmAtmRxStatEntry 7 }
+
+fmAtmRxHecCellErrors OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "A count of ATM cells received with errors in HEC header."
+    ::= { fmAtmRxStatEntry 8 }
+
+END

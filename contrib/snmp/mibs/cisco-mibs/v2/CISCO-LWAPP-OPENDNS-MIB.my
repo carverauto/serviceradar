@@ -1,0 +1,427 @@
+-- *******************************************************************
+-- CISCO-LWAPP-OPENDNS-MIB.my
+-- September 2016, Leelaram Paspulati
+--   
+-- Copyright (c) 2016-2017 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-OPENDNS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE
+        FROM SNMPv2-SMI    
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF 
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    cLWlanIndex
+        FROM CISCO-LWAPP-WLAN-MIB 
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappOpendnsMIB MODULE-IDENTITY
+    LAST-UPDATED    "201807030000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+
+            Postal: 170 West Tasman Drive 
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            Email: cs-wnbu-snmp@cisco.com "
+    DESCRIPTION
+            "This MIB is intended to be implemented on all those  
+            devices operating as Central Controllers (CC) that
+            terminate the Light Weight Access Point Protocol 
+            tunnel from Light-weight LWAPP Access Points. 
+
+            This MIB provides configuration and status information 
+            about the OPENDNS on the controller.
+
+            Particularly this mib covers the OPENDNS for the wireless
+            controllers.
+            
+            OpenDNS provides cloud based security service by inspecting 
+            DNS query. 
+
+            It can filter the fully qualified domain name(FQDN) from 
+            the DNS query and provide customized policy for the 
+            security administrator to allow or deny traffic towards 
+            the FQDN. 
+
+            ISR4K platform can act as a DNS forwarder on network 
+            edge, the router can transparently intercept the DNS 
+            traffic and forward DNS queries to the OpenDNS cloud.
+
+                                 GLOSSARY 
+
+           Access Point ( AP )
+
+           An entity that contains an 802.11 medium access
+           control ( MAC ) and physical layer ( PHY ) interface
+           and provides access to the distribution services via
+           the wireless medium for associated clients.  
+
+           LWAPP APs encapsulate all the 802.11 frames in
+           LWAPP frames and sends it to the controller to which
+           it is logically connected to.
+
+           Central Controller ( CC )
+
+           The central entity that terminates the LWAPP protocol
+           tunnel from the LWAPP APs.  Throughout this MIB,
+           this entity also referred to as 'controller'.
+
+           Light Weight Access Point Protocol ( LWAPP ) 
+
+           This is a generic protocol that defines the
+           communication between the Access Points and the
+           controllers."
+
+    REVISION        "201807030000Z"
+    DESCRIPTION
+            "Added following objects
+			-claOpendnsWlanDhcpOpt6."
+		   
+    REVISION        "201702100000Z"
+    DESCRIPTION
+            "Initial version of this MIB module."
+          ::= { ciscoMgmt 837 }
+
+
+ciscoLwappOpendnsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappOpendnsMIB 0 } 
+
+ciscoLwappOpendnsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappOpendnsMIB 1 } 
+
+ciscoLwappOpendnsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappOpendnsMIB 2 } 
+
+ciscoLwappOpendnsTag    OBJECT IDENTIFIER
+    ::= { ciscoLwappOpendnsMIBObjects 1 }
+
+ciscoLwappOpendnsConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappOpendnsMIBObjects 2 } 
+
+
+-- ********************************************************************
+-- *    Opendns Feature Configurations
+-- ********************************************************************
+
+claOpendnsEnable OBJECT-TYPE
+    SYNTAX          TruthValue 
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OpenDNS status
+        of the controller. 
+        A value of 'true' indicates that Opendns Feature will
+        be turned on.
+        A value of 'false' indicates that Opendns Feature will
+        be turned off."
+    DEFVAL          { false } 
+    ::= { ciscoLwappOpendnsConfig 1 } 
+
+claOpendnsForceEnable OBJECT-TYPE
+    SYNTAX          TruthValue  
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OpenDNS status  
+        of the controller. 
+        A value of 'true' indicates that Opendns will be 
+        the default DNS.
+        A value of 'false' indicates that Opendns will not 
+        be the default DNS.."
+    DEFVAL          { false } 
+    ::= { ciscoLwappOpendnsConfig 2 }
+
+claOpendnsApiToken OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "This object specifies the Api-Token  for Opendns cloud server."
+    DEFVAL    { "" }
+    ::=    { ciscoLwappOpendnsConfig 3 } 
+ 
+
+-- *******************************************************************
+-- Opendns Profile table
+-- *******************************************************************
+
+claOpendnsProfileTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF CLaOpendnsProfileEntry
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+            " This table represents the information about 
+              Opendns profiles."
+        ::= { ciscoLwappOpendnsTag 1 } 
+
+claOpendnsProfileEntry OBJECT-TYPE
+        SYNTAX        CLaOpendnsProfileEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+            "An entry containing the configuration attributes 
+             Opendns Feature"
+        INDEX   { claOpendnsProfileName }
+        ::= { claOpendnsProfileTable 1 } 
+
+CLaOpendnsProfileEntry ::= 
+        SEQUENCE {
+                claOpendnsProfileName       SnmpAdminString,  
+                claOpendnsProfileRowStatus  RowStatus,
+                claOpendnsProfileStatus     INTEGER,
+                claOpendnsProfileIdentity   SnmpAdminString
+        }   
+claOpendnsProfileName OBJECT-TYPE
+        SYNTAX        SnmpAdminString
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This object represents the OpenDNS profile name."
+        ::= { claOpendnsProfileEntry 1 } 
+
+claOpendnsProfileRowStatus OBJECT-TYPE
+        SYNTAX             RowStatus
+        MAX-ACCESS         read-create
+        STATUS             current
+        DESCRIPTION
+              "This object represents status column for this row 
+              and used to create, modify and delete specific 
+              instances of rows in this table.
+              This table supports modification of writable 
+              objects when the RowStatus is 'active'.
+              The following objects are mandatory for successful
+              creation of an entry:
+              claOpendnsProfileName."
+        ::= { claOpendnsProfileEntry 2 }
+
+claOpendnsProfileStatus OBJECT-TYPE
+        SYNTAX             INTEGER{
+                              notInuse(1), 
+                              inProgress(2),
+                              success(3),
+                              failed(4),
+                              inuse(5)
+                           }
+        MAX-ACCESS         read-only
+        STATUS             current
+        DESCRIPTION
+                "This object represents the Profile registration 
+                 status with opendns server. 
+                 notInuse indicates that the Profile is not in 
+                 used state.
+                 inProgress indicates that the Profile is in the 
+                 process of registering with opendns server. 
+                 success indicates that the Profile registered 
+                 successfully. 
+                 failed indicates that the Profile registration 
+                 failed. 
+                 inuse indicate that the Profile is in Used state."
+        DEFVAL          { notInuse }
+        ::= { claOpendnsProfileEntry 3 } 
+
+claOpendnsProfileIdentity OBJECT-TYPE
+        SYNTAX             SnmpAdminString
+        MAX-ACCESS         read-only
+        STATUS             current
+        DESCRIPTION
+                "This object represents the Identity of the profile 
+                 in the Opendns Dashboard"
+        ::= { claOpendnsProfileEntry 4 } 
+
+-- *******************************************************************
+-- Opendns Wlan Profile table
+-- *******************************************************************
+
+claOpendnsWlanTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLaOpendnsWlanEntry    
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This table represents the generic Opendns configuration for  
+         a particular WLAN in a controller."
+        ::= { ciscoLwappOpendnsTag 2 }
+
+claOpendnsWlanEntry OBJECT-TYPE
+    SYNTAX         CLaOpendnsWlanEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "Each entry in this table represents the generic Opendns
+        configuration for a WLAN."
+    INDEX           { cLWlanIndex }
+    ::= { claOpendnsWlanTable 1 }
+CLaOpendnsWlanEntry ::= SEQUENCE {
+        claOpendnsWlanProfileName          SnmpAdminString,
+        claOpendnsWlanMode                 INTEGER,
+        claOpendnsWlanProfileStatus        TruthValue,
+		claOpendnsWlanDhcpOpt6			   TruthValue
+}
+
+claOpendnsWlanProfileName OBJECT-TYPE
+   SYNTAX                 SnmpAdminString
+   MAX-ACCESS             read-write
+   STATUS                 current
+   DESCRIPTION
+      "This object indicates the Opendns Mapped
+       profile associated to this WLAN."
+    DEFVAL          { "" }
+    ::= {claOpendnsWlanEntry 1}
+
+claOpendnsWlanMode OBJECT-TYPE
+       SYNTAX      INTEGER {
+                   ignore(1),
+                   force(2),
+                   copy(3)
+                   }
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+            "This object specifies the Opendns Mode associated 
+            to this particular WLAN. 
+            ignore mode indicates the normal dns will be used. 
+            copy mode indicates the stats will be copied from opendns. 
+            force mode indicates that opendns server will be forced 
+            to use."
+       DEFVAL          { force }
+       ::= { claOpendnsWlanEntry 2 }
+
+claOpendnsWlanProfileStatus    OBJECT-TYPE
+        SYNTAX                 TruthValue
+        MAX-ACCESS             read-write
+        STATUS                 current
+        DESCRIPTION
+             "This object represents the Opendns status of 
+             wlan. 
+             A value of 'true' indicates that Opendns feature 
+             will be turned on for the wlan.   
+             A value of 'false' indicates that Opendns feature
+             will be turned off for the wlan."
+        DEFVAL          { false } 
+        ::= { claOpendnsWlanEntry 3 }
+
+claOpendnsWlanDhcpOpt6         OBJECT-TYPE
+        SYNTAX                 TruthValue
+        MAX-ACCESS             read-write
+        STATUS                 current
+        DESCRIPTION
+             "This object represents the Opendns dhcp option 6 status
+             of a WLAN.
+             A value of 'true' indicates that Opendns dhcp option 6 
+             is enabled for the WLAN.   
+             A value of 'false' indicates that Opendns dhcp option 6
+             is disabled for the WLAN."
+        DEFVAL          { true }
+        ::= { claOpendnsWlanEntry 4 }
+		
+--*******************************************************************
+--*    Compliance statements  
+--*******************************************************************
+ciscoLwappOpendnsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappOpendnsMIBConform 1 } 
+
+ciscoLwappOpendnsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappOpendnsMIBConform 2 } 
+
+
+ciscoLwappOpendnsMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that   
+        implement the ciscoLwappOpendnsMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoLwappOpendnsTagGroup }
+    ::= { ciscoLwappOpendnsMIBCompliances 1 } 
+
+ciscoLwappOpendnsMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that   
+        implement the ciscoLwappOpendnsMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappOpendnsTagGroup,
+                        ciscoLwappOpendnsConfigGroup
+                    }   
+    ::= { ciscoLwappOpendnsMIBCompliances 2 } 
+
+ciscoLwappOpendnsMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that   
+        implement the ciscoLwappOpendnsMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappOpendnsTagGroup,
+                        ciscoLwappOpendnsConfigGroup,
+						ciscoLwappOpendnsTagGroupVer2
+                    }   
+    ::= { ciscoLwappOpendnsMIBCompliances 3 }
+
+-- *******************************************************************
+-- *    Units of conformance
+-- *******************************************************************
+ciscoLwappOpendnsTagGroup OBJECT-GROUP
+    OBJECTS         {
+                            claOpendnsProfileRowStatus,
+                            claOpendnsWlanProfileName,
+                            claOpendnsWlanMode,
+                            claOpendnsWlanProfileStatus,
+                            claOpendnsProfileStatus,
+                            claOpendnsProfileIdentity							
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This collection of objects represents the information 
+        about the general attributes of Opendns."
+    ::= { ciscoLwappOpendnsMIBGroups 1 }
+
+ciscoLwappOpendnsConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        claOpendnsEnable,
+                        claOpendnsForceEnable,
+                        claOpendnsApiToken
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the information
+        about the general attributes of Opendns."
+    ::= { ciscoLwappOpendnsMIBGroups 2 }
+	
+ciscoLwappOpendnsTagGroupVer2 OBJECT-GROUP
+    OBJECTS         {
+                            claOpendnsProfileRowStatus,
+                            claOpendnsWlanProfileName,
+                            claOpendnsWlanMode,
+                            claOpendnsWlanProfileStatus,
+                            claOpendnsProfileStatus,
+                            claOpendnsProfileIdentity,
+							claOpendnsWlanDhcpOpt6
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the information 
+        about the general attributes of Opendns."
+    ::= { ciscoLwappOpendnsMIBGroups 3 }
+
+END
+

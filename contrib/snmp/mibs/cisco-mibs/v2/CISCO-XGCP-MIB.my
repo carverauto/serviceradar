@@ -1,0 +1,2485 @@
+-- ********************************************************************
+-- CISCO-XGCP-MIB
+--
+-- Media Gateway Control Protocol Management Information Base
+--
+-- August 2002, Margaret Hsieh
+--
+-- Copyright (c) 2002-2006 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *********************************************************************
+
+CISCO-XGCP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32, Counter32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION, TruthValue         
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE, OBJECT-GROUP   
+        FROM SNMPv2-CONF
+    InetAddress, InetAddressType
+        FROM INET-ADDRESS-MIB
+    cmgwIndex, CCallControlProfileIndexOrZero 
+        FROM CISCO-MEDIA-GATEWAY-MIB
+    CMgcGroupIndexOrZero
+       FROM CISCO-MGC-MIB
+    CiscoPort
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB;
+
+
+ciscoXgcpMIB MODULE-IDENTITY
+    LAST-UPDATED "200602210000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+        "        Cisco Systems
+                 Customer Service
+         Postal: 170 W Tasman Drive
+                 San Jose, CA 95134
+                 USA
+            Tel: +1 800 553-NETS
+         E-mail: cs-voice-gateway@cisco.com"
+ 
+    DESCRIPTION
+        "This MIB is an enhancement for existing XGCP-MIB.
+
+         xGCP is a set of protocols, for example SGCP (Simple
+         Gateway Control Protocol) and MGCP (Media Gateway
+         Control Protocol), which are designed as a control 
+         protocol within a distributed system that appears  
+         to the outside as a single VoIP/VoATM gateway. 
+         This system is composed of a call agent (or MGC,
+         Media Gateway Controller) and of a set of  
+         'media gateways' that perform the conversion of media   
+         signals between circuits and packets.  
+         In the xGCP model, the gateways focus on the audio signal 
+         translation function, while the call agent handles the  
+         signaling and call processing functions.
+
+         Examples of Gateway Control Protocols are:
+           * Simple Gateway Control Protocol (SGCP)
+           * Media Gateway Control Protocol (MGCP)
+
+         xGCP assumes a connection model where the basic constructs are:
+
+           Endpoints   : sources or sinks of data that could be physical
+                         or virtual.
+
+           Connections : an association between two or more endpoints 
+                         with the purpose of transmitting data between 
+                         these endpoints. 
+                         Once this association is established for both
+                         endpoints, data transfer between these 
+                         endpoints can take place. 
+
+         Connections are grouped in calls. One or more connections 
+         can belong to one call. Connections and calls are set up at 
+         the initiative of one or several call agents.
+
+         Terminologies used:
+        
+         AAL    : ATM Adaptation Layer
+         AUCX   : Audit Connection Command used by the MGC to find out  
+                  the status of a given gateway connection.
+         AUEP   : Audit Endpoint Command used by the MGC to find out the 
+                  status of a given endpoint.
+         CCAPI  : Call Control Application Program Interface.
+         CID    : Channel Identifier
+         CRCX   : Connection Command from a MGC to request the 
+                  gateway
+         MG     : Media Gateway
+         MGC    : Media Gateway Controller
+         DLCX   : Delete Command. This command can be initiated by 
+                  either the MGC or gateway.
+         GSM    : Global System for Mobile Communications
+         GW     : Gateway.
+         HP     : Hairpin
+         MDCX   : Modify Connection Command from a MGC to request the 
+                  gateway
+         NSE    : Negative Stuffing Event 
+         NTFY   : A Notify Command sent from a gateway to a MGC in  
+                  response to a RQNT command.
+         PSTN   : Public Switched Telephone Network
+         RQNT   : Request To Nofity Command from a MGC to request the 
+                  gateway to provide a notification for configuration 
+                  changes.
+         RSIP   : Restart in Progress Command.  This command can be 
+                  initiated by either the MGC or gateway.
+         SPRT   : Simple Packet Relay Transport
+         SSE    : Silicon Switching Engine
+         TDM    : Time Division Multiplexing
+         TGW    : Target Gateway
+         TWC    : Three Way Calling
+         VCCI   : Virtual Circuit Connection Identifier
+         VMG    : Virtual Media Gateway. It is a logical representation of
+                  a module (or a set of modules) that has MG functionality.
+                  There could be multiple VMGs in a device.
+         VoAAL2 : Voice over AAL2"
+ 
+    REVISION    "200602210000Z"
+    DESCRIPTION
+        "Added 7 new MGCP Packages to cXgcpMediaGwTable."
+
+    REVISION    "200512210000Z"
+    DESCRIPTION
+        "Sanitized the whole MIB."
+
+    REVISION    "200508240000Z"
+    DESCRIPTION
+        "[1] Added table for Media Gateway statistics regarding
+             Received and transmitted network messages.
+         [2] Added table for active connections that are controlled
+             by the Media Gateway."
+
+    REVISION    "200508090000Z"
+    DESCRIPTION
+        "Added cXgcpMediaGwAnnexabSdpEnabled to cXgcpMediaGwTable."
+
+    REVISION    "200503070000Z"
+    DESCRIPTION
+        "Added the following objects to cXgcpMediaGwTable
+             cXgcpMediaGwLongDurTimer,
+             cXgcpMediaGwProfile
+        "
+
+    REVISION    "200411150000Z"
+    DESCRIPTION
+        "Added the following objects to cXgcpMediaGwTable
+             cXgcpMediaGwConfiguredPackages,
+             cXgcpMediaGwConnOosRsipBehavior
+        "
+        
+    REVISION    "200408300000Z"
+    DESCRIPTION
+        "[1] Added the value resetTimerForEndpoint to
+             CXgcpRetryMethod textual convention. 
+         [2] Widened the range of cXgcpMediaGwMaxExpTimeout.
+         [3] Added cXgcpMediaGwCaleaEnabled to cXgcpMediaGwTable.
+        "
+        
+    REVISION      "200405140000Z"
+    DESCRIPTION
+        "Added the following objects:
+             cXgcpMediaGwLastFailMgcAddrType,
+             cXgcpMediaGwLastFailMgcAddr,
+             cXgcpMediaGwDtmfRelay
+        "
+
+    REVISION      "200302030000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+
+    ::= { ciscoMgmt 318 }
+
+
+cXgcpNotifications          OBJECT IDENTIFIER ::= { ciscoXgcpMIB 0 }
+cXgcpObjects                OBJECT IDENTIFIER ::= { ciscoXgcpMIB 1 }
+
+cXgcpMgcCfg                 OBJECT IDENTIFIER ::= { cXgcpObjects 1 }
+cXgcpMediaGw                OBJECT IDENTIFIER ::= { cXgcpObjects 2 }
+cXgcpStats                  OBJECT IDENTIFIER ::= { cXgcpObjects 3 }
+cXgcpConnection             OBJECT IDENTIFIER ::= { cXgcpObjects 4 }
+
+--*********************************************************************
+--
+-- Textual Conventions
+--
+--*********************************************************************
+
+CXgcpRetryMethod ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Method of resetting retry timer in XGCP.
+
+         When media gateway re-try to communication to a call agent,
+         the timeout for each re-try is doubled.
+     
+         Example: 
+               re-try time is 3
+               initial timeout is 2 (any unit)
+               maximum possible retry time is 256
+               MGC group has 2 MGC and each MGC has two IP address
+
+           timeout for neverResetTimer will be as:
+               MGC 1 IP11: 2 4 8
+               MGC 1 IP12: 16 32 64
+               MGC 2 IP21: 128 256 512
+               MGC 1 IP22: 1024 2048 4096
+
+           timeout for resetTimerForNewMgc will be as:
+               MGC 1 IP11: 2 4 8
+               MGC 1 IP12: 16 32 64
+               MGC 2 IP21: 2 4 8
+               MGC 1 IP22: 16 32 64
+
+           timeout for resetTimerForNewAddr will be as:
+               MGC 1 IP11: 2 4 8
+               MGC 1 IP12: 2 4 8
+               MGC 2 IP21: 2 4 8
+               MGC 1 IP22: 2 4 8              
+
+           timeout for resetTimerForEndpoint will be as:
+               MGC 1 IP11: 2 4 8
+               MGC 1 IP12: 16 32 64 
+               MGC 2 IP21: 128 256 256 
+               MGC 1 IP22: 256 256 256    
+        "
+    SYNTAX     INTEGER {
+                  neverResetTimer (1),
+                  resetTimerForNewMgc (2),
+                  resetTimerForNewAddr (3),
+                  resetTimerForEndpoint (4)
+               }
+
+--
+--  MGC Call Events Textual Convention
+--
+CXgcpCallEvent ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents possible Gateway Control Protocol Call Events.
+         ack               - Acknowledgement msg
+         createConn        - Create connection msg
+         deleteConn        - Delete connection msg
+         modifyConn        - Modify connection msg
+         notifyReq         - Notify request msg
+         alert             - CCAPI alert event
+         callConnect       - CCAPI call connect event
+         confReady         - CCAPI conference ready 
+         confDestroy       - CCAPI conference destroyed
+         callDisconnect    - CCAPI call disconnect
+         callProceed       - CCAPI call proceeding
+         offHook           - CCAPI off-hook/call setup ind
+         onHook            - CCAPI on-hook/call disconnected
+         mediaEvent        - Media Events
+         intEven           - Internal Events
+         dissocConf        - Dissociate Conf
+         assocConf         - Associate Conf
+         modifyDone        - CCAPI Call modify done event
+         voiceModeDone     - Voice Cut-thru has happened
+         nse               - CCAPI NSE events
+         callHandoff       - Handoff Call to some other app
+         babblerAuditResp  - CCAPI babbler audit response
+         "
+    SYNTAX      INTEGER {
+         ack               (0),
+         createConn        (1),
+         deleteConn        (2),
+         modifyConn        (3),
+         notifyReq         (4),
+         alert             (5),
+         callConnect       (6),
+         confReady         (7),
+         confDestroy       (8),
+         callDisconnect    (9),
+         callProceed       (10),
+         offHook           (11),
+         onHook            (12),
+         mediaEvent        (13),
+         intEven           (14),
+         dissocConf        (15),
+         assocConf         (16),
+         modifyDone        (17),
+         voiceModeDone     (18),
+         nse               (19),
+         callHandoff       (20),
+         babblerAuditResp  (21)
+    }
+
+-- *****************************************************************
+-- The XGCP MGC Table 
+-- *****************************************************************
+cXgcpMgcConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CXgcpMgcConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This is a table which is used to provision a MGC or MGC
+         group for a MG. Each entry corresponds to a MGC or a 
+         MGC group for a single MG.
+        "
+    ::= { cXgcpMgcCfg 1 }
+
+cXgcpMgcConfigEntry OBJECT-TYPE
+    SYNTAX          CXgcpMgcConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row corresponds to a MGC or a group of MGCs for a media 
+         gateway."
+    INDEX   { cmgwIndex }
+    ::= { cXgcpMgcConfigTable 1 }
+
+CXgcpMgcConfigEntry ::= SEQUENCE {
+    cXgcpMgcConfigMgcGrpNum       CMgcGroupIndexOrZero,
+    cXgcpMgcConfigAddrType        InetAddressType,
+    cXgcpMgcConfigAddress         InetAddress,
+    cXgcpMgcConfigProtocolIndex   Integer32,
+    cXgcpMgcConfigGatewayUdpPort  CiscoPort
+}
+
+cXgcpMgcConfigMgcGrpNum OBJECT-TYPE
+    SYNTAX              CMgcGroupIndexOrZero 
+    MAX-ACCESS          read-write
+    STATUS              current
+    DESCRIPTION
+        "This object specifies which MGC Redundant Group 
+         will be used in XGCP. 
+         The value of this object refers to the object cMgcGrpIndex
+         from MGC Redundant Group Table, cMgcGrpParamTable.
+
+         There are two conditions to associate a MGC group:
+         1. At least one MGC is associated with the MGC group
+         2. At least one protocol is associated with the MGC 
+            group
+
+         If the value of the object is non-zero, it means
+         the media gateway has a MGC Redundant Group.
+         In the call setup, the parameters of call agents
+         within the MGC Redundant Group will be sequentially
+         tried according to its preference.
+
+         This object cXgcpMgcConfigMgcGrpNum and object
+         cXgcpMgcConfigAddress are mutually exclusive.
+         The object cXgcpMgcConfigAddress can be set only when
+         the object cXgcpMgcConfigMgcGrpNum is equal to 0.
+
+         If the value of the object is 0, which means there is
+         no MGC Redundant Group associated with the media gateway. 
+         It has only one call agent (in media gateway level) to 
+         communicate with. This call agent is indicated by 
+         cXgcpMgcConfigAddress and will be used in call setup 
+         (if call set-up on media gateway level).  "
+    DEFVAL { 0 }
+    ::= { cXgcpMgcConfigEntry 1 }
+
+cXgcpMgcConfigAddrType  OBJECT-TYPE
+    SYNTAX              InetAddressType
+    MAX-ACCESS          read-write
+    STATUS              current
+    DESCRIPTION
+        "This object specifies the address type of the MGC
+         (object cXgcpMgcConfigAddress), either ipv4 or ipv6."
+    DEFVAL { ipv4 }
+    ::= { cXgcpMgcConfigEntry 2 }
+
+cXgcpMgcConfigAddress  OBJECT-TYPE
+    SYNTAX             InetAddress
+    MAX-ACCESS         read-write
+    STATUS             current
+    DESCRIPTION
+        "This object specifies the address of the MGC
+         the gateway used to communicate with in call setup.
+
+         This object cXgcpMgcConfigAddress and object 
+         cXgcpMgcConfigMgcGrpNum are mutually exclusive.
+         The object cXgcpMgcConfigAddress can be set only when
+         the object cXgcpMgcConfigMgcGrpNum is equal to 0.
+         Otherwise, the SET will be rejected with error. "
+    DEFVAL { '00000000'h }
+    ::= { cXgcpMgcConfigEntry 3 }
+
+cXgcpMgcConfigProtocolIndex OBJECT-TYPE
+    SYNTAX              Integer32 (1..32)
+    MAX-ACCESS          read-write
+    STATUS              current
+    DESCRIPTION
+        "This object specifies which protocol that the MG
+         should use to communicate with the MGC when it
+         try to set up the call.
+
+         The value of this object is the same as the value of object
+         cMediaGwProtocolIndex from protocol table 
+         (cMediaGwProtocolTable).
+
+         If the value of cXgcpMgcConfigMgcGrpNum is non-zero, this 
+         object will be ignored because the protocol will be 
+         determined by the MGC group.
+
+         The initial value is 1, means the system should have at
+         least one default protocol between the gateway and the MGC
+         created in the cMeidaGwProtocolTable when the system is
+         initialized. "
+    DEFVAL { 1 }
+    ::= { cXgcpMgcConfigEntry 4 }
+
+cXgcpMgcConfigGatewayUdpPort  OBJECT-TYPE
+    SYNTAX                    CiscoPort 
+    MAX-ACCESS                read-only
+    STATUS                    current
+    DESCRIPTION
+        "The UDP port of the MG which is used to communicate with
+         call agent in MGCP."
+    REFERENCE
+        "RFC2705 - Media Gateway Control Protocol (MGCP)
+         version 1.0 : Section 3.6 Transmission over UDP
+        "
+    DEFVAL { 2427 }
+    ::= { cXgcpMgcConfigEntry 5 }
+
+-- *********************************************************************
+-- The XGCP Media Gateway 
+-- *********************************************************************
+cXgcpMediaGwTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CXgcpMediaGwEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to provision xGCP configuration in
+         a MG."
+    ::= { cXgcpMediaGw 1 }
+
+cXgcpMediaGwEntry OBJECT-TYPE
+    SYNTAX          CXgcpMediaGwEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents the xGCP attributes for a media 
+         gateway.
+
+         An entry is created when the system detects the XGCP stack 
+         at system start-up.
+         Accordingly, the existing entry shall be deleted when 
+         the system can't locate the XGCP stack at system start-up."
+    INDEX   { cmgwIndex }
+
+    ::= { cXgcpMediaGwTable 1 }
+
+CXgcpMediaGwEntry ::= SEQUENCE {
+    cXgcpMediaGwRequestTimeOut       Integer32,
+    cXgcpMediaGwRequestRetries       Integer32,
+    cXgcpMediaGwRequestRetryMethod   CXgcpRetryMethod,
+    cXgcpMediaGwMaxExpTimeout        Integer32,
+    cXgcpMediaGwRestartMwd           Integer32,
+    cXgcpMediaGwRestartDelay         Integer32,
+    cXgcpMediaGwDefaultPackage       INTEGER,
+    cXgcpMediaGwSupportedPackages    BITS,
+    cXgcpMediaGwSimpleSdpEnabled     TruthValue,
+    cXgcpMediaGwAckSdpEnabled        TruthValue,
+    cXgcpMediaGwUndottedNotation     TruthValue,
+    cXgcpMediaGwQuarantineProcess    TruthValue,
+    cXgcpMediaGwQuarantineLoop       TruthValue,
+    cXgcpMediaGwQuarantinePersist    TruthValue,
+    cXgcpMediaGwPiggybackMsg         TruthValue,
+    cXgcpMediaGwMaxMsgSize           Integer32,
+    cXgcpMediaGwLastFailMgcAddrType  InetAddressType,
+    cXgcpMediaGwLastFailMgcAddr      InetAddress,
+    cXgcpMediaGwDtmfRelay            TruthValue,
+    cXgcpMediaGwCaleaEnabled         TruthValue,
+    cXgcpMediaGwConfiguredPackages   BITS,
+    cXgcpMediaGwConnOosRsipBehavior  INTEGER,
+    cXgcpMediaGwLongDurTimer         Integer32,
+    cXgcpMediaGwProfile              CCallControlProfileIndexOrZero,
+    cXgcpMediaGwAnnexabSdpEnabled    TruthValue
+}
+
+cXgcpMediaGwRequestTimeOut OBJECT-TYPE
+    SYNTAX                 Integer32 (1..10000)  
+    UNITS                  "milliseconds"
+    MAX-ACCESS             read-write
+    STATUS                 current
+    DESCRIPTION
+        "The request timeout is the period that the XGCP protocol 
+         waits before retransmitting an unacknowledged message.
+         It is the responsibility of the requesting entity to 
+         provide suitable timeouts for all outstanding commands, 
+         and to retry commands when timeouts exceeded. "
+    REFERENCE
+        "RFC2705 - Media Gateway Control Protocol (MGCP)
+         version 1.0 : 
+         Section 3.6.3 Computing retransmission timers"
+    DEFVAL { 500 }
+    ::= { cXgcpMediaGwEntry 1 }
+
+cXgcpMediaGwRequestRetries  OBJECT-TYPE
+    SYNTAX                  Integer32 (0..10)
+    UNITS                   "times"
+    MAX-ACCESS              read-write
+    STATUS                  current
+    DESCRIPTION
+        "This object specifies the number of retries for a request 
+         that exceeds timeout without acknowledge before it tries 
+         to connect to another MGC."
+    REFERENCE
+        "RFC2705 - Media Gateway Control Protocol (MGCP)
+         version 1.0 : 
+         Section 2.1.4 Names of Call Agents and other entities"
+    DEFVAL { 3 }
+    ::= { cXgcpMediaGwEntry 2 }
+
+cXgcpMediaGwRequestRetryMethod OBJECT-TYPE
+    SYNTAX                     CXgcpRetryMethod 
+    MAX-ACCESS                 read-write
+    STATUS                     current
+    DESCRIPTION
+        "This object specifies command retry method."
+    ::= { cXgcpMediaGwEntry 3 }
+
+cXgcpMediaGwMaxExpTimeout OBJECT-TYPE
+    SYNTAX                Integer32 (1..60000)
+    UNITS                 "milliseconds"
+    MAX-ACCESS            read-write
+    STATUS                current
+    DESCRIPTION
+        "This object specifies the maximum timeout for 
+         exponential command retry by the media gateway."
+    DEFVAL { 4000 }
+    ::= { cXgcpMediaGwEntry 4 }
+
+cXgcpMediaGwRestartMwd OBJECT-TYPE
+    SYNTAX             Integer32 (0..600000)
+    UNITS              "milliseconds"
+    MAX-ACCESS         read-write
+    STATUS             current
+    DESCRIPTION
+        "The maximum waiting delay (MWD) timeout value is used 
+         for the media gateway to send the first Restart In 
+         Progress to the MGC.
+
+         When a gateway is powered on, it should initiate a restart 
+         timer to a random value, uniformly distributed between 0 and 
+         a maximum waiting delay (MWD). The gateway should send the 
+         first RSIP message when the timer expires.
+
+         The initial value of this object is chosen in an
+         implementation-dependent manner by the MGCP functionality
+         based on the call volume of the system. "
+    REFERENCE
+        "RFC2705 - Media Gateway Control Protocol (MGCP)
+         version 1.0 : Section 4.3.4 Fighting the restart avalanche"
+    DEFVAL { 3000 }
+    ::= { cXgcpMediaGwEntry 5 }
+
+cXgcpMediaGwRestartDelay OBJECT-TYPE
+    SYNTAX               Integer32 (0..600)
+    UNITS                "seconds"
+    MAX-ACCESS           read-write
+    STATUS               current
+    DESCRIPTION
+        "This object specifies the Restart Delay Timeout for
+         the restart process for a gateway to send out 
+         RestartInProgress when it is powered on or
+         been reset.
+
+         The purpose of setting the Restart Delay timer before 
+         sending the RestartInProgress notification to the 
+         media gateway controller is to avoid the network 
+         congestion during the critical period of service 
+         restoration. "
+    REFERENCE
+        "RFC2705 - Media Gateway Control Protocol (MGCP)
+         version 1.0 : Section 4.3.4 Fighting the restart avalanche"
+    DEFVAL { 0 }
+    ::= { cXgcpMediaGwEntry 6 }
+
+cXgcpMediaGwDefaultPackage OBJECT-TYPE
+    SYNTAX                 INTEGER {
+                              packageDC    (1),
+                              packageG     (2),
+                              packageD     (3),
+                              packageM     (4),
+                              packageT     (5),
+                              packageL     (6),
+                              packageH     (7),
+                              packageR     (8),
+                              packageN     (9),
+                              packageA     (10),
+                              packageS     (11),
+                              packageATM   (12),
+                              packageMS    (13),
+                              packageDT    (14),
+                              packageMO    (15),
+                              packageRES   (16),
+                              packageSASDI (17),
+                              packageIT    (18),
+                              packageMT    (19),
+                              packageB     (20),
+                              packageSST   (21),
+                              packageMDR   (22),
+                              packageFXR   (23),
+                              packageBA    (24),
+                              packageMD    (25),
+                              packageNAS   (26),
+                              packageMDSTE (27),
+                              packagePRE   (28),
+                              packageLCS   (29),
+                              packageSRTP  (30),
+                              packageFM    (31)
+                           }
+    MAX-ACCESS             read-write 
+    STATUS                 current
+    DESCRIPTION
+        "This object represents the default capability package
+         supported in the gateway. 
+
+         packageDC   ( 1) - Don't Care package
+         packageG    ( 2) - Generic package
+         packageD    ( 3) - DTMF package
+         packageM    ( 4) - MF package
+         packageT    ( 5) - Trunk package
+         packageL    ( 6) - Line package
+         packageH    ( 7) - Handset package
+         packageR    ( 8) - RTP package
+         packageN    ( 9) - NAS package
+         packageA    (l0) - Announcement Server package
+         packageS    (11) - Script package
+         packageATM  (12) - ATM package
+         packageMS   (13) - MF CAS package
+         packageDT   (14) - DTMF CAS package
+         packageMO   (15) - MO package
+         packageRES  (16) - RES package
+         packageSASDI(17) - ASDI package (S) NCS
+         packageIT   (18) - IT package (S) TGCP
+         packageMT   (19) - MT package
+         packageB    (20) - B package
+         packageSST  (21) - SST package
+         packageMDR  (22) - MDR package
+         packageFXR  (23) - FAX package
+         packageBA   (24) - Bulk Audit package
+         packageMD   (25) - MD package
+         packageNAS  (26) - Network Access Server package
+         packageMDSTE(27) - Modem relay Secure Telephone 
+                            Equipment package
+         packagePRE  (28) - PRE package
+         packageLCS  (29) - MGCP Line Control Signaling package
+         packageSRTP (30) - Secure RTP package
+         packageFM   (31) - Media Format Package
+        "
+    REFERENCE
+        "RFC2705 - Media Gateway Control Protocol (MGCP)
+         version 1.0 : 6.1.  Basic packages"
+    DEFVAL { packageG }
+    ::= { cXgcpMediaGwEntry 7 }
+
+cXgcpMediaGwSupportedPackages OBJECT-TYPE
+    SYNTAX                    BITS {
+                              notFound     (0),
+                              packageDC    (1),
+                              packageG     (2),
+                              packageD     (3),
+                              packageM     (4),
+                              packageT     (5),
+                              packageL     (6),
+                              packageH     (7),
+                              packageR     (8),
+                              packageN     (9),
+                              packageA     (10),
+                              packageS     (11),
+                              packageATM   (12),
+                              packageMS    (13),
+                              packageDT    (14),
+                              packageMO    (15),
+                              packageRES   (16),
+                              packageSASDI (17),
+                              packageIT    (18),
+                              packageMT    (19),
+                              packageB     (20),
+                              packageSST   (21),
+                              packageMDR   (22),
+                              packageFXR   (23),
+                              packageBA    (24),
+                              packageMD    (25),
+                              packageNAS   (26),
+                              packageMDSTE (27),
+                              packagePRE   (28),
+                              packageLCS   (29),
+                              packageSRTP  (30),
+                              packageFM    (31)
+                              } 
+    MAX-ACCESS                read-only
+    STATUS                    current
+    DESCRIPTION
+        "This object represents the bit map of MGCP supported 
+         packages. 
+
+         Bit 0  - Not Found
+         Bit 1  - Package DC     (Don't care package)
+         Bit 2  - Package G      (Generic package)
+         Bit 3  - Package D      (DTMF package)
+         Bit 4  - Package M      (MF package)
+         Bit 5  - Package T      (Trunk package)
+         Bit 6  - Package L      (Line package)
+         Bit 7  - Package H      (Handset package)
+         Bit 8  - Package R      (RTP package)
+         Bit 9  - Package N      (NAS package)
+         Bit 10 - Package A      (Announcement Server package)
+         Bit 11 - Package S      (Script package) 
+         Bit 12 - Package ATM    (ATM package)
+         Bit 13 - Package MS     (MF CAS package)
+         Bit 14 - Package DT     (DTMF CAS package)
+         Bit 15 - Package MO     (MO package)
+         Bit 16 - Package RES    (RES package)
+         Bit 17 - Package S_ASDI (ASDI package (S) NCS)
+         Bit 18 - Package IT     (IT package (S) TGCP)
+         Bit 19 - Package MT     (MT package)
+         Bit 20 - Package B      (B package)
+         Bit 21 - Package SST    (SST package)
+         Bit 22 - Package MDR    (MDR package)
+         Bit 23 - Package FXR    (FAX package)
+         Bit 24 - Package BA     (Bulk Audit package)
+         Bit 25 - Package MD     (MD package)
+         Bit 26 - Package NAS    (Network Access Server package)
+         Bit 27 - Package MDSTE  (Modem relay Secure Telephone 
+                                  Equipment package)
+         Bit 28 - Package PRE    (PRE package)
+         Bit 29 - Package LCS    (MGCP Line Control Signaling package)
+         Bit 33 - Package SRTP   (Secure RTP package)
+         Bit 31 - Package FM     (Media Format Package)
+
+         The value 0 means there is no supported packages. 
+        "
+    REFERENCE
+        "RFC2705 - Media Gateway Control Protocol (MGCP)
+         version 1.0 : 6.1.  Basic packages "
+    ::= { cXgcpMediaGwEntry 8 }
+
+cXgcpMediaGwSimpleSdpEnabled OBJECT-TYPE
+    SYNTAX                   TruthValue
+    MAX-ACCESS               read-write
+    STATUS                   current
+    DESCRIPTION
+        "This object is used to enable/disable building of 
+         s, t, o lines in SDP message.
+
+         where  o  field indicates the owner/creator and session 
+                   identifier
+                s  field indicates the session name
+                t  field indicates the duration while a session 
+                   is valid.
+
+         If this object is set to 'true'(enabled), SDP will NOT
+         include the fields s, t, and o.
+     
+         If this object is set to 'false', then it indicates that
+         the o, s, t lines be built before sending SDP 
+         (Session Description Protocol). "
+    DEFVAL { false }
+    ::= { cXgcpMediaGwEntry 9 }
+
+cXgcpMediaGwAckSdpEnabled OBJECT-TYPE
+    SYNTAX                TruthValue
+    MAX-ACCESS            read-write
+    STATUS                current
+    DESCRIPTION
+        "This object specifies the ACK SDP is enabled or not.
+
+         If this object is set to 'true', then it sends ADP with ACK
+         when CODEC or reportable NTE delta changed, or an attempt
+         is made to change CODEC, VAD, Packet-period, echo 
+         cancellation during FAX/modem mode. "
+    DEFVAL { false }
+    ::= { cXgcpMediaGwEntry 10 }
+
+cXgcpMediaGwUndottedNotation OBJECT-TYPE
+    SYNTAX                   TruthValue
+    MAX-ACCESS               read-write
+    STATUS                   current
+    DESCRIPTION
+        "This object enables/disables the undotted notation 
+         for CODEC.
+
+         This object is used to set CODEC notation to 
+         'dotted' or 'undotted' in SDP between the gateway
+         and the call agent.
+         For example, 'G.726' is 'dotted', while 'G726'
+         is 'undotted'.
+
+         If it is set to 'true', then the 'undotted'
+         notation for CODEC is enabled. "
+    DEFVAL { false }
+    ::= { cXgcpMediaGwEntry 11 }
+
+cXgcpMediaGwQuarantineProcess OBJECT-TYPE
+    SYNTAX                    TruthValue
+    MAX-ACCESS                read-write
+    STATUS                    current
+    DESCRIPTION
+        "This object is used to determine how to handle persistent 
+         events.
+
+         If this object is set to 'true', the quarantined events
+         should be processed, otherwise the quarantined events is 
+         discarded. "
+    REFERENCE
+        "RFC2705 - Media Gateway Control Protocol (MGCP)
+         version 1.0 : Section 3.2.2.12.  QuarantineHandling"
+    DEFVAL { false }
+    ::= { cXgcpMediaGwEntry 12 }
+
+cXgcpMediaGwQuarantineLoop OBJECT-TYPE
+    SYNTAX                 TruthValue
+    MAX-ACCESS             read-write
+    STATUS                 current
+    DESCRIPTION
+        "This object controls the default quarantine mode.
+         If this object is set to 'true', the default quarantine
+         mode is 'loop', not 'step'.
+
+         When this object is set to 'true', the gateway is expected
+         to generate multiple notifications (loop), not at most one
+         notification (step by step), in response to quarantined 
+         events.
+
+         This object will be ignored if the object
+         cXgcpMediaGwQuarantineProcess is set to 'false'. "
+    REFERENCE
+        "RFC2705 - Media Gateway Control Protocol (MGCP)
+         version 1.0 : Section 2.3.2.  NotificationRequest "
+    DEFVAL { true }
+    ::= { cXgcpMediaGwEntry 13 }
+
+cXgcpMediaGwQuarantinePersist OBJECT-TYPE
+    SYNTAX                    TruthValue
+    MAX-ACCESS                read-write
+    STATUS                    current
+    DESCRIPTION
+        "This object specifies how the persist events will
+         be handled in quarantine processing.
+         If this object is set to 'true', the persistent events
+         bypass quarantine buffer.
+
+         This object will be ignored if the object
+         cXgcpMediaGwQuarantineProcess is set to 'false'. "
+    REFERENCE
+        "RFC2705 - Media Gateway Control Protocol (MGCP)
+         version 1.0 : Section 2.3.2.  NotificationRequest"
+    DEFVAL { false }
+    ::= { cXgcpMediaGwEntry 14 }
+
+cXgcpMediaGwPiggybackMsg OBJECT-TYPE
+    SYNTAX               TruthValue
+    MAX-ACCESS           read-write
+    STATUS               current
+    DESCRIPTION
+        "This object enables/disables the piggyback message 
+         generating.
+         If the piggyback message generating is enabled, 
+         a call agent can send several MGCP messages in the 
+         same UDP packets to the gateway.  "
+    REFERENCE
+        "RFC2705 - Media Gateway Control Protocol (MGCP)
+         version 1.0 : Section 3.6.4.  Piggy backing"
+    DEFVAL { true }
+    ::= { cXgcpMediaGwEntry 15 }
+
+cXgcpMediaGwMaxMsgSize OBJECT-TYPE
+    SYNTAX             Integer32 (0..65535)
+    UNITS              "bytes"
+    MAX-ACCESS         read-write
+    STATUS             current
+    DESCRIPTION
+        "This object specifies the maximum allowed xGCP message 
+         size which is used for checking if the size will be 
+         supported by the call agent via (AuditEndPoint) response.
+         A value of 0 means that there is no limit to the size of 
+         the XGCP message."
+    REFERENCE
+        "RFC2705 - Media Gateway Control Protocol (MGCP)
+         version 1.0 : Section 2.3.8 Audit Endpoint "
+    DEFVAL { 0 }
+    ::= { cXgcpMediaGwEntry 16 }
+
+cXgcpMediaGwLastFailMgcAddrType  OBJECT-TYPE 
+    SYNTAX                InetAddressType
+    MAX-ACCESS            read-only
+    STATUS                current
+    DESCRIPTION
+        "This object indicates the address type, either IPv4 or
+         IPv6, of cxeCallCtrlLastFailMgcAddr."
+    ::= { cXgcpMediaGwEntry 17 }
+
+cXgcpMediaGwLastFailMgcAddr  OBJECT-TYPE
+    SYNTAX            InetAddress
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "This object indicates the address of last MGC which the
+         media gateway had tried to communicate with but failed."
+    ::= { cXgcpMediaGwEntry 18 }
+
+cXgcpMediaGwDtmfRelay  OBJECT-TYPE
+    SYNTAX            TruthValue
+    MAX-ACCESS        read-write
+    STATUS             current
+    DESCRIPTION
+        "When this object is set to 'true', the digits will be
+         sent as peer-to-peer packet in the bearer.
+         When this object is set to 'false', the digits will be
+         sent as regular voice packets in the bearer.
+
+         For low complexity CODECS (such as G.711), the preferred
+         value for this object could be 'false'.
+         For high complexity CODECS (such as G.729A), the preferred
+         value for this object should be 'true', otherwise
+         the digits may not get recognized properly at the remote
+         end."
+    ::= { cXgcpMediaGwEntry 19 }
+
+cXgcpMediaGwCaleaEnabled OBJECT-TYPE
+    SYNTAX            TruthValue
+    MAX-ACCESS        read-write
+    STATUS            current
+    DESCRIPTION
+        "CALEA, Communication Assistance for Law Enforcement Act, 
+         is a feature that allows for a lawful intercept of a 
+         call details and call contents originating or terminating
+         on specific terminals. 
+         CALEA feature can be turned on or off.  A value 'true' 
+         specifies CALEA enabled and a value 'false' specifies 
+         CALEA disabled."
+    DEFVAL { false }
+    ::= { cXgcpMediaGwEntry 20 }
+
+cXgcpMediaGwConfiguredPackages OBJECT-TYPE
+    SYNTAX                    BITS {
+                              notFound     (0),
+                              packageDC    (1),
+                              packageG     (2),
+                              packageD     (3),
+                              packageM     (4),
+                              packageT     (5),
+                              packageL     (6),
+                              packageH     (7),
+                              packageR     (8),
+                              packageN     (9),
+                              packageA     (10),
+                              packageS     (11),
+                              packageATM   (12),
+                              packageMS    (13),
+                              packageDT    (14),
+                              packageMO    (15),
+                              packageRES   (16),
+                              packageSASDI (17),
+                              packageIT    (18),
+                              packageMT    (19),
+                              packageB     (20),
+                              packageSST   (21),
+                              packageMDR   (22),
+                              packageFXR   (23),
+                              packageBA    (24),
+                              packageMD    (25),
+                              packageNAS   (26),
+                              packageMDSTE (27),
+                              packagePRE   (28),
+                              packageLCS   (29),
+                              packageSRTP  (30),
+                              packageFM    (31)
+                              } 
+    MAX-ACCESS                read-write
+    STATUS                    current
+    DESCRIPTION
+        "This object represents the bit map of MGCP packages
+         configured and supported in the gateway. 
+
+         Bit 0  - Not Found
+         Bit 1  - Package DC     (Don't care package)
+         Bit 2  - Package G      (Generic package)
+         Bit 3  - Package D      (DTMF package)
+         Bit 4  - Package M      (MF package)
+         Bit 5  - Package T      (Trunk package)
+         Bit 6  - Package L      (Line package)
+         Bit 7  - Package H      (Handset package)
+         Bit 8  - Package R      (RTP package)
+         Bit 9  - Package N      (NAS package)
+         Bit 10 - Package A      (Announcement Server package)
+         Bit 11 - Package S      (Script package) 
+         Bit 12 - Package ATM    (ATM package)
+         Bit 13 - Package MS     (MF CAS package)
+         Bit 14 - Package DT     (DTMF CAS package)
+         Bit 15 - Package MO     (MO package)
+         Bit 16 - Package RES    (RES package)
+         Bit 17 - Package S_ASDI (ASDI package (S) NCS)
+         Bit 18 - Package IT     (IT package (S) TGCP)
+         Bit 19 - Package MT     (MT package)
+         Bit 20 - Package B      (B package)
+         Bit 21 - Package SST    (SST package)
+         Bit 22 - Package MDR    (MDR package)
+         Bit 23 - Package FXR    (FAX package)
+         Bit 24 - Package BA     (Bulk Audit package)
+         Bit 25 - Package MD     (MD package)
+         Bit 26 - Package NAS    (Network Access Server package)
+         Bit 27 - Package MDSTE  (Modem relay Secure Telephone
+                                  Equipment package)
+         Bit 28 - Package PRE    (PRE package)
+         Bit 29 - Package LCS    (MGCP Line Control Signaling package)
+         Bit 33 - Package SRTP   (Secure RTP package)
+         Bit 31 - Package FM     (Media Format Package)
+
+         The value 0 means there is no supported packages. 
+        "
+    REFERENCE
+        "RFC2705 - Media Gateway Control Protocol (MGCP)
+         version 1.0 : 6.1.  Basic packages "
+    ::= { cXgcpMediaGwEntry 21 }
+
+cXgcpMediaGwConnOosRsipBehavior OBJECT-TYPE
+    SYNTAX            INTEGER {
+                          sendDlcx (1),
+                          rsipOnly (2)
+                      }
+     
+    MAX-ACCESS        read-write
+    STATUS            current
+    DESCRIPTION
+         "This object specifies the RSIP behavior of the endpoints with
+         active calls (in connections) when they are forced to
+         out-of-service.
+
+         The following values can be set for this object:
+
+         sendDlcx - The media gateway sends RSIP-graceful and then
+                    individual DLCX command to delete the endpoints of
+                    each connection and its children before it sends 
+                    out RSIP-forced command when an endpoint goes into
+                    alarm or placed out-of-service forcefully through
+                    the user command if the endpoint or its children
+                    has any calls (in connections).
+
+         rsipOnly - The media gateway sends out RSIP-forced command, 
+                    and delete the connections without any DLCX or 
+                    RSIP-graceful command.
+
+         This object is applicable only if the endpoint or its children
+         have any calls. If there are no calls on the endpoint, the
+         media gateway sends RSIP-forced command when the endpoint is
+         forced to out-of-service."
+    DEFVAL { sendDlcx }         
+    ::= { cXgcpMediaGwEntry 22 }
+
+cXgcpMediaGwLongDurTimer OBJECT-TYPE
+    SYNTAX      Integer32(1..65536)
+    UNITS       "seconds"
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the long duration timer. It is used
+         to define the long duration of a connection. Once the timer 
+         expires, a notification will be sent to the MGC to indicate
+         that a connection has established for the defined long
+         duration." 
+    DEFVAL { 3600 }
+    ::= { cXgcpMediaGwEntry 23 }
+
+cXgcpMediaGwProfile OBJECT-TYPE
+    SYNTAX      CCallControlProfileIndexOrZero
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the XGCP profile in the media
+         gateway level.
+
+         The value of 0 means the XGCP default profile is
+         used in the media gateway level.
+
+         If the value of ccasIfExtVoiceCfgCcntrlProfile is 0,
+         then the endpoint uses the profile specified in this 
+         object."
+    DEFVAL { 0 }
+    ::= { cXgcpMediaGwEntry 24 }
+
+cXgcpMediaGwAnnexabSdpEnabled OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the format for parsing or generating
+         G.723 or G.729 codec in SDP message for the media gateway.
+
+         The value 'true' means using Annex A and B in fmtp line 
+         complying with RFC 3555.
+
+         The value 'false' means using Annex A and B in SDP 
+         attribute codec string."
+    DEFVAL { false }
+    ::= { cXgcpMediaGwEntry 25 }
+
+
+-- *****************************************************************
+-- The XGCP Statistics table
+-- *****************************************************************
+cXgcpMsgStatsTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CXgcpMsgStatsEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This table contains statistical information on the transmitted
+         and received network messages between MG and MGC, since the MG reset.
+
+         The entries in this table are uniquly identified by the VMG index and
+         the MGC address.
+
+         This table contains statistics of the most recently received 64 MGC
+         addressess for every VMG present in the device. When a new address is
+         received and the number of entries for this MGC exceeds 64, then a
+         least recently received entry is deleted."
+    ::= { cXgcpStats 1 }
+
+cXgcpMsgStatsEntry OBJECT-TYPE
+    SYNTAX         CXgcpMsgStatsEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This entry contains the statistical information on the
+         received and transmitted network messages with the associated MGC
+         address."
+    INDEX   { cmgwIndex, cXgcpMsgStatsIndex }
+    ::= { cXgcpMsgStatsTable 1 }
+
+CXgcpMsgStatsEntry ::= SEQUENCE {
+    cXgcpMsgStatsIndex              Integer32,
+    cXgcpMsgStatsMgcIPAddressType   InetAddressType,
+    cXgcpMsgStatsMgcIPAddress       InetAddress,
+    cXgcpMsgStatsSuccessMessages    Counter32,
+    cXgcpMsgStatsFailMessages       Counter32,
+    cXgcpMsgStatsIncompleteMessages Counter32
+}
+
+cXgcpMsgStatsIndex  OBJECT-TYPE
+    SYNTAX          Integer32 (1..64)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique index to identify a specific MGC address
+         for tracking xGCP statistics between MGC and MG."
+    ::= { cXgcpMsgStatsEntry 1 }
+
+cXgcpMsgStatsMgcIPAddressType OBJECT-TYPE
+    SYNTAX                InetAddressType
+    MAX-ACCESS            read-only
+    STATUS                current
+    DESCRIPTION
+        "This object indicates the address type of 
+         cXgcpMsgStatsMgcIPAddress. "
+    ::= { cXgcpMsgStatsEntry 2 }
+
+cXgcpMsgStatsMgcIPAddress OBJECT-TYPE
+    SYNTAX                InetAddress
+    MAX-ACCESS            read-only
+    STATUS                current
+    DESCRIPTION
+        "This object indicates IP address of the MGC. 
+         The IP address should be unique on the table."
+    ::= { cXgcpMsgStatsEntry 3 }
+
+cXgcpMsgStatsSuccessMessages  OBJECT-TYPE
+    SYNTAX                    Counter32
+    MAX-ACCESS                read-only
+    STATUS                    current
+    DESCRIPTION
+        "This object indicates the number of successful messages
+         that communicate with the MGC on that IP address.
+
+         Successful messages apply to both transmit and
+         receive messages.
+
+           Transmit: Positive ACK received from the MGC.
+
+           Receive : Positive ACK sent to the MGC. This implies that the
+                     format of the message is correct and the request
+                     can be fulfilled."
+    ::= { cXgcpMsgStatsEntry 4 }
+
+cXgcpMsgStatsFailMessages  OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "This object indicates the number of failed messages
+         that communicate with the MGC on that IP address.
+
+         Failed messages apply to both transmit and receive
+         messages. 
+
+           Transmit: Either NAK has been received from the MGC or message
+                     times out waiting for ACK.   
+           Receive:  Format of the received message is bad or
+                     the request was NAK'ed."
+    ::= { cXgcpMsgStatsEntry 5 }
+ 
+cXgcpMsgStatsIncompleteMessages  OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "This object indicates the number of transmit messages for which
+         time out occurred while waiting for an ACK."
+    ::= { cXgcpMsgStatsEntry 6 }
+
+--
+--  Table for received and transmitted network messages at the MG level.
+--
+
+cXgcpStatsTable      OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CXgcpStatsEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This table contains information on the received and transmitted
+         network messages, based on each message type, for all the VMGs
+         present in the device.
+        
+         The table will have one entry for every VMG present in the device.
+         When a new MG is instantiated, the device creates an entry. The entry
+         is destroyed if the associated VMG is terminated."
+    ::= { cXgcpStats 2 }
+
+cXgcpStatsEntry OBJECT-TYPE
+    SYNTAX         CXgcpStatsEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This entry contains the information on the associated VMG's received
+         and transmitted network messages.
+
+         The value of each statistical object is incremented when the MG
+         receives or transmits an XGCP message corresponding to that object
+         type. All these values are set to '0' upon restarting of the VMG."
+    INDEX   { cmgwIndex }
+    ::= { cXgcpStatsTable 1 }
+
+CXgcpStatsEntry ::= SEQUENCE {
+    cXgcpStatsUdpRxPkts        Counter32,
+    cXgcpStatsUdpTxPkts        Counter32,
+    cXgcpStatsUnRecRxPkts      Counter32,
+    cXgcpStatsMsgParsingErrors Counter32,
+    cXgcpStatsDupAckTxMsgs     Counter32,
+    cXgcpStatsInvalidVerCount  Counter32,
+    cXgcpStatsUnknownMgcRxPkts Counter32,
+    cXgcpStatsAckTxMsgs        Counter32,
+    cXgcpStatsNackTxMsgs       Counter32,
+    cXgcpStatsAckRxMsgs        Counter32,
+    cXgcpStatsNackRxMsgs       Counter32,
+    cXgcpStatsRxCrcxs          Counter32,
+    cXgcpStatsRxSuccCrcxs      Counter32,
+    cXgcpStatsRxFailCrcxs      Counter32,
+    cXgcpStatsRxDlcxs          Counter32,
+    cXgcpStatsRxSuccDlcxs      Counter32,
+    cXgcpStatsRxFailDlcxs      Counter32,
+    cXgcpStatsTxDlcxs          Counter32,
+    cXgcpStatsTxSuccDlcxs      Counter32,
+    cXgcpStatsTxFailDlcxs      Counter32,
+    cXgcpStatsRxMdcxs          Counter32,
+    cXgcpStatsRxSuccMdcxs      Counter32,
+    cXgcpStatsRxFailMdcxs      Counter32,
+    cXgcpStatsRxRqnts          Counter32,
+    cXgcpStatsRxSuccRqnts      Counter32,
+    cXgcpStatsRxFailRqnts      Counter32,
+    cXgcpStatsRxAucxs          Counter32,
+    cXgcpStatsRxSuccAucxs      Counter32,
+    cXgcpStatsRxFailAucxs      Counter32,
+    cXgcpStatsRxAueps          Counter32,
+    cXgcpStatsRxSuccAueps      Counter32,
+    cXgcpStatsRxFailAueps      Counter32,
+    cXgcpStatsTxRsips          Counter32,
+    cXgcpStatsTxSuccRsips      Counter32,
+    cXgcpStatsTxFailRsips      Counter32,
+    cXgcpStatsTxNotifies       Counter32,
+    cXgcpStatsTxSuccNotifies   Counter32,
+    cXgcpStatsTxFailNotifies   Counter32
+}
+
+cXgcpStatsUdpRxPkts  OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of UDP packets received from all the MGCs."
+    ::= { cXgcpStatsEntry 1 }
+
+cXgcpStatsUdpTxPkts  OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of UDP packets sent to all the MGCs."
+    ::= { cXgcpStatsEntry 2 }
+
+cXgcpStatsUnRecRxPkts OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of unrecognized UDP packets received from all the MGCs."
+    ::= { cXgcpStatsEntry 3 }
+
+cXgcpStatsMsgParsingErrors  OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of messages with parsing errors received from all the MGCs."
+    ::= { cXgcpStatsEntry 4 }
+
+cXgcpStatsDupAckTxMsgs  OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of duplicate response messages sent to the MGCs."
+    ::= { cXgcpStatsEntry 5 }
+
+cXgcpStatsInvalidVerCount  OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of invalid protocol version messages received from all the
+         MGCs."
+    ::= { cXgcpStatsEntry 6 }
+
+cXgcpStatsUnknownMgcRxPkts  OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of unknown message packets received from all the MGCs."
+    ::= { cXgcpStatsEntry 7 }
+
+cXgcpStatsAckTxMsgs   OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of acknowledgment messages sent by the MG."
+    ::= { cXgcpStatsEntry 8 }
+
+cXgcpStatsNackTxMsgs  OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of negative acknowledgment messages sent by the MG."
+    ::= { cXgcpStatsEntry 9 }
+
+cXgcpStatsAckRxMsgs   OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of acknowledgment messages received by the MG."
+    ::= { cXgcpStatsEntry 10 }
+
+cXgcpStatsNackRxMsgs  OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of negative acknowledgment messages received by the MG."
+    ::= { cXgcpStatsEntry 11}
+
+cXgcpStatsRxCrcxs     OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of CRCX messages received by the MG."
+    ::= { cXgcpStatsEntry 12}
+
+cXgcpStatsRxSuccCrcxs OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of CRCX messages received, that were successful."
+    ::= { cXgcpStatsEntry 13}
+
+cXgcpStatsRxFailCrcxs OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of CRCX messages received, that failed."
+    ::= { cXgcpStatsEntry 14}
+
+cXgcpStatsRxDlcxs     OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of DLCX messages received."
+    ::= { cXgcpStatsEntry 15}
+
+cXgcpStatsRxSuccDlcxs OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of DLCX messages received, that were successful."
+    ::= { cXgcpStatsEntry 16}
+
+cXgcpStatsRxFailDlcxs OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of DLCX messages received, that failed."
+    ::= { cXgcpStatsEntry 17}
+
+cXgcpStatsTxDlcxs     OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of DLCX messages sent."
+    ::= { cXgcpStatsEntry 18}
+
+cXgcpStatsTxSuccDlcxs OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of DLCX messages sent, that were successful."
+    ::= { cXgcpStatsEntry 19}
+
+cXgcpStatsTxFailDlcxs OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of DLCX messages sent, that failed."
+    ::= { cXgcpStatsEntry 20}
+
+cXgcpStatsRxMdcxs     OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of MDCX messages received."
+    ::= { cXgcpStatsEntry 21}
+
+cXgcpStatsRxSuccMdcxs OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of MDCX messages received, that were successful."
+    ::= { cXgcpStatsEntry 22}
+
+cXgcpStatsRxFailMdcxs OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of MDCX messages received, that failed."
+    ::= { cXgcpStatsEntry 23}
+
+cXgcpStatsRxRqnts     OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of RQNT messages received."
+    ::= { cXgcpStatsEntry 24}
+
+cXgcpStatsRxSuccRqnts OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of RQNT messages received, that were successful."
+    ::= { cXgcpStatsEntry 25}
+
+cXgcpStatsRxFailRqnts OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of RQNT messages received, that failed."
+    ::= { cXgcpStatsEntry 26}
+
+cXgcpStatsRxAucxs     OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of AUCX messages received."
+    ::= { cXgcpStatsEntry 27}
+
+cXgcpStatsRxSuccAucxs OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of AUCX messages received, that were successful."
+    ::= { cXgcpStatsEntry 28}
+
+cXgcpStatsRxFailAucxs OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of AUCX messages received, that failed."
+    ::= { cXgcpStatsEntry 29}
+
+cXgcpStatsRxAueps     OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of AUEP messages received."
+    ::= { cXgcpStatsEntry 30}
+
+cXgcpStatsRxSuccAueps OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of AUEP messages received, that were successful."
+    ::= { cXgcpStatsEntry 31}
+
+cXgcpStatsRxFailAueps OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of AUEP messages received, that failed."
+    ::= { cXgcpStatsEntry 32}
+
+cXgcpStatsTxRsips     OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of RSIP messages sent."
+    ::= { cXgcpStatsEntry 33}
+
+cXgcpStatsTxSuccRsips OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of RSIP messages sent, that were successful."
+    ::= { cXgcpStatsEntry 34}
+
+cXgcpStatsTxFailRsips OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of RSIP messages sent, that failed."
+    ::= { cXgcpStatsEntry 35}
+
+cXgcpStatsTxNotifies  OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of NTFY messages sent."
+    ::= { cXgcpStatsEntry 36}
+
+cXgcpStatsTxSuccNotifies   OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of NTFY messages sent, that were successful."
+    ::= { cXgcpStatsEntry 37}
+
+cXgcpStatsTxFailNotifies   OBJECT-TYPE
+    SYNTAX                 Counter32
+    MAX-ACCESS             read-only
+    STATUS                 current
+    DESCRIPTION
+        "Number of NTFY messages sent, that failed."
+    ::= { cXgcpStatsEntry 38}
+
+--
+--  Table for active connections that are controlled by the MG.
+--
+
+cXgcpConnectionTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CXgcpConnectionEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This table contains information on the active connections of all the
+         VMGs present in the device.
+        
+         A MG may have zero or more number of calls at any given
+         time. Each call consists of one or more connection.
+
+         The table will have one entry per VMG per connection present in the
+         device. When a new connection is established, the device creates an
+         entry. The entry is destroyed if the associated connection is torn
+         down."
+    ::= { cXgcpConnection 1 }
+
+cXgcpConnectionEntry OBJECT-TYPE
+    SYNTAX         CXgcpConnectionEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This entry contains the information about an active connection."
+    INDEX   { cmgwIndex, cXgcpConnId }
+    ::= { cXgcpConnectionTable 1 }
+
+CXgcpConnectionEntry ::= SEQUENCE {
+    cXgcpConnId                 Unsigned32,
+    cXgcpConnEndPoint           SnmpAdminString,
+    cXgcpConnCallId             SnmpAdminString,
+    cXgcpConnLocalUdpPort       CiscoPort,
+    cXgcpConnRemoteUdpPort      CiscoPort,
+    cXgcpConnMode               INTEGER,
+    cXgcpConnVccId              Unsigned32,
+    cXgcpConnChannelId          Unsigned32,
+    cXgcpConnCallState          INTEGER,
+    cXgcpConnCodec              INTEGER,
+    cXgcpConnLastSuccEvent      CXgcpCallEvent,
+    cXgcpConnLastSuccIntEvent   CXgcpCallEvent,
+    cXgcpConnLastFailedEvent    CXgcpCallEvent,
+    cXgcpConnLastReqEvent       CXgcpCallEvent,
+    cXgcpConnEventResult        INTEGER,
+    cXgcpConnEncrSuite          INTEGER
+}
+
+cXgcpConnId   OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Connection ID generated by the gateway and sent in the
+         ACK message."
+    ::= { cXgcpConnectionEntry 1 }
+
+cXgcpConnEndPoint  OBJECT-TYPE
+    SYNTAX          SnmpAdminString 
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The physical or virtual entity that acts as a source or sink of data
+         in the MG is called an endpoint. Every end point in the MG is
+         assigned a textual name by the MG."
+    ::= { cXgcpConnectionEntry 2 }
+
+cXgcpConnCallId  OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Call ID associated with this connection. Call ID is a parameter that
+         identifies the call to which this connection belongs to. A call ID is
+         unique within a VMG instance."
+    ::= { cXgcpConnectionEntry 3 }
+
+cXgcpConnLocalUdpPort  OBJECT-TYPE
+    SYNTAX          CiscoPort
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The local UDP port used for the connection."
+    ::= { cXgcpConnectionEntry 4 }
+
+cXgcpConnRemoteUdpPort  OBJECT-TYPE
+    SYNTAX          CiscoPort
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The remote UDP port used for the connection."
+    ::= { cXgcpConnectionEntry 5 }
+
+cXgcpConnMode  OBJECT-TYPE
+    SYNTAX      INTEGER {
+         invalid     (0),
+         sendOnly    (1),
+         recvOnly    (2),
+         sendRecv    (3),
+         inActive    (4),
+         loopBack    (5),
+         contTest    (6),
+         data        (7),
+         netwLoop    (8),
+         netwTest    (9),
+         conference  (10)
+    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Represents possible MG connection modes.
+         invalid     - Invalid value for mode
+         sendOnly    - The GW should only send packets
+         recvOnly    - The GW should only receive packets
+         sendRecv    - The GW can send and receive packets
+         inActive    - The GW should neither send nor receive
+                       packets
+         loopBack    - The GW should place the circuit in loopback
+                       mode
+         contTest    - The GW should place the circuit in test mode
+         data        - The GW should use the circuit for network
+                       access for data
+         netwLoop    - The GW should place the connection in
+                       network loopback mode
+         netwTest    - The GW should place the connection in
+                       network continuity test mode
+         conference  - The GW should place the connection in
+                       conference mode."
+    ::= { cXgcpConnectionEntry 6 }
+
+cXgcpConnVccId  OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "VCCI used for the VoAAL2 call. The object should have a non-zero
+         value only if the associated call is of VoAAL2 type. For all other
+         calls the value should be '0'."
+    ::= { cXgcpConnectionEntry 7 }
+
+cXgcpConnChannelId  OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "CID used for the VoAAL2 call. The object should have a non-zero
+         value only if the associated call is of VoAAL2 type. For all other
+         calls the value should be '0'."
+    ::= { cXgcpConnectionEntry 8 }
+
+cXgcpConnCallState  OBJECT-TYPE
+    SYNTAX      INTEGER {
+         idle                   (0),
+         setting                (1),
+         connecting             (2),
+         conferencing           (3),
+         active                 (4),
+         confDestroying         (5),
+         disconnecting          (6),
+         inactive               (7),
+         voiceConnecting        (8),
+         voiceActive            (9),
+         confDissociating       (10),
+         callLegsDissociated    (11),
+         hpConnecting           (12),
+         hpConnected            (13),
+         hpConferencing         (14),
+         hpActive               (15),
+         voipConfDestroy        (16),
+         erroState              (17),
+         connectingInactive     (18),
+         confDestroyingInactive (19),
+         confTest               (20),
+         setupWait              (21),
+         waitNseSent            (22),
+         twcActive              (23),
+         waitState              (24),
+         handOver               (25)
+    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Represents possible MG call states.
+         idle                   - Idle
+         setting                - Incoming call from PSTN
+         connecting             - CRCX message received
+         conferencing           - Call connected, await
+                                  conf
+         active                 - Conference created
+         confDestroying         - Destroying conference
+         disconnecting          - Conf destroyed, disconnect call
+         inactive               - call in inactive mode
+         voiceConnecting        - Creating telephony call leg only
+         voiceActive            - Telephony call leg created
+         confDissociating       - Destroying conf
+         callLegsDissociated    - Conf destroyed
+         hpConnecting           - connecting TDM hair-pin call leg
+         hpConnected            - one HP call leg connected
+         hpConferencing         - Conferencing TDM Hairpin call leg
+         hpActive               - TDM hair-pinning active state
+         voipConfDestroy        - Conf destroyed, make HP call
+         erroState              - call in error state
+         connectingInactive     - creating inactive connection
+         confDestroyingInactive - conf destroy inactive conn
+         confTest               - AAL2/IP continuity test
+         setupWait              - Waiting for setup information
+         waitNseSent            - Wait for NSE event to be sent
+         twcActive              - TWC call active
+         waitState              - App is waiting for call control
+         handOver               - App is grabbing back the control"
+    ::= { cXgcpConnectionEntry 9 }
+
+cXgcpConnCodec  OBJECT-TYPE
+    SYNTAX       INTEGER
+    {
+         notApplicable        (0),
+         g711ulaw             (1),
+         g711alaw             (2),
+         g726k32             (3),
+         g726k24             (4),
+         g726k16             (5),
+         g729                 (6),
+         g729a                (7),
+         g729b                (8),
+         g729bLowComp         (9),
+         g728                 (10),
+         g723                 (11),
+         g7231HighRate        (12),
+         g7231aHighRate       (13),
+         g7231LowRate         (14),
+         g7231aLowRate        (15),
+         gsmFullRate          (16),
+         gsmHalfRate          (17),
+         gsmEnhancedFullRate  (18),
+         gsmEnhancedHalfRate  (19),
+         g729ab               (20),
+         clearChannel         (128),
+         nse                  (129),
+         xnse                 (130),
+         nte                  (131),
+         t38                  (132),
+         modemRelay           (133),
+         mdsteModemRelay      (134),
+         sse                  (135),
+         codecUnknown         (200)
+    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Specifies the codec type to be used with the Call.
+         The following codec types are defined:
+
+         notApplicable        - no Codec Type is defined
+         g711ulaw             - G.711 mu-law
+         g711alaw             - G.711 A-law
+         g726k32             - G.726 32K
+         g726k24             - G.726 24K
+         g726k16             - G.726 16K
+         g729                 - G.729
+         g729a                - G.729-A
+         g729b                - G.729-B
+         g729bLowComp         - G.729-B Low Complexity
+         g728                 - G.728
+         g723                 - G.723
+         g7231HighRate        - G.723.1 High Rate
+         g7231aHighRate       - G.723.1 Annex A High Rate
+         g7231LowRate         - G.723.1 Low Rate
+         g7231aLowRate        - G.723.1 Annex A Low Rate
+         gsmFullRate          - GSM full rate
+         gsmHalfRate          - GSM half rate
+         gsmEnhancedFullRate  - GSM enhanced full rate
+         gsmEnhancedHalfRate  - GSM enhanced half rate
+         g729ab               - G.729-A-B.
+         clearChannel         - Nx64 clear channel
+         nse                  - For NSE
+         xnse                 - For X-NSE
+         nte                  - For telephone-event
+         t38                  - T-38
+         modemRelay           - Modem Relay
+         mdsteModemRelay      - For X+mdste
+         sse                  - For SSE
+         codecUnknown         - Unknown Codec"
+    REFERENCE
+         "RFC-3551"
+    ::= { cXgcpConnectionEntry 10 }
+
+cXgcpConnLastSuccEvent  OBJECT-TYPE
+    SYNTAX          CXgcpCallEvent
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A call event is defined as something that happens to a call at a
+         given time. This object contains the latest MG call event
+         that was successful."
+    ::= { cXgcpConnectionEntry 11 }
+
+cXgcpConnLastSuccIntEvent  OBJECT-TYPE
+    SYNTAX          CXgcpCallEvent
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the latest MG internal call event
+         that was successful."
+    ::= { cXgcpConnectionEntry 12 }
+
+cXgcpConnLastFailedEvent  OBJECT-TYPE
+    SYNTAX          CXgcpCallEvent
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the latest MG call event that was
+         failed."
+    ::= { cXgcpConnectionEntry 13 }
+
+cXgcpConnLastReqEvent  OBJECT-TYPE
+    SYNTAX          CXgcpCallEvent
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains the latest requested MG call event."
+    ::= { cXgcpConnectionEntry 14 }
+
+cXgcpConnEventResult  OBJECT-TYPE
+    SYNTAX      INTEGER {
+         normalOk                (0),
+         invalidOk               (1),
+         callRecordReleased      (2),
+         invalidCallId           (10),
+         invalidConnId           (11),
+         duplicatedMsg           (12),
+         ackFailure              (13),
+         deleteFailure           (14),
+         createAckFailure        (15),
+         createAckMissing        (16),
+         deleteAckFailure        (17),
+         notifyFailure           (18),
+         invalidState            (19),
+         invalidProtocolVer      (20),
+         tgwDown                 (30),
+         tgwNotReady             (31),
+         callVdbFailure          (32),
+         prevRtpPortLocked       (33),
+         connRecordMissing       (34),
+         endPointNotRdy          (35),
+         memResourceError        (36),
+         callCacFailure          (37),
+         confRsrcError           (38),
+         gwRsrcNotAvailable      (39),
+         reqEventFailure         (40),
+         invalidCcapiEvent       (41),
+         ignoreCcapiEvent        (42),
+         signalFailure           (50),
+         abnormalOnhook          (51),
+         invalidOffhook          (52),
+         invalidCot              (53),
+         cotFailure              (54),
+         cotDisableFailure       (55),
+         callSetupReqFailure     (60),
+         callSetupIndFailure     (61),
+         callContextFailure      (62),
+         callPeerFailure         (63),
+         callVoxCallFailure      (64),
+         callVoipCallFailure     (65),
+         callDiscFailure         (66),
+         callModifyFailure       (67),
+         callAlertFailure        (68),
+         callDeleteFailure       (69),
+         callUnknownFeature      (70),
+         upSupportedCodec        (71),
+         noDigitMap              (72),
+         ignoreDigit             (73),
+         digitsOverflow          (74),
+         digitsNotifyFailure     (75),
+         codecNotMatched         (76),
+         invalidConnMode         (77),
+         glare                   (78),
+         peerMissing             (90),
+         peerNotReady            (91),
+         peerInWrongState        (92),
+         peerDisconnectFailure   (93),
+         noConferenceId          (94),
+         confCreateFailure       (95),
+         confDestroyFailure      (96),
+         unknownConnType         (97),
+         invalidEndpoint         (98),
+         invalidNseEvent         (100),
+         nseRcvdOnWrongLeg       (101),
+         sendNseFailure          (102),
+         playToneFailure         (103),
+         codecSpecInError        (104),
+         mediaSpecUpsupported    (105),
+         mediaChangeFail         (106),
+         invalidNsePayload       (107),
+         nsePayloadNotAvail      (108),
+         embMdcxError            (109),
+         mdcxLeg1Error           (110),
+         mdcxLeg2Error           (111),
+         deferMsg                (112),
+         transError              (115),
+         discOnWrongLeg          (120),
+         invalidNteEvent         (130),
+         notEnabledNteEvent      (131),
+         nteEventExecuteFail     (132),
+         sendNteFailure          (133),
+         invalidSsePayload       (140),
+         ssePayloadNotAvailable  (141),
+         invalidModemRelayParam  (142),
+         modemRelayNotSupported  (143),
+         invalidXcapXcpar        (144),
+         invalidSprtPayload      (145),
+         sprtPayloadNotAvailable (146)
+    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Represents possible MG call event results.
+
+         normalOk                -  Normal event processed OK
+         invalidOk               -  Invalid event processed OK
+         callRecordReleased      -  The call record is released
+         invalidCallId           -  TGW find invalid call id
+         invalidConnId           -  TGW find invalid connection id
+         duplicatedMsg           -  TGW find duplicated sgcp msg
+         ackFailure              -  TGW can't send sgcp ack msg
+         deleteFailure           -  TGW can't send sgcp delete msg
+         createAckFailure        -  TGW can't send create ack msg
+         createAckMissing        -  TGW did't send sgcp ack msg
+         deleteAckFailure        -  TGW can't send delete ack msg
+         notifyFailure           -  TGW can't send sgcp notify msg
+         invalidState            -  TGW find event in wrong state 
+         invalidProtocolVer      -  GW finds protocl ver. not
+                                    supported
+         tgwDown                 -  TGW in graceful shutdown mode
+         tgwNotReady             -  TGW not ready for the event
+         callVdbFailure          -  TGW can't obtain the vdbptr
+         prevRtpPortLocked       -  TGW find previous rtp port
+                                    locked
+         connRecordMissing       -  TGW can't find conn record
+         endPointNotRdy          -  TGW not ready for the event
+         memResourceError        -  TGW has transient mem alloc err
+         callCacFailure          -  GW does not have the bandwidth
+         confRsrcError           -  GW cannot get conf resource
+         gwRsrcNotAvailable      -  GW does not have available
+                                    resource
+         reqEventFailure         -  TGW can't handle requested
+                                    event
+         invalidCcapiEvent       -  TGW can't handle the ccapi
+                                    event
+         ignoreCcapiEvent        -  TGW will ignore the ccapi event
+         signalFailure           -  TGW can't handle the signal
+         abnormalOnhook          -  TGW find abnormal onhook
+         invalidOffhook          -  TGW find invalid offhook
+         invalidCot              -  TGW find invalid cot
+         cotFailure              -  TGW failed to do COT
+         cotDisableFailure       -  TGW failed to disable COT
+         callSetupReqFailure     -  TGW can't setup call request
+         callSetupIndFailure     -  TGW can't handle call
+                                    indication
+         callContextFailure      -  TGW can't setup the context
+         callPeerFailure         -  TGW can't setup the peer
+         callVoxCallFailure      -  TGW can't setup the voip/voaal2
+                                    call
+         callVoipCallFailure     -  TGW can't setup the voip call 
+         callDiscFailure         -  TGW can't disconnect the call 
+         callModifyFailure       -  TGW can't modify the call parm
+         callAlertFailure        -  TGW can't alert the call
+         callDeleteFailure       -  TGW can't delete the call
+         callUnknownFeature      -  TGW can't handle unknow feature
+         upSupportedCodec        -  TGW find unsupported codec
+         noDigitMap              -  TGW can't find the digit map
+         ignoreDigit             -  TGW can't process the digits
+         digitsOverflow          -  TGW can't handle too many digits
+         digitsNotifyFailure     -  TGW can't send the digits out
+         codecNotMatched         -  TGW codec doesn't match rmt TGW
+         invalidConnMode         -  TGW can't understand con mode
+         glare                   -  GW encountered a glare condition
+         peerMissing             -  TGW find not find the peer
+         peerNotReady            -  TGW find peer not ready
+         peerInWrongState        -  TGW find the peer in wrong state
+         peerDisconnectFailure   -  TGW can't disconnect the peer
+         noConferenceId          -  TGW can't find the conference
+                                    ID
+         confCreateFailure       -  TGW can't create conference
+         confDestroyFailure      -  TGW can't destroy conference
+         unknownConnType         -  TGW can't handle the con type
+         invalidEndpoint         -  TGW can't connect to endpoint
+         invalidNseEvent         -  Invalid NSE event
+         nseRcvdOnWrongLeg       -  The NSE events come to a wrong
+                                    leg
+         sendNseFailure          -  Cannot send an NSE event
+         playToneFailure         -  Cannot play NSE-requested tone
+         codecSpecInError        -  Codec list provided in error
+         mediaSpecUpsupported    -  Media specified not supported
+         mediaChangeFail         -  Media change failed
+         invalidNsePayload       -  Invalid payload type in SDP
+         nsePayloadNotAvail      -  Specified NSE payload not free
+         embMdcxError            -  Emb modify connection error
+         mdcxLeg1Error           -  Modify connection leg1 error
+         mdcxLeg2Error           -  Modify connection leg2 error
+         deferMsg                -  For deferring events
+         transError              -  TGW endpoint in transition
+                                    state
+         discOnWrongLeg          -  Disconnection on wrong call leg
+         invalidNteEvent         -  Invalid NTE event
+         notEnabledNteEvent      -  The NTE event has not been
+                                    enabled for use
+         nteEventExecuteFail     -  NTE execution failed
+         sendNteFailure          -  Cannot send an NTE event
+         invalidSsePayload       -  Invalid SSE payload
+         ssePayloadNotAvailable  -  SSE payload is not available
+         invalidModemRelayParam  -  Invalid Modem Relay Param
+         modemRelayNotSupported  -  Modem Relay not supported in
+                                    endpt
+         invalidXcapXcpar        -  Invalid X-Cap or X-Cpar in SDP
+         invalidSprtPayload      -  Invalid SPRT payload
+         sprtPayloadNotAvailable -  SPRT payload is not available"
+    ::= { cXgcpConnectionEntry 15 }
+
+cXgcpConnEncrSuite  OBJECT-TYPE
+    SYNTAX          INTEGER {
+        none    (0),
+        aes128Cm (1)
+    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Specifies what type of encryption suite is used to encode the
+         information sent through this connection.
+
+         none     - No Encryption suite is used
+         aes128Cm - AES-128 countermode encryption suite is used."
+    ::= { cXgcpConnectionEntry 16 }
+
+--**********************************************************************
+-- Conformance 
+--**********************************************************************
+
+-- 
+-- conformance information
+--
+
+cXgcpMIBConformance OBJECT IDENTIFIER ::= { ciscoXgcpMIB 2 }
+
+cXgcpMIBCompliances OBJECT IDENTIFIER ::= { cXgcpMIBConformance 1 }
+
+cXgcpMIBGroups      OBJECT IDENTIFIER ::= { cXgcpMIBConformance 2 }
+
+
+-- 
+-- Conformance and compliance statements statements
+--
+
+ciscoXgcpMIBCompliance MODULE-COMPLIANCE
+    STATUS  deprecated
+    DESCRIPTION
+        "The compliance statement for the SNMPv2 entities which 
+         implement XGCP.
+         This has been replaced by ciscoXgcpMIBComplianceRev1.
+        "
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+            cXgcpMgcConfigGroup,
+            cXgcpMediaGwGroup,
+            cXgcpMsgStatsGroup
+        }
+
+    OBJECT  cXgcpMgcConfigAddrType
+    SYNTAX  InetAddressType
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address type"
+
+    OBJECT  cXgcpMgcConfigAddress
+    SYNTAX  InetAddress (SIZE(4))
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address"
+
+    OBJECT  cXgcpMsgStatsMgcIPAddressType
+    SYNTAX  InetAddressType 
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address type"
+
+    OBJECT  cXgcpMsgStatsMgcIPAddress
+    SYNTAX  InetAddress (SIZE(4))
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address"
+
+    ::= { cXgcpMIBCompliances 1 }
+
+ciscoXgcpMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS  deprecated -- replaced by ciscoXgcpMIBComplianceRev2
+    DESCRIPTION
+        "The compliance statement for the SNMPv2 entities which 
+         implement CISCO-XGCP-MIB.
+        "
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+            cXgcpMgcConfigGroup,
+            cXgcpMediaGwGroup,
+            cXgcpMsgStatsGroup
+        }
+
+    OBJECT  cXgcpMgcConfigAddrType
+    SYNTAX  InetAddressType
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address type"
+
+    OBJECT  cXgcpMgcConfigAddress
+    SYNTAX  InetAddress (SIZE(4))
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address"
+
+    OBJECT  cXgcpMsgStatsMgcIPAddressType
+    SYNTAX  InetAddressType 
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address type"
+
+    OBJECT  cXgcpMsgStatsMgcIPAddress
+    SYNTAX  InetAddress (SIZE(4))
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address"
+
+    GROUP  cXgcpMediaGwGroupSup1
+    DESCRIPTION
+       "The implementation of this group is optional except for
+        the media gateway supports the XGCP packages provisioning
+        and other extended configuration."
+
+    ::= { cXgcpMIBCompliances 2 }
+
+ciscoXgcpMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS  deprecated -- superceded by ciscoXgcpMIBComplianceRev3
+    DESCRIPTION
+        "The compliance statement for the SNMPv2 entities which 
+         implement CISCO-XGCP-MIB.
+        "
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+            cXgcpMgcConfigGroup,
+            cXgcpMediaGwGroup,
+            cXgcpMsgStatsGroup
+        }
+
+    OBJECT  cXgcpMgcConfigAddrType
+    SYNTAX  InetAddressType
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address type"
+
+    OBJECT  cXgcpMgcConfigAddress
+    SYNTAX  InetAddress (SIZE(4))
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address"
+
+    OBJECT  cXgcpMsgStatsMgcIPAddressType
+    SYNTAX  InetAddressType 
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address type"
+
+    OBJECT  cXgcpMsgStatsMgcIPAddress
+    SYNTAX  InetAddress (SIZE(4))
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address"
+
+    GROUP  cXgcpMediaGwGroupSup2
+    DESCRIPTION
+       "The implementation of this group is optional except for
+        the media gateway supports the XGCP packages provisioning
+        and other extended configuration."
+
+    ::= { cXgcpMIBCompliances 3 }
+
+ciscoXgcpMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for the SNMPv2 entities which 
+         implement CISCO-XGCP-MIB.
+        "
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+            cXgcpMgcConfigGroup,
+            cXgcpMediaGwGroup,
+            cXgcpMsgStatsGroup,
+            cXgcpStatsGroup,
+            cXgcpConnectionGroup
+        }
+
+    OBJECT  cXgcpMgcConfigAddrType
+    SYNTAX  InetAddressType
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address type"
+
+    OBJECT  cXgcpMgcConfigAddress
+    SYNTAX  InetAddress (SIZE(4))
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address"
+
+    OBJECT  cXgcpMsgStatsMgcIPAddressType
+    SYNTAX  InetAddressType 
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address type"
+
+    OBJECT  cXgcpMsgStatsMgcIPAddress
+    SYNTAX  InetAddress (SIZE(4))
+    DESCRIPTION
+       "The minimal requirement for supporting this object is 'ipv4' 
+        address"
+
+    GROUP  cXgcpMediaGwGroupSup2
+    DESCRIPTION
+       "The implementation of this group is optional except for
+        the media gateway supports the XGCP packages provisioning
+        and other extended configuration."
+    ::= { cXgcpMIBCompliances 4 }
+
+--
+-- units of conformance
+--
+-- MIB Groups
+--
+cXgcpMgcConfigGroup OBJECT-GROUP
+    OBJECTS {
+        cXgcpMgcConfigMgcGrpNum,
+        cXgcpMgcConfigAddress,
+        cXgcpMgcConfigAddrType,
+        cXgcpMgcConfigProtocolIndex,
+        cXgcpMgcConfigGatewayUdpPort
+    }
+    STATUS    current
+    DESCRIPTION
+        "This group contains the MGC objects for SGCP/MGCP that 
+         the MG connects to."
+    ::= { cXgcpMIBGroups 1 }
+
+cXgcpMediaGwGroup OBJECT-GROUP
+    OBJECTS {
+        cXgcpMediaGwRequestTimeOut,
+        cXgcpMediaGwRequestRetries,
+        cXgcpMediaGwRequestRetryMethod,
+        cXgcpMediaGwMaxExpTimeout,
+        cXgcpMediaGwRestartMwd,
+        cXgcpMediaGwRestartDelay,
+        cXgcpMediaGwDefaultPackage,
+        cXgcpMediaGwSupportedPackages,
+        cXgcpMediaGwSimpleSdpEnabled,
+        cXgcpMediaGwAckSdpEnabled,
+        cXgcpMediaGwUndottedNotation,
+        cXgcpMediaGwQuarantineProcess,
+        cXgcpMediaGwQuarantineLoop,
+        cXgcpMediaGwQuarantinePersist,
+        cXgcpMediaGwPiggybackMsg,
+        cXgcpMediaGwMaxMsgSize,
+        cXgcpMediaGwLastFailMgcAddrType,
+        cXgcpMediaGwLastFailMgcAddr,
+        cXgcpMediaGwDtmfRelay,
+        cXgcpMediaGwCaleaEnabled
+    }
+    STATUS    current
+    DESCRIPTION
+        "This group contains core objects for SGCP/MGCP on the 
+         MG."
+    ::= { cXgcpMIBGroups 2 }
+
+cXgcpMsgStatsGroup OBJECT-GROUP
+    OBJECTS {
+        cXgcpMsgStatsMgcIPAddressType,
+        cXgcpMsgStatsMgcIPAddress,
+        cXgcpMsgStatsSuccessMessages,
+        cXgcpMsgStatsFailMessages,
+        cXgcpMsgStatsIncompleteMessages
+    }
+    STATUS    current
+    DESCRIPTION
+        "This group contains statistics objects for SGCP/MGCP 
+         on the MGC and the MG."
+    ::= { cXgcpMIBGroups 3 }
+
+cXgcpMediaGwGroupSup1 OBJECT-GROUP
+    OBJECTS {
+        cXgcpMediaGwConfiguredPackages,
+        cXgcpMediaGwConnOosRsipBehavior,
+        cXgcpMediaGwLongDurTimer,
+        cXgcpMediaGwProfile
+    }
+    STATUS    deprecated -- replaced by cXgcpMediaGwGroupSup2
+    DESCRIPTION
+        "This group contains supplimentary objects for XGCP
+         extended provisioning in the MG." 
+    ::= { cXgcpMIBGroups 4 }
+
+cXgcpMediaGwGroupSup2 OBJECT-GROUP
+    OBJECTS {
+        cXgcpMediaGwConfiguredPackages,
+        cXgcpMediaGwConnOosRsipBehavior,
+        cXgcpMediaGwLongDurTimer,
+        cXgcpMediaGwProfile,
+        cXgcpMediaGwAnnexabSdpEnabled
+    }
+    STATUS    current
+    DESCRIPTION
+        "This group contains supplimentary objects for XGCP
+         extended provisioning in the MG." 
+    ::= { cXgcpMIBGroups 5 }
+
+cXgcpStatsGroup OBJECT-GROUP
+    OBJECTS {
+        cXgcpStatsUdpRxPkts,
+        cXgcpStatsUdpTxPkts,
+        cXgcpStatsUnRecRxPkts,
+        cXgcpStatsMsgParsingErrors,
+        cXgcpStatsDupAckTxMsgs,
+        cXgcpStatsInvalidVerCount,
+        cXgcpStatsUnknownMgcRxPkts,
+        cXgcpStatsAckTxMsgs,
+        cXgcpStatsNackTxMsgs,
+        cXgcpStatsAckRxMsgs,
+        cXgcpStatsNackRxMsgs,
+        cXgcpStatsRxCrcxs,
+        cXgcpStatsRxSuccCrcxs,
+        cXgcpStatsRxFailCrcxs,
+        cXgcpStatsRxDlcxs,
+        cXgcpStatsRxSuccDlcxs,
+        cXgcpStatsRxFailDlcxs,
+        cXgcpStatsTxDlcxs,
+        cXgcpStatsTxSuccDlcxs,
+        cXgcpStatsTxFailDlcxs,
+        cXgcpStatsRxMdcxs,
+        cXgcpStatsRxSuccMdcxs,
+        cXgcpStatsRxFailMdcxs,
+        cXgcpStatsRxRqnts,
+        cXgcpStatsRxSuccRqnts,
+        cXgcpStatsRxFailRqnts,
+        cXgcpStatsRxAucxs,
+        cXgcpStatsRxSuccAucxs,
+        cXgcpStatsRxFailAucxs,
+        cXgcpStatsRxAueps,
+        cXgcpStatsRxSuccAueps,
+        cXgcpStatsRxFailAueps,
+        cXgcpStatsTxRsips,
+        cXgcpStatsTxSuccRsips,
+        cXgcpStatsTxFailRsips,
+        cXgcpStatsTxNotifies,
+        cXgcpStatsTxSuccNotifies,
+        cXgcpStatsTxFailNotifies
+    }
+    STATUS    current
+    DESCRIPTION
+        "This group contains the received and transmitted
+         network messages for every virtual MG present in
+         the managed system.
+        "
+    ::= { cXgcpMIBGroups 6 }
+
+cXgcpConnectionGroup OBJECT-GROUP
+    OBJECTS {
+        cXgcpConnEndPoint,
+        cXgcpConnCallId,
+        cXgcpConnLocalUdpPort,
+        cXgcpConnRemoteUdpPort,
+        cXgcpConnMode,
+        cXgcpConnVccId,
+        cXgcpConnChannelId,
+        cXgcpConnCallState,
+        cXgcpConnCodec,
+        cXgcpConnLastSuccEvent,
+        cXgcpConnLastSuccIntEvent,
+        cXgcpConnLastFailedEvent,
+        cXgcpConnLastReqEvent,
+        cXgcpConnEventResult,
+        cXgcpConnEncrSuite
+    }
+    STATUS    current
+    DESCRIPTION
+        "This group contains active connections information that 
+         are controlled by the Gateway Control Protocol.
+        "
+    ::= { cXgcpMIBGroups 7 }
+
+END
+
+

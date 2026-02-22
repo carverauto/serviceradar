@@ -1,0 +1,129 @@
+-- *****************************************************************
+-- CISCO-ITP-MLR-CAPABILITY.my:  Multi-Layer SMS Routing
+--
+-- April 2004, John Linton
+--
+-- Copyright (c) 2004, 2006-2007 by cisco Systems, Inc.
+--
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-ITP-MLR-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoMlrCapability MODULE-IDENTITY
+    LAST-UPDATED    "200705180000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ss7@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for the CISCO-ITP-MLR-MIB."
+    REVISION        "200705180000Z"
+    DESCRIPTION
+        "Added ciscoMlrCapabilityV12R0411SW capabilities statement."
+    REVISION        "200610050000Z"
+    DESCRIPTION
+        "Added ciscoMlrCapabilityV12R0218IXA capabilities statement."
+    REVISION        "200502180000Z"
+    DESCRIPTION
+        "Added ciscoMlrCapabilityV12R0225SW01 capability
+        statement. Replace the ciscoMlrRuleSetGroup
+        group with ciscoMlrRuleSetGroupRev2 to support
+        additional rule parameters."
+    REVISION        "200404300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 423 }
+
+
+
+ciscoMlrCapabilityV12R0221SW01 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(21)SW1"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.2(21)SW1 Cisco CISCO-ITP-MLR-MIB.my
+        User Agent MIB capabilities."
+
+    SUPPORTS        CISCO-ITP-MLR-MIB
+    INCLUDES        {
+                        ciscoMlrTableGroup,
+                        ciscoMlrTriggerGroup,
+                        ciscoMlrAddressGroup,
+                        ciscoMlrRuleSetGroup,
+                        ciscoMlrResultGroup,
+                        ciscoMlrNotificationsGroup
+                    }
+    ::= { ciscoMlrCapability 1 }
+
+ciscoMlrCapabilityV12R0225SW01 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(25)SW1"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.2(25)SW1 Cisco CISCO-ITP-MLR-MIB.my
+        User Agent MIB capabilities."
+
+    SUPPORTS        CISCO-ITP-MLR-MIB
+    INCLUDES        {
+                        ciscoMlrTableGroup,
+                        ciscoMlrTriggerGroup,
+                        ciscoMlrAddressGroup,
+                        ciscoMlrRuleSetGroupRev2,
+                        ciscoMlrResultGroup,
+                        ciscoMlrNotificationsGroup
+                    }
+    ::= { ciscoMlrCapability 2 }
+
+ciscoMlrCapabilityV12R0218IXA AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(18)IXA"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.2(18)IXA Cisco CISCO-ITP-MLR-MIB.my
+        User Agent MIB capabilities."
+
+    SUPPORTS        CISCO-ITP-MLR-MIB
+    INCLUDES        {
+                        ciscoMlrTableGroup,
+                        ciscoMlrTriggerGroup,
+                        ciscoMlrAddressGroup,
+                        ciscoMlrResultGroup,
+                        ciscoMlrNotificationsGroup,
+                        ciscoMlrRuleSetGroupRev2
+                    }
+    ::= { ciscoMlrCapability 3 }
+
+ciscoMlrCapabilityV12R0411SW AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4(11)SW"
+    STATUS          current
+    DESCRIPTION
+        "Cisco IOS 12.4(11)SW CISCO-ITP-MLR-MIB.my
+        User Agent MIB capabilities."
+
+    SUPPORTS        CISCO-ITP-MLR-MIB
+    INCLUDES        {
+                        ciscoMlrTableGroup,
+                        ciscoMlrTriggerGroup,
+                        ciscoMlrAddressGroup,
+                        ciscoMlrResultGroup,
+                        ciscoMlrNotificationsGroup,
+                        ciscoMlrRuleSetGroupRev2
+                    }
+    ::= { ciscoMlrCapability 4 }
+
+END

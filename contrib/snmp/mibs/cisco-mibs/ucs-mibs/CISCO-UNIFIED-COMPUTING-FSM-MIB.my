@@ -1,0 +1,173 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-FSM-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- FSM management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-FSM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsFsmFsmStageStatus
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsFsmObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        FSM management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 63 }
+
+cucsFsmStatusTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFsmStatusEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fsm:Status managed object table"
+    ::= { cucsFsmObjects 1 }
+
+cucsFsmStatusEntry OBJECT-TYPE
+    SYNTAX           CucsFsmStatusEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFsmStatusTable table."
+    INDEX { cucsFsmStatusInstanceId }
+    ::= { cucsFsmStatusTable 1 }
+
+CucsFsmStatusEntry ::= SEQUENCE {
+    cucsFsmStatusInstanceId                                          CucsManagedObjectId,
+    cucsFsmStatusDn                                                  CucsManagedObjectDn,
+    cucsFsmStatusRn                                                  SnmpAdminString,
+    cucsFsmStatusConvertedEpRef                                      SnmpAdminString,
+    cucsFsmStatusDescr                                               SnmpAdminString,
+    cucsFsmStatusName                                                SnmpAdminString,
+    cucsFsmStatusObjectClassName                                     SnmpAdminString,
+    cucsFsmStatusRemoteEpRef                                         SnmpAdminString,
+    cucsFsmStatusState                                               CucsFsmFsmStageStatus
+}
+
+cucsFsmStatusInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFsmStatusEntry 1 }
+
+cucsFsmStatusDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fsm:Status:dn managed object property"
+    ::= { cucsFsmStatusEntry 2 }
+
+cucsFsmStatusRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fsm:Status:rn managed object property"
+    ::= { cucsFsmStatusEntry 3 }
+
+cucsFsmStatusConvertedEpRef OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fsm:Status:convertedEpRef managed object property"
+    ::= { cucsFsmStatusEntry 4 }
+
+cucsFsmStatusDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fsm:Status:descr managed object property"
+    ::= { cucsFsmStatusEntry 5 }
+
+cucsFsmStatusName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fsm:Status:name managed object property"
+    ::= { cucsFsmStatusEntry 6 }
+
+cucsFsmStatusObjectClassName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fsm:Status:objectClassName managed object property"
+    ::= { cucsFsmStatusEntry 7 }
+
+cucsFsmStatusRemoteEpRef OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fsm:Status:remoteEpRef managed object property"
+    ::= { cucsFsmStatusEntry 8 }
+
+cucsFsmStatusState OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fsm:Status:state managed object property"
+    ::= { cucsFsmStatusEntry 9 }
+
+END

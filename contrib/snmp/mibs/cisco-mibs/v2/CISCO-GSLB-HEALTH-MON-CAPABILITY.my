@@ -1,0 +1,60 @@
+-- *****************************************************************
+-- CISCO-GSLB-HEALTH-MON-CAPABILITY.my:
+-- CISCO-GSLB-HEALTH-MON-MIB AGENT-CAPABILITIES
+--   
+-- Feb 2007, Pawan N
+--   
+-- Copyright (c) 2006-2007 by Cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-GSLB-HEALTH-MON-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoGslbHealthMonCapability MODULE-IDENTITY
+    LAST-UPDATED    "200702230000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal:  170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel:  +1 800 553-NETS
+
+            E-mail:  cs-slb@cisco.com"
+    DESCRIPTION
+        "The capabilities description
+        of CISCO-GSLB-HEALTH-MON-MIB."
+    REVISION        "200702230000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 536 }
+
+
+
+ciscoGslbHealthMonCapabilityV02R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "GSS 2.0"
+    STATUS          current
+    DESCRIPTION
+        "GSS 2.0 Cisco GSLB HEALTH MON MIB capabilities"
+
+    SUPPORTS        CISCO-GSLB-HEALTH-MON-MIB
+    INCLUDES        {
+                        ciscoGslbKalNotifObjectsGroup,
+                        ciscoGslbKalNotificationGroup
+                    }
+    ::= { ciscoGslbHealthMonCapability 1 }
+
+END
+

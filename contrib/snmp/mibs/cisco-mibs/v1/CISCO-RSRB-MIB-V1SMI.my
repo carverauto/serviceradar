@@ -1,0 +1,549 @@
+-- MIB created 6/25/99 12:57:33, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-RSRB-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-RSRB-MIB.my"
+
+IMPORTS
+    Counter32, Integer32, IpAddress, Gauge32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215
+    TruthValue, MacAddress
+            FROM SNMPv2-TC-v1
+    InterfaceIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI;
+
+ciscoRsrbMIB OBJECT IDENTIFIER ::= { ciscoMgmt 29 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9508210000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--     Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W. Tasman Drive 
+--     San Jose, CA  95134
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This is the MIB module for objects used to manage RSRB. 
+--                                          
+--     Overview of remote source-route bridging (RSRB) management and MIB
+--     
+--     MIB description                        
+--     The RSRB MIB will include the following managed entities: 
+--      1) Virtual Rings 
+--      2) Remote Peers
+--      3) Associated Token Rings
+--     
+--     The goal of this MIB to to allow a management stations to
+--     display the attributes of the local-remote RSRB peer relationship.
+--    
+--     The following example configuration will show how the RSRB MIB can
+--     be used to manage RSRB.
+--    
+--       == Token Ring == CISCO A == IP Network/ == CISCO B == Token Ring
+--                                   Virtual Ring
+--    
+--     Both CISCO A and CISCO B are RSRB peers, having the same virtual ring
+--     number.  In this example information will be gatherered from CISCO A
+--     (the local peer), and CISCO B is considered to be CISCO A's remote peer.
+--    
+--     The first table is the virtual ring table.  There is one entry for
+--     each RSRB virtual ring the router is defined on.  The fields included
+--     in this table include
+--      * the virtual ring number, or index
+--      * the IP address used by the router
+--      * the maximum outbound queue size for each RSRB remote peer
+--     In this example the table has a single entry since CISCO A only belongs
+--     to one RSRB virtual ring.
+--    
+--     The next table is for each remote peer in the virtual ring.  There
+--     can be multiple RSRB remote peers.  The remote peer information includes:
+--      * an internally generated (not configured) index into the table
+--      * the type of data encapsulation with the remote peer
+--      * identification of how to get to the remote peer; either an IP address
+--        or an interface index, depending upon the encapsulation type
+--      * the state of the remote peer
+--      * various statistics (bytes and packets sent and received, explorers
+--        generated, outbound queue size, and packets dropped
+--      * whether local acknowledgment is used with the remote peer
+--      * the RSRB version of the peer
+--     In this example there would be just one remote peer table entry, 
+--     for CISCO B.
+--    
+--     The last table is for the real local and remote token rings associated
+--     with the RSRB virtual ring, that this router has either had configured
+--     or learned about dynamically.  The ring information includes:
+--      * the token ring number (index)
+--      * the bridge number connecting the real ring to the virtual ring
+--      * the ring entry type
+--      * the local or remote routers mac address on the interface to the ring
+--      * the local router's interface index, or the remote router's IP address,
+--        depending on if this is a local or remote ring
+--      * number of packets forwarded by the local router onto this ring
+--     In this example CISCO A would have two ring entries:  one for the local
+--     ring it is connected to, and one for the ring CISCO B is a part of.
+--    
+--     A management application can construct a virtual ring view either by
+--     collecting MIB information from all routers and grouping those in the
+--     same virtual ring together, or beginning with a particular router or
+--     routers, and collecting MIB information about other peer routers.
+--     
+--  RevDate
+--    9508210000Z
+--  RevDescr
+--    Specify a correct (non-negative) range for several
+--    index objects.
+
+rsrbObjects     OBJECT IDENTIFIER ::= { ciscoRsrbMIB 1 }
+rsrbVirtualRings OBJECT IDENTIFIER ::= { rsrbObjects 1 }
+rsrbRemotePeers OBJECT IDENTIFIER ::= { rsrbObjects 2 }
+rsrbPhysicalRings OBJECT IDENTIFIER ::= { rsrbObjects 3 }
+rsrbNotificationPrefix OBJECT IDENTIFIER ::= { ciscoRsrbMIB 2 }
+rsrbNotifications OBJECT IDENTIFIER ::= { rsrbNotificationPrefix 0 }
+rsrbMibConformance OBJECT IDENTIFIER ::= { ciscoRsrbMIB 3 }
+rsrbMibCompliances OBJECT IDENTIFIER ::= { rsrbMibConformance 1 }
+rsrbMibGroups   OBJECT IDENTIFIER ::= { rsrbMibConformance 2 }
+
+rsrbVirtRingTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF RsrbVirtRingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of virtual rings in the router."
+    ::= { rsrbVirtualRings 1 }
+
+rsrbVirtRingEntry OBJECT-TYPE
+    SYNTAX RsrbVirtRingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Configuration values for a virtual ring. "
+    INDEX { rsrbVirtRingIndex }
+    ::= { rsrbVirtRingTable 1 }
+
+RsrbVirtRingEntry ::= SEQUENCE {
+    rsrbVirtRingIndex Integer32(0..2147483647),
+    rsrbVirtRingIPAddr IpAddress,
+    rsrbVirtRingMaxTcpQSize Integer32
+    }
+
+rsrbVirtRingIndex OBJECT-TYPE
+    SYNTAX Integer32(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The configured number of the virtual ring in which this peer is 
+         participating."
+    ::= { rsrbVirtRingEntry 1 }
+
+rsrbVirtRingIPAddr OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address configured for this RSRB local peer."
+    ::= { rsrbVirtRingEntry 2 }
+
+rsrbVirtRingMaxTcpQSize OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of packets that can be held in any single
+         outbound TCP queue to a remote peer before packets are discarded.
+         This value indicates the configured or default value."
+    ::= { rsrbVirtRingEntry 3 }
+
+rsrbRemotePeerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF RsrbRemotePeerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of RSRB remote peers for a virtual ring."
+    ::= { rsrbRemotePeers 1 }
+
+rsrbRemotePeerEntry OBJECT-TYPE
+    SYNTAX RsrbRemotePeerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Configuration and status information of a remote RSRB peer. "
+    INDEX { rsrbVirtRingIndex, rsrbRemotePeerIndex }
+    ::= { rsrbRemotePeerTable 1 }
+
+RsrbRemotePeerEntry ::= SEQUENCE {
+    rsrbRemotePeerIndex Integer32(0..2147483647),
+    rsrbRemotePeerEncapsulation INTEGER,
+    rsrbRemotePeerIPAddr IpAddress,
+    rsrbRemotePeerLocalIfIndex InterfaceIndex,
+    rsrbRemotePeerState INTEGER,
+    rsrbRemotePeerPacketsRx Counter32,
+    rsrbRemotePeerPacketsTx Counter32,
+    rsrbRemotePeerBytesRx Counter32,
+    rsrbRemotePeerBytesTx Counter32,
+    rsrbRemotePeerExplorersRx Counter32,
+    rsrbRemotePeerTcpQueue Gauge32,
+    rsrbRemotePeerDrops Counter32,
+    rsrbRemotePeerLocalAck TruthValue,
+    rsrbRemotePeerVersion Integer32
+    }
+
+rsrbRemotePeerIndex OBJECT-TYPE
+    SYNTAX Integer32(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary index that uniquely identifies a remote peer 
+         within a virtual ring."
+    ::= { rsrbRemotePeerEntry 1 }
+
+rsrbRemotePeerEncapsulation OBJECT-TYPE
+    SYNTAX INTEGER {
+        tcp(1),
+        serial(2),
+        lan(3),
+        fst(4),
+        frameRelay(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "How traffic is encapsulated for RSRB:
+        
+         tcp = IP datagrams over a TCP connection
+         serial = point-to-point (serial) direct encapsulation
+         lan = direct encapsulation over a LAN
+         fst = IP datagrams over a Fast Sequenced Transport connection
+         frameRelay = direct encapsulation over frame relay"
+    ::= { rsrbRemotePeerEntry 2 }
+
+rsrbRemotePeerIPAddr OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address used by the RSRB remote peer.
+         This field is meaningful only for TCP and FST encapsulation.
+         For other encapsulation types 0.0.0.0 is returned."
+    ::= { rsrbRemotePeerEntry 3 }
+
+rsrbRemotePeerLocalIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Local interface index value to the RSRB remote peer.  Same value
+         as used for accessing the Interface MIB for the same interface.
+         This field is meaningful only for serial, LAN and
+         frame relay encapsulation.  For other encapsulation types 0 
+         is returned."
+    ::= { rsrbRemotePeerEntry 4 }
+
+rsrbRemotePeerState OBJECT-TYPE
+    SYNTAX INTEGER {
+        dead(1),
+        closed(2),
+        opening(3),
+        openWaitXport(4),
+        waitRemoteRsp(5),
+        remoteResponded(6),
+        remoteOpened(7),
+        draining(8),
+        connected(9)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current state of the RSRB session with the remote peer."
+    ::= { rsrbRemotePeerEntry 5 }
+
+rsrbRemotePeerPacketsRx OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of packets received from remote peer."
+    ::= { rsrbRemotePeerEntry 6 }
+
+rsrbRemotePeerPacketsTx OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of packets transmitted to remote peer."
+    ::= { rsrbRemotePeerEntry 7 }
+
+rsrbRemotePeerBytesRx OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of bytes received from remote peer."
+    ::= { rsrbRemotePeerEntry 8 }
+
+rsrbRemotePeerBytesTx OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of bytes transmitted to remote peer."
+    ::= { rsrbRemotePeerEntry 9 }
+
+rsrbRemotePeerExplorersRx OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of explorer packets received from the remote peer."
+    ::= { rsrbRemotePeerEntry 10 }
+
+rsrbRemotePeerTcpQueue OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of packets being held by the local router
+         in the TCP output queue to the remote peer."
+    ::= { rsrbRemotePeerEntry 11 }
+
+rsrbRemotePeerDrops OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of received packets discarded by the local router.
+         The reasons for packets being dropped include, but are not
+         limited to, problems with the configuration, queue overflow,
+         and protocol errors."
+    ::= { rsrbRemotePeerEntry 12 }
+
+rsrbRemotePeerLocalAck OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates if local acknowledgment is used for the sessions
+         going to the remote peer.
+        
+         TRUE -> local acknowledgment is used
+         FALSE -> local acknowledgment is not used"
+    ::= { rsrbRemotePeerEntry 13 }
+
+rsrbRemotePeerVersion OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The version of RSRB used between local and remote peer.
+         Generally peers can communicate if they are within one version
+         of each other.  The value returned is the lower version
+         of the two peers."
+    ::= { rsrbRemotePeerEntry 14 }
+
+rsrbRingTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF RsrbRingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of local and remote rings associated with a 
+         virtual ring."
+    ::= { rsrbPhysicalRings 1 }
+
+rsrbRingEntry OBJECT-TYPE
+    SYNTAX RsrbRingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A ring described by a unique ring number within the 
+         bridged token ring network, and the virtual ring
+         which it is associated with."
+    INDEX { rsrbVirtRingIndex, rsrbRingIndex }
+    ::= { rsrbRingTable 1 }
+
+RsrbRingEntry ::= SEQUENCE {
+    rsrbRingIndex Integer32(0..2147483647),
+    rsrbRingBridge Integer32,
+    rsrbRingLocal TruthValue,
+    rsrbRingType INTEGER,
+    rsrbRingMacAddr MacAddress,
+    rsrbRingLocalIfIndex InterfaceIndex,
+    rsrbRingRemoteIpAddress IpAddress,
+    rsrbRingNbrPacketsFwd Counter32
+    }
+
+rsrbRingIndex OBJECT-TYPE
+    SYNTAX Integer32(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The configured ring number that uniquely identifies this network 
+         segment or ring within the bridged token ring network."
+    ::= { rsrbRingEntry 1 }
+
+rsrbRingBridge OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The configured number of the bridge that connects this entry's
+         ring to the virtual ring."
+    ::= { rsrbRingEntry 2 }
+
+rsrbRingLocal OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates if the entry represents a local or remote ring.
+         TRUE indicates a local ring.
+         FALSE indicates a remote ring."
+    ::= { rsrbRingEntry 3 }
+
+rsrbRingType OBJECT-TYPE
+    SYNTAX INTEGER {
+        static(1),
+        dynamic(2),
+        sdllc(3),
+        qllc(4),
+        virtual(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The ring type."
+    ::= { rsrbRingEntry 4 }
+
+rsrbRingMacAddr OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The mac address of either the local router's interface to the ring
+         for local ring entries, or the remote peer's interface to the ring
+         for remote ring entries.  Not valid for entry types
+         remote SDLLC and QLLC; for these type '00 00 00 00 00 00' will be
+         returned."
+    ::= { rsrbRingEntry 5 }
+
+rsrbRingLocalIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "For local ring entries, the local interface into the ring.  This is
+         the same value as used for accessing the Interface MIB for the 
+         same interface. 
+         Not meaningful for remote ring entries; for these types
+         0 will be returned."
+    ::= { rsrbRingEntry 6 }
+
+rsrbRingRemoteIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "For remote ring entries, the IP address of the remote RSRB peer.
+         Not meaningful for local ring entries, and so 0.0.0.0 will be
+         returned."
+    ::= { rsrbRingEntry 7 }
+
+rsrbRingNbrPacketsFwd OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of packets forwarded by the local router onto this ring."
+    ::= { rsrbRingEntry 8 }
+
+rsrbPeerStateChangeNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE rsrbNotificationPrefix
+    VARIABLES {
+        rsrbRemotePeerState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap indicates that the state of an RSRB remote peer
+         has transitioned to active (psConnected) or inactive
+         (psDead or psClosed)."
+    ::= 1
+
+rsrbVirtRingGroup OBJECT IDENTIFIER ::= { rsrbMibGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing configuration capability.
+--  objects
+--    rsrbVirtRingIPAddr, rsrbVirtRingMaxTcpQSize
+
+rsrbRemotePeerGroup OBJECT IDENTIFIER ::= { rsrbMibGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing operational control
+--     capability.
+--  objects
+--    rsrbRemotePeerEncapsulation, rsrbRemotePeerIPAddr, 
+--    rsrbRemotePeerLocalIfIndex, rsrbRemotePeerState, 
+--    rsrbRemotePeerPacketsRx, rsrbRemotePeerPacketsTx, 
+--    rsrbRemotePeerBytesRx, rsrbRemotePeerBytesTx, 
+--    rsrbRemotePeerExplorersRx, rsrbRemotePeerTcpQueue, 
+--    rsrbRemotePeerDrops, rsrbRemotePeerLocalAck, 
+--    rsrbRemotePeerVersion
+
+rsrbRingGroup OBJECT IDENTIFIER ::= { rsrbMibGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing operational control
+--     capability.
+--  objects
+--    rsrbRingBridge, rsrbRingLocal, rsrbRingType, rsrbRingMacAddr, 
+--    rsrbRingLocalIfIndex, rsrbRingRemoteIpAddress, 
+--    rsrbRingNbrPacketsFwd
+
+rsrbMibCompliance OBJECT IDENTIFIER ::= { rsrbMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for rsrb.
+--  Module
+--    >>current<<
+--   MandGroup
+--    rsrbVirtRingGroup
+--   MandGroup
+--    rsrbRemotePeerGroup
+--   MandGroup
+--    rsrbRingGroup
+
+
+END
+

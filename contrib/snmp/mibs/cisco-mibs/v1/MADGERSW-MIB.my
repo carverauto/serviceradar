@@ -1,0 +1,784 @@
+----------------------------------------------------------------------------
+--
+-- The Madge Ringswitch MIB				Madge Networks Ltd
+--
+-- Version 2.5						         July 1995
+--
+----------------------------------------------------------------------------
+--
+-- Overview
+-- --------
+-- The Madge Ringswitch MIB defines enterprise specific objects to allow the
+-- management of Madge Smart Ringswitches.
+--
+-- The Madge Ringswitch MIB contains the following groups:
+--
+--   ringswitchBase - Ringswitch global information
+--   ringswitchPort - Ringswitch per-port information
+--   ringswitchSR   - Source routing global information
+--   ringswitchLCD  - LCD message information
+--   ringswitchLAN  - Virtual LAN information
+--
+-- Change History
+-- --------------
+--   1.2  TW/BP/HDW  30-05-95  First significant draft
+--   2.0  TW         ??-??-??  Added fan speeds, RPS enable, cut-thru
+--                               disable, wider counters
+--   2.1  TW         ??-??-??  Added port failure trap
+--   2.2  TW         ??-??-??  Added Smart Broadcast Control variable
+--   2.3  TW         ??-??-??  Added bridge test failure trap
+--   2.4  HDW        12-07-95  Added FDDI support to ringswitchPort
+--   2.5  HDW        02-11-95  Changed "SYNTAX Integer" to "SYNTAX
+--                               INTEGER" in fan speed definitions
+--
+----------------------------------------------------------------------------
+
+	MADGERSW-MIB DEFINITIONS ::= BEGIN
+
+	IMPORTS
+		enterprises
+			FROM RFC1155-SMI
+                OBJECT-TYPE
+                        FROM RFC-1212
+                TRAP-TYPE
+                        FROM RFC-1215
+		PhysAddress
+			FROM RFC1213-MIB;
+-- Data Types
+
+        DisplayString 	::= OCTET STRING
+
+	-- 
+	-- Octet String encoding of a 48 bit integer, transmitted Most
+	-- Significant Byte first
+	--
+
+        INTEGER48 ::= OCTET STRING (SIZE (6))    
+
+-- the Ringswitch MIB
+
+	madge		OBJECT IDENTIFIER ::= { enterprises 494 }
+	ringswitch	OBJECT IDENTIFIER ::= { madge 4 }
+
+-- groups in the Ringswitch MIB
+
+	ringswitchBase	OBJECT IDENTIFIER ::= { ringswitch 1 }
+	ringswitchPort	OBJECT IDENTIFIER ::= { ringswitch 2 }
+	ringswitchSR	OBJECT IDENTIFIER ::= { ringswitch 3 }
+	ringswitchLCD	OBJECT IDENTIFIER ::= { ringswitch 4 }
+	ringswitchLAN	OBJECT IDENTIFIER ::= { ringswitch 5 }
+
+----------------------------------------------------------------------------
+
+-- the ringswitchBase group 
+
+	ringswitchBasePSFanSpeed OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The number of revolutions per minute being reported by
+		      the fan internal to the system power supply. If this
+		      value is read as zero, the fan is no longer operating"
+		::= { ringswitchBase 1 }
+
+	ringswitchBaseExtFanSpeed OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The number of revolutions per minute being reported by
+		      the external system fan. If this value is read as zero, 
+		      the fan is no longer operating"
+		::= { ringswitchBase 2 }
+
+	ringswitchBaseRipSapSuppression OBJECT-TYPE
+		SYNTAX INTEGER	{
+				enable		(1),
+				disable 	(2)
+				}
+		ACCESS  read-write
+		STATUS  mandatory
+		DESCRIPTION
+                      "If this variable is set to enable the system will
+		      only forward broadcast-addressed IPX RIP and SAP
+		      Response frames to those ports that have recently
+		      sourced such a frame. This reduces the number of 
+		      gratuitous frames sent out on LANs that only 
+		      have IPX workstations attached.
+		      A value of disable causes no special action to be 
+		      taken for such frames."
+		::= { ringswitchBase 3 }
+
+	ringswitchBaseAREConversion OBJECT-TYPE
+		SYNTAX INTEGER	{
+				enable-first		(1),
+				enable-all		(2),
+				enable-bcast-first	(3),
+				enable-bcast-all	(4),
+    				disable			(5)
+				}
+		ACCESS  read-write
+		STATUS  mandatory
+		DESCRIPTION
+                      "This variable controls the action taken when 
+		      forwarding All Routes Explorer frames. 
+		      
+		      enable-first: convert all ARE frames with a RIF 
+				    length of 2 to STE frames.
+
+		      enable-all:   convert all ARE frames to STE frames.
+
+		      enable-bcast-first: convert all ARE frames with the
+					  broadcast destination address, with 
+					  a RIF length of 2 to STE frames.
+
+		      enable-bcast-all:   convert all ARE frames with the
+					  broadcast destination address to
+					  STE frames.
+
+		      disable:	    follow normal forwarding rules for ARE
+				    frames."
+		::= { ringswitchBase 4 }
+
+----------------------------------------------------------------------------
+
+-- the ringswitchPort group
+
+	ringswitchPortTable OBJECT-TYPE
+		SYNTAX SEQUENCE OF RingswitchPortEntry
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			"A table that contains general port information."
+		::= { ringswitchPort 1 }
+
+	ringswitchPortEntry OBJECT-TYPE
+		SYNTAX RingswitchPortEntry
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			""
+		INDEX { ringswitchPortNum }
+		::= { ringswitchPortTable 1 }
+
+	RingswitchPortEntry ::=
+		SEQUENCE {
+				ringswitchPortNum
+					INTEGER,
+				ringswitchPortRingStatus
+					INTEGER,
+				ringswitchPortAdapterStatus
+					INTEGER,
+				ringswitchPortMediaType
+					INTEGER,
+				ringswitchPortIfMode
+					INTEGER,
+				ringswitchPortRingSpeed
+					INTEGER,
+				ringswitchPortTestState
+					INTEGER,
+				ringswitchPortTestError
+					INTEGER,
+				ringswitchPortTestPhase
+					INTEGER,
+				ringswitchPortSummary
+					INTEGER,
+				ringswitchPortAddress
+					PhysAddress,
+				ringswitchPortLAA
+					PhysAddress,
+				ringswitchPortStationType
+					INTEGER,
+				ringswitchPortRPSEnable
+					INTEGER,
+				ringswitchPortCutThruEnable
+					INTEGER,
+				ringswitchPortInOctets
+					INTEGER48,
+				ringswitchPortOutOctets
+					INTEGER48,
+				ringswitchPortSpecInFrames
+					INTEGER48,
+				ringswitchPortSpecOutFrames
+					INTEGER48,
+				ringswitchPortApeInFrames
+					INTEGER48,
+				ringswitchPortApeOutFrames
+					INTEGER48,
+				ringswitchPortSteInFrames
+					INTEGER48,
+				ringswitchPortSteOutFrames
+					INTEGER48
+			 }
+
+	ringswitchPortNum OBJECT-TYPE
+		SYNTAX INTEGER (1..65535)
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The port number of the port for which this entry
+			contains Ringswitch management information."
+		::= { ringswitchPortEntry 1 }
+
+	ringswitchPortRingStatus OBJECT-TYPE
+		SYNTAX INTEGER	{
+				normal		(1),
+				single		(2),
+				beaconing	(3)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The status of the ring to which this port is
+			connected."
+		::= { ringswitchPortEntry 2 }
+
+	ringswitchPortAdapterStatus OBJECT-TYPE
+		SYNTAX INTEGER	{
+				open	(1),
+				closed	(2),
+				opening	(3)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The status of the adapter used by this port."
+		::= { ringswitchPortEntry 3 }
+
+	ringswitchPortMediaType OBJECT-TYPE
+		SYNTAX INTEGER	{
+				tr-copper	(1),
+				tr-fiber	(2),
+				fddi-fiber	(3)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"Media type of the port."
+		::= { ringswitchPortEntry 4 }
+
+	ringswitchPortIfMode OBJECT-TYPE
+		SYNTAX INTEGER	{
+				node		(1),
+				concentrator	(2)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"Node or concentrator status of the port."
+		::= { ringswitchPortEntry 5 }
+
+	ringswitchPortRingSpeed OBJECT-TYPE
+		SYNTAX INTEGER	{
+				four	(1),
+				sixteen	(2),
+				hundred	(3)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"Speed of the ring to which this port is connected."
+		::= { ringswitchPortEntry 6 }
+
+	ringswitchPortTestState OBJECT-TYPE
+		SYNTAX INTEGER	{
+				disabled	(1),
+				running		(2),
+				failed		(3),
+				ok		(4),
+				unknown		(5)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"Current state of the bridge test."
+		::= { ringswitchPortEntry 7 }
+
+	ringswitchPortTestError OBJECT-TYPE
+		SYNTAX INTEGER	{
+				no-error	(1),
+				same-ring	(2),
+				duplicate-ring	(3),
+				fail-nb		(4),
+				bad-rnum	(5),
+				fail-b		(6)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"Result of the bridge test."
+		::= { ringswitchPortEntry 8 }
+
+	ringswitchPortTestPhase OBJECT-TYPE
+		SYNTAX INTEGER	{
+				not-running	(1),
+				same-ring	(2),
+				routed		(3),
+				broadcast	(4),
+				success		(5)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"Current phase of the bridge test."
+		::= { ringswitchPortEntry 9 }
+
+	ringswitchPortSummary OBJECT-TYPE
+		SYNTAX INTEGER
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"This is a three octet field which packs some of the
+			port attributes into a single mib entry. Each nibble
+			represents a different attribute of the port:
+				ifAdminStatus (most significant),
+				ringswitchPortRingStatus,
+				ringswitchPortAdapterStatus,
+				ringswitchPortMediaType,
+				ringswitchPortIfMode,
+				ringswitchPortRingSpeed,
+				ringswitchPortTestState,
+				ringswitchPortTestError (least significant)"
+		::= { ringswitchPortEntry 10 }
+
+	ringswitchPortAddress OBJECT-TYPE
+		SYNTAX PhysAddress
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The hard wired address of the port."
+		::= { ringswitchPortEntry 11 }
+
+	ringswitchPortLAA OBJECT-TYPE
+		SYNTAX PhysAddress
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The locally administered address of the port."
+		::= { ringswitchPortEntry 12 }
+
+	ringswitchPortStationType OBJECT-TYPE
+		SYNTAX INTEGER	{
+				anything	(1),
+				workstations	(2)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"Workstations-only status of the port; if this is
+			limited, the port only has workstations on it, and
+			broadcast frames received on this port will not be
+			transmitted on other limited ports."
+		::= { ringswitchPortEntry 13 }
+
+	ringswitchPortRPSEnable OBJECT-TYPE
+		SYNTAX INTEGER	{
+				enable		(1),
+				disable 	(2)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"Enables or disables the Ring Parameter Server
+			 function on the port. If this variable is set to
+			 enabled, the port will enable the RPS functional
+			 address, and respond to Request Parameters MAC 
+			 frames, supplying the port's segment number in 
+			 the response."
+		::= { ringswitchPortEntry 14 }
+
+	ringswitchPortCutThruEnable OBJECT-TYPE
+		SYNTAX INTEGER	{
+				enable		(1),
+				disable 	(2)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"Enables or disables cut-through switching on the
+			 port. In some circumstances (e.g., 4 to 16 MB 
+			 switching), cut-through will always be disabled,
+			 irrespective of the state of this variable."
+		::= { ringswitchPortEntry 15 }
+
+	ringswitchPortInOctets OBJECT-TYPE
+		SYNTAX INTEGER48
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"48 bit version of the interface MIB counter
+			 ifInOctets."
+		::= { ringswitchPortEntry 16 }
+
+	ringswitchPortOutOctets OBJECT-TYPE
+		SYNTAX INTEGER48
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"48 bit version of the interface MIB counter
+			 ifOutOctets."
+		::= { ringswitchPortEntry 17 }
+
+	ringswitchPortSpecInFrames OBJECT-TYPE
+		SYNTAX INTEGER48
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"48 bit version of the Bridge MIB counter
+			 srPortSpecInFrames."
+		::= { ringswitchPortEntry 18 }
+
+	ringswitchPortSpecOutFrames OBJECT-TYPE
+		SYNTAX INTEGER48
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"48 bit version of the Bridge MIB counter
+			 srPortSpecOutFrames."
+		::= { ringswitchPortEntry 19 }
+
+	ringswitchPortApeInFrames OBJECT-TYPE
+		SYNTAX INTEGER48
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"48 bit version of the Bridge MIB counter
+			 srPortApeInFrames."
+		::= { ringswitchPortEntry 20 }
+
+	ringswitchPortApeOutFrames OBJECT-TYPE
+		SYNTAX INTEGER48
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"48 bit version of the Bridge MIB counter
+			 srPortApeOutFrames."
+		::= { ringswitchPortEntry 21 }
+
+	ringswitchPortSteInFrames OBJECT-TYPE
+		SYNTAX INTEGER48
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"48 bit version of the Bridge MIB counter
+			 srPortSteInFrames."
+		::= { ringswitchPortEntry 22 }
+
+	ringswitchPortSteOutFrames OBJECT-TYPE
+		SYNTAX INTEGER48
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"48 bit version of the Bridge MIB counter
+			 srPortSteOutFrames."
+		::= { ringswitchPortEntry 23 }
+
+
+----------------------------------------------------------------------------
+
+-- the ringswitchSR group
+
+	ringswitchSRAdminState OBJECT-TYPE
+		SYNTAX INTEGER	{
+				enable		(1),
+				disable 	(2)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The desired state of source routing; allows
+			source routing to be enabled or disabled for
+			the whole Ringswitch"
+		::= { ringswitchSR 1 }
+
+	ringswitchSROperState OBJECT-TYPE
+		SYNTAX INTEGER	{
+				active		(1),
+				inactive	(2)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The actual state of source routing.
+			If ringswitchSRAdminState is 'disabled' then this
+			state will be inactive. If ringswitchSRAdminState is
+			'enabled' then this state should be 'active', but if
+			for some reason the Ringswitch is unable to perform
+			source routing then this state will be 'inactive'."
+		::= { ringswitchSR 2 }
+
+----------------------------------------------------------------------------
+
+-- the ringswitchLCD group
+
+	-- LCDText is a 50 byte octet string, containing the first line of
+	-- the LCD (24 bytes), a carriage return (1 byte), the second line
+	-- of the LCD (24 bytes) and a null character (1 byte).
+
+	LCDText ::= OCTET STRING (SIZE (50))
+
+	ringswitchLCDTotalDisplays OBJECT-TYPE
+		SYNTAX INTEGER (1..65535)
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The total number of displays on the Ringswitch."
+		::= { ringswitchLCD 1 }
+
+	ringswitchLCDCurrentDisplay OBJECT-TYPE
+		SYNTAX INTEGER (1..65535)
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The number of the display that the Ringswitch is
+			currently showing."
+		::= { ringswitchLCD 2 }
+
+	ringswitchLCDCurrentMsgText OBJECT-TYPE
+		SYNTAX LCDText
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The actual lcd message text, including a carriage
+			return after the first line, and a null character
+			after the second line."
+		::= { ringswitchLCD 3 }
+
+	ringswitchLCDTable OBJECT-TYPE
+		SYNTAX SEQUENCE OF RingswitchLCDTableEntry
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			"A table that contains all of the lcd messages that
+			could be displayed by the Ringswitch if the user
+			were to flick the paddle switch."
+		::= { ringswitchLCD 4 }
+
+	ringswitchLCDTableEntry OBJECT-TYPE
+		SYNTAX RingswitchLCDTableEntry
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			"Arguments and message number details for each
+			LCD entry."
+		INDEX { ringswitchLCDNum }
+		::= { ringswitchLCDTable 1 }
+
+	RingswitchLCDTableEntry ::=
+		SEQUENCE {
+				ringswitchLCDNum
+					INTEGER,
+				ringswitchLCDMsgText
+					LCDText
+			 }
+
+	ringswitchLCDNum OBJECT-TYPE
+		SYNTAX INTEGER (1..65535)
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The lcd number of the lcd for which this entry
+			contains display details."
+		::= { ringswitchLCDTableEntry 1 }
+
+	ringswitchLCDMsgText OBJECT-TYPE
+		SYNTAX LCDText
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The actual lcd message text, including a carriage
+			return after the first line, and a null character
+			after the second line."
+		::= { ringswitchLCDTableEntry 2 }
+
+----------------------------------------------------------------------------
+
+-- the ringswitchLAN group
+
+	ringswitchLANTable OBJECT-TYPE
+		SYNTAX SEQUENCE OF RingswitchLANEntry
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			"A table that contains virtual LAN information
+			configured into the Ringswitch by the network
+			administrator."
+		::= { ringswitchLAN 1 }
+
+	ringswitchLANEntry OBJECT-TYPE
+		SYNTAX RingswitchLANEntry
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			"Name and status information associated with each
+			virtual LAN entry."
+		INDEX { ringswitchLANIndex }
+		::= { ringswitchLANTable 1 }
+
+	RingswitchLANEntry ::=
+		SEQUENCE	{
+				ringswitchLANIndex
+					INTEGER,
+				ringswitchLANName
+					DisplayString,
+				ringswitchLANPermeable
+					INTEGER,
+				ringswitchLANStatus
+					INTEGER
+				}
+
+	ringswitchLANIndex OBJECT-TYPE
+		SYNTAX INTEGER (1..65535)
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The virtual LAN number for which this entry
+			contains virtual LAN details."
+		::= { ringswitchLANEntry 1 }
+
+	ringswitchLANName OBJECT-TYPE
+		SYNTAX DisplayString
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The name that the administrator has given this
+			virtual LAN."
+		::= { ringswitchLANEntry 2 }
+
+	ringswitchLANPermeable OBJECT-TYPE
+		SYNTAX INTEGER	{
+				impermeable	(1),
+				permeable	(2)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"In an 'impermeable' group, broadcast frames which
+			were received on a port in the group, but were not
+			originated in the group, are discarded.  In a
+			'permeable' group, such frames are transmitted on
+			the other ports in the group."
+		::= { ringswitchLANEntry 3 }
+
+	ringswitchLANStatus OBJECT-TYPE
+		SYNTAX INTEGER	{
+				valid	(1),
+				invalid (2)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The current status of this virtual LAN, a status of
+			'invalid' indicates that the virtual LAN's associated
+			name and ring list are meaningless until the group is
+			validated."
+		::= { ringswitchLANEntry 4 }
+
+	ringswitchLANRingTable OBJECT-TYPE
+		SYNTAX SEQUENCE OF RingswitchLANRingEntry
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			"A table that contains the rings associated with
+			a virtual LAN that has been configured into the
+			Ringswitch by the network administrator."
+		::= { ringswitchLAN 2 }
+
+	ringswitchLANRingEntry OBJECT-TYPE
+		SYNTAX RingswitchLANRingEntry
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			"Name and status information associated with each
+			virtual LAN ring table entry."
+		INDEX { ringswitchLANRingGroup, ringswitchLANRingIndex }
+		::= { ringswitchLANRingTable 1 }
+
+	RingswitchLANRingEntry ::=
+		SEQUENCE	{
+				ringswitchLANRingGroup
+					INTEGER,
+				ringswitchLANRingIndex
+					INTEGER,
+				ringswitchLANRingNum
+					INTEGER,
+				ringswitchLANRingStatus
+					INTEGER
+				}
+
+	ringswitchLANRingGroup OBJECT-TYPE
+		SYNTAX INTEGER
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The virtual LAN index for which this entry
+			contains virtual LAN ring details."
+		::= { ringswitchLANRingEntry 1 }
+
+	ringswitchLANRingIndex OBJECT-TYPE
+		SYNTAX INTEGER
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The ring index for which this entry
+			contains virtual LAN ring details."
+		::= { ringswitchLANRingEntry 2 }
+
+	ringswitchLANRingNum OBJECT-TYPE
+		SYNTAX INTEGER
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The ring number contained in the virtual LAN."
+		::= { ringswitchLANRingEntry 3 }
+
+	ringswitchLANRingStatus OBJECT-TYPE
+		SYNTAX INTEGER	{
+				valid		(1),
+				invalid 	(2)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The current status of this virtual LAN ring entry,
+			a status of 'invalid' indicates that the ring entry
+			is not in use and the associated ring number is
+			meaningless."
+		::= { ringswitchLANRingEntry 4 }
+
+--
+-- Madge Ringswitch specific traps
+--
+
+	fanPSSpeedFailed TRAP-TYPE
+	    ENTERPRISE ringswitch
+	    VARIABLES { ringswitchBasePSFanSpeed }
+	    DESCRIPTION
+		    "This trap is sent when the Power Supply fan has failed." 
+	    ::= 1
+
+	fanExtSpeedFailed TRAP-TYPE
+	    ENTERPRISE ringswitch
+	    VARIABLES { ringswitchBaseExtFanSpeed }
+	    DESCRIPTION
+		    "This trap is sent when the external fan has failed." 
+	    ::= 2
+
+	portFailed TRAP-TYPE
+	    ENTERPRISE ringswitch
+	    VARIABLES { ringswitchPortAdapterStatus }
+	    DESCRIPTION
+		    "This trap is sent when a port has auto-closed or 
+		     failed to open." 
+	    ::= 3
+
+	brTestFailed TRAP-TYPE
+	    ENTERPRISE ringswitch
+	    VARIABLES { ringswitchPortTestError }
+	    DESCRIPTION
+		    "This trap is sent when the bridge test on a port
+		     fails." 
+	    ::= 4
+
+	END

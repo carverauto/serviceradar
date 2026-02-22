@@ -1,0 +1,239 @@
+-- *****************************************************************
+-- MIBS/CISCO-SWITCH-CGMP-MIB.my:  Switch-side CGMP MIB
+--
+-- May, 1998, Rich Heaton
+--
+-- Copyright (c) 1998 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+CISCO-SWITCH-CGMP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        TEXTUAL-CONVENTION,
+        RowStatus,
+        MacAddress                      
+            FROM SNMPv2-TC
+        MODULE-IDENTITY,
+        OBJECT-TYPE                      
+            FROM SNMPv2-SMI        
+        dot1dBasePort
+            FROM BRIDGE-MIB
+        ciscoMgmt                        
+            FROM CISCO-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP  
+            FROM SNMPv2-CONF;
+
+ciscoSwitchCgmpMIB MODULE-IDENTITY
+        LAST-UPDATED    "9805070000Z"
+        ORGANIZATION    "Cisco Systems, Inc"
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA 95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                Email: cs-ipmulticast@cisco.com"
+        DESCRIPTION
+                "Switch-side Cisco Group Management Protocol MIB for  
+                 Layer 2 Switch devices."
+        REVISION        "9805070000Z"
+        DESCRIPTION
+                "Initial version of this MIB module"
+        ::= { ciscoMgmt 101 }
+
+ciscoSwitchCgmpMIBObjects OBJECT IDENTIFIER ::= { ciscoSwitchCgmpMIB 1 }
+
+sCgmpInfo OBJECT IDENTIFIER ::= { ciscoSwitchCgmpMIBObjects 1 }
+
+-- Textual Conventions
+
+SCgmpVlanIndex ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+            "The VLAN-id of a VLAN on either ISL trunk, 802.1q trunk
+             or port-based VLAN implementations."
+    SYNTAX     INTEGER (0..1023)
+
+
+-- Switch CGMP Info
+
+--
+-- Switch side Cisco Group Management Protocol (CGMP) objects
+--
+-- CGMP provides a mechanism for Layer2-only switches to populate 
+-- destination port lists for multicast groups. Multicast routers
+-- will relay Internet Group Managment Protocol (IGMP) messages
+-- to switches using CGMP. This allows switches to constrain multicast
+-- traffic to only those ports that have indicated their membership 
+-- in a given group.
+--
+
+sCgmpEnable OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        enabled(1),     -- enable  CGMP
+                        disabled(2)     -- disable CGMP
+                        }
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+                "This variable allows user to enable or disable Cisco
+                 Group Management Protocol (CGMP)."
+
+         ::= { sCgmpInfo 1 }
+
+sCgmpFastLeaveEnable OBJECT-TYPE
+        SYNTAX  INTEGER {
+                        enabled(1),     -- enable  CGMP Fast Leave
+                        disabled(2)     -- disable CGMP fast Leave
+                        }
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+                "This variable allows user to enable or disable Cisco
+                 Group Management Protocol (CGMP) Fast Leave processing."
+
+        ::= { sCgmpInfo 2 }
+
+sCgmpRouterHoldTime OBJECT-TYPE
+        SYNTAX INTEGER(10..6000)
+        UNITS "seconds"
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+                "Multicast routers that support CGMP will send CGMP
+                 join message to advertise themselves to switches within
+                 a network. A switch that receives a CGMP message will save
+                 the information and set a timer equal to this router hold
+                 time. When the router hold time expires, the switch will
+                 remove the Router entry from CGMP. The default value 
+                 is 300 seconds."
+
+        ::= { sCgmpInfo 3 }
+
+sCgmpRouterTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF SCgmpRouterEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION                   
+                "List of Router entries present on the switch."
+
+        ::= { sCgmpInfo 4 } 
+
+sCgmpRouterEntry OBJECT-TYPE
+        SYNTAX SCgmpRouterEntry
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION                         
+                "Entry containing multicast router information for
+                a particular router. These entries are created when a
+                router sends a CGMP join for itself on a particular
+                vlan. Entries may be removed when a router entry's
+                sCgmpRouterHoldTime expires, or when explicitly 
+                removed by a user."
+
+        INDEX { sCgmpRouterVlanIndex, dot1dBasePort, sCgmpRouterMacAddress}
+
+        ::= { sCgmpRouterTable 1 } 
+
+SCgmpRouterEntry ::= SEQUENCE {
+                sCgmpRouterVlanIndex
+                SCgmpVlanIndex,                
+                sCgmpRouterMacAddress
+                MacAddress,
+                sCgmpRouterEntryStatus
+                RowStatus
+        }
+
+sCgmpRouterVlanIndex OBJECT-TYPE
+        SYNTAX SCgmpVlanIndex
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION     
+                "An index value that uniquely identifies the 
+                vlan on which the router identified by this router entry
+                is located. This value may be the same as used in the 
+                CISCO-VLAN-MEMBERSHIP-MIB and the CISCO-VTP-MIB for
+                the same given vlan, if VTP is present and in use
+                on the switch."
+
+        ::= { sCgmpRouterEntry 1 }
+
+sCgmpRouterMacAddress OBJECT-TYPE
+        SYNTAX MacAddress
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION     
+                "An 802 MAC Address in canonical format. This is the 
+                MAC address of the router itself."
+
+        ::= { sCgmpRouterEntry 3 }
+
+sCgmpRouterEntryStatus OBJECT-TYPE
+        SYNTAX  RowStatus
+        MAX-ACCESS read-write
+        STATUS current
+        DESCRIPTION 
+                "This object is used by a management station to
+                 delete the row entry in sCgmpRouterTable following 
+                 the RowStatus textual convention. The managment
+                 station may remove this entry by setting destroy (6).
+                 Entries may not be created. Entries removed may 
+                 reappear in normal CGMP operation when the router
+                 sends another self join."
+
+        ::= { sCgmpRouterEntry 4 }
+
+
+-- Notifications 
+
+-- none
+
+
+-- Conformance
+
+ciscoSwitchCgmpMIBConformance  OBJECT IDENTIFIER ::= 
+                                { ciscoSwitchCgmpMIB 3 }
+ciscoSwitchCgmpMIBCompliances  OBJECT IDENTIFIER ::= 
+                                { ciscoSwitchCgmpMIBConformance 1 }
+ciscoSwitchCgmpMIBGroups       OBJECT IDENTIFIER ::= 
+                                { ciscoSwitchCgmpMIBConformance 2 }
+
+-- Compliance
+
+ciscoSwitchCgmpMIBCompliance MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+                "The compliance statement for switches implementing
+                the Cisco Group Management Protocol"
+        MODULE -- this module
+        MANDATORY-GROUPS { sCgmpGroup }
+
+        OBJECT     sCgmpRouterHoldTime
+        MIN-ACCESS read-only
+        DESCRIPTION "Write access not required"
+
+        ::= { ciscoSwitchCgmpMIBCompliances 1 } 
+
+-- Units of Conformance
+
+sCgmpGroup OBJECT-GROUP
+        OBJECTS {
+                sCgmpEnable,
+                sCgmpFastLeaveEnable,
+                sCgmpRouterHoldTime,                
+                sCgmpRouterEntryStatus
+                }
+        STATUS current
+        DESCRIPTION
+                "Switch-side Cisco Group Management Protocol."
+        ::= { ciscoSwitchCgmpMIBGroups 1 }
+
+
+END
+

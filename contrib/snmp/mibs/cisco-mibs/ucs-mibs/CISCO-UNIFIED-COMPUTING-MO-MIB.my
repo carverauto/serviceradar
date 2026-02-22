@@ -1,0 +1,816 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-MO-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- MO management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-MO-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsMoAnnotationOperState,
+    CucsMoAnnotationOverride,
+    CucsMoAnnotationOwner,
+    CucsMoAnnotationTarget,
+    CucsMoAnnotationType,
+    CucsMoFileTxAdminState,
+    CucsMoIpV4AddrKvType,
+    CucsMoIpV6AddrKvType,
+    CucsMoKvType,
+    CucsMoVnicKvType
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsMoObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        MO management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 96 }
+
+cucsMoInvKvTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMoInvKvEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS mo:InvKv managed object table"
+    ::= { cucsMoObjects 1 }
+
+cucsMoInvKvEntry OBJECT-TYPE
+    SYNTAX           CucsMoInvKvEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMoInvKvTable table."
+    INDEX { cucsMoInvKvInstanceId }
+    ::= { cucsMoInvKvTable 1 }
+
+CucsMoInvKvEntry ::= SEQUENCE {
+    cucsMoInvKvInstanceId                                            CucsManagedObjectId,
+    cucsMoInvKvDn                                                    CucsManagedObjectDn,
+    cucsMoInvKvRn                                                    SnmpAdminString,
+    cucsMoInvKvKey                                                   SnmpAdminString,
+    cucsMoInvKvOwner                                                 CucsMoAnnotationOwner,
+    cucsMoInvKvType                                                  CucsMoAnnotationType,
+    cucsMoInvKvValue                                                 SnmpAdminString
+}
+
+cucsMoInvKvInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMoInvKvEntry 1 }
+
+cucsMoInvKvDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:InvKv:dn managed object property"
+    ::= { cucsMoInvKvEntry 2 }
+
+cucsMoInvKvRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:InvKv:rn managed object property"
+    ::= { cucsMoInvKvEntry 3 }
+
+cucsMoInvKvKey OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:InvKv:key managed object property"
+    ::= { cucsMoInvKvEntry 4 }
+
+cucsMoInvKvOwner OBJECT-TYPE
+    SYNTAX       CucsMoAnnotationOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:InvKv:owner managed object property"
+    ::= { cucsMoInvKvEntry 5 }
+
+cucsMoInvKvType OBJECT-TYPE
+    SYNTAX       CucsMoAnnotationType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:InvKv:type managed object property"
+    ::= { cucsMoInvKvEntry 6 }
+
+cucsMoInvKvValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:InvKv:value managed object property"
+    ::= { cucsMoInvKvEntry 7 }
+
+cucsMoIpV4AddrKvTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMoIpV4AddrKvEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv managed object table"
+    ::= { cucsMoObjects 2 }
+
+cucsMoIpV4AddrKvEntry OBJECT-TYPE
+    SYNTAX           CucsMoIpV4AddrKvEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMoIpV4AddrKvTable table."
+    INDEX { cucsMoIpV4AddrKvInstanceId }
+    ::= { cucsMoIpV4AddrKvTable 1 }
+
+CucsMoIpV4AddrKvEntry ::= SEQUENCE {
+    cucsMoIpV4AddrKvInstanceId                                       CucsManagedObjectId,
+    cucsMoIpV4AddrKvDn                                               CucsManagedObjectDn,
+    cucsMoIpV4AddrKvRn                                               SnmpAdminString,
+    cucsMoIpV4AddrKvAddr                                             InetAddressIPv4,
+    cucsMoIpV4AddrKvDefGw                                            InetAddressIPv4,
+    cucsMoIpV4AddrKvKey                                              SnmpAdminString,
+    cucsMoIpV4AddrKvOperPoolName                                     SnmpAdminString,
+    cucsMoIpV4AddrKvOwner                                            CucsMoAnnotationOwner,
+    cucsMoIpV4AddrKvPoolName                                         SnmpAdminString,
+    cucsMoIpV4AddrKvPrimDns                                          InetAddressIPv4,
+    cucsMoIpV4AddrKvSecDns                                           InetAddressIPv4,
+    cucsMoIpV4AddrKvSubnet                                           InetAddressIPv4,
+    cucsMoIpV4AddrKvTarget                                           CucsMoAnnotationTarget,
+    cucsMoIpV4AddrKvType                                             CucsMoIpV4AddrKvType,
+    cucsMoIpV4AddrKvValue                                            SnmpAdminString
+}
+
+cucsMoIpV4AddrKvInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMoIpV4AddrKvEntry 1 }
+
+cucsMoIpV4AddrKvDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:dn managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 2 }
+
+cucsMoIpV4AddrKvRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:rn managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 3 }
+
+cucsMoIpV4AddrKvAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:addr managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 4 }
+
+cucsMoIpV4AddrKvDefGw OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:defGw managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 5 }
+
+cucsMoIpV4AddrKvKey OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:key managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 6 }
+
+cucsMoIpV4AddrKvOperPoolName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:operPoolName managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 7 }
+
+cucsMoIpV4AddrKvOwner OBJECT-TYPE
+    SYNTAX       CucsMoAnnotationOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:owner managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 8 }
+
+cucsMoIpV4AddrKvPoolName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:poolName managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 9 }
+
+cucsMoIpV4AddrKvPrimDns OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:primDns managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 10 }
+
+cucsMoIpV4AddrKvSecDns OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:secDns managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 11 }
+
+cucsMoIpV4AddrKvSubnet OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:subnet managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 12 }
+
+cucsMoIpV4AddrKvTarget OBJECT-TYPE
+    SYNTAX       CucsMoAnnotationTarget
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:target managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 13 }
+
+cucsMoIpV4AddrKvType OBJECT-TYPE
+    SYNTAX       CucsMoIpV4AddrKvType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:type managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 14 }
+
+cucsMoIpV4AddrKvValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV4AddrKv:value managed object property"
+    ::= { cucsMoIpV4AddrKvEntry 15 }
+
+cucsMoIpV6AddrKvTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMoIpV6AddrKvEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv managed object table"
+    ::= { cucsMoObjects 3 }
+
+cucsMoIpV6AddrKvEntry OBJECT-TYPE
+    SYNTAX           CucsMoIpV6AddrKvEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMoIpV6AddrKvTable table."
+    INDEX { cucsMoIpV6AddrKvInstanceId }
+    ::= { cucsMoIpV6AddrKvTable 1 }
+
+CucsMoIpV6AddrKvEntry ::= SEQUENCE {
+    cucsMoIpV6AddrKvInstanceId                                       CucsManagedObjectId,
+    cucsMoIpV6AddrKvDn                                               CucsManagedObjectDn,
+    cucsMoIpV6AddrKvRn                                               SnmpAdminString,
+    cucsMoIpV6AddrKvAddr                                             InetAddressIPv6,
+    cucsMoIpV6AddrKvDefGw                                            InetAddressIPv6,
+    cucsMoIpV6AddrKvKey                                              SnmpAdminString,
+    cucsMoIpV6AddrKvOperPoolName                                     SnmpAdminString,
+    cucsMoIpV6AddrKvOwner                                            CucsMoAnnotationOwner,
+    cucsMoIpV6AddrKvPoolName                                         SnmpAdminString,
+    cucsMoIpV6AddrKvPrefix                                           Gauge32,
+    cucsMoIpV6AddrKvPrimDns                                          InetAddressIPv6,
+    cucsMoIpV6AddrKvSecDns                                           InetAddressIPv6,
+    cucsMoIpV6AddrKvTarget                                           CucsMoAnnotationTarget,
+    cucsMoIpV6AddrKvType                                             CucsMoIpV6AddrKvType,
+    cucsMoIpV6AddrKvValue                                            SnmpAdminString
+}
+
+cucsMoIpV6AddrKvInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMoIpV6AddrKvEntry 1 }
+
+cucsMoIpV6AddrKvDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:dn managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 2 }
+
+cucsMoIpV6AddrKvRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:rn managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 3 }
+
+cucsMoIpV6AddrKvAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:addr managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 4 }
+
+cucsMoIpV6AddrKvDefGw OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:defGw managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 5 }
+
+cucsMoIpV6AddrKvKey OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:key managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 6 }
+
+cucsMoIpV6AddrKvOperPoolName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:operPoolName managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 7 }
+
+cucsMoIpV6AddrKvOwner OBJECT-TYPE
+    SYNTAX       CucsMoAnnotationOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:owner managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 8 }
+
+cucsMoIpV6AddrKvPoolName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:poolName managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 9 }
+
+cucsMoIpV6AddrKvPrefix OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:prefix managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 10 }
+
+cucsMoIpV6AddrKvPrimDns OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:primDns managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 11 }
+
+cucsMoIpV6AddrKvSecDns OBJECT-TYPE
+    SYNTAX       InetAddressIPv6
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:secDns managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 12 }
+
+cucsMoIpV6AddrKvTarget OBJECT-TYPE
+    SYNTAX       CucsMoAnnotationTarget
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:target managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 13 }
+
+cucsMoIpV6AddrKvType OBJECT-TYPE
+    SYNTAX       CucsMoIpV6AddrKvType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:type managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 14 }
+
+cucsMoIpV6AddrKvValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:IpV6AddrKv:value managed object property"
+    ::= { cucsMoIpV6AddrKvEntry 15 }
+
+cucsMoKvTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMoKvEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS mo:Kv managed object table"
+    ::= { cucsMoObjects 4 }
+
+cucsMoKvEntry OBJECT-TYPE
+    SYNTAX           CucsMoKvEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMoKvTable table."
+    INDEX { cucsMoKvInstanceId }
+    ::= { cucsMoKvTable 1 }
+
+CucsMoKvEntry ::= SEQUENCE {
+    cucsMoKvInstanceId                                               CucsManagedObjectId,
+    cucsMoKvDn                                                       CucsManagedObjectDn,
+    cucsMoKvRn                                                       SnmpAdminString,
+    cucsMoKvKey                                                      SnmpAdminString,
+    cucsMoKvOverride                                                 CucsMoAnnotationOverride,
+    cucsMoKvOwner                                                    CucsMoAnnotationOwner,
+    cucsMoKvTarget                                                   CucsMoAnnotationTarget,
+    cucsMoKvType                                                     CucsMoKvType,
+    cucsMoKvValue                                                    SnmpAdminString
+}
+
+cucsMoKvInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMoKvEntry 1 }
+
+cucsMoKvDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:Kv:dn managed object property"
+    ::= { cucsMoKvEntry 2 }
+
+cucsMoKvRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:Kv:rn managed object property"
+    ::= { cucsMoKvEntry 3 }
+
+cucsMoKvKey OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:Kv:key managed object property"
+    ::= { cucsMoKvEntry 4 }
+
+cucsMoKvOverride OBJECT-TYPE
+    SYNTAX       CucsMoAnnotationOverride
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:Kv:override managed object property"
+    ::= { cucsMoKvEntry 5 }
+
+cucsMoKvOwner OBJECT-TYPE
+    SYNTAX       CucsMoAnnotationOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:Kv:owner managed object property"
+    ::= { cucsMoKvEntry 6 }
+
+cucsMoKvTarget OBJECT-TYPE
+    SYNTAX       CucsMoAnnotationTarget
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:Kv:target managed object property"
+    ::= { cucsMoKvEntry 7 }
+
+cucsMoKvType OBJECT-TYPE
+    SYNTAX       CucsMoKvType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:Kv:type managed object property"
+    ::= { cucsMoKvEntry 8 }
+
+cucsMoKvValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:Kv:value managed object property"
+    ::= { cucsMoKvEntry 9 }
+
+cucsMoKvCfgHolderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMoKvCfgHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS mo:KvCfgHolder managed object table"
+    ::= { cucsMoObjects 5 }
+
+cucsMoKvCfgHolderEntry OBJECT-TYPE
+    SYNTAX           CucsMoKvCfgHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMoKvCfgHolderTable table."
+    INDEX { cucsMoKvCfgHolderInstanceId }
+    ::= { cucsMoKvCfgHolderTable 1 }
+
+CucsMoKvCfgHolderEntry ::= SEQUENCE {
+    cucsMoKvCfgHolderInstanceId                                      CucsManagedObjectId,
+    cucsMoKvCfgHolderDn                                              CucsManagedObjectDn,
+    cucsMoKvCfgHolderRn                                              SnmpAdminString,
+    cucsMoKvCfgHolderFileTxAdminState                                CucsMoFileTxAdminState,
+    cucsMoKvCfgHolderOperState                                       CucsMoAnnotationOperState
+}
+
+cucsMoKvCfgHolderInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMoKvCfgHolderEntry 1 }
+
+cucsMoKvCfgHolderDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:KvCfgHolder:dn managed object property"
+    ::= { cucsMoKvCfgHolderEntry 2 }
+
+cucsMoKvCfgHolderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:KvCfgHolder:rn managed object property"
+    ::= { cucsMoKvCfgHolderEntry 3 }
+
+cucsMoKvCfgHolderFileTxAdminState OBJECT-TYPE
+    SYNTAX       CucsMoFileTxAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:KvCfgHolder:fileTxAdminState managed
+        object property"
+    ::= { cucsMoKvCfgHolderEntry 4 }
+
+cucsMoKvCfgHolderOperState OBJECT-TYPE
+    SYNTAX       CucsMoAnnotationOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:KvCfgHolder:operState managed object property"
+    ::= { cucsMoKvCfgHolderEntry 5 }
+
+cucsMoKvInvHolderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMoKvInvHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS mo:KvInvHolder managed object table"
+    ::= { cucsMoObjects 6 }
+
+cucsMoKvInvHolderEntry OBJECT-TYPE
+    SYNTAX           CucsMoKvInvHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMoKvInvHolderTable table."
+    INDEX { cucsMoKvInvHolderInstanceId }
+    ::= { cucsMoKvInvHolderTable 1 }
+
+CucsMoKvInvHolderEntry ::= SEQUENCE {
+    cucsMoKvInvHolderInstanceId                                      CucsManagedObjectId,
+    cucsMoKvInvHolderDn                                              CucsManagedObjectDn,
+    cucsMoKvInvHolderRn                                              SnmpAdminString,
+    cucsMoKvInvHolderEndpoint                                        SnmpAdminString,
+    cucsMoKvInvHolderLastUpdate                                      DateAndTime
+}
+
+cucsMoKvInvHolderInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMoKvInvHolderEntry 1 }
+
+cucsMoKvInvHolderDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:KvInvHolder:dn managed object property"
+    ::= { cucsMoKvInvHolderEntry 2 }
+
+cucsMoKvInvHolderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:KvInvHolder:rn managed object property"
+    ::= { cucsMoKvInvHolderEntry 3 }
+
+cucsMoKvInvHolderEndpoint OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:KvInvHolder:endpoint managed object property"
+    ::= { cucsMoKvInvHolderEntry 4 }
+
+cucsMoKvInvHolderLastUpdate OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:KvInvHolder:lastUpdate managed object property"
+    ::= { cucsMoKvInvHolderEntry 5 }
+
+cucsMoVnicKvTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMoVnicKvEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS mo:VnicKv managed object table"
+    ::= { cucsMoObjects 7 }
+
+cucsMoVnicKvEntry OBJECT-TYPE
+    SYNTAX           CucsMoVnicKvEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMoVnicKvTable table."
+    INDEX { cucsMoVnicKvInstanceId }
+    ::= { cucsMoVnicKvTable 1 }
+
+CucsMoVnicKvEntry ::= SEQUENCE {
+    cucsMoVnicKvInstanceId                                           CucsManagedObjectId,
+    cucsMoVnicKvDn                                                   CucsManagedObjectDn,
+    cucsMoVnicKvRn                                                   SnmpAdminString,
+    cucsMoVnicKvKey                                                  SnmpAdminString,
+    cucsMoVnicKvOwner                                                CucsMoAnnotationOwner,
+    cucsMoVnicKvTarget                                               CucsMoAnnotationTarget,
+    cucsMoVnicKvType                                                 CucsMoVnicKvType,
+    cucsMoVnicKvValue                                                SnmpAdminString,
+    cucsMoVnicKvVnicEtherDn                                          SnmpAdminString,
+    cucsMoVnicKvVnicName                                             SnmpAdminString
+}
+
+cucsMoVnicKvInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMoVnicKvEntry 1 }
+
+cucsMoVnicKvDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:VnicKv:dn managed object property"
+    ::= { cucsMoVnicKvEntry 2 }
+
+cucsMoVnicKvRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:VnicKv:rn managed object property"
+    ::= { cucsMoVnicKvEntry 3 }
+
+cucsMoVnicKvKey OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:VnicKv:key managed object property"
+    ::= { cucsMoVnicKvEntry 4 }
+
+cucsMoVnicKvOwner OBJECT-TYPE
+    SYNTAX       CucsMoAnnotationOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:VnicKv:owner managed object property"
+    ::= { cucsMoVnicKvEntry 5 }
+
+cucsMoVnicKvTarget OBJECT-TYPE
+    SYNTAX       CucsMoAnnotationTarget
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:VnicKv:target managed object property"
+    ::= { cucsMoVnicKvEntry 6 }
+
+cucsMoVnicKvType OBJECT-TYPE
+    SYNTAX       CucsMoVnicKvType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:VnicKv:type managed object property"
+    ::= { cucsMoVnicKvEntry 7 }
+
+cucsMoVnicKvValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:VnicKv:value managed object property"
+    ::= { cucsMoVnicKvEntry 8 }
+
+cucsMoVnicKvVnicEtherDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:VnicKv:vnicEtherDn managed object property"
+    ::= { cucsMoVnicKvEntry 9 }
+
+cucsMoVnicKvVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS mo:VnicKv:vnicName managed object property"
+    ::= { cucsMoVnicKvEntry 10 }
+
+END

@@ -1,0 +1,847 @@
+-- MIB file created 20-Jan-2006 18:23:46, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-MMAIL-DIAL-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-MMAIL-DIAL-CONTROL-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DisplayString, TruthValue
+            FROM SNMPv2-TC-v1
+    callActiveSetupTime, callActiveIndex, AbsoluteCounter32
+            FROM DIAL-CONTROL-MIB
+    cCallHistoryIndex
+            FROM CISCO-DIAL-CONTROL-MIB
+    CvcGUid
+            FROM CISCO-VOICE-COMMON-DIAL-CONTROL-MIB
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoMediaMailDialControlMIB OBJECT IDENTIFIER ::= { ciscoMgmt 102 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200202250000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems 
+--            Customer Service 
+--    
+--    Postal: 170 W. Tasman Drive 
+--            San Jose, CA  95134 
+--            USA 
+--    
+--    Tel: +1 800 553-NETS 
+--    
+--    E-mail: cs-voice@cisco.com
+--  Descr
+--    This MIB module enhances the IETF Dial Control MIB  
+--     (RFC2128) for providing management of dial peers on  
+--     both a circuit-switched telephony network, and a mail  
+--     server on IP network. 
+--  RevDate
+--    200202250000Z
+--  RevDescr
+--    Fix for CSCdu86743 and CSCdu86778. The change include: 
+--     - DEFVAL for cmmIpPeerCfgDeliStatNotification 
+--     - Add dsnMdn option for cmmIpCallActiveNotification 
+--       and cmmIpCallHistoryNotification 
+--     - Object descriptor name change due to length 
+--       exceeding 32. These are : 
+--       cmmIpPeerCfgDeliStatNotification 
+--       cmmIpCallHistoryAcceptMimeTypes 
+--       cmmIpCallHistoryDiscdMimeTypes 
+--     - All the lines exceed length 72 are being rewitten 
+--     
+
+cmmdcMIBObjects OBJECT IDENTIFIER ::= { ciscoMediaMailDialControlMIB 1 }
+cmmPeer         OBJECT IDENTIFIER ::= { cmmdcMIBObjects 1 }
+cmmCallActive   OBJECT IDENTIFIER ::= { cmmdcMIBObjects 2 }
+cmmCallHistory  OBJECT IDENTIFIER ::= { cmmdcMIBObjects 3 }
+cmmFaxGeneralCfg OBJECT IDENTIFIER ::= { cmmdcMIBObjects 4 }
+cmmdcMIBConformance OBJECT IDENTIFIER ::= { ciscoMediaMailDialControlMIB 3 }
+cmmdcMIBCompliances OBJECT IDENTIFIER ::= { cmmdcMIBConformance 1 }
+cmmdcMIBGroups  OBJECT IDENTIFIER ::= { cmmdcMIBConformance 2 }
+
+CmmImgResolution ::= INTEGER {
+        standard(2),
+        fine(3),
+        superFine(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents possible image resolution in Media Mail. 
+--     standard  - standard resolution. 
+--     fine      - fine resolution. 
+--     superFine - super fine resolution. 
+--  Refer
+--    RFC2301: Section 4.5.2 Encoding and Resolution.
+
+CmmImgResolutionOrTransparent ::= INTEGER {
+        transparent(1),
+        standard(2),
+        fine(3),
+        superFine(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents possible image resolution and transparent mode. 
+--     transparent - pass through mode.  
+--     standard    - standard resolution. 
+--     fine        - fine resolution. 
+--     superFine   - super fine resolution. 
+--  Refer
+--    RFC2301: Section 4.5.2 Encoding and Resolution.
+
+CmmImgEncoding ::= INTEGER {
+        modifiedHuffman(2),
+        modifiedREAD(3),
+        modifiedMR(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents possible image encoding types in Media Mail. 
+--     modifiedHuffman     - Modified Huffman (MH). 
+--     modifiedREAD        - Modified READ (MR). 
+--     modifiedMR          - Modified Modified READ (MMR). 
+--  Refer
+--    RFC2301: Section 1.3 Overview of this draft. 
+--     ITU-T Rec. T.4 (MH - Modified Huffman). 
+--     ITU-T Rec. T.4 (MR - Modified READ). 
+--     ITU-T Rec. T.6 (MRR - Modified MR). 
+
+CmmImgEncodingOrTransparent ::= INTEGER {
+        transparent(1),
+        modifiedHuffman(2),
+        modifiedREAD(3),
+        modifiedMR(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Represents possible image encoding types and transparent  
+--     mode. 
+--     transparent          - pass through mode.  
+--     modifiedHuffman      - Modified Huffman (MH). 
+--     modifiedREAD         - Modified READ (MR). 
+--     modifiedMR           - Modified Modified READ (MMR). 
+--  Refer
+--    RFC2301: Section 1.3 Overview of this draft. 
+--     ITU-T Rec. T.4 (MH - Modified Huffman). 
+--     ITU-T Rec. T.4 (MR - Modified READ). 
+--     ITU-T Rec. T.6 (MRR - Modified MR). 
+
+CmmFaxHeadingString ::= DisplayString(SIZE(0..80))
+-- Rsyntax OCTET STRING(SIZE(0..80))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The regular expression for the FAX heading at the top of 
+--     cover page or text page.  The regular expression syntax  
+--     used in this object is the same as that used by the UNIX  
+--     grep program. The embedded pattern substitutions are  
+--     defined as follows: 
+--     $p$ - translates to the page number as passed by 
+--           FAX processing. 
+--     $a$ - translates to human readable year-month-day 
+--           that is defined in DateAndTime of SNMPv2-TC. 
+--     $d$ - translates to the called party address. 
+--     $s$ - translates to the calling party address. 
+--     $t$ - translates to the time of transmission of the 
+--           first FAX/image page. The human readable format 
+--           is defined as year-month-day,hour:minutes:second 
+--           in the DateAndTime of SNMPv2-TC. 
+--      
+--     Example,  
+--     'Date:$a$' means replacing the heading of a FAX page with 
+--     the the string and date substitution. 
+--    
+--     'From $s$ Broadcast Service' means replacing the heading  
+--      of FAX page with the the string and calling party address  
+--      substitution.  
+--    
+--     'Page:$p$' means replacing the heading of a FAX page with  
+--     the string and page number substitution. 
+
+cmmIpPeerCfgTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmmIpPeerCfgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table contains the Media mail peer specific 
+         information that is required to accept mail connection or  
+         to which it will connect them via IP network with the  
+         specified session protocol in cmmIpPeerCfgSessionProtocol. "
+    ::= { cmmPeer 1 }
+
+cmmIpPeerCfgEntry OBJECT-TYPE
+    SYNTAX CmmIpPeerCfgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A single Media Mail specific Peer. One entry per media mail 
+         encapsulation. The entry is created when its associated  
+         'mediaMailOverIp(139)' encapsulation ifEntry is created. 
+         This entry is deleted when its associated ifEntry is  
+         deleted. "
+    INDEX { ifIndex }
+    ::= { cmmIpPeerCfgTable 1 }
+
+CmmIpPeerCfgEntry ::= SEQUENCE {
+    cmmIpPeerCfgSessionProtocol INTEGER,
+    cmmIpPeerCfgSessionTarget DisplayString,
+    cmmIpPeerCfgImgEncodingType CmmImgEncodingOrTransparent,
+    cmmIpPeerCfgImgResolution CmmImgResolutionOrTransparent,
+    cmmIpPeerCfgMsgDispoNotification TruthValue,
+    cmmIpPeerCfgDeliStatNotification OCTET STRING
+    }
+
+cmmIpPeerCfgSessionProtocol OBJECT-TYPE
+    SYNTAX INTEGER {
+        smtp(1)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object specifies the session protocol to be used 
+         for  sending/receiving media mail between local and remote 
+         mail sever via IP network. 
+         smtp - Simple Mail Transfer Protocol. "
+    DEFVAL { smtp }
+    ::= { cmmIpPeerCfgEntry 1 }
+
+cmmIpPeerCfgSessionTarget OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object specifies the session target of the peer. 
+         Session Targets definitions: 
+         The session target has the syntax used by the IETF service 
+         location protocol. The syntax is as follows: 
+        
+         mapping-type:type-specific-syntax 
+        
+         The mapping-type specifies a scheme for mapping the  
+         matching dial string to a session target. The  
+         type-specific-syntax is exactly that, something that the  
+         particular mapping scheme can understand. 
+         For example, 
+         Session target    mailto:+$d$@fax.cisco.com 
+          
+         The valid Mapping type definitions for the peer are as  
+         follows: 
+         mailto  - Syntax: mailto:w@x.y.z "
+    DEFVAL { "" }
+    ::= { cmmIpPeerCfgEntry 2 }
+
+cmmIpPeerCfgImgEncodingType OBJECT-TYPE
+    SYNTAX CmmImgEncodingOrTransparent
+--    Rsyntax INTEGER {
+--        transparent(1),
+--        modifiedHuffman(2),
+--        modifiedREAD(3),
+--        modifiedMR(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the image encoding conversion for  
+         outgoing mail connection to mail server. 
+         If the value of this object is transparent, it means 
+         'pass through' without encoding conversion.  "
+    DEFVAL { transparent }
+    ::= { cmmIpPeerCfgEntry 3 }
+
+cmmIpPeerCfgImgResolution OBJECT-TYPE
+    SYNTAX CmmImgResolutionOrTransparent
+--    Rsyntax INTEGER {
+--        transparent(1),
+--        standard(2),
+--        fine(3),
+--        superFine(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the image resolution conversion for  
+         outgoing mail connection to mail server.  
+         If the value of this object is transparent, it means 
+         'pass through' without resolution conversion.  "
+    DEFVAL { transparent }
+    ::= { cmmIpPeerCfgEntry 4 }
+
+cmmIpPeerCfgMsgDispoNotification OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the Request of Message Disposition  
+         Notification. 
+         true  - Request Message Disposition Notification. 
+         false - No  Message Disposition Notification. "
+    DEFVAL { false }
+    ::= { cmmIpPeerCfgEntry 5 }
+
+cmmIpPeerCfgDeliStatNotification OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   success(0)
+        --   failure(1)
+        --   delayed(2)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the Request of Delivery Status 
+         Notification. 
+         success - Request Notification if the media mail is  
+                   successfully delivered to the recipient. 
+         failure - Request Notification if the media mail is failed 
+                   to deliver to the recipient. 
+         delayed - Request Notification if the media mail is delayed 
+                   to deliver to the recipient. "
+    DEFVAL { '00'h }
+    ::= { cmmIpPeerCfgEntry 6 }
+
+cmmIpCallActiveTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmmIpCallActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is the Media Mail over IP extension to the call 
+         active table of IETF Dial Control MIB. It contains Media  
+         Mail over IP call leg information. "
+    ::= { cmmCallActive 1 }
+
+cmmIpCallActiveEntry OBJECT-TYPE
+    SYNTAX CmmIpCallActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single Media mail over IP call 
+         leg. The call leg entry is identified by using the same  
+         index objects that are used by Call Active table of IETF  
+         Dial Control MIB to identify the call. 
+         An entry of this table is created when its associated call 
+         active entry in the IETF Dial Control MIB is created and  
+         the call active entry contains information for the call  
+         establishment to the mail server peer on the IP network  
+         via a Media Mail over IP peer.              
+         The entry is deleted when its associated call active entry 
+         in the IETF Dial Control MIB is deleted. "
+    INDEX { callActiveSetupTime, callActiveIndex }
+    ::= { cmmIpCallActiveTable 1 }
+
+CmmIpCallActiveEntry ::= SEQUENCE {
+    cmmIpCallActiveConnectionId CvcGUid,
+    cmmIpCallActiveRemoteIPAddress IpAddress,
+    cmmIpCallActiveSessionProtocol INTEGER,
+    cmmIpCallActiveSessionTarget DisplayString,
+    cmmIpCallActiveMessageId DisplayString,
+    cmmIpCallActiveAccountId DisplayString,
+    cmmIpCallActiveImgEncodingType CmmImgEncoding,
+    cmmIpCallActiveImgResolution CmmImgResolution,
+    cmmIpCallActiveAcceptMimeTypes AbsoluteCounter32,
+    cmmIpCallActiveDiscdMimeTypes AbsoluteCounter32,
+    cmmIpCallActiveNotification INTEGER
+    }
+
+cmmIpCallActiveConnectionId OBJECT-TYPE
+    SYNTAX CvcGUid
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The global call identifier for the gateway call."
+    ::= { cmmIpCallActiveEntry 1 }
+
+cmmIpCallActiveRemoteIPAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Remote mail server IP address for the Media mail call. "
+    ::= { cmmIpCallActiveEntry 2 }
+
+cmmIpCallActiveSessionProtocol OBJECT-TYPE
+    SYNTAX INTEGER {
+        smtp(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object specifies the session protocol to be used 
+         for the media mail call between local and remote mail  
+         server via IP network. "
+    ::= { cmmIpCallActiveEntry 3 }
+
+cmmIpCallActiveSessionTarget OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object specifies the session target of the peer that 
+         is used for the call. This object is set with the  
+         information in the call associated  
+         cmmIpPeerCfgSessionTarget object when the media mail call  
+         is connected.   "
+    ::= { cmmIpCallActiveEntry 4 }
+
+cmmIpCallActiveMessageId OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The global unique message identification of 
+         the Media mail. "
+    ::= { cmmIpCallActiveEntry 5 }
+
+cmmIpCallActiveAccountId OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Account ID of Media mail."
+    ::= { cmmIpCallActiveEntry 6 }
+
+cmmIpCallActiveImgEncodingType OBJECT-TYPE
+    SYNTAX CmmImgEncoding
+--    Rsyntax INTEGER {
+--        modifiedHuffman(2),
+--        modifiedREAD(3),
+--        modifiedMR(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The image encoding type of Media mail."
+    ::= { cmmIpCallActiveEntry 7 }
+
+cmmIpCallActiveImgResolution OBJECT-TYPE
+    SYNTAX CmmImgResolution
+--    Rsyntax INTEGER {
+--        standard(2),
+--        fine(3),
+--        superFine(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The image resolution of Media mail."
+    ::= { cmmIpCallActiveEntry 8 }
+
+cmmIpCallActiveAcceptMimeTypes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of accepted MIME types for the Media mail call. "
+    ::= { cmmIpCallActiveEntry 9 }
+
+cmmIpCallActiveDiscdMimeTypes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of discarded MIME types for the Media mail call. "
+    ::= { cmmIpCallActiveEntry 10 }
+
+cmmIpCallActiveNotification OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        mdn(2),
+        dsn(3),
+        dsnMdn(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The notification type of the Media mail call. 
+         none - No notification.  
+         mdn  - Message Disposition notification.  
+         dsn  - Delivery Status notification.  
+         dsnMdn - Both Delivery Status and Message Disposition  
+                  notification "
+    ::= { cmmIpCallActiveEntry 11 }
+
+cmmIpCallHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmmIpCallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is the Media Mail extension to the call history 
+         table of IETF Dial Control MIB. It contains Media Mail call 
+         leg information about specific Media mail gateway call. "
+    ::= { cmmCallHistory 1 }
+
+cmmIpCallHistoryEntry OBJECT-TYPE
+    SYNTAX CmmIpCallHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single Media Mail call leg. 
+         The call leg entry is identified by using the same index 
+         objects that are used by Call Active table of IETF Dial 
+         Control MIB to identify the call. 
+         An entry of this table is created when its associated call 
+         history entry in the IETF Dial Control MIB is created and  
+         the call history entry contains information for the call 
+         establishment to the mail server on the IP network via a  
+         Media Mail over IP peer. 
+         The entry is deleted when its associated call history entry 
+         in the IETF Dial Control MIB is deleted. "
+    INDEX { cCallHistoryIndex }
+    ::= { cmmIpCallHistoryTable 1 }
+
+CmmIpCallHistoryEntry ::= SEQUENCE {
+    cmmIpCallHistoryConnectionId CvcGUid,
+    cmmIpCallHistoryRemoteIPAddress IpAddress,
+    cmmIpCallHistorySessionProtocol INTEGER,
+    cmmIpCallHistorySessionTarget DisplayString,
+    cmmIpCallHistoryMessageId DisplayString,
+    cmmIpCallHistoryAccountId DisplayString,
+    cmmIpCallHistoryImgEncodingType CmmImgEncoding,
+    cmmIpCallHistoryImgResolution CmmImgResolution,
+    cmmIpCallHistoryAcceptMimeTypes AbsoluteCounter32,
+    cmmIpCallHistoryDiscdMimeTypes AbsoluteCounter32,
+    cmmIpCallHistoryNotification INTEGER
+    }
+
+cmmIpCallHistoryConnectionId OBJECT-TYPE
+    SYNTAX CvcGUid
+--    Rsyntax OCTET STRING(SIZE(0..16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The global call identifier for the gateway call."
+    ::= { cmmIpCallHistoryEntry 1 }
+
+cmmIpCallHistoryRemoteIPAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Remote mail server IP address for the media mail call. "
+    ::= { cmmIpCallHistoryEntry 2 }
+
+cmmIpCallHistorySessionProtocol OBJECT-TYPE
+    SYNTAX INTEGER {
+        smtp(1)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object specifies the session protocol to be used 
+         for the media mail call between local and remote mail  
+         server via IP network. "
+    ::= { cmmIpCallHistoryEntry 3 }
+
+cmmIpCallHistorySessionTarget OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object specifies the session target of the peer that 
+         is used for the call. This object is set with the  
+         information in the call associated  
+         cmmIpPeerCfgSessionTarget object when the media mail call  
+         is connected.   "
+    ::= { cmmIpCallHistoryEntry 4 }
+
+cmmIpCallHistoryMessageId OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The global unique message identification of 
+         the Media mail. "
+    ::= { cmmIpCallHistoryEntry 5 }
+
+cmmIpCallHistoryAccountId OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Account ID of Media mail."
+    ::= { cmmIpCallHistoryEntry 6 }
+
+cmmIpCallHistoryImgEncodingType OBJECT-TYPE
+    SYNTAX CmmImgEncoding
+--    Rsyntax INTEGER {
+--        modifiedHuffman(2),
+--        modifiedREAD(3),
+--        modifiedMR(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The image encoding type of Media mail."
+    ::= { cmmIpCallHistoryEntry 7 }
+
+cmmIpCallHistoryImgResolution OBJECT-TYPE
+    SYNTAX CmmImgResolution
+--    Rsyntax INTEGER {
+--        standard(2),
+--        fine(3),
+--        superFine(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The image resolution of Media mail."
+    ::= { cmmIpCallHistoryEntry 8 }
+
+cmmIpCallHistoryAcceptMimeTypes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of accepted MIME types for the Media mail call. "
+    ::= { cmmIpCallHistoryEntry 9 }
+
+cmmIpCallHistoryDiscdMimeTypes OBJECT-TYPE
+    SYNTAX AbsoluteCounter32
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of discarded MIME types for the Media mail call. "
+    ::= { cmmIpCallHistoryEntry 10 }
+
+cmmIpCallHistoryNotification OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        mdn(2),
+        dsn(3),
+        dsnMdn(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The notification type of the Media mail call. 
+         none - No notification.  
+         mdn  - Message Disposition notification.  
+         dsn  - Delivery Status notification.  
+         dsnMdn - Both Delivery Status and Message Disposition  
+                  notification "
+    ::= { cmmIpCallHistoryEntry 11 }
+
+cmmFaxCfgCalledSubscriberId OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..20))
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The regular expression for the FAX called subscriber  
+         identification (CSI) coding format. 
+         $d$ in the regular expression substitute CSI with the  
+         destination number of the call. "
+    REFERENCE
+        "ITU-T T30: Section 5.3.6.2.4 CSI coding format. "
+    ::= { cmmFaxGeneralCfg 1 }
+
+cmmFaxCfgXmitSubscriberId OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..20))
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The regular expression for the FAX Transmitting subscriber  
+         identification (TSI) coding format. 
+         $s$ in the regular expression substitute TSI with the  
+         caller ID of the call. "
+    REFERENCE
+        "ITU-T T30: Section 5.3.6.2.6 TSI coding format.  "
+    ::= { cmmFaxGeneralCfg 2 }
+
+cmmFaxCfgRightHeadingString OBJECT-TYPE
+    SYNTAX CmmFaxHeadingString
+--    Rsyntax OCTET STRING(SIZE(0..80))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The regular expression for the FAX right heading at the top 
+         of cover page or text page. 
+        
+         The default value of this object is an empty string. "
+    ::= { cmmFaxGeneralCfg 3 }
+
+cmmFaxCfgCenterHeadingString OBJECT-TYPE
+    SYNTAX CmmFaxHeadingString
+--    Rsyntax OCTET STRING(SIZE(0..80))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The regular expression for the FAX center heading at the  
+         top of cover page or text page. 
+        
+         The default value of this object is an empty string. "
+    ::= { cmmFaxGeneralCfg 4 }
+
+cmmFaxCfgLeftHeadingString OBJECT-TYPE
+    SYNTAX CmmFaxHeadingString
+--    Rsyntax OCTET STRING(SIZE(0..80))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The regular expression for the FAX left heading at the top  
+         of cover page or text page. 
+        
+         The default value of this object is an empty string. "
+    ::= { cmmFaxGeneralCfg 5 }
+
+cmmFaxCfgCovergPageControl OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   coverPageEnable(0)
+        --   coverPageCtlByEmail(1)
+        --   coverPageDetailEnable(2)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object controls the generation of cover page of FAX. 
+         coverPageEnable     - enable the managed system to generate 
+                               the FAX cover page. 
+         coverPageCtlByEmail - allow email to control the FAX cover 
+                               page generation. 
+         coverPageDetailEnable- enable the detailed mail header on 
+                                the cover page. "
+    ::= { cmmFaxGeneralCfg 6 }
+
+cmmFaxCfgCovergPageComment OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object contains the comment on the FAX cover page. "
+    ::= { cmmFaxGeneralCfg 7 }
+
+cmmFaxCfgFaxProfile OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   profileS(0)
+        --   profileF(1)
+        --   profileJ(2)
+        --   profileC(3)
+        --   profileL(4)
+        --   profileM(5)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The profile that applies to TIFF file for facsimile. The 
+         default value of this object is profileF. "
+    REFERENCE
+        "RFC 2301: Section 2.2.4 New TIFF fields recommended for fax 
+         modes. "
+    ::= { cmmFaxGeneralCfg 8 }
+
+cmmdcPeerCfgGroup OBJECT IDENTIFIER ::= { cmmdcMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the Media Mail Dial  
+--     Control configuration capability. 
+--  objects
+--    cmmIpPeerCfgSessionProtocol, cmmIpPeerCfgSessionTarget, 
+--    cmmIpPeerCfgImgEncodingType, cmmIpPeerCfgImgResolution, 
+--    cmmIpPeerCfgMsgDispoNotification, 
+--    cmmIpPeerCfgDeliStatNotification
+
+cmmIpCallGeneralGroup OBJECT IDENTIFIER ::= { cmmdcMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the General Media Mail  
+--     Call capability. 
+--  objects
+--    cmmIpCallActiveConnectionId, cmmIpCallActiveRemoteIPAddress, 
+--    cmmIpCallActiveSessionProtocol, cmmIpCallActiveSessionTarget, 
+--    cmmIpCallActiveMessageId, cmmIpCallActiveAccountId, 
+--    cmmIpCallActiveAcceptMimeTypes, cmmIpCallActiveDiscdMimeTypes, 
+--    cmmIpCallActiveNotification, cmmIpCallHistoryConnectionId, 
+--    cmmIpCallHistoryRemoteIPAddress, 
+--    cmmIpCallHistorySessionProtocol, 
+--    cmmIpCallHistorySessionTarget, cmmIpCallHistoryMessageId, 
+--    cmmIpCallHistoryAccountId, cmmIpCallHistoryAcceptMimeTypes, 
+--    cmmIpCallHistoryDiscdMimeTypes, cmmIpCallHistoryNotification
+
+cmmIpCallImageGroup OBJECT IDENTIFIER ::= { cmmdcMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the Image related Media  
+--     Mail Call capability. 
+--  objects
+--    cmmIpCallActiveImgEncodingType, cmmIpCallActiveImgResolution, 
+--    cmmIpCallHistoryImgEncodingType, 
+--    cmmIpCallHistoryImgResolution
+
+cmmFaxGroup OBJECT IDENTIFIER ::= { cmmdcMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the general FAX  
+--     configuration capability. 
+--  objects
+--    cmmFaxCfgCalledSubscriberId, cmmFaxCfgXmitSubscriberId, 
+--    cmmFaxCfgRightHeadingString, cmmFaxCfgCenterHeadingString, 
+--    cmmFaxCfgLeftHeadingString, cmmFaxCfgCovergPageControl, 
+--    cmmFaxCfgCovergPageComment, cmmFaxCfgFaxProfile
+
+cmmdcMIBCompliance OBJECT IDENTIFIER ::= { cmmdcMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which 
+--     implement the CISCO MMAIL DIAL CONTROL MIB
+--  Module
+--    >>current<<
+--   OptGroup
+--    cmmdcPeerCfgGroup
+--   OptGroup
+--    cmmIpCallGeneralGroup
+--   OptGroup
+--    cmmIpCallImageGroup
+--   OptGroup
+--    cmmFaxGroup
+--   ObjVar
+--    cmmFaxCfgFaxProfile
+
+
+END
+

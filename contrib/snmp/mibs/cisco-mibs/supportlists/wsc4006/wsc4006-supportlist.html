@@ -1,0 +1,871 @@
+<TITLE>Catalyst 4000 MIB Support List</TITLE>
+<h1>Catalyst 4000 MIB Support List</h1>
+<hr>
+The lists below indicate which MIBs and SNMP traps are supported by the 
+Catalyst 4000 series of switches (WS-C4003, WS-C4006, WS-C4912G, 
+WS-C2948G, WS-C4006, WS-C2980G, WS-C2980GA, WS-C4503, and WS-C4506).
+Depending on the version of the supervisor module software,
+different MIBs and traps are supported.
+<p>
+SNMP version 1 MIB files are in the <A HREF="../../v1">v1</A> directory and 
+SNMP version 2 MIB files are in the <A HREF="../../v2">v2</A> directory.
+Note that for most every MIB in the v2 directory, there exists a SNMP
+version 1 conversion of the MIB in the v1 directory as well.
+The corresponding schema files for SunNet Manager can be found in the 
+<A HREF="../../schema">schema</A> directory.
+Oid files for SunNet Manager can be found in the
+<A HREF="../../oid">oid</A> directory.
+Trap files for SunNet Manager can be found in the 
+<A HREF="../../traps">traps</A> directory.
+<p>
+MIBs marked with an asterisk (*) use <A HREF="../wsc4000/wsc4000-communityIndexing.html">
+community string indexing</A> to access a particular instance of the MIB.
+<p>
+Last updated 6/21/2006. Version history is available in <A HREF="../wsc4000/wsc4000-supportlist.changes">wsc4000-supportlist.changes</A>.
+<hr>
+<p>
+There are no new MIBs for CatOS Releases for the Cataylst 4000/4500 past 8.1.
+<p>
+<h2><strong>MIBs supported since supervisor module software version 8.1</strong></h2>
+<dl>
+<p>
+<pre>
+    <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>*              (RFC 1493)
+    <A HREF="../../v2/CISCO-AAA-CLIENT-MIB.my">CISCO-AAA-CLIENT-MIB.my</A>
+    <A HREF="../../v2/CISCO-CATOS-ACL-QOS-MIB.my">CISCO-CATOS-ACL-QOS-MIB.my</A>
+    <A HREF="../../v2/CISCO-CDP-MIB.my">CISCO-CDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    <A HREF="../../v2/CISCO-ENVMON-MIB.my">CISCO-ENVMON-MIB.my</A>
+    <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    <A HREF="../../v2/CISCO-IGMP-FILTER-MIB.my">CISCO-IGMP-FILTER-MIB.my</A>
+    <A HREF="../../v2/CISCO-IMAGE-MIB.my">CISCO-IMAGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-IP-IF-MIB.my">CISCO-IP-IF-MIB.my</A>
+    <A HREF="../../v2/CISCO-LAG-MIB.my">CISCO-LAG-MIB.my</A>
+    <A HREF="../../v2/CISCO-MAC-NOTIFICATION-MIB.my">CISCO-MAC-NOTIFICATION-MIB.my</A>
+    <A HREF="../../v2/CISCO-MEMORY-POOL-MIB.my">CISCO-MEMORY-POOL-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAE-MIB.my">CISCO-PAE-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAGP-MIB.my">CISCO-PAGP-MIB.my</A>
+    <A HREF="../../v2/CISCO-PRIVATE-VLAN-MIB.my">CISCO-PRIVATE-VLAN-MIB.my</A>
+    <A HREF="../../v2/CISCO-PROCESS-MIB.my">CISCO-PROCESS-MIB.my</A>
+    <A HREF="../../v2/CISCO-QOS-POLICY-CONFIG-MIB.my">CISCO-QOS-POLICY-CONFIG-MIB.my</A>
+    <A HREF="../../v2/CISCO-RMON-CONFIG-MIB.my">CISCO-RMON-CONFIG-MIB.my</A>
+    <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</A>
+    <A HREF="../../v2/CISCO-UDLDP-MIB.my">CISCO-UDLDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-BRIDGE-MIB.my">CISCO-VLAN-BRIDGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VMPS-MIB.my">CISCO-VMPS-MIB.my</A>
+    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>               (RFC 2737)
+    <A HREF="../../v1/ETHERLIKE-MIB.my">ETHERLIKE-MIB.my</A>            (RFC 2665)
+    <A HREF="../../v2/HC-RMON-MIB.my">HC-RMON-MIB.my</A>              (Internet Draft)
+    <A HREF="../../v2/IEEE8021-PAE-MIB.my">IEEE8021-PAE-MIB.my</A>     
+    <A HREF="../../v2/IEEE8023-LAG-MIB.my">IEEE8023-LAG-MIB.my</A>
+    <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>                   (RFC 2863)
+    <A HREF="../../v1/RFC1213-MIB.my">RFC1213-MIB.my</A>              (MIB-II)
+    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>                 (RFC 1757)
+    <A HREF="../../v2/RMON2-MIB.my">RMON2-MIB.my</A>                (RFC 2021)
+    <A HREF="../../v2/SMON-MIB.my">SMON-MIB.my</A>                 (Internet Draft)
+    <A HREF="../../v2/SNMP-COMMUNITY-MIB.my">SNMP-COMMUNITY-MIB.my</A>       (RFC 3584)
+    <A HREF="../../v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-MIB.my</A>       (RFC 3411)
+    <A HREF="../../v2/SNMP-MPD-MIB.my">SNMP-MPD-MIB.my</A>             (RFC 3412)
+    <A HREF="../../v2/SNMP-NOTIFICATION-MIB.my">SNMP-NOTIFICATION-MIB.my</A>    (RFC 3413)
+    <A HREF="../../v2/SNMP-TARGET-MIB.my">SNMP-TARGET-MIB.my</A>          (RFC 3413)
+    <A HREF="../../v2/SNMP-USM-MIB.my">SNMP-USM-MIB.my</A>             (RFC 3414)
+    <A HREF="../../v2/SNMP-VACM-MIB.my">SNMP-VACM-MIB.my</A>            (RFC 3415)
+</pre>
+<p>
+</dl>
+<hr>
+<hr>
+<h2><strong>MIBs supported since supervisor module software version 7.6</strong></h2>
+<dl>
+<p>
+<pre>
+    <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>*              (RFC 1493)
+    <A HREF="../../v2/CISCO-AAA-CLIENT-MIB.my">CISCO-AAA-CLIENT-MIB.my</A>
+    <A HREF="../../v2/CISCO-CATOS-ACL-QOS-MIB.my">CISCO-CATOS-ACL-QOS-MIB.my</A>
+    <A HREF="../../v2/CISCO-CDP-MIB.my">CISCO-CDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    <A HREF="../../v2/CISCO-ENVMON-MIB.my">CISCO-ENVMON-MIB.my</A>
+    <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    <A HREF="../../v2/CISCO-IGMP-FILTER-MIB.my">CISCO-IGMP-FILTER-MIB.my</A>
+    <A HREF="../../v2/CISCO-IMAGE-MIB.my">CISCO-IMAGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-IP-IF-MIB.my">CISCO-IP-IF-MIB.my</A>
+    <A HREF="../../v2/CISCO-LAG-MIB.my">CISCO-LAG-MIB.my</A>
+    <A HREF="../../v2/CISCO-MAC-NOTIFICATION-MIB.my">CISCO-MAC-NOTIFICATION-MIB.my</A>
+    <A HREF="../../v2/CISCO-MEMORY-POOL-MIB.my">CISCO-MEMORY-POOL-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAE-MIB.my">CISCO-PAE-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAGP-MIB.my">CISCO-PAGP-MIB.my</A>
+    <A HREF="../../v2/CISCO-PRIVATE-VLAN-MIB.my">CISCO-PRIVATE-VLAN-MIB.my</A>
+    <A HREF="../../v2/CISCO-PROCESS-MIB.my">CISCO-PROCESS-MIB.my</A>
+    <A HREF="../../v2/CISCO-QOS-POLICY-CONFIG-MIB.my">CISCO-QOS-POLICY-CONFIG-MIB.my</A>
+    <A HREF="../../v2/CISCO-RMON-CONFIG-MIB.my">CISCO-RMON-CONFIG-MIB.my</A>
+    <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</A>
+    <A HREF="../../v2/CISCO-UDLDP-MIB.my">CISCO-UDLDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-BRIDGE-MIB.my">CISCO-VLAN-BRIDGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VMPS-MIB.my">CISCO-VMPS-MIB.my</A>
+    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>               (RFC 2737)
+    <A HREF="../../v1/ETHERLIKE-MIB.my">ETHERLIKE-MIB.my</A>            (RFC 2665)
+    <A HREF="../../v2/HC-RMON-MIB.my">HC-RMON-MIB.my</A>              (Internet Draft)
+    <A HREF="../../v2/IEEE8021-PAE-MIB.my">IEEE8021-PAE-MIB.my</A>     
+    <A HREF="../../v2/IEEE8023-LAG-MIB.my">IEEE8023-LAG-MIB.my</A>
+    <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>                   (RFC 2863)
+    <A HREF="../../v1/RFC1213-MIB.my">RFC1213-MIB.my</A>              (MIB-II)
+    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>                 (RFC 1757)
+    <A HREF="../../v2/RMON2-MIB.my">RMON2-MIB.my</A>                (RFC 2021)
+    <A HREF="../../v2/SMON-MIB.my">SMON-MIB.my</A>                 (Internet Draft)
+    <A HREF="../../v2/SNMP-COMMUNITY-MIB.my">SNMP-COMMUNITY-MIB.my</A>       (RFC 2576)
+    <A HREF="../../v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-MIB.my</A>       (RFC 2571)
+    <A HREF="../../v2/SNMP-MPD-MIB.my">SNMP-MPD-MIB.my</A>             (RFC 2572)
+    <A HREF="../../v2/SNMP-NOTIFICATION-MIB.my">SNMP-NOTIFICATION-MIB.my</A>    (RFC 2573)
+    <A HREF="../../v2/SNMP-TARGET-MIB.my">SNMP-TARGET-MIB.my</A>          (RFC 2573)
+    <A HREF="../../v2/SNMP-USM-MIB.my">SNMP-USM-MIB.my</A>             (RFC 2574)
+    <A HREF="../../v2/SNMP-VACM-MIB.my">SNMP-VACM-MIB.my</A>            (RFC 2575)
+</pre>
+<p>
+</dl>
+<hr>
+<hr>
+<h2><strong>MIBs supported since supervisor module software version 7.5</strong></h2>
+<dl>
+<p>
+<pre>
+    <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>*              (RFC 1493)
+    <A HREF="../../v2/CISCO-AAA-CLIENT-MIB.my">CISCO-AAA-CLIENT-MIB.my</A>
+    <A HREF="../../v2/CISCO-CATOS-ACL-QOS-MIB.my">CISCO-CATOS-ACL-QOS-MIB.my</A>
+    <A HREF="../../v2/CISCO-CDP-MIB.my">CISCO-CDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    <A HREF="../../v2/CISCO-ENVMON-MIB.my">CISCO-ENVMON-MIB.my</A>
+    <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    <A HREF="../../v2/CISCO-IGMP-FILTER-MIB.my">CISCO-IGMP-FILTER-MIB.my</A>
+    <A HREF="../../v2/CISCO-IMAGE-MIB.my">CISCO-IMAGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-LAG-MIB.my">CISCO-LAG-MIB.my</A>
+    <A HREF="../../v2/CISCO-MAC-NOTIFICATION-MIB.my">CISCO-MAC-NOTIFICATION-MIB.my</A>
+    <A HREF="../../v2/CISCO-MEMORY-POOL-MIB.my">CISCO-MEMORY-POOL-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAE-MIB.my">CISCO-PAE-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAGP-MIB.my">CISCO-PAGP-MIB.my</A>
+    <A HREF="../../v2/CISCO-PRIVATE-VLAN-MIB.my">CISCO-PRIVATE-VLAN-MIB.my</A>
+    <A HREF="../../v2/CISCO-PROCESS-MIB.my">CISCO-PROCESS-MIB.my</A>
+    <A HREF="../../v2/CISCO-QOS-POLICY-CONFIG-MIB.my">CISCO-QOS-POLICY-CONFIG-MIB.my</A>
+    <A HREF="../../v2/CISCO-RMON-CONFIG-MIB.my">CISCO-RMON-CONFIG-MIB.my</A>
+    <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</A>
+    <A HREF="../../v2/CISCO-UDLDP-MIB.my">CISCO-UDLDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-BRIDGE-MIB.my">CISCO-VLAN-BRIDGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VMPS-MIB.my">CISCO-VMPS-MIB.my</A>
+    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>               (RFC 2737)
+    <A HREF="../../v1/ETHERLIKE-MIB.my">ETHERLIKE-MIB.my</A>            (RFC 2665)
+    <A HREF="../../v2/HC-RMON-MIB.my">HC-RMON-MIB.my</A>              (Internet Draft)
+    <A HREF="../../v2/IEEE8021-PAE-MIB.my">IEEE8021-PAE-MIB.my</A>     
+    <A HREF="../../v2/IEEE8023-LAG-MIB.my">IEEE8023-LAG-MIB.my</A>
+    <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>                   (RFC 2863)
+    <A HREF="../../v1/RFC1213-MIB.my">RFC1213-MIB.my</A>              (MIB-II)
+    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>                 (RFC 1757)
+    <A HREF="../../v2/RMON2-MIB.my">RMON2-MIB.my</A>                (RFC 2021)
+    <A HREF="../../v2/SMON-MIB.my">SMON-MIB.my</A>                 (Internet Draft)
+    <A HREF="../../v2/SNMP-COMMUNITY-MIB.my">SNMP-COMMUNITY-MIB.my</A>       (RFC 2576)
+    <A HREF="../../v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-MIB.my</A>       (RFC 2571)
+    <A HREF="../../v2/SNMP-MPD-MIB.my">SNMP-MPD-MIB.my</A>             (RFC 2572)
+    <A HREF="../../v2/SNMP-NOTIFICATION-MIB.my">SNMP-NOTIFICATION-MIB.my</A>    (RFC 2573)
+    <A HREF="../../v2/SNMP-TARGET-MIB.my">SNMP-TARGET-MIB.my</A>          (RFC 2573)
+    <A HREF="../../v2/SNMP-USM-MIB.my">SNMP-USM-MIB.my</A>             (RFC 2574)
+    <A HREF="../../v2/SNMP-VACM-MIB.my">SNMP-VACM-MIB.my</A>            (RFC 2575)
+</pre>
+<p>
+</dl>
+<hr>
+<hr>
+<h2><strong>MIBs supported since supervisor module software version 7.2</strong></h2>
+<dl>
+<p>
+<pre>
+    <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>*              (RFC 1493)
+    <A HREF="../../v2/CISCO-AAA-CLIENT-MIB.my">CISCO-AAA-CLIENT-MIB.my</A>
+    <A HREF="../../v2/CISCO-CATOS-ACL-QOS-MIB.my">CISCO-CATOS-ACL-QOS-MIB.my</A>
+    <A HREF="../../v2/CISCO-CDP-MIB.my">CISCO-CDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    <A HREF="../../v2/CISCO-ENVMON-MIB.my">CISCO-ENVMON-MIB.my</A>
+    <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    <A HREF="../../v2/CISCO-IGMP-FILTER-MIB.my">CISCO-IGMP-FILTER-MIB.my</A>
+    <A HREF="../../v2/CISCO-IMAGE-MIB.my">CISCO-IMAGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-LAG-MIB.my">CISCO-LAG-MIB.my</A>
+    <A HREF="../../v2/CISCO-MAC-NOTIFICATION-MIB.my">CISCO-MAC-NOTIFICATION-MIB.my</A>
+    <A HREF="../../v2/CISCO-MEMORY-POOL-MIB.my">CISCO-MEMORY-POOL-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAE-MIB.my">CISCO-PAE-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAGP-MIB.my">CISCO-PAGP-MIB.my</A>
+    <A HREF="../../v2/CISCO-PRIVATE-VLAN-MIB.my">CISCO-PRIVATE-VLAN-MIB.my</A>
+    <A HREF="../../v2/CISCO-PROCESS-MIB.my">CISCO-PROCESS-MIB.my</A>
+    <A HREF="../../v2/CISCO-QOS-POLICY-CONFIG-MIB.my">CISCO-QOS-POLICY-CONFIG-MIB.my</A>
+    <A HREF="../../v2/CISCO-RMON-CONFIG-MIB.my">CISCO-RMON-CONFIG-MIB.my</A>
+    <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</A>
+    <A HREF="../../v2/CISCO-UDLDP-MIB.my">CISCO-UDLDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-BRIDGE-MIB.my">CISCO-VLAN-BRIDGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VMPS-MIB.my">CISCO-VMPS-MIB.my</A>
+    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>               (RFC 2037)
+    <A HREF="../../v1/ETHERLIKE-MIB.my">ETHERLIKE-MIB.my</A>            (RFC 1643)
+    <A HREF="../../v2/HC-RMON-MIB.my">HC-RMON-MIB.my</A>              (Internet Draft)
+    <A HREF="../../v2/IEEE8021-PAE-MIB.my">IEEE8021-PAE-MIB.my</A>     
+    <A HREF="../../v2/IEEE8023-LAG-MIB.my">IEEE8023-LAG-MIB.my</A>
+    <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>                   (RFC 1573)
+    <A HREF="../../v1/RFC1213-MIB.my">RFC1213-MIB.my</A>              (MIB-II)
+    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>                 (RFC 1757)
+    <A HREF="../../v2/RMON2-MIB.my">RMON2-MIB.my</A>                (RFC 2021)
+    <A HREF="../../v2/SMON-MIB.my">SMON-MIB.my</A>                 (Internet Draft)
+    <A HREF="../../v2/SNMP-COMMUNITY-MIB.my">SNMP-COMMUNITY-MIB.my</A>       (RFC 2576)
+    <A HREF="../../v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-MIB.my</A>       (RFC 2571)
+    <A HREF="../../v2/SNMP-MPD-MIB.my">SNMP-MPD-MIB.my</A>             (RFC 2572)
+    <A HREF="../../v2/SNMP-NOTIFICATION-MIB.my">SNMP-NOTIFICATION-MIB.my</A>    (RFC 2573)
+    <A HREF="../../v2/SNMP-TARGET-MIB.my">SNMP-TARGET-MIB.my</A>          (RFC 2573)
+    <A HREF="../../v2/SNMP-USM-MIB.my">SNMP-USM-MIB.my</A>             (RFC 2574)
+    <A HREF="../../v2/SNMP-VACM-MIB.my">SNMP-VACM-MIB.my</A>            (RFC 2575)
+</pre>
+<p>
+</dl>
+<hr>
+<hr>
+<h2><strong>MIBs supported since supervisor module software version 7.1</strong></h2>
+<dl>
+<p>
+<pre>
+    <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>*              (RFC 1493)
+    <A HREF="../../v2/CISCO-AAA-CLIENT-MIB.my">CISCO-AAA-CLIENT-MIB.my</A>
+    <A HREF="../../v2/CISCO-CATOS-ACL-QOS-MIB.my">CISCO-CATOS-ACL-QOS-MIB.my</A>
+    <A HREF="../../v2/CISCO-CDP-MIB.my">CISCO-CDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    <A HREF="../../v2/CISCO-ENVMON-MIB.my">CISCO-ENVMON-MIB.my</A>
+    <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    <A HREF="../../v2/CISCO-IGMP-FILTER-MIB.my">CISCO-IGMP-FILTER-MIB.my</A>
+    <A HREF="../../v2/CISCO-IMAGE-MIB.my">CISCO-IMAGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-LAG-MIB.my">CISCO-LAG-MIB.my</A>
+    <A HREF="../../v2/CISCO-MAC-NOTIFICATION-MIB.my">CISCO-MAC-NOTIFICATION-MIB.my</A>
+    <A HREF="../../v2/CISCO-MEMORY-POOL-MIB.my">CISCO-MEMORY-POOL-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAE-MIB.my">CISCO-PAE-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAGP-MIB.my">CISCO-PAGP-MIB.my</A>
+    <A HREF="../../v2/CISCO-PRIVATE-VLAN-MIB.my">CISCO-PRIVATE-VLAN-MIB.my</A>
+    <A HREF="../../v2/CISCO-PROCESS-MIB.my">CISCO-PROCESS-MIB.my</A>
+    <A HREF="../../v2/CISCO-QOS-POLICY-CONFIG-MIB.my">CISCO-QOS-POLICY-CONFIG-MIB.my</A>
+    <A HREF="../../v2/CISCO-RMON-CONFIG-MIB.my">CISCO-RMON-CONFIG-MIB.my</A>
+    <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</A>
+    <A HREF="../../v2/CISCO-UDLDP-MIB.my">CISCO-UDLDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-BRIDGE-MIB.my">CISCO-VLAN-BRIDGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>               (RFC 2037)
+    <A HREF="../../v1/ETHERLIKE-MIB.my">ETHERLIKE-MIB.my</A>            (RFC 1643)
+    <A HREF="../../v2/HC-RMON-MIB.my">HC-RMON-MIB.my</A>              (Internet Draft)
+    <A HREF="../../v2/IEEE8021-PAE-MIB.my">IEEE8021-PAE-MIB.my</A>     
+    <A HREF="../../v2/IEEE8023-LAG-MIB.my">IEEE8023-LAG-MIB.my</A>
+    <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>                   (RFC 1573)
+    <A HREF="../../v1/RFC1213-MIB.my">RFC1213-MIB.my</A>              (MIB-II)
+    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>                 (RFC 1757)
+    <A HREF="../../v2/RMON2-MIB.my">RMON2-MIB.my</A>                (RFC 2021)
+    <A HREF="../../v2/SMON-MIB.my">SMON-MIB.my</A>                 (Internet Draft)
+    <A HREF="../../v2/SNMP-COMMUNITY-MIB.my">SNMP-COMMUNITY-MIB.my</A>       (RFC 2576)
+    <A HREF="../../v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-MIB.my</A>       (RFC 2571)
+    <A HREF="../../v2/SNMP-MPD-MIB.my">SNMP-MPD-MIB.my</A>             (RFC 2572)
+    <A HREF="../../v2/SNMP-NOTIFICATION-MIB.my">SNMP-NOTIFICATION-MIB.my</A>    (RFC 2573)
+    <A HREF="../../v2/SNMP-TARGET-MIB.my">SNMP-TARGET-MIB.my</A>          (RFC 2573)
+    <A HREF="../../v2/SNMP-USM-MIB.my">SNMP-USM-MIB.my</A>             (RFC 2574)
+    <A HREF="../../v2/SNMP-VACM-MIB.my">SNMP-VACM-MIB.my</A>            (RFC 2575)
+</pre>
+<p>
+</dl>
+<hr>
+<hr>
+<h2><strong>MIBs supported since supervisor module software version 6.3</strong></h2>
+<dl>
+<p>
+<pre>
+    <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>*              (RFC 1493)
+    <A HREF="../../v2/CISCO-AAA-CLIENT-MIB.my">CISCO-AAA-CLIENT-MIB.my</A>
+    <A HREF="../../v2/CISCO-CATOS-ACL-QOS-MIB.my">CISCO-CATOS-ACL-QOS-MIB.my</A>
+    <A HREF="../../v2/CISCO-CDP-MIB.my">CISCO-CDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    <A HREF="../../v2/CISCO-IMAGE-MIB.my">CISCO-IMAGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-MEMORY-POOL-MIB.my">CISCO-MEMORY-POOL-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAGP-MIB.my">CISCO-PAGP-MIB.my</A>
+    <A HREF="../../v2/CISCO-PRIVATE-VLAN-MIB.my">CISCO-PRIVATE-VLAN-MIB.my</A>
+    <A HREF="../../v2/CISCO-PROCESS-MIB.my">CISCO-PROCESS-MIB.my</A>
+    <A HREF="../../v2/CISCO-QOS-POLICY-CONFIG-MIB.my">CISCO-QOS-POLICY-CONFIG-MIB.my</A>
+    <A HREF="../../v2/CISCO-RMON-CONFIG-MIB.my">CISCO-RMON-CONFIG-MIB.my</A>
+    <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</A>
+    <A HREF="../../v2/CISCO-UDLDP-MIB.my">CISCO-UDLDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-BRIDGE-MIB.my">CISCO-VLAN-BRIDGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>               (RFC 2037)
+    <A HREF="../../v1/ETHERLIKE-MIB.my">ETHERLIKE-MIB.my</A>            (RFC 1643)
+    <A HREF="../../v2/HC-RMON-MIB.my">HC-RMON-MIB.my</A>              (Internet Draft)
+    <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>                   (RFC 1573)
+    <A HREF="../../v1/RFC1213-MIB.my">RFC1213-MIB.my</A>              (MIB-II)
+    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>                 (RFC 1757)
+    <A HREF="../../v2/RMON2-MIB.my">RMON2-MIB.my</A>                (RFC 2021)
+    <A HREF="../../v2/SMON-MIB.my">SMON-MIB.my</A>                 (Internet Draft)
+    <A HREF="../../v2/SNMP-COMMUNITY-MIB.my">SNMP-COMMUNITY-MIB.my</A>       (RFC 2576)
+    <A HREF="../../v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-MIB.my</A>       (RFC 2571)
+    <A HREF="../../v2/SNMP-MPD-MIB.my">SNMP-MPD-MIB.my</A>             (RFC 2572)
+    <A HREF="../../v2/SNMP-NOTIFICATION-MIB.my">SNMP-NOTIFICATION-MIB.my</A>    (RFC 2573)
+    <A HREF="../../v2/SNMP-TARGET-MIB.my">SNMP-TARGET-MIB.my</A>          (RFC 2573)
+    <A HREF="../../v2/SNMP-USM-MIB.my">SNMP-USM-MIB.my</A>             (RFC 2574)
+    <A HREF="../../v2/SNMP-VACM-MIB.my">SNMP-VACM-MIB.my</A>            (RFC 2575)
+</pre>
+<p>
+</dl>
+<hr>
+<hr>
+<h2><strong>MIBs supported since supervisor module software version 6.2</strong></h2>
+<dl>
+<p>
+<pre>
+    <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>*              (RFC 1493)
+    <A HREF="../../v2/CISCO-CATOS-ACL-QOS-MIB.my">CISCO-CATOS-ACL-QOS-MIB.my</A>
+    <A HREF="../../v2/CISCO-CDP-MIB.my">CISCO-CDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    <A HREF="../../v2/CISCO-IMAGE-MIB.my">CISCO-IMAGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-MEMORY-POOL-MIB.my">CISCO-MEMORY-POOL-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAGP-MIB.my">CISCO-PAGP-MIB.my</A>
+    <A HREF="../../v2/CISCO-PRIVATE-VLAN-MIB.my">CISCO-PRIVATE-VLAN-MIB.my</A>
+    <A HREF="../../v2/CISCO-PROCESS-MIB.my">CISCO-PROCESS-MIB.my</A>
+    <A HREF="../../v2/CISCO-QOS-POLICY-CONFIG-MIB.my">CISCO-QOS-POLICY-CONFIG-MIB.my</A>
+    <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</A>
+    <A HREF="../../v2/CISCO-UDLDP-MIB.my">CISCO-UDLDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-BRIDGE-MIB.my">CISCO-VLAN-BRIDGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>               (RFC 2037)
+    <A HREF="../../v1/ETHERLIKE-MIB.my">ETHERLIKE-MIB.my</A>            (RFC 1643)
+    <A HREF="../../v2/HC-RMON-MIB.my">HC-RMON-MIB.my</A>              (Internet Draft)
+    <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>                   (RFC 1573)
+    <A HREF="../../v1/RFC1213-MIB.my">RFC1213-MIB.my</A>              (MIB-II)
+    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>                 (RFC 1757)
+    <A HREF="../../v2/RMON2-MIB.my">RMON2-MIB.my</A>                (RFC 2021)
+    <A HREF="../../v2/SMON-MIB.my">SMON-MIB.my</A>                 (Internet Draft)
+    <A HREF="../../v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-MIB.my</A>       (RFC2271)
+    <A HREF="../../v2/SNMP-MPD-MIB.my">SNMP-MPD-MIB.my</A>             (RFC 2272)
+    <A HREF="../../v2/SNMP-NOTIFICATION-MIB.my">SNMP-NOTIFICATION-MIB.my</A>    (RFC 2273)
+    <A HREF="../../v2/SNMP-TARGET-MIB.my">SNMP-TARGET-MIB.my</A>          (RFC 2273)
+    <A HREF="../../v2/SNMP-USM-MIB.my">SNMP-USM-MIB.my</A>             (RFC 2274)
+    <A HREF="../../v2/SNMP-VACM-MIB.my">SNMP-VACM-MIB.my</A>            (RFC 2275)
+</pre>
+<p>
+</dl>
+<hr>
+<hr>
+<h2><strong>MIBs supported since supervisor module software version 6.1</strong></h2>
+<dl>
+<p>
+<pre>
+    <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>*              (RFC 1493)
+    <A HREF="../../v2/CISCO-CDP-MIB.my">CISCO-CDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    <A HREF="../../v2/CISCO-IMAGE-MIB.my">CISCO-IMAGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-MEMORY-POOL-MIB.my">CISCO-MEMORY-POOL-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAGP-MIB.my">CISCO-PAGP-MIB.my</A>
+    <A HREF="../../v2/CISCO-PROCESS-MIB.my">CISCO-PROCESS-MIB.my</A>
+    <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</A>
+    <A HREF="../../v2/CISCO-UDLDP-MIB.my">CISCO-UDLDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-BRIDGE-MIB.my">CISCO-VLAN-BRIDGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>               (RFC 2037)
+    <A HREF="../../v1/ETHERLIKE-MIB.my">ETHERLIKE-MIB.my</A>            (RFC 1643)
+    <A HREF="../../v2/HC-RMON-MIB.my">HC-RMON-MIB.my</A>              (Internet Draft)
+    <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>                   (RFC 1573)
+    <A HREF="../../v1/RFC1213-MIB.my">RFC1213-MIB.my</A>              (MIB-II)
+    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>                 (RFC 1757)
+    <A HREF="../../v2/RMON2-MIB.my">RMON2-MIB.my</A>                (RFC 2021)
+    <A HREF="../../v2/SMON-MIB.my">SMON-MIB.my</A>                 (Internet Draft)
+    <A HREF="../../v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-MIB.my</A>       (RFC2271)
+    <A HREF="../../v2/SNMP-MPD-MIB.my">SNMP-MPD-MIB.my</A>             (RFC 2272)
+    <A HREF="../../v2/SNMP-NOTIFICATION-MIB.my">SNMP-NOTIFICATION-MIB.my</A>    (RFC 2273)
+    <A HREF="../../v2/SNMP-TARGET-MIB.my">SNMP-TARGET-MIB.my</A>          (RFC 2273)
+    <A HREF="../../v2/SNMP-USM-MIB.my">SNMP-USM-MIB.my</A>             (RFC 2274)
+    <A HREF="../../v2/SNMP-VACM-MIB.my">SNMP-VACM-MIB.my</A>            (RFC 2275)
+</pre>
+<p>
+</dl>
+<hr>
+<h2><strong>MIBs supported since supervisor module software version 5.4</strong></h2>
+<dl>
+<p>
+<pre>
+    <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>*              (RFC 1493)
+    <A HREF="../../v2/CISCO-CDP-MIB.my">CISCO-CDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    <A HREF="../../v2/CISCO-IMAGE-MIB.my">CISCO-IMAGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-MEMORY-POOL-MIB.my">CISCO-MEMORY-POOL-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAGP-MIB.my">CISCO-PAGP-MIB.my</A>
+    <A HREF="../../v2/CISCO-PROCESS-MIB.my">CISCO-PROCESS-MIB.my</A>
+    <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</A>
+    <A HREF="../../v2/CISCO-UDLDP-MIB.my">CISCO-UDLDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-BRIDGE-MIB.my">CISCO-VLAN-BRIDGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>               (RFC 2037)
+    <A HREF="../../v1/ETHERLIKE-MIB.my">ETHERLIKE-MIB.my</A>            (RFC 1643)
+    <A HREF="../../v2/HC-RMON-MIB.my">HC-RMON-MIB.my</A>              (Internet Draft)
+    <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>                   (RFC 1573)
+    <A HREF="../../v1/RFC1213-MIB.my">RFC1213-MIB.my</A>              (MIB-II)
+    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>                 (RFC 1757)
+    <A HREF="../../v2/RMON2-MIB.my">RMON2-MIB.my</A>                (RFC 2021)
+    <A HREF="../../v2/SMON-MIB.my">SMON-MIB.my</A>                 (Internet Draft)
+    <A HREF="../../v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-MIB.my</A>       (RFC 2271)
+    <A HREF="../../v2/SNMP-MPD-MIB.my">SNMP-MPD-MIB.my</A>             (RFC 2272)
+    <A HREF="../../v2/SNMP-NOTIFICATION-MIB.my">SNMP-NOTIFICATION-MIB.my</A>    (RFC 2273)
+    <A HREF="../../v2/SNMP-TARGET-MIB.my">SNMP-TARGET-MIB.my</A>          (RFC 2273)
+    <A HREF="../../v2/SNMP-USM-MIB.my">SNMP-USM-MIB.my</A>             (RFC 2274)
+    <A HREF="../../v2/SNMP-VACM-MIB.my">SNMP-VACM-MIB.my</A>            (RFC 2275)
+</pre>
+<p>
+</dl>
+<hr>
+<h2><strong>MIBs supported since supervisor module software version 5.2</strong></h2>
+<dl>
+<p>
+<pre>
+    <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>*              (RFC 1493)
+    <A HREF="../../v2/CISCO-CDP-MIB.my">CISCO-CDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    <A HREF="../../v2/CISCO-MEMORY-POOL-MIB.my">CISCO-MEMORY-POOL-MIB.my</A>
+    <A HREF="../../v2/CISCO-PAGP-MIB.my">CISCO-PAGP-MIB.my</A>
+    <A HREF="../../v2/CISCO-PROCESS-MIB.my">CISCO-PROCESS-MIB.my</A>
+    <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    <A HREF="../../v2/CISCO-UDLDP-MIB.my">CISCO-UDLDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-BRIDGE-MIB.my">CISCO-VLAN-BRIDGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>               (RFC 2037)
+    <A HREF="../../v1/ETHERLIKE-MIB.my">ETHERLIKE-MIB.my</A>            (RFC 1643)
+    <A HREF="../../v2/HC-RMON-MIB.my">HC-RMON-MIB.my</A>              (Internet Draft)
+    <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>                   (RFC 1573)
+    <A HREF="../../v1/RFC1213-MIB.my">RFC1213-MIB.my</A>              (MIB-II)
+    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>                 (RFC 1757)
+    <A HREF="../../v2/RMON2-MIB.my">RMON2-MIB.my</A>                (RFC 2021)
+    <A HREF="../../v2/SMON-MIB.my">SMON-MIB.my</A>                 (Internet Draft)
+</pre>
+<p>
+</dl>
+<hr>
+<h2><strong>MIBs supported since supervisor module software version 5.1</strong></h2>
+<dl>
+<p>
+<pre>
+    <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>*              (RFC 1493)
+    <A HREF="../../v2/CISCO-CDP-MIB.my">CISCO-CDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    <A HREF="../../v2/CISCO-MEMORY-POOL-MIB.my">CISCO-MEMORY-POOL-MIB.my</A>
+    <A HREF="../../v2/CISCO-PROCESS-MIB.my">CISCO-PROCESS-MIB.my</A>
+    <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    <A HREF="../../v2/CISCO-UDLDP-MIB.my">CISCO-UDLDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-BRIDGE-MIB.my">CISCO-VLAN-BRIDGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>               (RFC 2037)
+    <A HREF="../../v1/ETHERLIKE-MIB.my">ETHERLIKE-MIB.my</A>            (RFC 1643)
+    <A HREF="../../v2/HC-RMON-MIB.my">HC-RMON-MIB.my</A>              (Internet Draft)
+    <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>                   (RFC 1573)
+    <A HREF="../../v1/RFC1213-MIB.my">RFC1213-MIB.my</A>              (MIB-II)
+    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>                 (RFC 1757)
+    <A HREF="../../v2/RMON2-MIB.my">RMON2-MIB.my</A>                (RFC 2021)
+    <A HREF="../../v2/SMON-MIB.my">SMON-MIB.my</A>                 (Internet Draft)
+</pre>
+<p>
+</dl>
+<hr>
+<h2><strong>MIBs supported in initial supervisor module software version</strong></h2>
+<dl>
+<p>
+<pre>
+    <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>*              (RFC 1493)
+    <A HREF="../../v2/CISCO-CDP-MIB.my">CISCO-CDP-MIB.my</A>
+    <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    <A HREF="../../v2/CISCO-MEMORY-POOL-MIB.my">CISCO-MEMORY-POOL-MIB.my</A>
+    <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-BRIDGE-MIB.my">CISCO-VLAN-BRIDGE-MIB.my</A>
+    <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    <A HREF="../../v1/ETHERLIKE-MIB.my">ETHERLIKE-MIB.my</A>            (RFC 1643)
+    <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>                   (RFC 1573)
+    <A HREF="../../v1/RFC1213-MIB.my">RFC1213-MIB.my</A>              (MIB-II)
+    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>                 (RFC 1757)
+    <A HREF="../../v2/RMON2-MIB.my">RMON2-MIB.my</A>                (RFC 2021)
+</pre>
+<p>
+</dl>
+
+
+<p>
+<p>
+<hr>
+<h2><strong>Traps supported since supervisor module software version 7.6</strong></h2>
+<dl>
+<p>
+<pre>
+    Trap Name                               MIB File
+    ---------------------                   --------------------------
+    newRoot                                 <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    topologyChange                          <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    cefcModuleStatusChange                  <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    cefcPowerStatusChange                   <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    cefcFRUInserted                         <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    cefcFRURemoved                          <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    ciscoEnvMonFanNotification              <A HREF="../../v2/CISCO-ENVMON-MIB.my">CISCO-ENVMON-MIB.my</A>
+    ciscoEnvMonFanStatusChangeNotif         <A HREF="../../v2/CISCO-ENVMON-MIB.my">CISCO-ENVMON-MIB.my</A>
+    ciscoEnvMonRedundantSupplyNotification  <A HREF="../../v2/CISCO-ENVMON-MIB.my">CISCO-ENVMON-MIB.my</A>
+    ciscoEnvMonSuppStatusChangeNotif        <A HREF="../../v2/CISCO-ENVMON-MIB.my">CISCO-ENVMON-MIB.my</A>
+    ciscoFlashCopyCompletionTrap            <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    ciscoFlashDeviceChangeTrap              <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    ciscoFlashMiscOpCompletionTrap          <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    cmnMacChangedNotification               <A HREF="../../v2/CISCO-MAC-NOTIFICATION-MIB.my">CISCO-MAC-NOTIFICATION-MIB.my</A>
+    moduleUp                                <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    moduleDown                              <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOn                          <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOff                         <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    ipPermitDeniedTrap                      <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    sysConfigChangeTrap                     <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    stpxInconsistencyUpdate                 <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    stpxLoopInconsistencyUpdate             <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    stpxRootInconsistencyUpdate             <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    clogMessageGenerated                    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    ciscoSystemClockChanged                 <A HREF="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</A>
+    vmVmpsChange                            <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    vlanTrunkPortDynamicStatusChange        <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpConfigDigestError                    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpConfigRevNumberError                 <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpLocalModeChanged                     <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpVersionInUseChanged                  <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpVersionOneDeviceDetected             <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpVlanCreated                          <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpVlanDeleted                          <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    entConfigChange                         <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>
+    linkDown                                <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    linkUp                                  <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    coldStart                               RFC1157-SNMP
+    warmStart                               RFC1157-SNMP
+    authenticationFailure                   RFC1157-SNMP
+    fallingAlarm                            <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+    risingAlarm                             <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+</pre>
+</dl>
+
+<p>
+<p>
+<hr>
+<h2><strong>Traps supported since supervisor module software version 7.5</strong></h2>
+<dl>
+<p>
+<pre>
+    Trap Name                               MIB File
+    ---------------------                   --------------------------
+    newRoot                                 <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    topologyChange                          <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    cefcModuleStatusChange                  <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    cefcPowerStatusChange                   <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    cefcFRUInserted                         <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    cefcFRURemoved                          <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    ciscoEnvMonFanNotification              <A HREF="../../v2/CISCO-ENVMON-MIB.my">CISCO-ENVMON-MIB.my</A>
+    ciscoEnvMonRedundantSupplyNotification  <A HREF="../../v2/CISCO-ENVMON-MIB.my">CISCO-ENVMON-MIB.my</A>
+    ciscoFlashCopyCompletionTrap            <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    ciscoFlashDeviceChangeTrap              <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    ciscoFlashMiscOpCompletionTrap          <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    cmnMacChangedNotification               <A HREF="../../v2/CISCO-MAC-NOTIFICATION-MIB.my">CISCO-MAC-NOTIFICATION-MIB.my</A>
+    moduleUp                                <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    moduleDown                              <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOn                          <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOff                         <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    ipPermitDeniedTrap                      <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    sysConfigChangeTrap                     <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    stpxInconsistencyUpdate                 <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    stpxLoopInconsistencyUpdate             <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    stpxRootInconsistencyUpdate             <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    clogMessageGenerated                    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    ciscoSystemClockChanged                 <A HREF="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</A>
+    vmVmpsChange                            <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    vlanTrunkPortDynamicStatusChange        <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpConfigDigestError                    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpConfigRevNumberError                 <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpLocalModeChanged                     <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpVersionInUseChanged                  <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpVersionOneDeviceDetected             <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpVlanCreated                          <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpVlanDeleted                          <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    entConfigChange                         <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>
+    linkDown                                <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    linkUp                                  <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    coldStart                               RFC1157-SNMP
+    warmStart                               RFC1157-SNMP
+    authenticationFailure                   RFC1157-SNMP
+    fallingAlarm                            <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+    risingAlarm                             <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+</pre>
+</dl>
+
+<p>
+<p>
+<hr>
+<h2><strong>Traps supported since supervisor module software version 7.1</strong></h2>
+<dl>
+<p>
+<pre>
+    Trap Name                               MIB File
+    ---------------------                   --------------------------
+    newRoot                                 <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    topologyChange                          <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    cefcModuleStatusChange                  <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    cefcPowerStatusChange                   <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    cefcFRUInserted                         <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    cefcFRURemoved                          <A HREF="../../v2/CISCO-ENTITY-FRU-CONTROL-MIB.my">CISCO-ENTITY-FRU-CONTROL-MIB.my</A>
+    ciscoEnvMonFanNotification              <A HREF="../../v2/CISCO-ENVMON-MIB.my">CISCO-ENVMON-MIB.my</A>
+    ciscoEnvMonRedundantSupplyNotification  <A HREF="../../v2/CISCO-ENVMON-MIB.my">CISCO-ENVMON-MIB.my</A>
+    ciscoFlashCopyCompletionTrap            <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    ciscoFlashDeviceChangeTrap              <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    ciscoFlashMiscOpCompletionTrap          <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    cmnMacChangedNotification               <A HREF="../../v2/CISCO-MAC-NOTIFICATION-MIB.my">CISCO-MAC-NOTIFICATION-MIB.my</A>
+    moduleUp                                <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    moduleDown                              <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOn                          <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOff                         <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    ipPermitDeniedTrap                      <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    sysConfigChangeTrap                     <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    stpxInconsistencyUpdate                 <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    stpxLoopInconsistencyUpdate             <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    stpxRootInconsistencyUpdate             <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    clogMessageGenerated                    <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    ciscoSystemClockChanged                 <A HREF="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</A>
+    vmVmpsChange                            <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    vtpConfigDigestError                    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpConfigRevNumberError                 <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vlanTrunkPortDynamicStatusChange        <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpVersionOneDeviceDetected             <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    entConfigChange                         <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>
+    linkDown                                <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    linkUp                                  <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    coldStart                               RFC1157-SNMP
+    warmStart                               RFC1157-SNMP
+    authenticationFailure                   RFC1157-SNMP
+    fallingAlarm                            <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+    risingAlarm                             <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+</pre>
+</dl>
+
+
+<p>
+<p>
+<hr>
+<h2><strong>Traps supported since supervisor module software version 6.3</strong></h2>
+<dl>
+<p>
+<pre>
+    Trap Name                        MIB File
+    ---------------------            --------------------------
+    newRoot                          <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    topologyChange                   <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    ciscoFlashCopyCompletionTrap     <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    ciscoFlashDeviceChangeTrap       <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    ciscoFlashMiscOpCompletionTrap   <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    moduleUp                         <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    moduleDown                       <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOn                   <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOff                  <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    ipPermitDeniedTrap               <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    sysConfigChangeTrap              <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    stpxInconsistencyUpdate          <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    stpxLoopInconsistencyUpdate      <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    stpxRootInconsistencyUpdate      <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    clogMessageGenerated             <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    ciscoSystemClockChanged          <A HREF="../../v2/CISCO-SYSTEM-MIB.my">CISCO-SYSTEM-MIB.my</A>
+    vmVmpsChange                     <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    vtpConfigDigestError             <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpConfigRevNumberError          <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vlanTrunkPortDynamicStatusChange <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpVersionOneDeviceDetected      <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    entConfigChange                  <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>
+    linkDown                         <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    linkUp                           <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    coldStart                        RFC1157-SNMP
+    warmStart                        RFC1157-SNMP
+    authenticationFailure            RFC1157-SNMP
+    fallingAlarm                     <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+    risingAlarm                      <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+</pre>
+</dl>
+
+
+<p>
+<p>
+<hr>
+<h2><strong>Traps supported since supervisor module software version 6.2</strong></h2>
+<dl>
+<p>
+<pre>
+    Trap Name                        MIB File
+    ---------------------            --------------------------
+    newRoot                          <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    topologyChange                   <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    ciscoFlashCopyCompletionTrap     <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    ciscoFlashDeviceChangeTrap       <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    ciscoFlashMiscOpCompletionTrap   <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    moduleUp                         <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    moduleDown                       <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOn                   <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOff                  <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    ipPermitDeniedTrap               <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    sysConfigChangeTrap              <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    stpxInconsistencyUpdate          <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    stpxLoopInconsistencyUpdate      <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    stpxRootInconsistencyUpdate      <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    clogMessageGenerated             <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    vmVmpsChange                     <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    vlanTrunkPortDynamicStatusChange <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    vtpVersionOneDeviceDetected       <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    entConfigChange                  <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>
+    linkDown                         <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    linkUp                           <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    coldStart                        RFC1157-SNMP
+    warmStart                        RFC1157-SNMP
+    authenticationFailure            RFC1157-SNMP
+    fallingAlarm                     <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+    risingAlarm                      <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+</pre>
+</dl>
+
+
+<p>
+<p>
+<hr>
+<h2><strong>Traps supported since supervisor module software version 6.1</strong></h2>
+<dl>
+<p>
+<pre>
+    Trap Name                      MIB File
+    ---------------------          --------------------------
+    newRoot                        <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    topologyChange                 <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    ciscoFlashCopyCompletionTrap   <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    ciscoFlashMiscOpCompletionTrap <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    moduleUp                       <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    moduleDown                     <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOn                 <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOff                <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    ipPermitDeniedTrap             <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    sysConfigChangeTrap            <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    stpxInconsistencyUpdate        <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    stpxRootInconsistencyUpdate    <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    clogMessageGenerated           <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    vmVmpsChange                   <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    vtpVersionOneDeviceDetected    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    entConfigChange                <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>
+    linkDown                       <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    linkUp                         <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    coldStart                      RFC1157-SNMP
+    warmStart                      RFC1157-SNMP
+    authenticationFailure          RFC1157-SNMP
+    fallingAlarm                   <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+    risingAlarm                    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+</pre>
+</dl>
+
+
+<p>
+<p>
+<hr>
+<h2><strong>Traps supported since supervisor module software version 5.1</strong></h2>
+<dl>
+<p>
+<pre>
+    Trap Name                      MIB File
+    ---------------------          --------------------------
+    newRoot                        <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    topologyChange                 <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    ciscoFlashCopyCompletionTrap   <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    ciscoFlashMiscOpCompletionTrap <A HREF="../../v2/CISCO-FLASH-MIB.my">CISCO-FLASH-MIB.my</A>
+    moduleUp                       <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    moduleDown                     <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOn                 <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOff                <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    ipPermitDeniedTrap             <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    sysConfigChangeTrap            <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    stpxInconsistencyUpdate        <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    clogMessageGenerated           <A HREF="../../v2/CISCO-SYSLOG-MIB.my">CISCO-SYSLOG-MIB.my</A>
+    vmVmpsChange                   <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    vtpVersionOneDeviceDetected    <A HREF="../../v2/CISCO-VTP-MIB.my">CISCO-VTP-MIB.my</A>
+    entConfigChange                <A HREF="../../v2/ENTITY-MIB.my">ENTITY-MIB.my</A>
+    linkDown                       <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    linkUp                         <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    coldStart                      RFC1157-SNMP
+    warmStart                      RFC1157-SNMP
+    authenticationFailure          RFC1157-SNMP
+    fallingAlarm                   <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+    risingAlarm                    <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+</pre>
+</dl>
+
+
+<p>
+<p>
+<hr>
+<h2><strong>Traps supported in initial supervisor module software version</strong></h2>
+<dl>
+<p>
+<pre>
+    Trap Name                MIB File
+    ---------------------    --------------------------
+    newRoot                  <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    topologyChange           <A HREF="../../v1/BRIDGE-MIB.my">BRIDGE-MIB.my</A>
+    moduleUp                 <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    moduleDown               <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOn           <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    chassisAlarmOff          <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    ipPermitDeniedTrap       <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    sysConfigChangeTrap      <A HREF="../../v2/CISCO-STACK-MIB.my">CISCO-STACK-MIB.my</A>
+    stpxInconsistencyUpdate  <A HREF="../../v2/CISCO-STP-EXTENSIONS-MIB.my">CISCO-STP-EXTENSIONS-MIB.my</A>
+    vmVmpsChange             <A HREF="../../v2/CISCO-VLAN-MEMBERSHIP-MIB.my">CISCO-VLAN-MEMBERSHIP-MIB.my</A>
+    linkDown                 <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    linkUp                   <A HREF="../../v2/IF-MIB.my">IF-MIB.my</A>
+    coldStart                RFC1157-SNMP
+    warmStart                RFC1157-SNMP
+    authenticationFailure    RFC1157-SNMP
+    fallingAlarm             <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+    risingAlarm              <A HREF="../../v1/RMON-MIB.my">RMON-MIB.my</A>
+</pre>
+</dl>

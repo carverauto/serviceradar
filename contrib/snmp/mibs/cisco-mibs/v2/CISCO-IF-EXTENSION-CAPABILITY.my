@@ -1,0 +1,423 @@
+-- *****************************************************************
+-- CISCO-IF-EXTENSION-CAPABILITY.my:
+-- Cisco CISCO-IF-EXTENSION-MIB AGENT-CAPABILITIES
+--   
+-- Jan 2004, Liwei Lue
+--   
+-- Copyright (c) 2004-2015 by Cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-IF-EXTENSION-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoIfExtensionCapability MODULE-IDENTITY
+    LAST-UPDATED    "201506030000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-IF-EXTENSION-MIB."
+    REVISION        "201506030000Z"
+    DESCRIPTION
+        "Added ciscoIfExtensionTableIntfGroup3SupR02 and
+        VARIATIONs for cieIfTransceiverFrequencyConfig,
+        cieIfFillPatternConfig, cieIfIgnoreBitErrorsConfig and
+        cieIfIgnoreInterruptThresholdConfig
+        in capability statement ciscoIfExtCapNxOSV06R0201PMDS9000
+        and ciscoIfExtCapNxOSV06R0202PN7K."
+    REVISION        "201309050000Z"
+    DESCRIPTION
+        "Added agent capability statement
+        ciscoIfExtCapNxOSV06R0201PMDS9000 and 
+        ciscoIfExtCapNxOSV06R0202PN7K."
+    REVISION        "201203010000Z"
+    DESCRIPTION
+        "Added ciscoIfExtCapV15R0002SGPCat4K agent
+        capability statement."
+    REVISION        "201103210000Z"
+    DESCRIPTION
+        "Added ciscoIfExtCapNXOSV52R1MDS9000 agent
+        capability statement."
+    REVISION        "200803240000Z"
+    DESCRIPTION
+        "Added ciscoIfExtCapCatOSV08R0701PCat6K agent
+        capability statement."
+    REVISION        "200711050000Z"
+    DESCRIPTION
+        "Added ciscoIfExtCapc4710aceVA1R700
+        agent capabilities for ACE 4710 Application 
+        Control Engine Appliance."
+    REVISION        "200708300000Z"
+    DESCRIPTION
+        "Added ciscoIfExtCapV12R0233SXHPCat6K
+        capability statement."
+    REVISION        "200704190000Z"
+    DESCRIPTION
+        "Added ciscoIfExtCapV12R0229SM1 and
+        ciscoIfExtCapV12R0412MR1 capability statements."
+    REVISION        "200602210000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoIfExtCapabilityACSWV03R000 for 
+        Application Control Engine (ACE)."
+    REVISION        "200504140000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoIfExtCapSanOSV30R1MDS9000."
+    REVISION        "200503040000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoIfExtCapV12R0217bSXAPCat6K."
+    REVISION        "200401260000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 395 }
+
+
+
+ciscoIfExtensionCapV08R0301 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500 and
+                         Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IF-EXTENSION-MIB capabilities."
+
+    SUPPORTS        CISCO-IF-EXTENSION-MIB
+    INCLUDES        {
+                        ciscoIfExtDot1qEtherTypeGroup,
+                        ciscoIfExtUtilizationGroup,
+                        ciscoIfExtDot1dBaseMappingGroup
+                    }
+    ::= { ciscoIfExtensionCapability 1 }
+
+ciscoIfExtCapV12R0217bSXAPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(17b)SXA on Catalyst 6000/6500
+                        and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IF-EXTENSION-MIB capabilities."
+
+    SUPPORTS        CISCO-IF-EXTENSION-MIB
+    INCLUDES        {
+                        ciscoIfExtensionTablePacketGroup,
+                        ciscoIfExtensionTableIntfGroup,
+                        ciscoIfExtDot1qEtherTypeGroup,
+                        ciscoIfExtDot1dBaseMappingGroup
+                    }
+    ::= { ciscoIfExtensionCapability 2 }
+
+ciscoIfExtCapSanOSV30R1MDS9000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco SanOS 3.0 on Cisco MDS 9000
+                          series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IF-EXTENSION-MIB capabilities."
+
+    SUPPORTS        CISCO-IF-EXTENSION-MIB
+    INCLUDES        {
+                        ciscoIfExtensionTableIntfGroup2,
+                        ciscoIfExtUtilizationGroup,
+                        ciscoIfExtDot1dBaseMappingGroup,
+                        ciscoIfExtIfNameMappingGroup,
+                        cieIfStatusListGroup
+                    }
+    VARIATION       cieIfDhcpMode
+    SYNTAX          INTEGER  {
+                        false(2)
+                    }
+    ACCESS          read-only
+    DESCRIPTION
+        "Implementation supports only read-only access for
+        this object. Support for true(1) is only required
+        on interfaces which support DHCP."
+
+    VARIATION       cieIfMtu
+    ACCESS          read-only
+    DESCRIPTION
+        "Implementation support only read-only access for
+        this object."
+
+    ::= { ciscoIfExtensionCapability 3 }
+
+ciscoIfExtCapabilityACSWV03R000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IF-EXTENSION-MIB capabilities."
+
+    SUPPORTS        CISCO-IF-EXTENSION-MIB
+    INCLUDES        { ciscoIfExtIfNameMappingGroup }
+    ::= { ciscoIfExtensionCapability 4 }
+
+ciscoIfExtCapV12R0229SM1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(29)SM1"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.2(29)SM1 Cisco CISCO-IF-EXTENSION-MIB User Agent MIB
+        capabilities."
+
+    SUPPORTS        CISCO-IF-EXTENSION-MIB
+    INCLUDES        {
+                        ciscoIfExtensionTablePacketGroup,
+                        ciscoIfExtensionTableIntfGroup
+                    }
+    VARIATION       cieIfMtu
+    SYNTAX          Integer32 (40..2147483647)
+    WRITE-SYNTAX    Integer32 (40..2147483647)
+    ACCESS          read-only
+    DESCRIPTION
+        "Image only support for cieIfMtu not other objects in
+        ciscoIfExtensionTableIntfGroup1."
+
+    ::= { ciscoIfExtensionCapability 5 }
+
+ciscoIfExtCapV12R0412MR1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4(2)MR1"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.4(2)MR1 Cisco CISCO-IF-EXTENSION-MIB User Agent MIB
+        capabilities."
+
+    SUPPORTS        CISCO-IF-EXTENSION-MIB
+    INCLUDES        {
+                        ciscoIfExtensionTablePacketGroup,
+                        ciscoIfExtensionTableIntfGroup,
+                        ciscoIfExtensionAsymmetricalSpeedGroup
+                    }
+    ::= { ciscoIfExtensionCapability 6 }
+
+ciscoIfExtCapV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IF-EXTENSION-MIB agent capabilities."
+
+    SUPPORTS        CISCO-IF-EXTENSION-MIB
+    INCLUDES        {
+                        ciscoIfExtensionTablePacketGroup,
+                        ciscoIfExtensionTableIntfGroup,
+                        ciscoIfExtDot1qEtherTypeGroup,
+                        ciscoIfExtDot1dBaseMappingGroup,
+                        ciscoIfExtUtilizationGroup,
+                        ciscoIfExtIfNameMappingGroup
+                    }
+    ::= { ciscoIfExtensionCapability 7 }
+
+ciscoIfExtCapc4710aceVA1R700 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7)
+                     for ACE 4710 Application Control Engine 
+                     Appliance"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IF-EXTENSION-MIB capabilities."
+
+    SUPPORTS        CISCO-IF-EXTENSION-MIB
+    INCLUDES        { ciscoIfExtIfNameMappingGroup }
+    ::= { ciscoIfExtensionCapability 8 }
+
+ciscoIfExtCapCatOSV08R0701PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.7(1) on Catalyst 6000/6500 and
+                     Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IF-EXTENSION-MIB capabilities."
+
+    SUPPORTS        CISCO-IF-EXTENSION-MIB
+    INCLUDES        {
+                        ciscoIfExtDot1qEtherTypeGroup,
+                        ciscoIfExtUtilizationGroup,
+                        ciscoIfExtDot1dBaseMappingGroup,
+                        ciscoIfExtUtilIntervalGroup
+                    }
+    VARIATION       cieIfInterval
+    SYNTAX          Unsigned32 (30 | 300)
+    DESCRIPTION
+        "Only limited set of values are supported.
+        Changes on the value of one instance of this
+        object will be applied to all the instance values
+        of this object."
+
+    ::= { ciscoIfExtensionCapability 9 }
+
+ciscoIfExtCapNXOSV52R1MDS9000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NXOS 5.2(1) on MDS 9000."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IF-EXTENSION-MIB capabilities."
+
+    SUPPORTS        CISCO-IF-EXTENSION-MIB
+    INCLUDES        {
+                        ciscoIfExtDot1qEtherTypeGroup,
+                        ciscoIfExtUtilizationGroup,
+                        ciscoIfExtDot1dBaseMappingGroup,
+                        ciscoIfExtUtilIntervalGroup
+                    }
+    VARIATION       cieIfInterval
+    ACCESS          read-only
+    DESCRIPTION
+        "Implementation support only read-only access for
+        this object."
+
+    ::= { ciscoIfExtensionCapability 10 }
+
+ciscoIfExtCapV15R0002SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(2)SG on Catalyst 4000 family
+                    switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IF-EXTENSION-MIB agent capabilities."
+
+    SUPPORTS        CISCO-IF-EXTENSION-MIB
+    INCLUDES        {
+                        ciscoIfExtensionTablePacketGroup,
+                        ciscoIfExtensionTableIntfGroup,
+                        ciscoIfExtDot1dBaseMappingGroup,
+                        ciscoIfExtIfNameMappingGroup
+                    }
+    ::= { ciscoIfExtensionCapability 11 }
+
+ciscoIfExtCapNxOSV06R0201PMDS9000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(1) on MDS 9000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IF-EXTENSION-MIB agent capabilities."
+
+    SUPPORTS        CISCO-IF-EXTENSION-MIB
+    INCLUDES        {
+                        ciscoIfExtensionTablePacketGroup,
+                        ciscoIfExtensionTableIntfGroup,
+                        ciscoIfExtUtilizationGroup,
+                        ciscoIfExtIfNameMappingGroup,
+                        cieIfStatusListGroup,
+                        cieLinkUpDownNotifEnableGroup,
+                        cieLinkUpDownNotifGroup,
+                        cieDelayedLinkUpDownNotifNotifEnableGroup,
+                        cieDelayedLinkUpDownNotifNotifGroup,
+                        ciscoIfExtensionTableIntfGroup3,
+                        cieIfStatusListGroupSup1,
+                        cieIfVlStatsGroup,
+                        ciscoIfExtensionTableIntfGroup3SupR01,
+                        cieLinkUpDownNotifConfigGroup,
+                        ciscoIfExtensionTableIntfGroup3SupR02
+                    }
+    VARIATION       cieIfKeepAliveEnabled
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       cieIfDhcpMode
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cieIfOwner
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       cieIfTransceiverFrequencyConfig
+    DESCRIPTION
+        "Write access is only supported for Fiber Channel interfaces."
+
+    VARIATION       cieIfFillPatternConfig
+    DESCRIPTION
+        "Write access is only supported for Fiber Channel interfaces."
+
+    VARIATION       cieIfIgnoreBitErrorsConfig
+    DESCRIPTION
+        "Write access is only supported for Fiber Channel interfaces."
+
+    VARIATION       cieIfIgnoreInterruptThresholdConfig
+    DESCRIPTION
+        "Write access is only supported for Fiber Channel interfaces."
+
+    ::= { ciscoIfExtensionCapability 12 }
+
+ciscoIfExtCapNxOSV06R0202PN7K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(2) on Nexus 7000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IF-EXTENSION-MIB agent capabilities."
+
+    SUPPORTS        CISCO-IF-EXTENSION-MIB
+    INCLUDES        {
+                        ciscoIfExtensionTablePacketGroup,
+                        ciscoIfExtensionTableIntfGroup,
+                        ciscoIfExtIfNameMappingGroup,
+                        ciscoIfExtDot1dBaseMappingGroup,
+                        cieIfStatusListGroup,
+                        cieLinkUpDownNotifEnableGroup,
+                        cieLinkUpDownNotifGroup,
+                        cieDelayedLinkUpDownNotifNotifEnableGroup,
+                        cieDelayedLinkUpDownNotifNotifGroup,
+                        ciscoIfExtensionTableIntfGroup3,
+                        cieIfStatusListGroupSup1,
+                        cieIfVlStatsGroup,
+                        ciscoIfExtensionTableIntfGroup3SupR01,
+                        cieLinkUpDownNotifConfigGroup,
+                        ciscoIfExtensionTableIntfGroup3SupR02
+                    }
+    VARIATION       cieIfKeepAliveEnabled
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       cieIfDhcpMode
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cieIfOwner
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       cieIfTransceiverFrequencyConfig
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cieIfFillPatternConfig
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cieIfIgnoreBitErrorsConfig
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cieIfIgnoreInterruptThresholdConfig
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoIfExtensionCapability 13 }
+
+END
+
+
+
+

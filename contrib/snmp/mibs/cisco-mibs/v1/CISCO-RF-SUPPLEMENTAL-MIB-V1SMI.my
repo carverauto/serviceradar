@@ -1,0 +1,738 @@
+-- MIB file created 28-Dec-2006 16:25:29, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-RF-SUPPLEMENTAL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-RF-SUPPLEMENTAL-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, DateAndTime
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ConfigCopyState
+            FROM CISCO-CONFIG-COPY-MIB
+    PhysicalIndex
+            FROM ENTITY-MIB
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoRfSupMIB OBJECT IDENTIFIER ::= { ciscoMgmt 198 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200405270000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems Customer Service 
+--    Postal: 170 West Tasman Drive 
+--            San Jose, CA 95134 
+--            USA 
+--    Tel: +1 800 553-NETS 
+--    
+--    E-mail: cs-rf-mib@cisco.com
+--  Descr
+--    This MIB was designed to complement the CISCO-RF-MIB by  
+--    providing additional optional status and configuration control  
+--    for redundant CPU platforms. 
+--     
+--    However, the MIB should also be applicable to redundant  
+--    platforms which don't use the RF Redundancy Framework software  
+--    since it makes no direct references to any CISCO-RF-MIB objects  
+--    or textual conventions and no direct reference to any RF  
+--    states, RF events or internal information. 
+--     
+--    Glossary of terms used in this document: 
+--    
+--        Active -   A redundant CPU which is actively controlling  
+--                   the system. 
+--    
+--        Running configuration - The runtime configuration of a 
+--                   system which reflects current configured  
+--                   hardware or software settings. Runtime  
+--                   configuration which is not stored in  
+--                   non-volatile memory may be lost if the system 
+--                   loses power. 
+--    
+--        Standby -  A redundant CPU which is not currently  
+--                   controlling the system, but which can take  
+--                   over control if the Active CPU fails. 
+--    
+--        Startup configuration - A copy of system configuration 
+--                   stored in non-volatile memory which can be 
+--                   applied following a system powerup. 
+--    
+--                   For platforms where all runtime configuration 
+--                   is automatically stored in a non-volatile 
+--                   manner, the running and startup configurations 
+--                   are always identical. 
+--    
+--        Switchover - The transfer of control from one CPU to a  
+--                   redundant CPU. 
+--    
+--        Sync -     The mirroring (or synchronizing) of system  
+--                   state, configuration, statistics or other  
+--                   information from the Active CPU to a Standby  
+--                   CPU to allow it to maintain full system control         
+--                   following a switchover.
+--  RevDate
+--    200405270000Z
+--  RevDescr
+--    Added the following scalar object to the cRfSupSystem 
+--     subgroup: 
+--     cRfSupSysIfCounterSync
+--  RevDate
+--    200403040000Z
+--  RevDescr
+--    Two notifications ciscoRfSupTimeChangeEvent and  
+--    ciscoRfSupTimeZoneChangeEvent have been added. 
+--    cRfSupNotificationsEnabled has been added to control  
+--    the above objects.
+--  RevDate
+--    200103160000Z
+--  RevDescr
+--    The initial release of this MIB.
+
+ciscoRfSupMIBNotifs OBJECT IDENTIFIER ::= { ciscoRfSupMIB 0 }
+ciscoRfSupMIBObjects OBJECT IDENTIFIER ::= { ciscoRfSupMIB 1 }
+cRfSupSystem    OBJECT IDENTIFIER ::= { ciscoRfSupMIBObjects 1 }
+cRfSupCpu       OBJECT IDENTIFIER ::= { ciscoRfSupMIBObjects 2 }
+cRfSupAction    OBJECT IDENTIFIER ::= { ciscoRfSupMIBObjects 3 }
+ciscoRfSupMibConformance OBJECT IDENTIFIER ::= { ciscoRfSupMIB 2 }
+ciscoRfSupMibCompliances OBJECT IDENTIFIER ::= { ciscoRfSupMibConformance 1 }
+ciscoRfSupMibGroups OBJECT IDENTIFIER ::= { ciscoRfSupMibConformance 2 }
+
+RfSupSyncAdminState ::= INTEGER {
+        enableAutoSync(1),
+        disableAutoSync(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An enumerated value which indicates the administrative  
+--    state to allow user control of the syncing of database  
+--    information from an Active unit to the Standby unit(s).
+
+RfSupSyncOperState ::= INTEGER {
+        inSync(1),
+        lastUpdateFailed(2),
+        commDown(3),
+        syncDisabled(4),
+        noStandbyPresent(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An enumerated value which indicates the operational state  
+--    for the syncing of database information from an Active unit  
+--    to the Standby unit(s).
+
+cRfSupSysAvailableStartTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The date and time when this system began providing  
+        uninterrupted operation. This includes the time while either  
+        redundant unit was Active, but may also include brief intervals  
+        during switchover where the new Active unit was operational,  
+        but not yet reachable for network management purposes. It may  
+        also include intervals where no Standby unit was offering  
+        protection, as long as the Active unit was still operational.   
+         
+        It normally changes only if an unprotected system restart 
+        occurs or if a Standby unit was forced to take over before  
+        the initial database sync was completed. 
+        
+        However, it may also change if the system's Time of Day clock  
+        is changed or adjusted.  This object will be inaccurate if the 
+        system's Time of Day clock has not been set accurately. However, 
+        it should be implemented in such a way that when the system's  
+        Time of Day clock is adjusted to an accurate setting,  
+        cRfSupSysAvailableStartTime will also adjust to show the  
+        accurate available start time."
+    ::= { cRfSupSystem 1 }
+
+cRfSupSysSwitchoverTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The date and time when the last CPU switchover took place. 
+        This object will remain uninstantiated if no switchovers have  
+        taken place since the current Active CPU was initialized."
+    ::= { cRfSupSystem 2 }
+
+cRfSupSysSwitchovers OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that switchovers have occurred since 
+        cRfSupSysAvailableStartTime. 
+         
+        This object will remain uninstantiated if no switchovers have  
+        taken place since the current Active CPU was initialized 
+        or if a Standby unit was forced to take over before the  
+        initial database sync was completed."
+    ::= { cRfSupSystem 3 }
+
+cRfSupSysRunningConfigSyncTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The date and time when the running configuration was last  
+        successfully synced from the current Active unit to the  
+        Standby unit.  
+        
+        This object will remain uninstantiated if no sync has yet 
+        taken place since the current Active CPU was initialized 
+        or if a Standby unit was forced to take over before the  
+        initial database sync was completed. 
+        
+        Since automatic running configuration syncs are event driven  
+        and can be disabled by configuration, this time doesn't 
+        directly indicate whether Standby software reflects the 
+        running configuration of the Active unit. 
+         
+        Instead, see the cRfSupSysRunningConfigOper object to  
+        determine whether Standby running configuration is in  
+        sync with the Active CPU."
+    ::= { cRfSupSystem 4 }
+
+cRfSupSysRunningConfigAdmin OBJECT-TYPE
+    SYNTAX RfSupSyncAdminState
+--    Rsyntax INTEGER {
+--        enableAutoSync(1),
+--        disableAutoSync(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Enables/Disables automatic running configuration syncs only.  
+        Doesn't affect other types of sync activity. If set to the  
+        default value enableAutoSync, the Active unit will send the  
+        full current running configuration following any operation 
+        that changes the running configuration. 
+        
+        Setting disableAutoSync may be useful for some maintenance  
+        and debugging operations."
+    ::= { cRfSupSystem 5 }
+
+cRfSupSysRunningConfigOper OBJECT-TYPE
+    SYNTAX RfSupSyncOperState
+--    Rsyntax INTEGER {
+--        inSync(1),
+--        lastUpdateFailed(2),
+--        commDown(3),
+--        syncDisabled(4),
+--        noStandbyPresent(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current operational state of running configuration syncs. 
+        When the value inSync is returned, it indicates that the  
+        Standby running configuration is being kept actively in sync  
+        with the Active unit."
+    ::= { cRfSupSystem 6 }
+
+cRfSupSysStartupConfigSyncTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The date and time when the startup configuration was last  
+        successfully synced from the current Active unit to the  
+        Standby unit(s).  
+        
+        This object will remain uninstantiated if no sync has yet 
+        taken place since the current Active CPU was initialized 
+        or if a Standby unit was forced to take over before the  
+        initial database sync was completed. 
+        
+        For platforms where running configuration is always stored  
+        in a non-volatile manner, this object should be identical 
+        to cRfSupSysRunningConfigSyncTime. 
+        
+        Since automatic startup configuration syncs are event driven  
+        and may be disabled by configuration, this time doesn't 
+        directly reflect whether Standby startup configuration is  
+        in sync with the Active unit. 
+         
+        Instead, see the cRfSupSysStartupConfigOper object to  
+        determine whether Standby startup configuration is in sync  
+        with the Active unit."
+    ::= { cRfSupSystem 7 }
+
+cRfSupSysStartupConfigAdmin OBJECT-TYPE
+    SYNTAX RfSupSyncAdminState
+--    Rsyntax INTEGER {
+--        enableAutoSync(1),
+--        disableAutoSync(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Enables/Disables automatic startup configuration syncs only.  
+        Doesn't affect other types of sync activity. If set to the  
+        default value enableAutoSync, the Active unit will send the  
+        full current startup configuration to the Standby unit(s)  
+        after any operation that changes the startup configuration  
+        in non-volatile memory. 
+        
+        This object is not applicable to systems where running 
+        configuration is always stored in non-volatile memory. 
+        
+        Setting disableAutoSync may be useful for some maintenance  
+        and debugging operations."
+    ::= { cRfSupSystem 8 }
+
+cRfSupSysStartupConfigOper OBJECT-TYPE
+    SYNTAX RfSupSyncOperState
+--    Rsyntax INTEGER {
+--        inSync(1),
+--        lastUpdateFailed(2),
+--        commDown(3),
+--        syncDisabled(4),
+--        noStandbyPresent(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current operational state of startup configuration syncs. 
+        When the value inSync is returned, it indicates that the  
+        Standby startup configuration is being kept actively in sync  
+        with the Active unit."
+    ::= { cRfSupSystem 9 }
+
+cRfSupSysBootImageSyncTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The date and time when the boot image memory was last  
+        successfully synced from the current Active unit to the  
+        Standby unit(s).  
+        
+        This object will remain uninstantiated if no sync has yet 
+        taken place since the current Active CPU was initialized 
+        or if a Standby unit was forced to take over before the  
+        initial database sync was completed. 
+        
+        Since automatic boot image memory syncs are event driven  
+        and may be disabled by configuration, this time doesn't 
+        directly reflect whether Standby boot image memory is  
+        in sync with the Active unit. 
+         
+        Instead, see the cRfSupSysBootImageOper object to determine  
+        whether Standby boot image memory is in sync with the Active  
+        unit."
+    ::= { cRfSupSystem 10 }
+
+cRfSupSysBootImageAdmin OBJECT-TYPE
+    SYNTAX RfSupSyncAdminState
+--    Rsyntax INTEGER {
+--        enableAutoSync(1),
+--        disableAutoSync(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Enables/Disables automatic boot image memory syncs only.  
+        Doesn't affect other types of sync activity. If set to the  
+        default value enableAutoSync, the Active unit will send the  
+        full current boot image memory to the Standby unit(s) after  
+        any operation that affects the boot image. 
+        
+        This object is not applicable for systems that don't 
+        support automatic boot image memory mirroring. 
+        
+        Setting disableAutoSync is necessary during software upgrades  
+        for the case where the boot image memory space is too small to  
+        simultaneously hold both the old and new images."
+    ::= { cRfSupSystem 11 }
+
+cRfSupSysBootImageOper OBJECT-TYPE
+    SYNTAX RfSupSyncOperState
+--    Rsyntax INTEGER {
+--        inSync(1),
+--        lastUpdateFailed(2),
+--        commDown(3),
+--        syncDisabled(4),
+--        noStandbyPresent(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current operational state of boot image memory syncs. 
+        When the value inSync is returned, it indicates that  
+        Standby boot image memory is being actively mirrored from 
+        the Active unit."
+    ::= { cRfSupSystem 12 }
+
+cRfSupSysStandbyBootFile OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Allow Standby unit(s) to automatically load a boot image  
+        which differs from the image specified for the Active unit.  
+        The string should be of the form <device>:<filename>.   
+        Specifying a null value indicates that Standby unit(s) should  
+        not use a different image than the Active unit. 
+        
+        This is used during software upgrade/downgrade procedures, 
+        for platforms that support automatic syncs for boot image  
+        memory."
+    ::= { cRfSupSystem 13 }
+
+cRfSupNotificationsEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This specifies whether ciscoRfSupTimeChangeEvent, 
+        ciscoRfSupTimeZoneChangeEvent notifications shall be sent  
+        when the system's clock or time zone is changed causing 
+        a change in the values of cRfSupSysAvailableStartTime or  
+        cRfSupSysSwitchoverTime objects. 
+        
+        Notifications will be sent only if this object is  
+        set to 'true'."
+    DEFVAL { false }
+    ::= { cRfSupSystem 14 }
+
+cRfSupSysIfCounterSync OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object configures the synchronization of Interface 
+         Statistics information from Active CPU to the 
+         Standby CPU. 
+         When this object is set to 'true', synchronization is 
+         enabled. When this object is set to 'false', 
+         synchronization is disabled."
+    ::= { cRfSupSystem 15 }
+
+cRfSupCpuTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CRfSupCpuEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing redundancy-related information for  
+        individual CPU cards."
+    ::= { cRfSupCpu 1 }
+
+cRfSupCpuEntry OBJECT-TYPE
+    SYNTAX CRfSupCpuEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information which can differ for each of the redundant  
+        CPU units in the system."
+    INDEX { cRfSupCpuUniqueIndex }
+    ::= { cRfSupCpuTable 1 }
+
+CRfSupCpuEntry ::= SEQUENCE {
+    cRfSupCpuUniqueIndex PhysicalIndex,
+    cRfSupCpuActiveSeverity INTEGER,
+    cRfSupCpuInitTime DateAndTime
+    }
+
+cRfSupCpuUniqueIndex OBJECT-TYPE
+    SYNTAX PhysicalIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table index which always has a unique platform-assigned  
+        value for each physical redundant unit within a particular  
+        system.  
+        
+        This index should refer to a particular physical unit  
+        rather than a logically Active or Standby unit."
+    ::= { cRfSupCpuEntry 1 }
+
+cRfSupCpuActiveSeverity OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        nonFaulty(0),
+        nonTrafficAffectingFault(1),
+        partialTrafficAffectingFault(2),
+        fullyTrafficAffectingFault(3),
+        unknown(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The fault severity of a redundant unit, as calculated by  
+        software. The value zero represents a good unit with no  
+        detected faults. Higher values represent progressively more  
+        serious faults.  If it's not possible to determine any current  
+        or prior severity information about a unit, the value unknown  
+        should be returned. 
+         
+        Unlike some severity definitions, cRfSupCpuActiveSeverity  
+        should not be downgraded when it switches from being Active.  
+        The severity for a faulty Standby unit should correspond to  
+        the system impact it would have if it were made to be the  
+        Active unit, assuming the severity can be determined while  
+        Standby. 
+         
+        The severity can be affected by either hardware or software  
+        faults with the CPU itself. It can also be affected by faults 
+        which prevent this CPU from interacting with one or more other 
+        system components (such as linecards), even when the actual  
+        faulty Field Replaceable Unit (FRU) is not the CPU itself. 
+        
+        As a minimum, the nonFaulty and fullyTrafficAffectingFault 
+        values should be supported on any platform supporting this  
+        object. Support of the other severity values is preferred,  
+        but optional."
+    ::= { cRfSupCpuEntry 2 }
+
+cRfSupCpuInitTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The date and time when this redundant unit was last  
+        initialized.  
+         
+        If the unit started out in the Standby state, this will also  
+        include the time while running as Standby."
+    ::= { cRfSupCpuEntry 3 }
+
+cRfSupActionManualSync OBJECT-TYPE
+    SYNTAX INTEGER {
+        noAction(1),
+        runningConfig(2),
+        startupConfig(3),
+        bootImage(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable is set to invoke a one-time manual copy of the 
+        specified information type from the Active to one or more  
+        Standby units. 
+        
+        When read, this object returns the last command written 
+        or noAction if no action has been written to the Active unit 
+        since it was initialized. The value noAction can not be used 
+        in a write request.  
+        
+        The result of the last requested action can be determined  
+        by reading the value of cRfSupActionLastSyncResult. The value  
+        of the cRfSupActionManualSync object can not be changed until  
+        the cRfSupActionLastSyncResult transitions to the successful 
+        or failed state."
+    ::= { cRfSupAction 1 }
+
+cRfSupActionLastSyncResult OBJECT-TYPE
+    SYNTAX ConfigCopyState
+--    Rsyntax INTEGER {
+--        waiting(1),
+--        running(2),
+--        successful(3),
+--        failed(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Contains the result of the last Manual Sync action request. 
+        This object is instantiated only after the  
+        cRfSupActionManualSync object has been set to a value other  
+        than noAction."
+    ::= { cRfSupAction 2 }
+
+ciscoRfSupTimeChangeEvent TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoRfSupMIB
+    VARIABLES {
+        cRfSupSysAvailableStartTime, cRfSupSysSwitchoverTime }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent on the event of system clock  
+        modification causing a change in the values of  
+        cRfSupSysAvailableStartTime or cRfSupSysSwitchoverTime objects, 
+        if cRfSupNotificationsEnabled object has value 'true'. 
+         
+        If the system clock change is a result of a time zone change 
+        event,this notification will not be sent."
+    ::= 1
+
+ciscoRfSupTimeZoneChangeEvent TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoRfSupMIB
+    VARIABLES {
+        cRfSupSysAvailableStartTime, cRfSupSysSwitchoverTime }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent on the event of system time zone 
+        modification causing a change in the values of  
+        cRfSupSysAvailableStartTime or cRfSupSysSwitchoverTime objects, 
+        if cRfSupNotificationsEnabled object has value 'true'."
+    ::= 2
+
+ciscoRfSupSysGroup OBJECT IDENTIFIER ::= { ciscoRfSupMibGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of RF SUPPLEMENTAL system-wide objects.
+--  objects
+--    cRfSupSysAvailableStartTime, cRfSupSysSwitchoverTime, 
+--    cRfSupSysSwitchovers, cRfSupSysRunningConfigSyncTime, 
+--    cRfSupSysRunningConfigAdmin, cRfSupSysRunningConfigOper, 
+--    cRfSupSysStartupConfigSyncTime, cRfSupSysStartupConfigAdmin, 
+--    cRfSupSysStartupConfigOper, cRfSupSysBootImageSyncTime, 
+--    cRfSupSysBootImageAdmin, cRfSupSysBootImageOper, 
+--    cRfSupSysStandbyBootFile
+
+ciscoRfSupCpuGroup OBJECT IDENTIFIER ::= { ciscoRfSupMibGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of RF SUPPLEMENTAL per-CPU objects.
+--  objects
+--    cRfSupCpuActiveSeverity, cRfSupCpuInitTime
+
+ciscoRfSupActionGroup OBJECT IDENTIFIER ::= { ciscoRfSupMibGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of RF SUPPLEMENTAL execution actions.
+--  objects
+--    cRfSupActionManualSync, cRfSupActionLastSyncResult
+
+ciscoRfSupSysOptionalGroup OBJECT IDENTIFIER ::= { ciscoRfSupMibGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of optional RF SUPPLEMENTAL system-wide  
+--    objects.
+--  objects
+--    cRfSupNotificationsEnabled
+
+ciscoRfSupSysOptionalSyncGroup OBJECT IDENTIFIER ::= { ciscoRfSupMibGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of optional RF SUPPLEMENTAL system wide 
+--     objects that control and monitor the synchronization of 
+--     information between the redundant system units.
+--  objects
+--    cRfSupSysIfCounterSync
+
+ciscoRfSupNotifGroup OBJECT IDENTIFIER ::= { ciscoRfSupMibGroups 5 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of optional notifications issued on 
+--    system time/time zone modifications.
+--  notifications
+--    ciscoRfSupTimeChangeEvent, ciscoRfSupTimeZoneChangeEvent
+
+ciscoRfSupMibCompliance OBJECT IDENTIFIER ::= { ciscoRfSupMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement the 
+--    Cisco RF SUPPLEMENTAL MIB.  
+--     
+--    Note: Platforms which implement the Cisco RF MIB are  
+--    not required to support the RF SUPPLEMENTAL MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoRfSupSysGroup
+--   MandGroup
+--    ciscoRfSupActionGroup
+--   OptGroup
+--    ciscoRfSupCpuGroup
+
+ciscoRfSupMibComplianceRev1 OBJECT IDENTIFIER ::= { ciscoRfSupMibCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement the 
+--     Cisco RF SUPPLEMENTAL MIB. 
+--    
+--     Note: Platforms which implement the Cisco RF MIB are 
+--     not required to support the RF SUPPLEMENTAL MIB. 
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoRfSupSysGroup
+--   MandGroup
+--    ciscoRfSupActionGroup
+--   OptGroup
+--    ciscoRfSupCpuGroup
+--   OptGroup
+--    ciscoRfSupSysOptionalGroup
+
+ciscoRfSupMibComplianceRev2 OBJECT IDENTIFIER ::= { ciscoRfSupMibCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement the 
+--     Cisco RF SUPPLEMENTAL MIB. 
+--    
+--     Note: Platforms which implement the Cisco RF MIB are 
+--     not required to support the RF SUPPLEMENTAL MIB. 
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoRfSupSysGroup
+--   MandGroup
+--    ciscoRfSupActionGroup
+--   OptGroup
+--    ciscoRfSupCpuGroup
+--   OptGroup
+--    ciscoRfSupSysOptionalGroup
+--   OptGroup
+--    ciscoRfSupNotifGroup
+--   OptGroup
+--    ciscoRfSupSysOptionalSyncGroup
+
+
+END
+

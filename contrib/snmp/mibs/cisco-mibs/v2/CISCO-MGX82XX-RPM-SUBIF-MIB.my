@@ -1,0 +1,203 @@
+-- *****************************************************************
+-- CISCO-WAN-RPM-SUBIF-MIB.my: 
+--  * RPM(Router Processor Module) Sub-interface MIB 
+--    in MGX82xx products
+--
+-- September 2002, Subra Hegde
+--
+-- Copyright (c) 2002 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+ 
+CISCO-MGX82XX-RPM-SUBIF-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        IpAddress,
+        Integer32               FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP		FROM SNMPv2-CONF
+	rpmPort                 FROM	BASIS-MIB
+        ciscoWan                FROM CISCOWAN-SMI;
+
+ciscoMgx82xxRpmSubIfMIB MODULE-IDENTITY
+	LAST-UPDATED    "200209080000Z"
+	ORGANIZATION    "Cisco Systems, Inc."
+	CONTACT-INFO
+	        "       Cisco Systems
+	                Customer Service
+
+	        Postal: 170 W Tasman Drive
+	                San Jose, CA  95134
+	                USA
+
+	                Tel: +1 800 553-NETS
+
+	        E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "This MIB is used to provision backplane sub-interfaces
+        on the MGX's Route Processor Module (RPM).  This MIB is 
+        implemented on the MGX controller to manage the RPM. The RPM 
+        family of Router Modules run the IOS Operating System"
+
+    REVISION    "200209080000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in CISCO-WAN-AXIPOP-MIB defined using SMIv1.
+        The applicable objects from CISCO-WAN-AXIPOP-MIB
+        are defined using SMIv2 in this MIB. Also the
+        descriptions of some of the objects have been 
+        modified."
+        ::= { ciscoWan 60 }
+
+rpmPortTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF RpmPortEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+	"This table contains information on subinterfaces
+        configured on RPM back plane interface."
+    ::= { rpmPort 1 }
+
+rpmPortEntry OBJECT-TYPE
+    SYNTAX  RpmPortEntry 
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+	"An entry for the RPM backplane sub interface.
+	Each entry contains RPM's backplane sub interface number,
+	its IP address and ATM address."
+    INDEX   { rpmPortSlotNum, rpmPortSubInterface}
+    ::= { rpmPortTable 1 }
+
+RpmPortEntry ::=
+	SEQUENCE {
+	    rpmPortSlotNum       Integer32,
+	    rpmPortInterface     Integer32,
+	    rpmPortSubInterface  Integer32,
+	    rpmPortRowStatus     INTEGER,
+	    rpmPortIpAddress     IpAddress,
+	    rpmPortSubNetMask    IpAddress,
+	    rpmPortState         INTEGER
+	}
+
+rpmPortSlotNum	OBJECT-TYPE
+    SYNTAX 	   Integer32  (1..30)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object specifies the the slot number
+        of the RPM card in MGX shelf."
+    ::= { rpmPortEntry 1 }
+
+rpmPortInterface	OBJECT-TYPE
+    SYNTAX     Integer32(1..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+	"This is the RPM's backplane interface.
+        Currently there is only one interface and
+        hence only supported value is 1."
+    ::= { rpmPortEntry 2 }
+
+rpmPortSubInterface	OBJECT-TYPE
+    SYNTAX     Integer32(0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+	"This object identifies the sub-interface number.
+        The value 0 is for the sub-interface on the
+        main interface(rpmPortInterface)."
+    ::= { rpmPortEntry 3 }
+
+rpmPortRowStatus  OBJECT-TYPE
+    SYNTAX  INTEGER {
+                add(1),
+                del(2),
+                mod(3)
+            }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+	"This indicates the status of this subinterface.
+         
+         add(1) : sub-interface is added.
+         del(2) : sub-interface is deleted.
+         mod(3) : Set to this value before modifying objects
+                  related to Subinterfaces."
+	::= { rpmPortEntry 4 }
+
+rpmPortIpAddress	OBJECT-TYPE
+	SYNTAX	   IpAddress
+	MAX-ACCESS read-only 
+	STATUS     current
+	DESCRIPTION
+	    "IP address configured on the sub-interface."
+    ::= { rpmPortEntry 5 }
+
+rpmPortSubNetMask	OBJECT-TYPE
+	SYNTAX 	   IpAddress 
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+	    "The subnet mask configured on the sub-interface."
+    ::= { rpmPortEntry 6 }
+
+rpmPortState  OBJECT-TYPE
+    SYNTAX  INTEGER {
+                notConfigured (1),
+                active        (2),
+                failed        (3)
+               }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+	"This indicates the state of this sub-interface.
+
+         notConfigured(1) : Sub-interface is not configured.
+         active(2)        : Sub-interface is in active state.
+         failed(3)        : Sub-interface is in failed state."
+	::= { rpmPortEntry 7 }
+
+-- conformance information
+
+cmrSubIfMIBConformance
+		OBJECT IDENTIFIER ::= { ciscoMgx82xxRpmSubIfMIB 2 }
+cmrSubIfMIBCompliances
+		OBJECT IDENTIFIER ::= { cmrSubIfMIBConformance 1 }
+cmrSubIfMIBGroups
+		OBJECT IDENTIFIER ::= { cmrSubIfMIBConformance 2 }
+
+
+-- compliance statements
+
+cmrSubIfMIBCompliance MODULE-COMPLIANCE
+	STATUS	current
+	DESCRIPTION
+	    "The compliance statement for the Cisco 
+            MGX RPM sub-interface MIB."
+	MODULE  -- this module
+	MANDATORY-GROUPS { cmrSubIfMIBGroup }
+	::= { cmrSubIfMIBCompliances 1 }
+
+-- units of conformance
+
+cmrSubIfMIBGroup	OBJECT-GROUP
+	OBJECTS { 
+	    rpmPortSlotNum,
+	    rpmPortInterface,
+	    rpmPortSubInterface,
+	    rpmPortRowStatus,
+	    rpmPortIpAddress,
+	    rpmPortSubNetMask,
+	    rpmPortState
+	}
+	STATUS	current
+	DESCRIPTION
+	    "Objects related to ATM Subinterface in RPM module."
+	::= { cmrSubIfMIBGroups 1 }
+
+END

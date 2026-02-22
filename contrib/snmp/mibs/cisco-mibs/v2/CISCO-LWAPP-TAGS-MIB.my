@@ -1,0 +1,1146 @@
+-- *******************************************************************
+-- CISCO-LWAPP-EWLC-TAGS-MIB.my
+-- April 2016, Ambika Prasad Mohanty
+--   
+-- Copyright (c) 2016-2019, 2021, 2023-2024 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-EWLC-TAGS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    Integer32
+        FROM SNMPv2-SMI
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    MacAddress
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappTagsMIB MODULE-IDENTITY
+    LAST-UPDATED    "201809200000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+            Email:  cs-wnbu-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those
+        devices operating as Central Controllers (CC)  that
+        terminate the Light Weight Access Point Protocol
+        tunnel from Cisco Light-weight LWAPP Access Points.
+
+        Information represented by this MIB is 
+        passed by the controller to those Cisco LWAPP APs, that can
+        operate in stand-alone mode.
+
+        The relationship between CC and the LWAPP APs can be depicted
+        as follows:
+
+        +......+     +......+     +......+           +......+
+        +      +     +      +     +      +           +      +
+        + EWLC +     + EWLC +     + EWLC +           + EWLC +
+        +      +     +      +     +      +           +      +
+        +......+     +......+     +......+           +......+
+          ..            .             .                 .
+          ..            .             .                 .
+         .  .            .             .                 .
+        .    .            .             .                 .
+        .      .            .             .                 .
+        .        .            .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+              .              .             .                 .
+            .  .              .             .                 .
+           .    .              .             .                 .
+          .      .              .             .                 .
+         .        .              .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+
+
+        The LWAPP tunnel exists between the controller
+        and the APs.  The MNs communicate with the APs through
+        the protocol defined by the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the
+        controllers and the controller pushes the configuration,
+        that includes the WLAN parameters, to the LWAPP APs.
+        The APs then encapsulate all the 802.11 frames from
+        wireless clients inside LWAPP frames and forward
+        the LWAPP frames to the controller.
+
+                                   GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.          
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends them to the controller to which
+        it is logically connected.        
+
+        Central Controller ( CC )        
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity is also referred to as 'controller'.        
+
+        Light Weight Access Point Protocol ( LWAPP )
+
+        This is a generic protocol that defines the
+        communication between the Access Points and the
+        Central Controller.        
+
+        Mobile Node ( MN )        
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point.        
+
+        Native VLAN ID
+
+        A switch port and/or AP can be configured with a
+        'native VLAN ID'.  Untagged or priority-tagged
+        frames are implicitly associated with the native
+        VLAN ID.  The default native VLAN ID is '1' if
+        VLAN tagging is enabled.  The native VLAN ID is '0'
+        or 'no VLAN ID' if VLAN tagging is not enabled.        
+
+        Remote Edge Access Point ( REAP )        
+
+        The LWAPP AP that can also act as a stand-alone AP
+        when it loses communication with the controller
+        it was associated with.        
+
+        When REAP can reach the controller (connected state),
+        it gets help from controller to complete client
+        authentication. When a controller is not reachable by
+        REAP, it goes into standalone state and does client
+        authentication by itself.  All data packets from
+        clients are either bridged locally (local-switch)
+        or forwarded to the controller (central-switch)
+        depending on the WLAN configuration.        
+
+        Virtual LAN        
+
+        VLAN defined in the IEEE 802.1Q VLAN standard
+        supports logically segmenting of LAN
+        infrastructure into different subnets or
+        workgroups so that packets are switched only
+        between ports within the same VLAN.        
+
+        VLAN ID
+
+        Each VLAN is identified by a 12-bit 'VLAN ID'.
+        A VLAN ID of '0' is used to indicate 'no VLAN ID'.
+        Valid VLAN IDs range from '1' to '4095'. 
+
+        Home AP 
+        A REAP AP can be installed at end-user home. Home 
+        AP ethernet port will be connected to DSL or cable
+        modem at home. Home AP will be primed with Controller
+        IP Address so that it will join with controller.        
+
+        REFERENCE
+        [1] Part 11 Wireless LAN Medium Access Control ( MAC )
+        and Physical Layer ( PHY ) Specifications"
+    REVISION        "201809200000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 987 }
+
+
+ciscoLwappTagsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappTagsMIB 0 }
+
+ciscoLwappTagsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappTagsMIB 1 }
+
+ciscoLwappTagsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappTagsMIB 2 }
+
+ciscoLwappPolicyTagConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappTagsMIBObjects 1 }
+
+ciscoLwappSiteTagConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappTagsMIBObjects 2 }
+
+ciscoLwappRfTagConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappTagsMIBObjects 3 }
+
+ciscoLwappApTag  OBJECT IDENTIFIER
+    ::= { ciscoLwappTagsMIBObjects 4 }
+
+ciscoLwappApFilter  OBJECT IDENTIFIER
+    ::= { ciscoLwappTagsMIBObjects 5 }
+
+ciscoLwappApLocationConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappTagsMIBNotifs 13 }
+
+ciscoLwappAssociatedApsConfig OBJECT IDENTIFIER
+    ::= { ciscoLwappTagsMIBNotifs 14 }
+
+-- ********************************************************************
+-- Policy Tag configuration
+-- ********************************************************************
+
+cLPolicyTagConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLPolicyTagConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the policy tag configuration of
+        controller. Policy tag is defined as a tag which has a set of
+        WLAN profile names to policy profile names. Policy tag applied
+        to an AP decides the list of SSID gets broadcasted. The SSID
+        properties are defined by both WLAN profile and Policy profile."
+    ::= { ciscoLwappPolicyTagConfig 1 }
+
+cLPolicyTagConfigEntry OBJECT-TYPE
+    SYNTAX          CLPolicyTagConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cLPolicyTagConfigTable and corresponds to a policy tag in a 
+        controller."
+    INDEX           { cLPolicyTagName } 
+    ::= { cLPolicyTagConfigTable 1 }
+
+CLPolicyTagConfigEntry ::= SEQUENCE {
+        cLPolicyTagName        SnmpAdminString,
+        cLPolicyTagDescription SnmpAdminString,
+        cLPolicyTagRowStatus   RowStatus
+}
+
+cLPolicyTagName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies an entry in
+        cLPolicyTagConfigTable." 
+    ::= { cLPolicyTagConfigEntry 1 }
+
+cLPolicyTagDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to specify the description
+        of the policy tag." 
+    ::= { cLPolicyTagConfigEntry 2 }
+
+cLPolicyTagRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the row status of the policy
+        tag table." 
+    ::= { cLPolicyTagConfigEntry 3 }
+ 
+
+-- ********************************************************************
+-- Policy Profile configuration
+-- ********************************************************************
+
+cLPolicyProfileConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLPolicyProfileConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the policy profile configuration  of
+        controller."
+    ::= { ciscoLwappPolicyTagConfig 2 }
+
+cLPolicyProfileConfigEntry OBJECT-TYPE
+    SYNTAX          CLPolicyProfileConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        CLPolicyProfileConfigEntryTable and corresponds to a
+        policy tag in controller."
+    INDEX           {
+                        cLPolicyTagName,
+                        cLProfileName
+                    } 
+    ::= { cLPolicyProfileConfigTable 1 }
+
+CLPolicyProfileConfigEntry ::= SEQUENCE {
+        cLProfileName            SnmpAdminString,
+        cLPolicyProfileName      SnmpAdminString,
+        cLPolicyProfileRowStatus RowStatus
+}
+
+cLProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the wlan profile configured to
+        a given policy tag" 
+    ::= { cLPolicyProfileConfigEntry 1 }
+
+cLPolicyProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the policy profile
+        name that is mapped to the wlan profile part of this
+        policy tag." 
+    ::= { cLPolicyProfileConfigEntry 2 }
+
+cLPolicyProfileRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the row status of the policy
+        tag table." 
+    ::= { cLPolicyProfileConfigEntry 3 }
+ 
+
+-- ********************************************************************
+-- RLAN-Policy Profile configuration
+-- ********************************************************************
+
+cLRlanPolicyProfileConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLRlanPolicyProfileConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the mapping of the RLAN-policy
+        to the policy tag configuration of controller. 
+        Policy tag is defined as a tag which has a 
+        set of WLAN and RLAN profile names attached to policy
+        profile names. Policy tag, when used/attached to an AP
+        defines the policy names for RLAN profiles which should be
+        used by the clients associated to the corresponding RLANs."
+    ::= { ciscoLwappPolicyTagConfig 3 }
+
+cLRlanPolicyProfileConfigEntry OBJECT-TYPE
+    SYNTAX          CLRlanPolicyProfileConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cLRlanPolicyProfileConfigTable and corresponds to a
+        RLAN policy associated with the given policy tag"
+    INDEX           {
+                        cLPolicyTagName,
+                        cLRlanPortID
+                    } 
+    ::= { cLRlanPolicyProfileConfigTable 1 }
+
+CLRlanPolicyProfileConfigEntry ::= SEQUENCE {
+        cLRlanPortID                 Integer32,
+        cLRlanProfile                SnmpAdminString,
+        cLRlanPolicyProfile          SnmpAdminString,
+        cLRlanPolicyProfileRowStatus RowStatus
+}
+
+cLRlanPortID OBJECT-TYPE
+    SYNTAX          Integer32 (1..4)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies an entry in
+        cLRlanPolicyProfileConfigTable." 
+    ::= { cLRlanPolicyProfileConfigEntry 1 }
+
+cLRlanProfile OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the RLAN profile associated
+        with the given cLRlanPortID." 
+    ::= { cLRlanPolicyProfileConfigEntry 2 }
+
+cLRlanPolicyProfile OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the RLAN policy profile
+        name that is mapped to the RLAN profile part of this
+        policy tag." 
+    ::= { cLRlanPolicyProfileConfigEntry 3 }
+
+cLRlanPolicyProfileRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the row status of the
+        cLRlanPolicyProfileConfigTable table." 
+    ::= { cLRlanPolicyProfileConfigEntry 4 }
+ 
+
+-- ********************************************************************
+-- RF Tag configuration
+-- ********************************************************************
+
+cLRfTagConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLRfTagConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the RF tag configuration of controller.
+        RF tag is defined as a tag which has a couple of RF profiles
+        attached to it corresponding to 11z and 11b/g radios."
+    ::= { ciscoLwappRfTagConfig 1 }
+
+cLRfTagConfigEntry OBJECT-TYPE
+    SYNTAX          CLRfTagConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in cLRFTagConfigTable
+        and corresponds to an RF tag in a Controller."
+    INDEX           { cLRfTagName } 
+    ::= { cLRfTagConfigTable 1 }
+
+CLRfTagConfigEntry ::= SEQUENCE {
+        cLRfTagName        SnmpAdminString,
+        cLRfTagRowStatus   RowStatus,
+        cL11aRfProfName    SnmpAdminString,
+        cL11bRfProfName    SnmpAdminString,
+        cLRfTagDescription SnmpAdminString,
+        cL6GHzBandRfProfName SnmpAdminString
+}
+
+cLRfTagName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies an RF tag entry in
+        cLRFTagConfigTable." 
+    ::= { cLRfTagConfigEntry 1 }
+
+cLRfTagRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the row status of the RF
+        tag table." 
+    ::= { cLRfTagConfigEntry 2 }
+
+cL11aRfProfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the 802.11a RF profile configured under
+        RF tag." 
+    ::= { cLRfTagConfigEntry 3 }
+
+cL11bRfProfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the 802.11b RF profile configured under
+        RF tag." 
+    ::= { cLRfTagConfigEntry 4 }
+
+cLRfTagDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the description
+        of the RF tag." 
+    ::= { cLRfTagConfigEntry 5 }
+
+cL6GHzBandRfProfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the 802.11 6GHz RF profile configured under
+        RF tag." 
+    ::= { cLRfTagConfigEntry 6 }
+ 
+
+-- ********************************************************************
+-- Site Tag configuration
+-- ********************************************************************
+
+cLSiteTagConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLSiteTagConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the site tag configuration of controller.
+        Site tag is defined as a tag which has the AP join profile and
+        the flex profile within it."
+    ::= { ciscoLwappSiteTagConfig 1 }
+
+cLSiteTagConfigEntry OBJECT-TYPE
+    SYNTAX          CLSiteTagConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cLSiteTagConfigTable and corresponds to an site
+        tag in a controller."
+    INDEX           { cLSiteTagName } 
+    ::= { cLSiteTagConfigTable 1 }
+
+CLSiteTagConfigEntry ::= SEQUENCE {
+        cLSiteTagName                         SnmpAdminString,
+        cLSiteTagRowStatus                    RowStatus,
+        cLApJoinProfName                      SnmpAdminString,
+        cLFlexProfName                        SnmpAdminString,
+        cLSiteTagDescription                  SnmpAdminString,
+        cLReapSiteUpgradeStart                INTEGER,
+        cLReapSiteTagStartCertificateDownload TruthValue,
+        cLIsLocalSite                         TruthValue
+}
+
+cLSiteTagName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely represent the site tag name." 
+    ::= { cLSiteTagConfigEntry 1 }
+
+cLSiteTagRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the row status of the site
+        tag table." 
+    ::= { cLSiteTagConfigEntry 2 }
+
+cLApJoinProfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the AP join profile name which is part of
+        the site tag." 
+    ::= { cLSiteTagConfigEntry 3 }
+
+cLFlexProfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the flex profile name which is part of
+        the site tag."
+    ::= { cLSiteTagConfigEntry 4 }
+
+cLSiteTagDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the description of the site tag." 
+    ::= { cLSiteTagConfigEntry 5 }
+
+cLReapSiteUpgradeStart OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        initiatePrimary(1),
+                        initiateBackup(2),
+                        abort(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the efficient AP image upgrade for the
+        heap group.
+        initiatePrimary -  Efficient AP image upgrade for heap group
+                           is done with primary
+        initiateBackup - Efficient AP image upgrade for heap group is
+                         done with backup
+        abort - Efficient AP image upgrade for heap group is aborted." 
+    ::= { cLSiteTagConfigEntry 6 }
+
+cLReapSiteTagStartCertificateDownload OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether certificate for
+        EAP-TLS is enabled.
+        A value of 'true' indicates that EAP-TLS is enabled.
+        A value of 'false' indicates that EAP-TLS is disabled."
+    DEFVAL          { false } 
+    ::= { cLSiteTagConfigEntry 7 }
+
+cLIsLocalSite OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether local site is enabled or not.
+        A value of 'true' indicates that local site is enabled.
+        A value of 'false' indicates that local site is disabled."
+    DEFVAL          { true } 
+    ::= { cLSiteTagConfigEntry 8 }
+ 
+
+-- ********************************************************************
+-- AP Tag Mapping configuration
+-- ********************************************************************
+
+cLApConfigTagTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLApConfigTagEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the mapping of AP to the various tags."
+    ::= { ciscoLwappApTag 1 }
+
+cLApConfigTagEntry OBJECT-TYPE
+    SYNTAX          CLApConfigTagEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table provides information about the tags
+        that the AP is mapped to."
+    INDEX           { cLApConfigTagSysMacAddress } 
+    ::= { cLApConfigTagTable 1 }
+
+CLApConfigTagEntry ::= SEQUENCE {
+        cLApConfigTagSysMacAddress MacAddress,
+        cLApConfigPolicyTagName    SnmpAdminString,
+        cLApConfigRfTagName        SnmpAdminString,
+        cLApConfigSiteTagName      SnmpAdminString,
+        cLApConfigTagRowStatus     RowStatus
+}
+
+cLApConfigTagSysMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the ethernet MAC of the AP and uniquely
+        identifies an entry in this table." 
+    ::= { cLApConfigTagEntry 1 }
+
+cLApConfigPolicyTagName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the policy tag that is configured for a
+        particular AP with cLApTagSysMacAddress as its ethernet mac." 
+    ::= { cLApConfigTagEntry 2 }
+
+cLApConfigRfTagName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the RF tag that is configured for a
+        particular AP with cLApTagSysMacAddress as its ethernet mac." 
+    ::= { cLApConfigTagEntry 3 }
+
+cLApConfigSiteTagName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the site tag that is configured a
+        particular AP with cLApTagSysMacAddress as its ethernet mac." 
+    ::= { cLApConfigTagEntry 4 }
+
+cLApConfigTagRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the row status of the site tag table." 
+    ::= { cLApConfigTagEntry 5 }
+ 
+
+-- ********************************************************************
+-- AP Filter configuration
+-- ********************************************************************
+
+cLApFilterTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLApFilterEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the various AP filter config."
+    ::= { ciscoLwappApFilter 1 }
+
+cLApFilterEntry OBJECT-TYPE
+    SYNTAX          CLApFilterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table provides information about the AP
+        filter config."
+    INDEX           { cLApFilterName } 
+    ::= { cLApFilterTable 1 }
+
+CLApFilterEntry ::= SEQUENCE {
+        cLApFilterName           SnmpAdminString,
+        cLApFilterRowStatus      RowStatus,
+        cLApFilterNameApNameRule SnmpAdminString,
+        cLApFilterPolicyTag      SnmpAdminString,
+        cLApFilterSiteTag        SnmpAdminString,
+        cLApFilterRfTag          SnmpAdminString
+}
+
+cLApFilterName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name given to the AP filter
+        configured to uniquely identify the filter." 
+    ::= { cLApFilterEntry 1 }
+
+cLApFilterRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the row status of the AP filter table." 
+    ::= { cLApFilterEntry 2 }
+
+cLApFilterNameApNameRule OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies AP name string based on which AP filter
+        is configured." 
+    ::= { cLApFilterEntry 3 }
+
+cLApFilterPolicyTag OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies policy tag details for AP filter
+        configured." 
+    ::= { cLApFilterEntry 4 }
+
+cLApFilterSiteTag OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies site tag details for AP filter
+        configured." 
+    ::= { cLApFilterEntry 5 }
+
+cLApFilterRfTag OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies RF tag details for AP filter
+        configured." 
+    ::= { cLApFilterEntry 6 }
+ 
+
+-- ********************************************************************
+-- AP Filter Priority configuration
+-- ********************************************************************
+
+cLApFilterPriorityTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLApFilterPriorityEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the various AP filter config."
+    ::= { ciscoLwappApFilter 2 }
+
+cLApFilterPriorityEntry OBJECT-TYPE
+    SYNTAX          CLApFilterPriorityEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table provides information about the AP
+        filter priority config."
+    INDEX           { cLApFilterPriority } 
+    ::= { cLApFilterPriorityTable 1 }
+
+CLApFilterPriorityEntry ::= SEQUENCE {
+        cLApFilterPriority           Integer32,
+        cLApFilterPriorityRowStatus  RowStatus,
+        cLApFilterPriorityFilterName SnmpAdminString
+}
+
+cLApFilterPriority OBJECT-TYPE
+    SYNTAX          Integer32 (0..1023)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the priority given to the AP filter
+        that is configured uniquely." 
+    ::= { cLApFilterPriorityEntry 1 }
+
+cLApFilterPriorityRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the row status of the AP filter
+        priority table." 
+    ::= { cLApFilterPriorityEntry 2 }
+
+cLApFilterPriorityFilterName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies AP name for which the priority
+        is been set." 
+    ::= { cLApFilterPriorityEntry 3 }
+ 
+
+-- ********************************************************************
+-- AP Filter Source configuration
+-- ********************************************************************
+
+cLApTagSrcTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLApTagSrcEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the details on various AP filter source
+        configuration."
+    ::= { ciscoLwappApTag 2 }
+
+cLApTagSrcEntry OBJECT-TYPE
+    SYNTAX          CLApTagSrcEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table provides information about the AP
+        filter priority source config."
+    INDEX           { cLApTagSrcPriority } 
+    ::= { cLApTagSrcTable 1 }
+
+CLApTagSrcEntry ::= SEQUENCE {
+        cLApTagSrcPriority  Integer32,
+        cLApTagSrcRowStatus RowStatus,
+        cLApTagSrcList      INTEGER
+}
+
+cLApTagSrcPriority OBJECT-TYPE
+    SYNTAX          Integer32 (0..127)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the priority given to the AP filter
+        tag source." 
+    ::= { cLApTagSrcEntry 1 }
+
+cLApTagSrcRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the row status of the AP filter
+        tag source table." 
+    ::= { cLApTagSrcEntry 2 }
+
+cLApTagSrcList OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        static(2),
+                        filter(3),
+                        ap(4),
+                        default(5),
+                        location(6)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the list sources for AP tags.
+        none       - Invalid
+        static     - per AP static configuration
+        filter     - The tag details for the AP is taken from 
+                     the active filter.
+        ap         - tags received from AP during AP join. 
+        default    - default tags.
+        location   - tags configured under user defined Location
+                     construct." 
+    ::= { cLApTagSrcEntry 3 }
+
+
+-- ********************************************************************
+-- AP Location configuration
+-- ********************************************************************
+
+cLApLocationConfigTable  OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLApLocationConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the various AP location config."
+    ::= { ciscoLwappApLocationConfig 1 }
+
+cLApLocationConfigEntry OBJECT-TYPE
+    SYNTAX          CLApLocationConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table provides information about the AP
+        location config."
+    INDEX           { cLApLocationName }
+    ::= { cLApLocationConfigTable 1 }
+
+CLApLocationConfigEntry ::= SEQUENCE {
+        cLApLocationName             SnmpAdminString,
+        cLApLocationSiteTag          SnmpAdminString,
+        cLApLocationRfTag            SnmpAdminString,
+        cLApLocationPolicyTag        SnmpAdminString,
+        cLApLocationConfigRowStatus  RowStatus,
+        cLApLocationDesc             SnmpAdminString
+}
+
+cLApLocationName  OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name given to the AP location
+        configured to uniquely identify the location."
+    ::= { cLApLocationConfigEntry 1 }
+
+cLApLocationSiteTag  OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies site tag details for AP location configured."
+    ::= { cLApLocationConfigEntry 2 }
+
+cLApLocationRfTag  OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies RF tag details for AP location configured."
+    ::= { cLApLocationConfigEntry 3 }
+
+cLApLocationPolicyTag  OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies policy tag details for AP location configured."
+    ::= { cLApLocationConfigEntry 4 }
+
+cLApLocationConfigRowStatus  OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the row status of the AP location table."
+    ::= { cLApLocationConfigEntry 5 }
+
+cLApLocationDesc  OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the description of the location."
+    ::= { cLApLocationConfigEntry 6 }
+
+
+-- ********************************************************************
+-- *Location Tag Associated APs configuration
+-- ********************************************************************
+
+cLAssociatedApsConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLAssociatedApsConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the configuration of location tag associated APs on the
+        controller."
+    ::= { ciscoLwappAssociatedApsConfig 1 }
+
+cLAssociatedApsConfigEntry OBJECT-TYPE
+    SYNTAX          CLAssociatedApsConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table provides information about the location tag associated AP
+        config."
+    INDEX           {
+                        cLApLocationName,
+                        cLAssociatedApsApMac
+                    }
+    ::= { cLAssociatedApsConfigTable 1 }
+
+CLAssociatedApsConfigEntry ::= SEQUENCE {
+        cLAssociatedApsApMac           MacAddress,
+        cLAssociatedApsConfigRowStatus RowStatus
+}
+
+cLAssociatedApsApMac  OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the ethernet MAC of the AP and uniquely
+        identifies an entry in this table."
+    ::= { cLAssociatedApsConfigEntry 1 }
+
+cLAssociatedApsConfigRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the row status of the location tag associated APs
+        table."
+    ::= { cLAssociatedApsConfigEntry 2 }
+
+
+
+-- ********************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+ciscoLwappTagsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappTagsMIBConform 1 }
+
+ciscoLwappTagsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappTagsMIBConform 2 }
+
+
+ciscoLwappTagsMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappTagsMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappTagsConfigGroup,
+                        ciscoLwappFilterConfigGroup,
+                        ciscoLwappRlanConfigGroup,
+                        ciscoLwappApLocationConfigGroup
+                    }
+    ::= { ciscoLwappTagsMIBCompliances 1 }
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+
+ciscoLwappTagsConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLPolicyTagDescription,
+                        cLPolicyTagRowStatus,
+                        cLPolicyProfileName,
+                        cLPolicyProfileRowStatus,
+                        cLRfTagRowStatus,
+                        cLRfTagDescription,
+                        cL11aRfProfName,
+                        cL11bRfProfName,
+                        cL6GHzBandRfProfName,
+                        cLSiteTagRowStatus,
+                        cLApJoinProfName,
+                        cLFlexProfName,
+                        cLSiteTagDescription,
+                        cLReapSiteUpgradeStart,
+                        cLReapSiteTagStartCertificateDownload,
+                        cLIsLocalSite,
+                        cLApConfigPolicyTagName,
+                        cLApConfigRfTagName,
+                        cLApConfigSiteTagName,
+                        cLApConfigTagRowStatus,
+                        cLApTagSrcRowStatus,
+                        cLApTagSrcList
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the Policy tags
+        configuration."
+    ::= { ciscoLwappTagsMIBGroups 1 }
+
+ciscoLwappFilterConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLApFilterRowStatus,
+                        cLApFilterNameApNameRule,
+                        cLApFilterPolicyTag,
+                        cLApFilterRfTag,
+                        cLApFilterSiteTag,
+                        cLApFilterPriorityRowStatus,
+                        cLApFilterPriorityFilterName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the AP filter
+        configuration."
+    ::= { ciscoLwappTagsMIBGroups 2 }
+
+ciscoLwappRlanConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLRlanPolicyProfile,
+                        cLRlanPolicyProfileRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the Rlan policy
+        configuration."
+    ::= { ciscoLwappTagsMIBGroups 3 }
+
+ciscoLwappApLocationConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLApLocationSiteTag,
+                        cLApLocationRfTag,
+                        cLApLocationPolicyTag,
+                        cLApLocationConfigRowStatus,
+                        cLApLocationDesc,
+                        cLAssociatedApsConfigRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represent the AP Location
+        configuration."
+    ::= { ciscoLwappTagsMIBGroups 4 }
+
+END
+
+
+-- %DNP%  MLC -Compiled MLC
+

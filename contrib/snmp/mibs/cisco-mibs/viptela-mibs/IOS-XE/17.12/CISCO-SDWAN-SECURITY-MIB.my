@@ -1,0 +1,4531 @@
+
+-- *****************************************************************
+-- CISCO-SDWAN-SECURITY-MIB.my:
+-- OID assignments for Cisco SDWAN security
+
+
+-- Feburary 2021, Anjali Shirva
+
+-- Copyright (c) 2020-2023 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SDWAN-SECURITY-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY, 
+    OBJECT-TYPE, 
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    TruthValue
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoSdwanSecurityMIB MODULE-IDENTITY
+    LAST-UPDATED "202109230000Z"
+    ORGANIZATION    "Cisco Systems, Inc. "
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+               Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION "This module defines data model 
+                 for Cisco SDWAN security management"
+    REVISION "202109230000Z"
+    DESCRIPTION "Cisco SDWAN Revision 0.0"
+    ::= { ciscoMgmt 1006 }
+
+UnsignedByte ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d"
+    STATUS      current
+    DESCRIPTION "xs:unsignedByte"
+    SYNTAX      Unsigned32 (0 .. 255)
+
+UnsignedShort ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d"
+    STATUS      current
+    DESCRIPTION "xs:unsignedShort"
+    SYNTAX      Unsigned32 (0 .. 65535)
+
+InetAddressIP ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "1d."
+    STATUS      current
+    DESCRIPTION "inetAddressIP"
+    SYNTAX      OCTET STRING (SIZE (4|16))
+
+String ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "1t"
+    STATUS      current
+    DESCRIPTION "xs:string"
+    SYNTAX      OCTET STRING
+
+-- Notification type definitions
+NotificationSeverity ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "Netconf notification severity level"
+    SYNTAX      INTEGER {critical(1),
+                         major(2),
+                         minor(3)}
+
+PersonalityEnumOper ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "Device type"
+    SYNTAX      INTEGER {unknown(0),
+                         vedge(1),
+			 vhub(2),
+			 vsmart(3),
+                         vbond(4),
+			 vmanage(5),
+			 ztp(6),
+			 vcontainer(7)}
+
+ControlProtocolEnum ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "Control protocol"
+    SYNTAX      INTEGER {dtls(0),
+                         tls(1)}
+
+ColorEnum ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "3g  biz-internet  blue  bronze  custom1  custom2
+                 custom3  default  gold  green  lte  metro-ethernet
+                 mpls public-internet  red  silver private1 private2
+                 private3 private4 private5 private6"
+    SYNTAX      INTEGER {default(1),
+                         mpls(2),
+                         metro-ethernet(3),
+                         biz-internet(4),
+                         public-internet(5),
+                         lte(6),
+                         threeG(7),
+                         red(8),
+                         green(9),
+                         blue(10),
+                         gold(11),
+                         silver(12),
+                         bronze(13),
+                         custom1(14),
+                         custom2(15),
+                         custom3(16),
+                         private1(17),
+                         private2(18),
+                         private3(19),
+                         private4(20),
+                         private5(21),
+                         private6(22)}
+
+OperState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "Operational state"
+    SYNTAX      INTEGER {up(0),
+                         down(1)}
+
+CertificateTypeEnum ::= TEXTUAL-CONVENTION
+     STATUS      current
+     DESCRIPTION "Certificate Type"
+     SYNTAX      INTEGER {web-server(1),
+                          enterprise(2),
+			  vmanage(3)}    
+
+SessionState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "Session state"
+    SYNTAX      INTEGER {down(0),
+                         connect(1),
+                         handshake(2),
+                         trying(3),
+                         challenge(4),
+                         challenge-resp(5),
+                         challenge-ack(6),
+                         up(7),
+                         tear-down(8)}
+
+ConnFlagEnum ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION "Connection error flags"
+    SYNTAX      INTEGER {noerr(0),
+                         acsrrej(1),
+                         stentry(2),
+                         hsfail(3),
+                         dcertfl(4),
+                         nlcert(5),
+                         lisfd(6),
+                         snocheck(7),
+                         ip-tos(8),
+                         tmralc(9),
+                         dconfail(10),
+                         wrkrto(11),
+                         vs-tmo(12),
+                         vb-tmo(13),
+                         vm-tmo(14),
+                         vp-tmo(15),
+                         distloc(16),
+                         rmgspr(17),
+                         prchal(18),
+                         sysprch(19),
+                         reclen0(20),
+                         txchtobd(21),
+                         rdsigfbd(22),
+                         sslnfail(23),
+                         dhstmo(24),
+                         novs(25),
+                         noactvb(26),
+                         orptmo(27),
+                         devalc(28),
+                         tunalc(29),
+                         crtrejser(30),
+                         vbdest(31),
+                         crtrev(32),
+                         rxtrdwn(33),
+                         xtvstrdn(34),
+                         noslprcrt(35),
+                         dupser(36),
+                         serntpres(37),
+                         crtverfl(38),
+                         bidntpr(39),
+                         bidntvrfd(40),
+                         bdsgverfl(41),
+                         memalcfl(42),
+                         unmsgbdrg(43),
+                         vscrtrev(44),
+                         vecrtrev(45),
+                         unauthel(46),
+                         discvbd(47),
+                         ctorgnmmis(48),
+                         noztpen(49),
+                         novmcfg(50),
+                         chverfail(51),
+                         dupclhelo(52),
+                         certexprd(53),
+                         sysipchng(54),
+                         xtvmtrdn(55),
+                         mgrtblckd(56),
+                         noncgn(57),
+                         xtmos(58),
+                         iptmiss(59),
+                         operdown(60),
+                         ntprvmint(61),
+                         stnmodetd(62),
+                         lrntpeer(63),
+                         cgnidchngd(64),
+                         dupsysipdel(65),
+                         bidsig(66),
+                         idreqdecfail(67),
+                         veyidbndfail(68),
+                         credfail(69),
+                         reccablobfail(70),
+                         embargofail(71),
+                         newvbnovmng(72),
+                         hwcertren(73),
+                         hwcertrev(74),
+                         inztpentry(75),
+                         tenantrm(76),
+                         regidmis(77),
+                         regidchg(78),
+                         notenprst(79),
+                         crtvercrlfl(80),
+                         restrqfail(81),
+                         psev6disc(82)}
+
+-- MIB Objects, Notification Objects, Notification and Conform
+ciscoSdwanSecurityMIBNotifs OBJECT IDENTIFIER
+    ::= { ciscoSdwanSecurityMIB 0 }
+
+ciscoSdwanSecurityMIBObjects OBJECT IDENTIFIER
+   ::= { ciscoSdwanSecurityMIB 1 }
+
+ciscoSdwanSecurityMIBNotifObjects OBJECT IDENTIFIER
+    ::= { ciscoSdwanSecurityMIB 2 }
+
+ciscoSdwanSecurityMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSdwanSecurityMIB 3 }
+
+-- Display control information
+-- tagpath /control
+control OBJECT IDENTIFIER ::= { ciscoSdwanSecurityMIBObjects 2 }
+
+-- Display configured control connection rate, in PPS
+-- tagpath /control/connections-info
+controlConnectionsInfo OBJECT IDENTIFIER ::= { control 1 }
+
+-- tagpath /control/connections-info/rate
+controlConnectionsInfoRate OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Display configured control connection rate, in PPS"
+    ::= { controlConnectionsInfo 1 }
+
+-- tagpath /control/connections
+controlConnectionsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ControlConnectionsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Display control connections information"
+    ::= { control 2 }
+
+-- tagpath /control/connections
+controlConnectionsEntry OBJECT-TYPE
+    SYNTAX      ControlConnectionsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "A single control connection's information"
+    INDEX { controlConnectionsInstance, 
+            controlConnectionsPeerType, 
+            controlConnectionsSiteId, 
+            controlConnectionsDomainId, 
+            controlConnectionsLocalPrivateIp, 
+            controlConnectionsLocalPrivatePort, 
+            controlConnectionsPublicIp, 
+            controlConnectionsPublicPort }
+        ::= { controlConnectionsTable 1 }
+
+ControlConnectionsEntry ::=
+    SEQUENCE {
+        controlConnectionsInstance Unsigned32,
+        controlConnectionsPeerType PersonalityEnumOper,
+        controlConnectionsSiteId Unsigned32,
+        controlConnectionsDomainId Unsigned32,
+        controlConnectionsLocalPrivateIp InetAddressIP,
+        controlConnectionsLocalPrivatePort Unsigned32,
+        controlConnectionsPublicIp InetAddressIP,
+        controlConnectionsPublicPort Unsigned32,
+        controlConnectionsSystemIp InetAddressIP,
+        controlConnectionsProtocol ControlProtocolEnum,
+        controlConnectionsLocalColor ColorEnum,
+        controlConnectionsRemoteColor ColorEnum,
+        controlConnectionsPrivateIp InetAddressIP,
+        controlConnectionsPrivatePort Unsigned32,
+        controlConnectionsState SessionState,
+        controlConnectionsLocalEnum ConnFlagEnum,
+        controlConnectionsRemoteEnum ConnFlagEnum,
+        controlConnectionsLocalStateInfo String,
+        controlConnectionsRemoteStateInfo String,
+        controlConnectionsUptime String,
+        controlConnectionsTxHello Unsigned32,
+        controlConnectionsTxConnects Unsigned32,
+        controlConnectionsTxRegisters Unsigned32,
+        controlConnectionsTxRegisterReplies Unsigned32,
+        controlConnectionsTxChallenge Unsigned32,
+        controlConnectionsTxChallengeResp Unsigned32,
+        controlConnectionsTxChallengeAck Unsigned32,
+        controlConnectionsTxTeardown Unsigned32,
+        controlConnectionsTxTeardownAll Unsigned32,
+        controlConnectionsTxVmToPeer Unsigned32,
+        controlConnectionsTxRegisterToVm Unsigned32,
+        controlConnectionsRxHello Unsigned32,
+        controlConnectionsRxConnects Unsigned32,
+        controlConnectionsRxRegisters Unsigned32,
+        controlConnectionsRxRegisterReplies Unsigned32,
+        controlConnectionsRxChallenge Unsigned32,
+        controlConnectionsRxChallengeResp Unsigned32,
+        controlConnectionsRxChallengeAck Unsigned32,
+        controlConnectionsRxTeardown Unsigned32,
+        controlConnectionsRxVmToPeer Unsigned32,
+        controlConnectionsRxRegisterToVm Unsigned32,
+        controlConnectionsNegotiatedHelloInterval Unsigned32,
+        controlConnectionsNegotiatedHelloTolerance Unsigned32,
+        controlConnectionsVOrgName String,
+        controlConnectionsTxCreateCert Unsigned32,
+        controlConnectionsRxCreateCert Unsigned32,
+        controlConnectionsTxCreateCertReply Unsigned32,
+        controlConnectionsRxCreateCertReply Unsigned32,
+        controlConnectionsBehindProxy String,
+        controlConnectionsPeerSessId Counter64,
+        controlConnectionsLocalInterface String
+    }
+
+-- tagpath /control/connections/instance
+controlConnectionsInstance OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "vdaemon instance ID"
+    ::= { controlConnectionsEntry 1 }
+
+-- tagpath /control/connections/peer-type
+controlConnectionsPeerType OBJECT-TYPE
+    SYNTAX      PersonalityEnumOper
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Connection type"
+    ::= { controlConnectionsEntry 2 }
+
+-- tagpath /control/connections/site-id
+controlConnectionsSiteId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Site ID"
+    ::= { controlConnectionsEntry 3 }
+
+-- tagpath /control/connections/domain-id
+controlConnectionsDomainId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Domain ID"
+    ::= { controlConnectionsEntry 4 }
+
+-- tagpath /control/connections/local-private-ip
+controlConnectionsLocalPrivateIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Private IP address"
+    ::= { controlConnectionsEntry 5 }
+
+-- tagpath /control/connections/local-private-port
+controlConnectionsLocalPrivatePort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Private port number"
+    ::= { controlConnectionsEntry 6 }
+
+-- tagpath /control/connections/public-ip
+controlConnectionsPublicIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Public IP address"
+    ::= { controlConnectionsEntry 7 }
+
+-- tagpath /control/connections/public-port
+controlConnectionsPublicPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Public port number"
+    ::= { controlConnectionsEntry 8 }
+
+-- tagpath /control/connections/system-ip
+controlConnectionsSystemIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "System IP address"
+    ::= { controlConnectionsEntry 9 }
+
+-- tagpath /control/connections/protocol
+controlConnectionsProtocol OBJECT-TYPE
+    SYNTAX      ControlProtocolEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Protocol"
+    DEFVAL { dtls }
+    ::= { controlConnectionsEntry 10 }
+
+-- tagpath /control/connections/local-color
+controlConnectionsLocalColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local color"
+    ::= { controlConnectionsEntry 11 }
+
+-- tagpath /control/connections/remote-color
+controlConnectionsRemoteColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Remote color"
+    ::= { controlConnectionsEntry 12 }
+
+-- tagpath /control/connections/private-ip
+controlConnectionsPrivateIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Private IP address"
+    ::= { controlConnectionsEntry 13 }
+
+-- tagpath /control/connections/private-port
+controlConnectionsPrivatePort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Private port"
+    ::= { controlConnectionsEntry 14 }
+
+-- tagpath /control/connections/state
+controlConnectionsState OBJECT-TYPE
+    SYNTAX      SessionState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "State"
+    ::= { controlConnectionsEntry 15 }
+
+-- tagpath /control/connections/local_enum
+controlConnectionsLocalEnum OBJECT-TYPE
+    SYNTAX      ConnFlagEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local error reason"
+    ::= { controlConnectionsEntry 16 }
+
+-- tagpath /control/connections/remote_enum
+controlConnectionsRemoteEnum OBJECT-TYPE
+    SYNTAX      ConnFlagEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Remote error reason"
+    ::= { controlConnectionsEntry 17 }
+
+-- tagpath /control/connections/local-state-info
+controlConnectionsLocalStateInfo OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local state information"
+    ::= { controlConnectionsEntry 18 }
+
+-- tagpath /control/connections/remote-state-info
+controlConnectionsRemoteStateInfo OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Remote state information"
+    ::= { controlConnectionsEntry 19 }
+
+-- tagpath /control/connections/uptime
+controlConnectionsUptime OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Uptime"
+    ::= { controlConnectionsEntry 20 }
+
+-- tagpath /control/connections/tx_hello
+controlConnectionsTxHello OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx hello"
+    ::= { controlConnectionsEntry 21 }
+
+-- tagpath /control/connections/tx_connects
+controlConnectionsTxConnects OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx connects"
+    ::= { controlConnectionsEntry 22 }
+
+-- tagpath /control/connections/tx_registers
+controlConnectionsTxRegisters OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx registers"
+    ::= { controlConnectionsEntry 23 }
+
+-- tagpath /control/connections/tx_register_replies
+controlConnectionsTxRegisterReplies OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx register replies"
+    ::= { controlConnectionsEntry 24 }
+
+-- tagpath /control/connections/tx_challenge
+controlConnectionsTxChallenge OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx challenge"
+    ::= { controlConnectionsEntry 25 }
+
+-- tagpath /control/connections/tx_challenge_resp
+controlConnectionsTxChallengeResp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx challenge response"
+    ::= { controlConnectionsEntry 26 }
+
+-- tagpath /control/connections/tx_challenge_ack
+controlConnectionsTxChallengeAck OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx challenge ack"
+    ::= { controlConnectionsEntry 27 }
+
+-- tagpath /control/connections/tx_teardown
+controlConnectionsTxTeardown OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx teardown"
+    ::= { controlConnectionsEntry 28 }
+
+-- tagpath /control/connections/tx_teardown_all
+controlConnectionsTxTeardownAll OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx teardown all connections"
+    ::= { controlConnectionsEntry 29 }
+
+-- tagpath /control/connections/tx_vm_to_peer
+controlConnectionsTxVmToPeer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx vManage to peer"
+    ::= { controlConnectionsEntry 30 }
+
+-- tagpath /control/connections/tx_register_to_vm
+controlConnectionsTxRegisterToVm OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx register to vManage"
+    ::= { controlConnectionsEntry 31 }
+
+-- tagpath /control/connections/rx_hello
+controlConnectionsRxHello OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx hello"
+    ::= { controlConnectionsEntry 32 }
+
+-- tagpath /control/connections/rx_connects
+controlConnectionsRxConnects OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx connects"
+    ::= { controlConnectionsEntry 33 }
+
+-- tagpath /control/connections/rx_registers
+controlConnectionsRxRegisters OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx registers"
+    ::= { controlConnectionsEntry 34 }
+
+-- tagpath /control/connections/rx_register_replies
+controlConnectionsRxRegisterReplies OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx register replies"
+    ::= { controlConnectionsEntry 35 }
+
+-- tagpath /control/connections/rx_challenge
+controlConnectionsRxChallenge OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx challenge"
+    ::= { controlConnectionsEntry 36 }
+
+-- tagpath /control/connections/rx_challenge_resp
+controlConnectionsRxChallengeResp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx challenge response"
+    ::= { controlConnectionsEntry 37 }
+
+-- tagpath /control/connections/rx_challenge_ack
+controlConnectionsRxChallengeAck OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx challenge ack"
+    ::= { controlConnectionsEntry 38 }
+
+-- tagpath /control/connections/rx_teardown
+controlConnectionsRxTeardown OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx teardown"
+    ::= { controlConnectionsEntry 39 }
+
+-- tagpath /control/connections/rx_vm_to_peer
+controlConnectionsRxVmToPeer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx vManage to peer"
+    ::= { controlConnectionsEntry 40 }
+
+-- tagpath /control/connections/rx_register_to_vm
+controlConnectionsRxRegisterToVm OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx register to vManage"
+    ::= { controlConnectionsEntry 41 }
+
+-- tagpath /control/connections/negotiated_hello_interval
+controlConnectionsNegotiatedHelloInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Negotiated hello interval"
+    ::= { controlConnectionsEntry 42 }
+
+-- tagpath /control/connections/negotiated_hello_tolerance
+controlConnectionsNegotiatedHelloTolerance OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Negotiated hello tolerance"
+    ::= { controlConnectionsEntry 43 }
+
+-- tagpath /control/connections/v-org-name
+controlConnectionsVOrgName OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Organization Name"
+    ::= { controlConnectionsEntry 45 }
+
+-- tagpath /control/connections/tx_create_cert
+controlConnectionsTxCreateCert OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx create certificate to vManage"
+    ::= { controlConnectionsEntry 46 }
+
+-- tagpath /control/connections/rx_create_cert
+controlConnectionsRxCreateCert OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx create certificate from vBond"
+    ::= { controlConnectionsEntry 47 }
+
+-- tagpath /control/connections/tx_create_cert_reply
+controlConnectionsTxCreateCertReply OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx create certificate reply to vBond"
+    ::= { controlConnectionsEntry 48 }
+
+-- tagpath /control/connections/rx_create_cert_reply
+controlConnectionsRxCreateCertReply OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx create certificate reply from vManage"
+    ::= { controlConnectionsEntry 49 }
+
+-- tagpath /control/connections/behind-proxy
+controlConnectionsBehindProxy OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Whether controller is behind proxy"
+    ::= { controlConnectionsEntry 50 }
+
+-- tagpath /control/connections/peer-sess-id
+controlConnectionsPeerSessId OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Peer Session ID"
+    ::= { controlConnectionsEntry 51 }
+
+-- tagpath /control/connections/local_interface
+controlConnectionsLocalInterface OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local interface name"
+    ::= { controlConnectionsEntry 52 }
+
+
+-- Display control statistics
+-- tagpath /control/statistics
+controlStatistics OBJECT IDENTIFIER ::= { control 4 }
+
+-- tagpath /control/statistics/tx_pkts
+controlStatisticsTxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx packets"
+    ::= { controlStatistics 1 }
+
+-- tagpath /control/statistics/tx_octets
+controlStatisticsTxOctets OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx octets"
+    ::= { controlStatistics 2 }
+
+-- tagpath /control/statistics/tx_error
+controlStatisticsTxError OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx error"
+    ::= { controlStatistics 3 }
+
+-- tagpath /control/statistics/tx_blocked
+controlStatisticsTxBlocked OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx blocked"
+    ::= { controlStatistics 4 }
+
+-- tagpath /control/statistics/tx_hello
+controlStatisticsTxHello OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx hello"
+    ::= { controlStatistics 5 }
+
+-- tagpath /control/statistics/tx_connects
+controlStatisticsTxConnects OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx connects"
+    ::= { controlStatistics 6 }
+
+-- tagpath /control/statistics/tx_registers
+controlStatisticsTxRegisters OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx registers"
+    ::= { controlStatistics 7 }
+
+-- tagpath /control/statistics/tx_register_replies
+controlStatisticsTxRegisterReplies OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx register replies"
+    ::= { controlStatistics 8 }
+
+-- tagpath /control/statistics/tx_dtls_handshake
+controlStatisticsTxDtlsHandshake OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx DTLS handshake"
+    ::= { controlStatistics 9 }
+
+-- tagpath /control/statistics/tx_dtls_handshake_failures
+controlStatisticsTxDtlsHandshakeFailures OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx DTLS handshake failures"
+    ::= { controlStatistics 10 }
+
+-- tagpath /control/statistics/tx_dtls_handshake_done
+controlStatisticsTxDtlsHandshakeDone OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx DTLS handshake done"
+    ::= { controlStatistics 11 }
+
+-- tagpath /control/statistics/tx_challenge
+controlStatisticsTxChallenge OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx challenge"
+    ::= { controlStatistics 12 }
+
+-- tagpath /control/statistics/tx_challenge_resp
+controlStatisticsTxChallengeResp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx challenge response"
+    ::= { controlStatistics 13 }
+
+-- tagpath /control/statistics/tx_challenge_ack
+controlStatisticsTxChallengeAck OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx challenge ack"
+    ::= { controlStatistics 14 }
+
+-- tagpath /control/statistics/tx_challenge_error
+controlStatisticsTxChallengeError OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx challenge error"
+    ::= { controlStatistics 15 }
+
+-- tagpath /control/statistics/tx_challenge_resp_error
+controlStatisticsTxChallengeRespError OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx challenge response error"
+    ::= { controlStatistics 16 }
+
+-- tagpath /control/statistics/tx_challenge_ack_error
+controlStatisticsTxChallengeAckError OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx challenge ack error"
+    ::= { controlStatistics 17 }
+
+-- tagpath /control/statistics/tx_challenge_gen_error
+controlStatisticsTxChallengeGenError OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx challenge general errors"
+    ::= { controlStatistics 18 }
+
+-- tagpath /control/statistics/tx_vmanage_to_peer
+controlStatisticsTxVmanageToPeer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx vManage to peer"
+    ::= { controlStatistics 19 }
+
+-- tagpath /control/statistics/tx_register_to_vmanage
+controlStatisticsTxRegisterToVmanage OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx register to vmanage"
+    ::= { controlStatistics 20 }
+
+-- tagpath /control/statistics/rx_pkts
+controlStatisticsRxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx packets"
+    ::= { controlStatistics 21 }
+
+-- tagpath /control/statistics/rx_octets
+controlStatisticsRxOctets OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx octets"
+    ::= { controlStatistics 22 }
+
+-- tagpath /control/statistics/rx_error
+controlStatisticsRxError OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx error"
+    ::= { controlStatistics 23 }
+
+-- tagpath /control/statistics/rx_hello
+controlStatisticsRxHello OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx hello"
+    ::= { controlStatistics 24 }
+
+-- tagpath /control/statistics/rx_connects
+controlStatisticsRxConnects OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx connects"
+    ::= { controlStatistics 25 }
+
+-- tagpath /control/statistics/rx_registers
+controlStatisticsRxRegisters OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx registers"
+    ::= { controlStatistics 26 }
+
+-- tagpath /control/statistics/rx_register_replies
+controlStatisticsRxRegisterReplies OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx register replies"
+    ::= { controlStatistics 27 }
+
+-- tagpath /control/statistics/rx_dtls_handshake
+controlStatisticsRxDtlsHandshake OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx DTLS handshake"
+    ::= { controlStatistics 28 }
+
+-- tagpath /control/statistics/rx_dtls_handshake_failures
+controlStatisticsRxDtlsHandshakeFailures OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx DTLS handshake failures"
+    ::= { controlStatistics 29 }
+
+-- tagpath /control/statistics/rx_dtls_handshake_done
+controlStatisticsRxDtlsHandshakeDone OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx DTLS handshake done"
+    ::= { controlStatistics 30 }
+
+-- tagpath /control/statistics/rx_challenge
+controlStatisticsRxChallenge OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx challenge"
+    ::= { controlStatistics 31 }
+
+-- tagpath /control/statistics/rx_challenge_resp
+controlStatisticsRxChallengeResp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx challenge response"
+    ::= { controlStatistics 32 }
+
+-- tagpath /control/statistics/rx_challenge_ack
+controlStatisticsRxChallengeAck OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx challenge ack"
+    ::= { controlStatistics 33 }
+
+-- tagpath /control/statistics/challenge_failures
+controlStatisticsChallengeFailures OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Challenge failures"
+    ::= { controlStatistics 34 }
+
+-- tagpath /control/statistics/rx_vmanage_to_peer
+controlStatisticsRxVmanageToPeer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx vManage to peer"
+    ::= { controlStatistics 35 }
+
+-- tagpath /control/statistics/rx_register_to_vmanage
+controlStatisticsRxRegisterToVmanage OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx register to vmanage"
+    ::= { controlStatistics 36 }
+
+-- tagpath /control/statistics/bid_failures_needing_reset
+controlStatisticsBidFailuresNeedingReset OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Board ID reset count"
+    ::= { controlStatistics 37 }
+
+-- Display local control properties
+-- tagpath /control/local-properties
+controlLocalProperties OBJECT IDENTIFIER ::= { control 5 }
+
+-- tagpath /control/local-properties/device-type
+controlLocalPropertiesDeviceType OBJECT-TYPE
+    SYNTAX      INTEGER {unknown(0),
+                         vedge(1),
+			 vhub(2),
+			 vsmart(3),
+                         vbond(4),
+			 vmanage(5),
+			 ztp(6),
+			 vcontainer(7)}
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Personality"
+    ::= { controlLocalProperties 1 }
+
+-- tagpath /control/local-properties/organization-name
+controlLocalPropertiesOrganizationName OBJECT-TYPE
+    SYNTAX      String (SIZE (1 .. 128))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Organization name"
+    ::= { controlLocalProperties 2 }
+
+-- tagpath /control/local-properties/certificate-status
+controlLocalPropertiesCertificateStatus OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Certificate status"
+    ::= { controlLocalProperties 3 }
+
+-- tagpath /control/local-properties/root-ca-chain-status
+controlLocalPropertiesRootCaChainStatus OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Root CA chain status"
+    ::= { controlLocalProperties 4 }
+
+-- tagpath /control/local-properties/certificate-validity
+controlLocalPropertiesCertificateValidity OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Certificate validity"
+    ::= { controlLocalProperties 5 }
+
+-- tagpath /control/local-properties/certificate-not-valid-before
+controlLocalPropertiesCertificateNotValidBefore OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Certificate not valid before"
+    ::= { controlLocalProperties 6 }
+
+-- tagpath /control/local-properties/certificate-not-valid-after
+controlLocalPropertiesCertificateNotValidAfter OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Certificate not valid after"
+    ::= { controlLocalProperties 7 }
+
+-- tagpath /control/local-properties/dns-name
+controlLocalPropertiesDnsName OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "DNS name"
+    ::= { controlLocalProperties 8 }
+
+-- tagpath /control/local-properties/site-id
+controlLocalPropertiesSiteId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Site ID"
+    ::= { controlLocalProperties 9 }
+
+-- tagpath /control/local-properties/domain-id
+controlLocalPropertiesDomainId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Domain ID"
+    ::= { controlLocalProperties 10 }
+
+-- tagpath /control/local-properties/tls-port
+controlLocalPropertiesTlsPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "TLS port"
+    ::= { controlLocalProperties 12 }
+
+-- tagpath /control/local-properties/system-ip
+controlLocalPropertiesSystemIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "System IP address"
+    ::= { controlLocalProperties 13 }
+
+-- tagpath /control/local-properties/uuid
+controlLocalPropertiesUuid OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Unique device identifier"
+    ::= { controlLocalProperties 14 }
+
+-- tagpath /control/local-properties/board-serial
+controlLocalPropertiesBoardSerial OBJECT-TYPE
+    SYNTAX      String (SIZE (1 .. 40))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Board ID serial number"
+    ::= { controlLocalProperties 15 }
+
+-- tagpath /control/local-properties/register-interval
+controlLocalPropertiesRegisterInterval OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+--    STATUS      deprecated
+    STATUS      current
+    DESCRIPTION "Register interval - Deprecated in 15.4"
+    ::= { controlLocalProperties 16 }
+
+-- tagpath /control/local-properties/retry-interval
+controlLocalPropertiesRetryInterval OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Retry interval"
+    ::= { controlLocalProperties 17 }
+
+-- tagpath /control/local-properties/no-activity
+controlLocalPropertiesNoActivity OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "No activity expiry interval"
+    ::= { controlLocalProperties 18 }
+
+-- tagpath /control/local-properties/dns-cache-flush-interval
+controlLocalPropertiesDnsCacheFlushInterval OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "DNS cache time to live"
+    ::= { controlLocalProperties 19 }
+
+-- tagpath /control/local-properties/port-hopped
+controlLocalPropertiesPortHopped OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Device changed port"
+    ::= { controlLocalProperties 20 }
+
+-- tagpath /control/local-properties/time-since-port-hop
+controlLocalPropertiesTimeSincePortHop OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Time since last port hop"
+    ::= { controlLocalProperties 21 }
+
+-- tagpath /control/local-properties/max-controllers
+controlLocalPropertiesMaxControllers OBJECT-TYPE
+    SYNTAX      UnsignedByte
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Maximum number of controllers"
+    ::= { controlLocalProperties 22 }
+
+-- tagpath /control/local-properties/keygen-interval
+controlLocalPropertiesKeygenInterval OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Key generation interval"
+    ::= { controlLocalProperties 23 }
+
+-- tagpath /control/local-properties/number-vbond-peers
+controlLocalPropertiesNumberVbondPeers OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of vBond peers"
+    ::= { controlLocalProperties 25 }
+
+-- tagpath /control/local-properties/number-active-wan-interfaces
+controlLocalPropertiesNumberActiveWanInterfaces OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of WAN interfaces"
+    ::= { controlLocalProperties 27 }
+
+-- tagpath /control/local-properties/vsmart-list-version
+controlLocalPropertiesVsmartListVersion OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "vSmart list version number"
+    ::= { controlLocalProperties 30 }
+
+-- tagpath /control/local-properties/sp-organization-name
+controlLocalPropertiesSPOrganizationName OBJECT-TYPE
+    SYNTAX      String (SIZE (1 .. 128))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "SP Organization name"
+    ::= { controlLocalProperties 31 }
+
+-- tagpath /control/local-properties/token
+controlLocalPropertiesToken OBJECT-TYPE
+    SYNTAX      String (SIZE (1 .. 40))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Token information"
+    ::= { controlLocalProperties 32 }
+
+-- tagpath /control/local-properties/embargo-check
+controlLocalPropertiesEmbargoCheck OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Embargo check status"
+    ::= { controlLocalProperties 34 }
+
+-- tagpath /control/local-properties/enterprise-serial
+controlLocalPropertiesEnterpriseSerial OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Enterprise certificate serial number"
+    ::= { controlLocalProperties 35 }
+
+-- tagpath /control/local-properties/enterprise-certificate-status
+controlLocalPropertiesEnterpriseCertificateStatus OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Enterprise certificate status"
+    ::= { controlLocalProperties 36 }
+
+-- tagpath /control/local-properties/enterprise-certificate-validity
+controlLocalPropertiesEnterpriseCertificateValidity OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Enterprise certificate validity"
+    ::= { controlLocalProperties 37 }
+
+-- tagpath /control/local-properties
+--                 /enterprise-certificate-not-valid-before
+controlLocalPropertiesEnterpriseCertificateNotValidBefore OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Enterprise certificate not valid before"
+    ::= { controlLocalProperties 38 }
+
+-- tagpath /control/local-properties
+--                 /enterprise-certificate-not-valid-after
+controlLocalPropertiesEnterpriseCertificateNotValidAfter OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Enterprise certificate not valid after"
+    ::= { controlLocalProperties 39 }
+
+-- tagpath /control/local-properties/root-ca-crl-status
+controlLocalPropertiesRootCaCrlStatus OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "root ca crl status"
+    ::= { controlLocalProperties 40 }
+
+-- tagpath /control/local-properties/pairwise-keying
+controlLocalPropertiesPairwiseKeying OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "pairwise keying"
+    ::= { controlLocalProperties 41 }
+
+-- tagpath /control/local-properties/subject-serial-number
+controlLocalPropertiesSubjectSerialNumber OBJECT-TYPE
+    SYNTAX      String (SIZE (1 .. 12))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Subject Name Serial Number "
+    ::= { controlLocalProperties 42 }
+
+-- tagpath /control/local-properties/protocol
+controlLocalPropertiesProtocol OBJECT-TYPE
+    SYNTAX      ControlProtocolEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Protocol"
+    ::= { controlLocalProperties 43 }
+
+-- Display valid vsmarts
+-- tagpath /control/valid-vsmarts
+controlValidVsmartsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ControlValidVsmartsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Display valid smarts"
+    ::= { control 6 }
+
+-- tagpath /control/valid-vsmarts
+controlValidVsmartsEntry OBJECT-TYPE
+    SYNTAX      ControlValidVsmartsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Display valid smarts"
+    INDEX { controlValidVsmartsSerialNumber, 
+            controlValidVsmartsOrg }
+        ::= { controlValidVsmartsTable 1 }
+
+ControlValidVsmartsEntry ::=
+    SEQUENCE {
+        controlValidVsmartsSerialNumber String,
+        controlValidVsmartsOrg String
+    }
+
+-- tagpath /control/valid-vsmarts/serial-number
+controlValidVsmartsSerialNumber OBJECT-TYPE
+    SYNTAX      String (SIZE (1 .. 40))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Serial number of the device"
+    ::= { controlValidVsmartsEntry 1 }
+
+-- tagpath /control/valid-vsmarts/org
+controlValidVsmartsOrg OBJECT-TYPE
+    SYNTAX      String (SIZE (1 .. 40))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Organization that the controller belongs to"
+    ::= { controlValidVsmartsEntry 2 }
+
+-- Display control summary
+-- tagpath /control/summary
+controlSummaryTable OBJECT-TYPE
+     SYNTAX      SEQUENCE OF ControlSummaryEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "Table for Summary Config"
+     ::= { control 8 }
+
+ -- tagpath /control/summary
+ controlSummaryEntry OBJECT-TYPE
+     SYNTAX      ControlSummaryEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "Entry for Summary Config"
+     INDEX { controlSummaryInstance }
+         ::= { controlSummaryTable 1 }
+
+-- tagpath /control/summary
+ControlSummaryEntry ::=
+    SEQUENCE {
+        controlSummaryInstance  Unsigned32,
+        controlSummaryVbondCounts UnsignedShort,
+        controlSummaryVmanageCounts UnsignedShort,
+        controlSummaryVsmartCounts UnsignedShort,
+        controlSummaryVedgeCounts UnsignedShort,
+        controlSummaryProtocol INTEGER,
+        controlSummaryListeningIp InetAddressIP,
+        controlSummaryListeningPort Unsigned32,
+        controlSummaryListeningIpv6 InetAddressIP,
+        controlSummaryValidControllerCounts UnsignedShort
+    }
+
+-- tagpath /control/summary/instance
+controlSummaryInstance OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "vdaemon instance ID"
+    ::= { controlSummaryEntry 1 }
+
+-- tagpath /control/summary/vbond-counts
+controlSummaryVbondCounts OBJECT-TYPE
+    SYNTAX      UnsignedShort
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of Vbond"
+    ::= { controlSummaryEntry 2 }
+
+-- tagpath /control/summary/vmanage-counts
+controlSummaryVmanageCounts OBJECT-TYPE
+    SYNTAX      UnsignedShort
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of Vmanages"
+    ::= { controlSummaryEntry 3 }
+
+-- tagpath /control/summary/vsmart-counts
+controlSummaryVsmartCounts OBJECT-TYPE
+    SYNTAX      UnsignedShort
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of Vsmarts"
+    ::= { controlSummaryEntry 4 }
+
+-- tagpath /control/summary/vedge_counts
+controlSummaryVedgeCounts OBJECT-TYPE
+     SYNTAX      UnsignedShort
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Vedge counts"
+     ::= { controlSummaryEntry 5 }
+
+-- tagpath /control/summary/protocol
+controlSummaryProtocol OBJECT-TYPE
+     SYNTAX      INTEGER {dtls(0),tls(1)}
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Protocol"
+     ::= { controlSummaryEntry 6 }
+
+-- tagpath /control/summary/listening_ip
+controlSummaryListeningIp OBJECT-TYPE
+     SYNTAX      InetAddressIP
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Listening IP address"
+     ::= { controlSummaryEntry 7 }
+
+-- tagpath /control/summary/listening_port
+controlSummaryListeningPort OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Listening port number"
+     ::= { controlSummaryEntry 8 }
+
+-- tagpath /control/summary/listening_ipv6
+controlSummaryListeningIpv6 OBJECT-TYPE
+     SYNTAX      InetAddressIP
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Listening IPv6 address"
+     ::= { controlSummaryEntry 9 }
+
+-- tagpath /control/summary/valid_controller_counts
+controlSummaryValidControllerCounts OBJECT-TYPE
+     SYNTAX      UnsignedShort
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Valid Controller Counts"
+     ::= { controlSummaryEntry 10 }
+
+-- Display control affinity
+
+-- Display control information
+-- tagpath /control
+controlAffinity OBJECT IDENTIFIER ::= { control 9 }
+
+-- tagpath /control/affinity
+controlAffinityConfigTable OBJECT-TYPE
+     SYNTAX      SEQUENCE OF AffinityConfigEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "Table for Affinity Config"
+     ::= { controlAffinity 1 }
+
+ -- tagpath /control/affinity
+controlAffinityConfigEntry OBJECT-TYPE
+     SYNTAX     AffinityConfigEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "Entry for Affinity Config"
+     INDEX {controlAffinityConfigAffcIndex }
+         ::= {controlAffinityConfigTable 1 }
+
+ -- tagpath /control/affinity
+ AffinityConfigEntry ::=
+     SEQUENCE {
+       controlAffinityConfigAffcIndex      Unsigned32,
+       controlAffinityConfigAffcInterface  String,
+       controlAffinityConfigAffcErvc       Unsigned32,
+       controlAffinityConfigAffcEcl        String,
+       controlAffinityConfigAffcCcl        String,
+       controlAffinityConfigAffcEquil      String,
+       controlAffinityConfigAffcLastResort String,
+       controlAffinityConfigAffcTenantCount Unsigned8
+     }
+
+-- tagpath /control/affinity/affc-index
+controlAffinityConfigAffcIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "WAN index"
+    ::= {controlAffinityConfigEntry 1 }
+
+-- tagpath /control/affinity/affc-interface
+controlAffinityConfigAffcInterface OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Interface name"
+    ::= {controlAffinityConfigEntry 2 }
+
+-- tagpath /control/affinity/affc-ervc
+controlAffinityConfigAffcErvc OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Effective required vSmart count"
+    ::= {controlAffinityConfigEntry 3 }
+
+-- tagpath /control/affinity/affc-ecl
+controlAffinityConfigAffcEcl OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Effective controller group id list"
+    ::= {controlAffinityConfigEntry 4 }
+
+-- tagpath /control/affinity/affc-ccl
+controlAffinityConfigAffcCcl OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Current controller group ID list"
+    ::= {controlAffinityConfigEntry 5 }
+
+-- tagpath /control/affinity/affc-equil
+controlAffinityConfigAffcEquil OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Equilibrium"
+    ::= {controlAffinityConfigEntry 6 }
+
+-- tagpath /control/affinity/affc-last-resort
+controlAffinityConfigAffcLastResort OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Last-resort Interface"
+    ::= {controlAffinityConfigEntry 7 }
+
+-- tagpath /control/affinity/affc-tenant-count
+controlAffinityConfigAffcTenantCount OBJECT-TYPE
+    SYNTAX      Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tenant Count"
+    ::= {controlAffinityConfigEntry 8 }
+
+-- tagpath /control/affinity
+controlAffinityStatusTable OBJECT-TYPE
+     SYNTAX      SEQUENCE OF AffinityStatusEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "Table for Affinity Config"
+     ::= { controlAffinity 2 }
+
+-- tagpath /control/affinity
+controlAffinityStatusEntry OBJECT-TYPE
+     SYNTAX      AffinityStatusEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "Entry for Affinity Config"
+     INDEX { controlAffinityStatusAffsIndex }
+         ::= { controlAffinityStatusTable 1 }
+
+-- tagpath /control/affinity
+AffinityStatusEntry ::=
+     SEQUENCE {
+        controlAffinityStatusAffsIndex      Unsigned32,
+        controlAffinityStatusAffsAcc        String,
+        controlAffinityStatusAffsInterface  String,
+        controlAffinityStatusAffsUcc        String,
+        controlAffinityStatusAffsAc         String
+     }
+
+-- tagpath /control/affinity/affs-index
+controlAffinityStatusAffsIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "WAN index"
+    ::= { controlAffinityStatusEntry 1 }
+
+-- tagpath /control/affinity/affs-acc
+controlAffinityStatusAffsAcc OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Assigned Connected Controllers"
+    ::= { controlAffinityStatusEntry 2 }
+
+-- tagpath /control/affinity/affs-interface
+controlAffinityStatusAffsInterface OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Interface name"
+    ::= { controlAffinityStatusEntry 3 }
+
+-- tagpath /control/affinity/affs-ucc
+controlAffinityStatusAffsUcc OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Unassigned Connected Controllers"
+    ::= { controlAffinityStatusEntry 4 }
+
+-- tagpath /control/affinity/affs-ac
+controlAffinityStatusAffsAc OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Assigned Controller"
+    ::= { controlAffinityStatusEntry 5 }
+
+-- tagpath /control/local-properties/ip-address-list
+controlLocalPropertiesIpAddressListTable OBJECT-TYPE
+SYNTAX      SEQUENCE OF ControlLocalPropertiesIpAddressListEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "List of IP addresses"
+     ::= { controlLocalProperties 24 }
+
+-- tagpath /control/local-properties/ip-address-list
+controlLocalPropertiesIpAddressListEntry OBJECT-TYPE
+     SYNTAX      ControlLocalPropertiesIpAddressListEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "ip address list"
+     INDEX { controlLocalPropertiesIpAddressListIndex }
+         ::= { controlLocalPropertiesIpAddressListTable 1 }
+
+ControlLocalPropertiesIpAddressListEntry ::=
+     SEQUENCE {
+         controlLocalPropertiesIpAddressListIndex Unsigned32,
+         controlLocalPropertiesIpAddressListIp InetAddressIP,
+         controlLocalPropertiesIpAddressListPort Unsigned32
+     }
+
+-- tagpath /control/local-properties/ip-address-list/index
+controlLocalPropertiesIpAddressListIndex OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "IP index"
+     ::= { controlLocalPropertiesIpAddressListEntry 1 }
+
+-- tagpath /control/local-properties/ip-address-list/ip
+controlLocalPropertiesIpAddressListIp OBJECT-TYPE
+     SYNTAX      InetAddressIP
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "IP"
+     ::= { controlLocalPropertiesIpAddressListEntry 2 }
+
+-- tagpath /control/local-properties/ip-address-list/port
+controlLocalPropertiesIpAddressListPort OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Port"
+     ::= { controlLocalPropertiesIpAddressListEntry 3 }
+
+-- tagpath /control/local-properties/vbond-address-list
+controlLocalPropertiesVbondAddressListTable OBJECT-TYPE
+     SYNTAX      SEQUENCE OF ControlLocalPropertiesVbondAddressListEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "List of vBond peers"
+     ::= { controlLocalProperties 26 }
+
+-- tagpath /control/local-properties/vbond-address-list
+controlLocalPropertiesVbondAddressListEntry OBJECT-TYPE
+     SYNTAX      ControlLocalPropertiesVbondAddressListEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "vbond address list"
+     INDEX { controlLocalPropertiesVbondAddressListIndex }
+         ::= { controlLocalPropertiesVbondAddressListTable 1 }
+
+ControlLocalPropertiesVbondAddressListEntry ::=
+     SEQUENCE {
+         controlLocalPropertiesVbondAddressListIndex Unsigned32,
+         controlLocalPropertiesVbondAddressListIp InetAddressIP,
+         controlLocalPropertiesVbondAddressListPort Unsigned32
+     }
+
+-- tagpath /control/local-properties/vbond-address-list/index
+controlLocalPropertiesVbondAddressListIndex OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "IP index"
+     ::= { controlLocalPropertiesVbondAddressListEntry 1 }
+
+-- tagpath /control/local-properties/vbond-address-list/ip
+controlLocalPropertiesVbondAddressListIp OBJECT-TYPE
+     SYNTAX      InetAddressIP
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "IP address"
+     ::= { controlLocalPropertiesVbondAddressListEntry 2 }
+
+-- tagpath /control/local-properties/vbond-address-list/port
+controlLocalPropertiesVbondAddressListPort OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Port"
+     ::= { controlLocalPropertiesVbondAddressListEntry 3 }
+
+-- Display IPSec information
+-- tagpath /ipsec
+ipsec OBJECT IDENTIFIER ::= { ciscoSdwanSecurityMIBObjects 4 }
+-- tagpath /ipsec/local-sa
+ipsecLocalSaTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF IpsecLocalSaEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Display IPSec local SA"
+    ::= { ipsec 1 }
+
+-- tagpath /ipsec/local-sa
+ipsecLocalSaEntry OBJECT-TYPE
+    SYNTAX      IpsecLocalSaEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "IPSec local SA"
+    INDEX { ipsecLocalSaTlocAddress, 
+            ipsecLocalSaTlocColor, 
+            ipsecLocalSaSpi, 
+            ipsecLocalSaTlocIndex }
+        ::= { ipsecLocalSaTable 1 }
+
+IpsecLocalSaEntry ::=
+    SEQUENCE {
+        ipsecLocalSaTlocAddress InetAddressIP,
+        ipsecLocalSaTlocColor ColorEnum,
+        ipsecLocalSaSpi Unsigned32,
+        ipsecLocalSaTlocIndex Unsigned32,
+        ipsecLocalSaIp InetAddressIP,
+        ipsecLocalSaPort Unsigned32,
+        ipsecLocalSaEncryptKeyHash String,
+        ipsecLocalSaAuthKeyHash String,
+        ipsecLocalSaIpv6 InetAddressIP
+    }
+
+-- tagpath /ipsec/local-sa/tloc-address
+ipsecLocalSaTlocAddress OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "TLOC address"
+    ::= { ipsecLocalSaEntry 1 }
+
+-- tagpath /ipsec/local-sa/tloc-color
+ipsecLocalSaTlocColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Color"
+    ::= { ipsecLocalSaEntry 2 }
+
+-- tagpath /ipsec/local-sa/spi
+ipsecLocalSaSpi OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "SPI"
+    ::= { ipsecLocalSaEntry 3 }
+
+-- tagpath /ipsec/local-sa/tloc-index
+ipsecLocalSaTlocIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "TLOC index"
+    ::= { ipsecLocalSaEntry 4 }
+
+-- tagpath /ipsec/local-sa/ip
+ipsecLocalSaIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "IP address"
+    ::= { ipsecLocalSaEntry 5 }
+
+-- tagpath /ipsec/local-sa/port
+ipsecLocalSaPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Port number"
+    ::= { ipsecLocalSaEntry 6 }
+
+-- tagpath /ipsec/local-sa/encrypt-key-hash
+ipsecLocalSaEncryptKeyHash OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Encryption key hash"
+    ::= { ipsecLocalSaEntry 7 }
+
+-- tagpath /ipsec/local-sa/auth-key-hash
+ipsecLocalSaAuthKeyHash OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Authentication key hash"
+    ::= { ipsecLocalSaEntry 8 }
+
+-- tagpath /ipsec/local-sa/ipv6
+ipsecLocalSaIpv6 OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "IPv6 address"
+    ::= { ipsecLocalSaEntry 9 }
+
+-- tagpath /ipsec/inbound-connections
+ipsecInboundConnectionsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF IpsecInboundConnectionsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Display IPSec inbound connections"
+    ::= { ipsec 2 }
+
+-- tagpath /ipsec/inbound-connections
+ipsecInboundConnectionsEntry OBJECT-TYPE
+    SYNTAX      IpsecInboundConnectionsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "IPSec inbound connections"
+    INDEX { ipsecInboundConnectionsLocalTlocAddress, 
+            ipsecInboundConnectionsLocalTlocColor, 
+            ipsecInboundConnectionsRemoteTlocAddress, 
+            ipsecInboundConnectionsRemoteTlocColor, 
+            ipsecInboundConnectionsLocalTlocIndex, 
+            ipsecInboundConnectionsRemoteTlocIndex }
+        ::= { ipsecInboundConnectionsTable 1 }
+
+IpsecInboundConnectionsEntry ::=
+    SEQUENCE {
+        ipsecInboundConnectionsLocalTlocAddress InetAddressIP,
+        ipsecInboundConnectionsLocalTlocColor ColorEnum,
+        ipsecInboundConnectionsRemoteTlocAddress InetAddressIP,
+        ipsecInboundConnectionsRemoteTlocColor ColorEnum,
+        ipsecInboundConnectionsLocalTlocIndex Unsigned32,
+        ipsecInboundConnectionsRemoteTlocIndex Unsigned32,
+        ipsecInboundConnectionsSourceIp InetAddressIP,
+        ipsecInboundConnectionsSourcePort Unsigned32,
+        ipsecInboundConnectionsDestIp InetAddressIP,
+        ipsecInboundConnectionsDestPort Unsigned32,
+        ipsecInboundConnectionsNegEncrAlgo String,
+        ipsecInboundConnectionsTcSpiPerTun Unsigned32
+    }
+
+-- tagpath /ipsec/inbound-connections/local-tloc-address
+ipsecInboundConnectionsLocalTlocAddress OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Local TLOC address"
+    ::= { ipsecInboundConnectionsEntry 1 }
+
+-- tagpath /ipsec/inbound-connections/local-tloc-color
+ipsecInboundConnectionsLocalTlocColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Local color"
+    ::= { ipsecInboundConnectionsEntry 2 }
+
+-- tagpath /ipsec/inbound-connections/remote-tloc-address
+ipsecInboundConnectionsRemoteTlocAddress OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Remote TLOC address"
+    ::= { ipsecInboundConnectionsEntry 3 }
+
+-- tagpath /ipsec/inbound-connections/remote-tloc-color
+ipsecInboundConnectionsRemoteTlocColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Remote color"
+    ::= { ipsecInboundConnectionsEntry 4 }
+
+-- tagpath /ipsec/inbound-connections/local-tloc-index
+ipsecInboundConnectionsLocalTlocIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Local TLOC Index"
+    ::= { ipsecInboundConnectionsEntry 5 }
+
+-- tagpath /ipsec/inbound-connections/remote-tloc-index
+ipsecInboundConnectionsRemoteTlocIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Remote TLOC Index"
+    ::= { ipsecInboundConnectionsEntry 6 }
+
+-- tagpath /ipsec/inbound-connections/source-ip
+ipsecInboundConnectionsSourceIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Source IP address"
+    ::= { ipsecInboundConnectionsEntry 7 }
+
+-- tagpath /ipsec/inbound-connections/source-port
+ipsecInboundConnectionsSourcePort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Source port number"
+    ::= { ipsecInboundConnectionsEntry 8 }
+
+-- tagpath /ipsec/inbound-connections/dest-ip
+ipsecInboundConnectionsDestIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Destination IP address"
+    ::= { ipsecInboundConnectionsEntry 9 }
+
+-- tagpath /ipsec/inbound-connections/dest-port
+ipsecInboundConnectionsDestPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Destination port number"
+    ::= { ipsecInboundConnectionsEntry 10 }
+
+-- tagpath /ipsec/inbound-connections/negotiated-encryption-algo
+ipsecInboundConnectionsNegEncrAlgo OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Negotiated encryption algorithm"
+    ::= { ipsecInboundConnectionsEntry 11 }
+
+-- tagpath /ipsec/inbound-connections/tc-pi-per-tun
+ipsecInboundConnectionsTcSpiPerTun OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Traffic Control SPIs per Tunnel"
+    ::= { ipsecInboundConnectionsEntry 12 }
+-- Display configured security parameters
+-- tagpath /security-info
+securityInfo OBJECT IDENTIFIER ::= { ciscoSdwanSecurityMIBObjects 6 }
+
+-- tagpath /security-info/rekey
+securityInfoRekey OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rekey value"
+    ::= { securityInfo 1 }
+
+-- tagpath /security-info/replay-window
+securityInfoReplayWindow OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Anti-replay window size"
+    ::= { securityInfo 2 }
+
+-- tagpath /security-info/encryption-supported
+securityInfoEncryptionSupported OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Type of encryption supported"
+    ::= { securityInfo 3 }
+
+-- tagpath /security-info/fips-mode
+securityInfoFipsMode OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "FIPS mode"
+    ::= { securityInfo 4 }
+
+-- tagpath /security-info/pairwise-keying
+securityInfoPairwiseKeying OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Pairwise keying"
+    ::= { securityInfo 5 }
+
+-- tagpath /security-info/pwk-sym-rekey
+securityInfoPwkSymRekey OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Pairwise symmetric rekey"
+    ::= { securityInfo 6 }
+
+-- tagpath/security-info/extended_ar_window
+securityInfoExtendedAntiReplayWindow OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Extended Anti Replay"
+    ::= { securityInfo  7}
+
+-- tagpath /security-info/integrity-type
+securityInfoIntegrityType OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Integrity type"
+    ::= { securityInfo 8 }
+
+-- tagpath /control/local-properties/wan-interface-list
+controlLocalPropertiesWanInterfaceListTable OBJECT-TYPE
+     SYNTAX      SEQUENCE OF ControlLocalPropertiesWanInterfaceListEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "List of WAN interfaces"
+     ::= { controlLocalProperties 28 }
+
+-- tagpath /control/local-properties/wan-interface-list
+controlLocalPropertiesWanInterfaceListEntry OBJECT-TYPE
+     SYNTAX      ControlLocalPropertiesWanInterfaceListEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "List of WAN interfaces"
+     INDEX { controlLocalPropertiesWanInterfaceListIndex, 
+             controlLocalPropertiesWanInterfaceListInstance }
+         ::= { controlLocalPropertiesWanInterfaceListTable 1 }
+
+ControlLocalPropertiesWanInterfaceListEntry ::=
+     SEQUENCE {
+controlLocalPropertiesWanInterfaceListIndex Unsigned32,
+controlLocalPropertiesWanInterfaceListInterface String,
+controlLocalPropertiesWanInterfaceListPublicIp InetAddressIP,
+controlLocalPropertiesWanInterfaceListPublicPort Unsigned32,
+controlLocalPropertiesWanInterfaceListPrivateIp InetAddressIP,
+controlLocalPropertiesWanInterfaceListPrivatePort Unsigned32,
+controlLocalPropertiesWanInterfaceListNumVsmarts Unsigned32,
+controlLocalPropertiesWanInterfaceListNumVmanages Unsigned32,
+controlLocalPropertiesWanInterfaceListWeight Unsigned32,
+controlLocalPropertiesWanInterfaceListColor INTEGER,
+controlLocalPropertiesWanInterfaceListCarrier INTEGER,
+controlLocalPropertiesWanInterfaceListPreference Unsigned32,
+controlLocalPropertiesWanInterfaceListAdminState INTEGER,
+controlLocalPropertiesWanInterfaceListOperationState INTEGER,
+controlLocalPropertiesWanInterfaceListLastConnTime String,
+controlLocalPropertiesWanInterfaceListRestrictStr String,
+controlLocalPropertiesWanInterfaceListControlStr String,
+controlLocalPropertiesWanInterfaceListPerWanMaxControllers UnsignedByte,
+controlLocalPropertiesWanInterfaceListInstance Unsigned32,
+controlLocalPropertiesWanInterfaceListPrivateIpv6 InetAddressIP,
+controlLocalPropertiesWanInterfaceListSpiChange String,
+controlLocalPropertiesWanInterfaceListLastResort String,
+controlLocalPropertiesWanInterfaceListWanPortHopped String,
+controlLocalPropertiesWanInterfaceListWanTimeSincePortHop String,
+controlLocalPropertiesWanInterfaceListVbondAsStunServer String,
+controlLocalPropertiesWanInterfaceListVmanageConnPreference 
+                                                    UnsignedByte,
+controlLocalPropertiesWanInterfaceListLowBandwidthLink String,
+controlLocalPropertiesWanInterfaceListNatType String,
+controlLocalPropertiesWanInterfaceListInterfaceAdminState INTEGER,
+controlLocalPropertiesWanInterfaceListInterfaceOperState INTEGER,
+controlLocalPropertiesWanInterfaceListRegionId String 
+     }
+
+-- tagpath /control/local-properties/wan-interface-list/index
+controlLocalPropertiesWanInterfaceListIndex OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "WAN index"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 1 }
+
+-- tagpath /control/local-properties/wan-interface-list/instance
+controlLocalPropertiesWanInterfaceListInstance OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "vdaemon instance ID"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 19 }
+
+-- tagpath /control/local-properties/wan-interface-list/interface
+controlLocalPropertiesWanInterfaceListInterface OBJECT-TYPE
+     SYNTAX      String (SIZE (1 .. 32))
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Interface name"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 2 }
+
+-- tagpath /control/local-properties/wan-interface-list/public-ip
+controlLocalPropertiesWanInterfaceListPublicIp OBJECT-TYPE
+     SYNTAX      InetAddressIP
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Public IP address"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 3 }
+
+-- tagpath /control/local-properties/wan-interface-list/public-port
+controlLocalPropertiesWanInterfaceListPublicPort OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Public port"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 4 }
+
+-- tagpath /control/local-properties/wan-interface-list/private-ip
+controlLocalPropertiesWanInterfaceListPrivateIp OBJECT-TYPE
+     SYNTAX      InetAddressIP
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Private IP"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 5 }
+
+-- tagpath /control/local-properties/wan-interface-list/private-port
+controlLocalPropertiesWanInterfaceListPrivatePort OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Private port"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 6 }
+
+-- tagpath /control/local-properties/wan-interface-list/num-vsmarts
+controlLocalPropertiesWanInterfaceListNumVsmarts OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Number of vSmarts"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 7 }
+
+-- tagpath /control/local-properties/wan-interface-list/num-vmanages
+controlLocalPropertiesWanInterfaceListNumVmanages OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Number of vManages"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 8 }
+
+-- tagpath /control/local-properties/wan-interface-list/weight
+controlLocalPropertiesWanInterfaceListWeight OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Weight"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 9 }
+
+-- tagpath /control/local-properties/wan-interface-list/color
+controlLocalPropertiesWanInterfaceListColor OBJECT-TYPE
+     SYNTAX      INTEGER {default(1),
+                          mpls(2),
+                          metro-ethernet(3),
+                          biz-internet(4),
+                          public-internet(5),
+                          lte(6),
+                          threeG(7),
+                          red(8),
+                          green(9),
+                          blue(10),
+                          gold(11),
+                          silver(12),
+                          bonze(13),
+                          custom1(14),
+                          custom2(15),
+                          custom3(16),
+                          private1(17),
+                          private2(18),
+                          private3(19),
+                          private4(20),
+                          private5(21),
+                          private6(22)}
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Color"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 10 }
+
+-- tagpath /control/local-properties/wan-interface-list/carrier
+controlLocalPropertiesWanInterfaceListCarrier OBJECT-TYPE
+     SYNTAX      INTEGER {default(1),
+                          carrier1(2),
+                          carrier2(3),
+                          carrier3(4),
+                          carrier4(5),
+                          carrier5(6),
+                          carrier6(7),
+                          carrier7(8),
+                          carrier8(9)}
+
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Carrier"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 11 }
+
+-- tagpath /control/local-properties/wan-interface-list/preference
+controlLocalPropertiesWanInterfaceListPreference OBJECT-TYPE
+     SYNTAX      Unsigned32
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Preference"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 12 }
+
+-- tagpath /control/local-properties/wan-interface-list/admin-state
+controlLocalPropertiesWanInterfaceListAdminState OBJECT-TYPE
+     SYNTAX      INTEGER {unknown(0),
+                          up(1),
+                          down(2)}
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Administrative state"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 13 }
+
+-- tagpath /control/local-properties/wan-interface-list/operation-state
+controlLocalPropertiesWanInterfaceListOperationState OBJECT-TYPE
+     SYNTAX      INTEGER {unknown(0),
+                          up(1),
+                          down(2)}
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Operational state"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 14 }
+
+-- tagpath /control/local-properties/wan-interface-list/last-conn-time
+controlLocalPropertiesWanInterfaceListLastConnTime OBJECT-TYPE
+     SYNTAX      String
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Time since last connection"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 15 }
+
+-- tagpath /control/local-properties/wan-interface-list/restrict-str
+controlLocalPropertiesWanInterfaceListRestrictStr OBJECT-TYPE
+     SYNTAX      String
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Restrict"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 16 }
+
+-- tagpath /control/local-properties/wan-interface-list/control-str
+controlLocalPropertiesWanInterfaceListControlStr OBJECT-TYPE
+     SYNTAX      String
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Control connections required"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 17 }
+
+-- tagpath /control/local-properties/wan-interface-list/
+-- per-wan-max-controllers
+controlLocalPropertiesWanInterfaceListPerWanMaxControllers OBJECT-TYPE
+     SYNTAX      UnsignedByte
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Maximum number of controllers on this WAN interface"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 18 }
+
+-- tagpath /control/local-properties/wan-interface-list/private-ipv6
+controlLocalPropertiesWanInterfaceListPrivateIpv6 OBJECT-TYPE
+     SYNTAX      InetAddressIP
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Private IPv6 address"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 20 }
+
+-- tagpath /control/local-properties/wan-interface-list/spi-change
+controlLocalPropertiesWanInterfaceListSpiChange OBJECT-TYPE
+     SYNTAX      String
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Time left until SPI change"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 21 }
+
+-- tagpath /control/local-properties/wan-interface-list/last-resort
+controlLocalPropertiesWanInterfaceListLastResort OBJECT-TYPE
+     SYNTAX      String
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Last-resort Interface"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 22 }
+
+-- tagpath /control/local-properties/wan-interface-list/wan-port-hopped
+controlLocalPropertiesWanInterfaceListWanPortHopped OBJECT-TYPE
+     SYNTAX      String
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Interface changed port"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 23 }
+
+-- tagpath /control/local-properties/wan-interface-list/
+-- wan-time-since-port-hop
+controlLocalPropertiesWanInterfaceListWanTimeSincePortHop OBJECT-TYPE
+     SYNTAX      String
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Time since the interface changed port"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 24 }
+
+-- tagpath /control/local-properties/wan-interface-list/
+-- vbond-as-stun-server
+controlLocalPropertiesWanInterfaceListVbondAsStunServer OBJECT-TYPE
+     SYNTAX      String
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Vbond As Stun Server"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 25 }
+
+-- tagpath /control/local-properties/wan-interface-list/
+-- vmanage-connection-preference
+controlLocalPropertiesWanInterfaceListVmanageConnPreference OBJECT-TYPE
+     SYNTAX      UnsignedByte
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Interface preference for control connection 
+                  to vManage"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 26 }
+
+-- tagpath /control/local-properties/wan-interface-list/
+-- low-bandwidth-link
+controlLocalPropertiesWanInterfaceListLowBandwidthLink OBJECT-TYPE
+     SYNTAX      String
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Low bandwidth interface"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 27 }
+
+-- tagpath /control/local-properties/wan-interface-list/nat-type
+controlLocalPropertiesWanInterfaceListNatType OBJECT-TYPE
+     SYNTAX      String
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "NAT Type"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 31 }
+
+-- tagpath /control/local-properties/wan-interface-list/
+-- interface-admin-state
+controlLocalPropertiesWanInterfaceListInterfaceAdminState OBJECT-TYPE
+     SYNTAX      INTEGER {unknown(0),
+                          up(1),
+                          down(2)}
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Interface administrative state"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 32 }
+
+-- tagpath /control/local-properties/wan-interface-list/
+-- interface-oper-state
+controlLocalPropertiesWanInterfaceListInterfaceOperState OBJECT-TYPE
+     SYNTAX      INTEGER {unknown(0),
+                          up(1),
+                          down(2)}
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Interface operational state"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 33 }
+
+-- tagpath /control/local-properties/wan-interface-list/region-id
+controlLocalPropertiesWanInterfaceListRegionId OBJECT-TYPE
+     SYNTAX      String
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Region id"
+     ::= { controlLocalPropertiesWanInterfaceListEntry 34 }
+
+-- tagpath /control/connections-history
+controlConnectionsHistoryTable OBJECT-TYPE
+     SYNTAX      SEQUENCE OF ControlConnectionsHistoryEntry
+     MAX-ACCESS  not-accessible
+     STATUS      current
+     DESCRIPTION "Display control connections history"
+     ::= { control 3 }
+
+-- tagpath /control/connections-history
+controlConnectionsHistoryEntry OBJECT-TYPE
+    SYNTAX      ControlConnectionsHistoryEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Display control connections history"
+    INDEX { controlConnectionsHistoryInstance, 
+            controlConnectionsHistoryIndex }
+        ::= { controlConnectionsHistoryTable 1 }
+
+ControlConnectionsHistoryEntry ::=
+    SEQUENCE {
+        controlConnectionsHistoryInstance Unsigned32,
+        controlConnectionsHistoryIndex Unsigned32,
+        controlConnectionsHistoryPeerType PersonalityEnumOper,
+        controlConnectionsHistorySiteId Unsigned32,
+        controlConnectionsHistoryDomainId Unsigned32,
+        controlConnectionsHistoryPrivateIp InetAddressIP,
+        controlConnectionsHistoryPrivatePort Unsigned32,
+        controlConnectionsHistoryPublicIp InetAddressIP,
+        controlConnectionsHistoryPublicPort Unsigned32,
+        controlConnectionsHistorySystemIp InetAddressIP,
+        controlConnectionsHistoryProtocol ControlProtocolEnum,
+        controlConnectionsHistoryLocalColor ColorEnum,
+        controlConnectionsHistoryRemoteColor ColorEnum,
+        controlConnectionsHistoryState SessionState,
+        controlConnectionsHistoryLocalEnum ConnFlagEnum,
+        controlConnectionsHistoryRemoteEnum ConnFlagEnum,
+        controlConnectionsHistoryLocalStateInfo String,
+        controlConnectionsHistoryRemoteStateInfo String,
+        controlConnectionsHistoryDowntime String,
+        controlConnectionsHistoryTxHello Unsigned32,
+        controlConnectionsHistoryTxConnects Unsigned32,
+        controlConnectionsHistoryTxRegisters Unsigned32,
+        controlConnectionsHistoryTxRegisterReplies Unsigned32,
+        controlConnectionsHistoryTxChallenge Unsigned32,
+        controlConnectionsHistoryTxChallengeResp Unsigned32,
+        controlConnectionsHistoryTxChallengeAck Unsigned32,
+        controlConnectionsHistoryTxTeardown Unsigned32,
+        controlConnectionsHistoryTxTeardownAll Unsigned32,
+        controlConnectionsHistoryTxVmToPeer Unsigned32,
+        controlConnectionsHistoryTxRegisterToVm Unsigned32,
+        controlConnectionsHistoryRxHello Unsigned32,
+        controlConnectionsHistoryRxConnects Unsigned32,
+        controlConnectionsHistoryRxRegisters Unsigned32,
+        controlConnectionsHistoryRxRegisterReplies Unsigned32,
+        controlConnectionsHistoryRxChallenge Unsigned32,
+        controlConnectionsHistoryRxChallengeResp Unsigned32,
+        controlConnectionsHistoryRxChallengeAck Unsigned32,
+        controlConnectionsHistoryRxTeardown Unsigned32,
+        controlConnectionsHistoryRxVmToPeer Unsigned32,
+        controlConnectionsHistoryRxRegisterToVm Unsigned32,
+        controlConnectionsHistoryRepCount Unsigned32,
+        controlConnectionsHistoryPrevDowntime String,
+        controlConnectionsHistoryVHOrgName String,
+        controlConnectionsHistoryUuid String,
+        controlConnectionsHistoryTxCreateCert Unsigned32,
+        controlConnectionsHistoryRxCreateCert Unsigned32,
+        controlConnectionsHistoryTxCreateCertReply Unsigned32,
+        controlConnectionsHistoryRxCreateCertReply Unsigned32,
+        controlConnectionsHistoryLocalInterface String
+}
+
+-- tagpath /control/connections-history/instance
+controlConnectionsHistoryInstance OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "vdaemon instance ID"
+    ::= { controlConnectionsHistoryEntry 1 }
+
+-- tagpath /control/connections-history/index
+controlConnectionsHistoryIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "History index"
+    ::= { controlConnectionsHistoryEntry 2 }
+
+-- tagpath /control/connections-history/peer-type
+controlConnectionsHistoryPeerType OBJECT-TYPE
+    SYNTAX      PersonalityEnumOper
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Connection type"
+    ::= { controlConnectionsHistoryEntry 3 }
+
+-- tagpath /control/connections-history/site-id
+controlConnectionsHistorySiteId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Site ID"
+    ::= { controlConnectionsHistoryEntry 4 }
+
+-- tagpath /control/connections-history/domain-id
+controlConnectionsHistoryDomainId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Domain ID"
+    ::= { controlConnectionsHistoryEntry 5 }
+
+-- tagpath /control/connections-history/private-ip
+controlConnectionsHistoryPrivateIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Private IP address"
+    ::= { controlConnectionsHistoryEntry 6 }
+
+-- tagpath /control/connections-history/private-port
+controlConnectionsHistoryPrivatePort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Private port number"
+    ::= { controlConnectionsHistoryEntry 7 }
+
+-- tagpath /control/connections-history/public-ip
+controlConnectionsHistoryPublicIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Public IP address"
+    ::= { controlConnectionsHistoryEntry 8 }
+
+-- tagpath /control/connections-history/public-port
+controlConnectionsHistoryPublicPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Public port number"
+    ::= { controlConnectionsHistoryEntry 9 }
+
+-- tagpath /control/connections-history/system-ip
+controlConnectionsHistorySystemIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "System IP address"
+    ::= { controlConnectionsHistoryEntry 10 }
+
+-- tagpath /control/connections-history/protocol
+controlConnectionsHistoryProtocol OBJECT-TYPE
+    SYNTAX      ControlProtocolEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Protocol"
+    DEFVAL { dtls }
+    ::= { controlConnectionsHistoryEntry 11 }
+
+-- tagpath /control/connections-history/local-color
+controlConnectionsHistoryLocalColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local color"
+    ::= { controlConnectionsHistoryEntry 12 }
+
+-- tagpath /control/connections-history/remote-color
+controlConnectionsHistoryRemoteColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Remote color"
+    ::= { controlConnectionsHistoryEntry 13 }
+
+-- tagpath /control/connections-history/state
+controlConnectionsHistoryState OBJECT-TYPE
+    SYNTAX      SessionState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "State"
+    ::= { controlConnectionsHistoryEntry 14 }
+
+-- tagpath /control/connections-history/local_enum
+controlConnectionsHistoryLocalEnum OBJECT-TYPE
+    SYNTAX      ConnFlagEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local error reason"
+    ::= { controlConnectionsHistoryEntry 15 }
+
+-- tagpath /control/connections-history/remote_enum
+controlConnectionsHistoryRemoteEnum OBJECT-TYPE
+    SYNTAX      ConnFlagEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Remote Error Reason"
+    ::= { controlConnectionsHistoryEntry 16 }
+
+-- tagpath /control/connections-history/local-state-info
+controlConnectionsHistoryLocalStateInfo OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local state information"
+    ::= { controlConnectionsHistoryEntry 17 }
+
+-- tagpath /control/connections-history/remote-state-info
+controlConnectionsHistoryRemoteStateInfo OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Remote state information"
+    ::= { controlConnectionsHistoryEntry 18 }
+
+-- tagpath /control/connections-history/downtime
+controlConnectionsHistoryDowntime OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Downtime"
+    ::= { controlConnectionsHistoryEntry 19 }
+
+-- tagpath /control/connections-history/tx_hello
+controlConnectionsHistoryTxHello OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx hello"
+    ::= { controlConnectionsHistoryEntry 20 }
+
+-- tagpath /control/connections-history/tx_connects
+controlConnectionsHistoryTxConnects OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx connects"
+    ::= { controlConnectionsHistoryEntry 21 }
+
+-- tagpath /control/connections-history/tx_registers
+controlConnectionsHistoryTxRegisters OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx registers"
+    ::= { controlConnectionsHistoryEntry 22 }
+
+-- tagpath /control/connections-history/tx_register_replies
+controlConnectionsHistoryTxRegisterReplies OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx register replies"
+    ::= { controlConnectionsHistoryEntry 23 }
+
+-- tagpath /control/connections-history/tx_challenge
+controlConnectionsHistoryTxChallenge OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx challenge"
+    ::= { controlConnectionsHistoryEntry 24 }
+
+-- tagpath /control/connections-history/tx_challenge_resp
+controlConnectionsHistoryTxChallengeResp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx challenge response"
+    ::= { controlConnectionsHistoryEntry 25 }
+
+-- tagpath /control/connections-history/tx_challenge_ack
+controlConnectionsHistoryTxChallengeAck OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx challenge ack"
+    ::= { controlConnectionsHistoryEntry 26 }
+
+-- tagpath /control/connections-history/tx_teardown
+controlConnectionsHistoryTxTeardown OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx teardown"
+    ::= { controlConnectionsHistoryEntry 27 }
+
+-- tagpath /control/connections-history/tx_teardown_all
+controlConnectionsHistoryTxTeardownAll OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx teardown all connections"
+    ::= { controlConnectionsHistoryEntry 28 }
+
+-- tagpath /control/connections-history/tx_vm_to_peer
+controlConnectionsHistoryTxVmToPeer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx vManage to peer"
+    ::= { controlConnectionsHistoryEntry 29 }
+
+-- tagpath /control/connections-history/tx_register_to_vm
+controlConnectionsHistoryTxRegisterToVm OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx register to vManage"
+    ::= { controlConnectionsHistoryEntry 30 }
+
+-- tagpath /control/connections-history/rx_hello
+controlConnectionsHistoryRxHello OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx hello"
+    ::= { controlConnectionsHistoryEntry 31 }
+
+-- tagpath /control/connections-history/rx_connects
+controlConnectionsHistoryRxConnects OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx connects"
+    ::= { controlConnectionsHistoryEntry 32 }
+
+-- tagpath /control/connections-history/rx_registers
+controlConnectionsHistoryRxRegisters OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx registers"
+    ::= { controlConnectionsHistoryEntry 33 }
+
+-- tagpath /control/connections-history/rx_register_replies
+controlConnectionsHistoryRxRegisterReplies OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx register replies"
+    ::= { controlConnectionsHistoryEntry 34 }
+
+-- tagpath /control/connections-history/rx_challenge
+controlConnectionsHistoryRxChallenge OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx challenge"
+    ::= { controlConnectionsHistoryEntry 35 }
+
+-- tagpath /control/connections-history/rx_challenge_resp
+controlConnectionsHistoryRxChallengeResp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx challenge response"
+    ::= { controlConnectionsHistoryEntry 36 }
+
+-- tagpath /control/connections-history/rx_challenge_ack
+controlConnectionsHistoryRxChallengeAck OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx challenge ack"
+    ::= { controlConnectionsHistoryEntry 37 }
+
+-- tagpath /control/connections-history/rx_teardown
+controlConnectionsHistoryRxTeardown OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx teardown"
+    ::= { controlConnectionsHistoryEntry 38 }
+
+-- tagpath /control/connections-history/rx_vm_to_peer
+controlConnectionsHistoryRxVmToPeer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx vManage to peer"
+    ::= { controlConnectionsHistoryEntry 39 }
+
+-- tagpath /control/connections-history/rx_register_to_vm
+controlConnectionsHistoryRxRegisterToVm OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx register to vManage"
+    ::= { controlConnectionsHistoryEntry 40 }
+
+-- tagpath /control/connections-history/rep-count
+controlConnectionsHistoryRepCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Repeat count"
+    ::= { controlConnectionsHistoryEntry 41 }
+
+-- tagpath /control/connections-history/prev-downtime
+controlConnectionsHistoryPrevDowntime OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Previous downtime"
+    ::= { controlConnectionsHistoryEntry 42 }
+
+-- tagpath /control/connections-history/v-h-org-name
+controlConnectionsHistoryVHOrgName OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Organization Name"
+    ::= { controlConnectionsHistoryEntry 44 }
+
+-- tagpath /control/connections-history/uuid
+controlConnectionsHistoryUuid OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Peer's unique device identifier"
+    ::= { controlConnectionsHistoryEntry 45 }
+
+-- tagpath /control/connections-history/tx_create_cert
+controlConnectionsHistoryTxCreateCert OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx create certificate to vManage"
+    ::= { controlConnectionsHistoryEntry 46 }
+
+-- tagpath /control/connections-history/rx_create_cert
+controlConnectionsHistoryRxCreateCert OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx create certificate from vBond"
+    ::= { controlConnectionsHistoryEntry 47 }
+
+-- tagpath /control/connections-history/tx_create_cert_reply
+controlConnectionsHistoryTxCreateCertReply OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tx create certificate reply to vBond"
+    ::= { controlConnectionsHistoryEntry 48 }
+
+-- tagpath /control/connections-history/rx_create_cert_reply
+controlConnectionsHistoryRxCreateCertReply OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Rx create certificate reply from vManage"
+    ::= { controlConnectionsHistoryEntry 49 }
+
+-- tagpath /control/connections-history/local_interface
+controlConnectionsHistoryLocalInterface OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local interface name"
+    ::= { controlConnectionsHistoryEntry 50 }
+
+-- tagpath /ipsec/outbound-connections
+ipsecOutboundConnectionsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF IpsecOutboundConnectionsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Display IPSec outbound connections"
+    ::= { ipsec 3 }
+
+-- tagpath /ipsec/outbound-connections
+ipsecOutboundConnectionsEntry OBJECT-TYPE
+    SYNTAX      IpsecOutboundConnectionsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Display IPSec outbound connections"
+    INDEX { ipsecOutboundConnectionsSourceIp, 
+            ipsecOutboundConnectionsSourcePort,
+            ipsecOutboundConnectionsDestIp,
+            ipsecOutboundConnectionsDestPort,
+            ipsecOutboundConnectionsSpi,
+            ipsecOutboundConnectionsTlocIndex }
+        ::= { ipsecOutboundConnectionsTable 1 }
+
+IpsecOutboundConnectionsEntry ::=
+    SEQUENCE {
+        ipsecOutboundConnectionsSourceIp InetAddressIP,
+        ipsecOutboundConnectionsSourcePort Unsigned32,
+        ipsecOutboundConnectionsDestIp InetAddressIP,
+        ipsecOutboundConnectionsDestPort Unsigned32,
+        ipsecOutboundConnectionsSpi Unsigned32,
+        ipsecOutboundConnectionsTlocIndex Unsigned32,
+        ipsecOutboundConnectionsTunnelMtu Unsigned32,
+        ipsecOutboundConnectionsRemoteTlocAddress InetAddressIP,
+        ipsecOutboundConnectionsRemoteTlocColor ColorEnum,
+        ipsecOutboundConnectionsAuthenticationUsed String,
+        ipsecOutboundConnectionsEncryptKeyHash String,
+        ipsecOutboundConnectionsAuthKeyHash String,
+        ipsecOutboundConnectionsNegotiatedAlgo String,
+        ipsecOutboundConnectionsTcSpiPerTun Unsigned32
+    }
+
+-- tagpath /ipsec/outbound-connections/source-ip
+ipsecOutboundConnectionsSourceIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Source IP address"
+    ::= { ipsecOutboundConnectionsEntry 1 }
+
+-- tagpath /ipsec/outbound-connections/source-port
+ipsecOutboundConnectionsSourcePort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Source port number"
+    ::= { ipsecOutboundConnectionsEntry 2 }
+
+-- tagpath /ipsec/outbound-connections/dest-ip
+ipsecOutboundConnectionsDestIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Destination IP address"
+    ::= { ipsecOutboundConnectionsEntry 3 }
+
+-- tagpath /ipsec/outbound-connections/dest-port
+ipsecOutboundConnectionsDestPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Destination port number"
+    ::= { ipsecOutboundConnectionsEntry 4 }
+
+-- tagpath /ipsec/outbound-connections/spi
+ipsecOutboundConnectionsSpi OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "SPI"
+    ::= { ipsecOutboundConnectionsEntry 5 }
+
+-- tagpath /ipsec/outbound-connections/tloc-index
+ipsecOutboundConnectionsTlocIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "TLOC index"
+    ::= { ipsecOutboundConnectionsEntry 6 }
+
+-- tagpath /ipsec/outbound-connections/tunnel-mtu
+ipsecOutboundConnectionsTunnelMtu OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tunnel MTU"
+    ::= { ipsecOutboundConnectionsEntry 7 }
+
+-- tagpath /ipsec/outbound-connections/remote-tloc-address
+ipsecOutboundConnectionsRemoteTlocAddress OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Remote TLOC address"
+    ::= { ipsecOutboundConnectionsEntry 8 }
+
+-- tagpath /ipsec/outbound-connections/remote-tloc-color
+ipsecOutboundConnectionsRemoteTlocColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Remote color"
+    ::= { ipsecOutboundConnectionsEntry 9 }
+
+-- tagpath /ipsec/outbound-connections/authentication-used
+ipsecOutboundConnectionsAuthenticationUsed OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Authentication used"
+    ::= { ipsecOutboundConnectionsEntry 10 }
+
+-- tagpath /ipsec/outbound-connections/encrypt-key-hash
+ipsecOutboundConnectionsEncryptKeyHash OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Encryption key hash"
+    ::= { ipsecOutboundConnectionsEntry 11 }
+
+-- tagpath /ipsec/outbound-connections/auth-key-hash
+ipsecOutboundConnectionsAuthKeyHash OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Authentication key hash"
+    ::= { ipsecOutboundConnectionsEntry 12 }
+
+-- tagpath /ipsec/outbound-connections/negotiated-algo
+ipsecOutboundConnectionsNegotiatedAlgo OBJECT-TYPE
+    SYNTAX      String
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Negotiated Encryption Algorithm"
+    ::= { ipsecOutboundConnectionsEntry 13 }
+
+-- tagpath /ipsec/outbound-connections/tc-spi-per-tun
+ipsecOutboundConnectionsTcSpiPerTun OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Traffic Control SPIs per Tunnel"
+    ::= { ipsecOutboundConnectionsEntry 14 }
+
+-- Display tunnel information
+-- tagpath /tunnel
+tunnel OBJECT IDENTIFIER ::= { ciscoSdwanSecurityMIBObjects 5 }
+
+-- tagpath /tunnel/stats
+tunnelStatisticsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF TunnelStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Display tunnel forwarding statistics"
+    ::= { tunnel 1 }
+
+-- tagpath /tunnel/stats
+tunnelStatisticsEntry OBJECT-TYPE
+    SYNTAX      TunnelStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Display tunnel forwarding statistics"
+    INDEX { tunnelStatisticsTunnelProtocol, 
+            tunnelStatisticsSourceIp, 
+            tunnelStatisticsDestIp, 
+            tunnelStatisticsSourcePort, 
+            tunnelStatisticsDestPort }
+        ::= { tunnelStatisticsTable 1 }
+
+TunnelStatisticsEntry ::=
+    SEQUENCE {
+        tunnelStatisticsTunnelProtocol INTEGER,
+        tunnelStatisticsSourceIp InetAddressIP,
+        tunnelStatisticsDestIp InetAddressIP,
+        tunnelStatisticsSourcePort Unsigned32,
+        tunnelStatisticsDestPort Unsigned32,
+        tunnelStatisticsSystemIp InetAddressIP,
+        tunnelStatisticsLocalColor ColorEnum,
+        tunnelStatisticsRemoteColor ColorEnum,
+        tunnelStatisticsTunnelMtu Unsigned32,
+        tunnelStatisticsTxPkts Counter64,
+        tunnelStatisticsTxOctets Counter64,
+        tunnelStatisticsRxPkts Counter64,
+        tunnelStatisticsRxOctets Counter64,
+        tunnelStatisticsIpsecDecryptInbound Counter64,
+        tunnelStatisticsIpsecRxAuthFailures Counter64,
+        tunnelStatisticsIpsecRxFailures Counter64,
+        tunnelStatisticsIpsecEncryptOutbound Counter64,
+        tunnelStatisticsIpsecTxAuthFailures Counter64,
+        tunnelStatisticsIpsecTxFailures Counter64,
+        tunnelStatisticsTcpMssAdjust Unsigned32,
+        tunnelStatisticsBfdTxPkts Counter64,
+        tunnelStatisticsBfdRxPkts Counter64,
+        tunnelStatisticsBfdTxOctets Counter64,
+        tunnelStatisticsBfdRxOctets Counter64,
+        tunnelStatisticsPmtuTxPkts Counter64,
+        tunnelStatisticsPmtuRxPkts Counter64,
+        tunnelStatisticsPmtuTxOctets Counter64,
+        tunnelStatisticsPmtuRxOctets Counter64,
+        tunnelStatisticsIPv6TxPkts Counter64,
+        tunnelStatisticsIPv6TxOctets Counter64,
+        tunnelStatisticsIPv6RxPkts Counter64,
+        tunnelStatisticsIPv6RxOctets Counter64,
+        tunnelStatisticsFecRxDataPkts Unsigned32,
+        tunnelStatisticsFecRxParityPkts Unsigned32,
+        tunnelStatisticsFecTxDataPkts Unsigned32,
+        tunnelStatisticsFecTxParityPkts Unsigned32,
+        tunnelStatisticsFecReconstructPkts Unsigned32,
+        tunnelStatisticsFecCapable TruthValue,
+        tunnelStatisticsFecDynamic TruthValue,
+        tunnelStatisticsPktDupRxPkts Unsigned32,
+        tunnelStatisticsPktDupRxOtherPkts Unsigned32,
+        tunnelStatisticsPktDupRxThisPkts Unsigned32,
+        tunnelStatisticsPktDupTxPkts Unsigned32,
+        tunnelStatisticsPktDupTxOtherPkts Unsigned32,
+        tunnelStatisticsPktDupCapable TruthValue,
+        tunnelStatisticsIPv4TxMcPkts Counter64,
+        tunnelStatisticsIPv4TxMcOctets Counter64,
+        tunnelStatisticsIPv4RxMcPkts Counter64,
+        tunnelStatisticsIPv4RxMcOctets Counter64
+     }
+
+-- tagpath /tunnel/stats/tunnel-protocol
+tunnelStatisticsTunnelProtocol OBJECT-TYPE
+    SYNTAX      INTEGER {gre(1),ipsec(2)}
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Tunnel encapsulation protocol type"
+    ::= { tunnelStatisticsEntry 1 }
+
+-- tagpath /tunnel/stats/source-ip
+tunnelStatisticsSourceIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Source IP address"
+    ::= { tunnelStatisticsEntry 2 }
+
+-- tagpath /tunnel/stats/dest-ip
+tunnelStatisticsDestIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Destination IP address"
+    ::= { tunnelStatisticsEntry 3 }
+
+-- tagpath /tunnel/stats/source-port
+tunnelStatisticsSourcePort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Source port number"
+    ::= { tunnelStatisticsEntry 4 }
+
+-- tagpath /tunnel/stats/dest-port
+tunnelStatisticsDestPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION "Destination port number"
+    ::= { tunnelStatisticsEntry 5 }
+
+-- tagpath /tunnel/stats/system-ip
+tunnelStatisticsSystemIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Remote system IP address"
+    ::= { tunnelStatisticsEntry 6 }
+
+-- tagpath /tunnel/stats/local-color
+tunnelStatisticsLocalColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local color"
+    ::= { tunnelStatisticsEntry 7 }
+
+-- tagpath /tunnel/stats/remote-color
+tunnelStatisticsRemoteColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Remote color"
+    ::= { tunnelStatisticsEntry 8 }
+
+-- tagpath /tunnel/stats/tunnel-mtu
+tunnelStatisticsTunnelMtu OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Tunnel MTU size"
+    ::= { tunnelStatisticsEntry 9 }
+
+-- tagpath /tunnel/stats/tx_pkts
+tunnelStatisticsTxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of packets transmitted"
+    ::= { tunnelStatisticsEntry 10 }
+
+-- tagpath /tunnel/stats/tx_octets
+tunnelStatisticsTxOctets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of octets transmitted"
+    ::= { tunnelStatisticsEntry 11 }
+
+-- tagpath /tunnel/stats/rx_pkts
+tunnelStatisticsRxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of packets received"
+    ::= { tunnelStatisticsEntry 12 }
+
+-- tagpath /tunnel/stats/rx_octets
+tunnelStatisticsRxOctets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of octets received"
+    ::= { tunnelStatisticsEntry 13 }
+
+-- tagpath /tunnel/stats/ipsec-decrypt-inbound
+tunnelStatisticsIpsecDecryptInbound OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Received IPsec packets that were decrypted"
+    ::= { tunnelStatisticsEntry 14 }
+
+-- tagpath /tunnel/stats/ipsec-rx-auth-failures
+tunnelStatisticsIpsecRxAuthFailures OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Authentication failures for received IPsec packets"
+    ::= { tunnelStatisticsEntry 15 }
+
+-- tagpath /tunnel/stats/ipsec-rx-failures
+tunnelStatisticsIpsecRxFailures OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Other failures for received IPsec packets"
+    ::= { tunnelStatisticsEntry 16 }
+
+-- tagpath /tunnel/stats/ipsec-encrypt-outbound
+tunnelStatisticsIpsecEncryptOutbound OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Transmitted IPsec packets that were encrypted"
+    ::= { tunnelStatisticsEntry 17 }
+
+-- tagpath /tunnel/stats/ipsec-tx-auth-failures
+tunnelStatisticsIpsecTxAuthFailures OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Authentication failures for transmitted IPsec packets"
+    ::= { tunnelStatisticsEntry 18 }
+
+-- tagpath /tunnel/stats/ipsec-tx-failures
+tunnelStatisticsIpsecTxFailures OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Other failures for transmitted IPsec packets"
+    ::= { tunnelStatisticsEntry 19 }
+
+-- tagpath /tunnel/stats/tcp-mss-adjust
+tunnelStatisticsTcpMssAdjust OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Effective TCP MSS adjust used"
+    ::= { tunnelStatisticsEntry 20 }
+
+-- tagpath /tunnel/stats/bfd-tx-pkts
+tunnelStatisticsBfdTxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "BFD hello packets sent"
+    ::= { tunnelStatisticsEntry 21 }
+
+-- tagpath /tunnel/stats/bfd-rx-pkts
+tunnelStatisticsBfdRxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "BFD hello packets received"
+    ::= { tunnelStatisticsEntry 22 }
+
+-- tagpath /tunnel/stats/bfd-tx-octets
+tunnelStatisticsBfdTxOctets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "BFD hello octets sent"
+    ::= { tunnelStatisticsEntry 23 }
+
+-- tagpath /tunnel/stats/bfd-rx-octets
+tunnelStatisticsBfdRxOctets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "BFD hello octets received"
+    ::= { tunnelStatisticsEntry 24 }
+
+-- tagpath /tunnel/stats/pmtu-tx-pkts
+tunnelStatisticsPmtuTxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "BFD PMTU packets sent"
+    ::= { tunnelStatisticsEntry 25 }
+
+-- tagpath /tunnel/stats/pmtu-rx-pkts
+tunnelStatisticsPmtuRxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "BFD PMTU packets received"
+    ::= { tunnelStatisticsEntry 26 }
+
+-- tagpath /tunnel/stats/pmtu-tx-octets
+tunnelStatisticsPmtuTxOctets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "BFD PMTU octets sent"
+    ::= { tunnelStatisticsEntry 27 }
+
+-- tagpath /tunnel/stats/pmtu-rx-octets
+tunnelStatisticsPmtuRxOctets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "BFD PMTU octets received"
+    ::= { tunnelStatisticsEntry 28 }
+
+-- tagpath /tunnel/stats/ipv6_tx_pkts
+tunnelStatisticsIPv6TxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of IPv6 packets transmitted"
+    ::= { tunnelStatisticsEntry 29 }
+
+-- tagpath /tunnel/stats/ipv6_tx_octets
+tunnelStatisticsIPv6TxOctets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of IPv6 octets transmitted"
+    ::= { tunnelStatisticsEntry 30 }
+
+-- tagpath /tunnel/stats/ipv6_rx_pkts
+tunnelStatisticsIPv6RxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of IPv6 packets received"
+    ::= { tunnelStatisticsEntry 31 }
+
+-- tagpath /tunnel/stats/ipv6_rx_octets
+tunnelStatisticsIPv6RxOctets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of IPv6 octets received"
+    ::= { tunnelStatisticsEntry 32 }
+
+-- tagpath /tunnel/stats/fec-rx-data-pkts
+tunnelStatisticsFecRxDataPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "FEC data packets received"
+    ::= { tunnelStatisticsEntry 33 }
+
+-- tagpath /tunnel/stats/fec-rx-parity-pkts
+tunnelStatisticsFecRxParityPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "FEC Parity packets received"
+    ::= { tunnelStatisticsEntry 34 }
+
+-- tagpath /tunnel/stats/fec-tx-data-pkts
+tunnelStatisticsFecTxDataPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "FEC Data packets transmitted"
+    ::= { tunnelStatisticsEntry 35 }
+
+-- tagpath /tunnel/stats/fec-tx-parity-pkts
+tunnelStatisticsFecTxParityPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "FEC Parity packets transmitted"
+    ::= { tunnelStatisticsEntry 36 }
+
+-- tagpath /tunnel/stats/fec-reconstruct-pkts
+tunnelStatisticsFecReconstructPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "FEC packets reconstructed"
+    ::= { tunnelStatisticsEntry 37 }
+
+-- tagpath /tunnel/stats/fec-capable
+tunnelStatisticsFecCapable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Is tunnel FEC capable"
+    ::= { tunnelStatisticsEntry 38 }
+
+-- tagpath /tunnel/stats/fec-dynamic
+tunnelStatisticsFecDynamic OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Is dynamic FEC enabled on tunnel"
+    ::= { tunnelStatisticsEntry 39 }
+
+tunnelStatisticsPktDupRxPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Total PKT-DUP RX packets"
+    ::= { tunnelStatisticsEntry 40 }
+
+-- tagpath /tunnel/stats/pktdup-rx-other
+tunnelStatisticsPktDupRxOtherPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Total PKT-DUP RX for other tunnel"
+    ::= { tunnelStatisticsEntry 41 }
+
+-- tagpath /tunnel/stats/pktdup-rx-this
+tunnelStatisticsPktDupRxThisPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Total PKT-DUP RX for this tunnel"
+    ::= { tunnelStatisticsEntry 42 }
+
+-- tagpath /tunnel/stats/pktdup-tx
+tunnelStatisticsPktDupTxPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Total PKT-DUP TX packets"
+    ::= { tunnelStatisticsEntry 43 }
+
+-- tagpath /tunnel/stats/pktdup-tx-other
+tunnelStatisticsPktDupTxOtherPkts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Total PKT-DUP TX for other tunnel"
+    ::= { tunnelStatisticsEntry 44 }
+
+-- tagpath /tunnel/stats/pktdup-capable
+tunnelStatisticsPktDupCapable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Is tunnel PKT-DUP capable"
+    ::= { tunnelStatisticsEntry 45 }
+
+-- tagpath /tunnel/stats/tx_ipv4_mcast_pkts
+tunnelStatisticsIPv4TxMcPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of IPv4 Mcast packets transmitted"
+    ::= { tunnelStatisticsEntry 46 }
+
+-- tagpath /tunnel/stats/tx_ipv4_mcast_octets
+tunnelStatisticsIPv4TxMcOctets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of IPv4 Mcast octets transmitted"
+    ::= { tunnelStatisticsEntry 47 }
+
+-- tagpath /tunnel/stats/rx_ipv4_mcast_pkts
+tunnelStatisticsIPv4RxMcPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of IPv4 Mcast packets received"
+    ::= { tunnelStatisticsEntry 48 }
+
+-- tagpath /tunnel/stats/rx_ipv4_mcast_octets
+tunnelStatisticsIPv4RxMcOctets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Number of IPv4 Mcast octets received"
+    ::= { tunnelStatisticsEntry 49 }
+
+-- ********************************************************************
+-- *  Notification Objects
+-- ********************************************************************
+
+netconfNotificationSeverity OBJECT-TYPE
+    SYNTAX      NotificationSeverity
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Netconf notification severity level"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 2 }
+
+ciscoSdwanSecurityPersonality OBJECT-TYPE
+     SYNTAX      PersonalityEnumOper
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Device type"
+     ::= { ciscoSdwanSecurityMIBNotifObjects 3 }
+
+ciscoSdwanSecurityPeerType OBJECT-TYPE
+    SYNTAX      PersonalityEnumOper
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Peer device type"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 4 }
+
+ciscoSdwanSecurityPeerSystemIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Peer system ip"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 5 }
+
+ciscoSdwanSecurityPeerVmanageSystemIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Peer vmanage system ip"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 6 }
+
+ciscoSdwanSecurityPublicIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Public ip"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 7 }
+
+ciscoSdwanSecurityPublicPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Public port"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 8 }
+
+ciscoSdwanSecuritySrcColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Source color"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 9 }
+
+ciscoSdwanSecurityRemoteColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Remote color"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 10 }
+
+ciscoSdwanSecurityUptime OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Up time"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 11 }
+
+ciscoSdwanSecurityNewState OBJECT-TYPE
+    SYNTAX      OperState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "New state"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 12 }
+
+ciscoSdwanSecurityLocalSystemIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local system ip"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 13 }
+
+ciscoSdwanSecurityLocalColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Local color"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 14 }
+
+ciscoSdwanSecurityReason OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Reason"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 15 }
+
+ciscoSdwanSecurityOldPublicIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Old public ip"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 16 }
+
+ciscoSdwanSecurityOldPublicPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Old public port"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 17 }
+
+ciscoSdwanSecurityNewPublicIp OBJECT-TYPE
+    SYNTAX      InetAddressIP
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "New public ip"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 18 }
+
+ciscoSdwanSecurityNewPublicPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "New public port"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 19 }
+
+ciscoSdwanSecurityColor OBJECT-TYPE
+    SYNTAX      ColorEnum
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Color"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 20 }
+
+ciscoSdwanSecurityUuid OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Uuid"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 21 }
+
+ciscoSdwanSecuritySerial OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Serial"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 22 }
+
+ciscoSdwanSecurityVmanageConnectionPreference OBJECT-TYPE
+    SYNTAX      UnsignedByte
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Vmanage connection preference"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 23 }
+
+ciscoSdwanSecurityOrganizationName OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Organization name"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 24 }
+
+ciscoSdwanSecuritySpOrganizationName OBJECT-TYPE
+    SYNTAX      OCTET STRING
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Sp organization name"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 25 }
+
+ciscoSdwanSecurityCertificateType OBJECT-TYPE
+     SYNTAX      CertificateTypeEnum
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Certificate type"
+    ::= { ciscoSdwanSecurityMIBNotifObjects 26 }
+
+ciscoSdwanSecurityCertificateSerialNumber OBJECT-TYPE
+     SYNTAX      OCTET STRING
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Certificate serial number"
+     ::= { ciscoSdwanSecurityMIBNotifObjects 27 }
+
+ciscoSdwanSecurityIssuer OBJECT-TYPE
+     SYNTAX      OCTET STRING
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Certificate issuer"
+     ::= { ciscoSdwanSecurityMIBNotifObjects 28 }
+
+ ciscoSdwanSecurityDaysToExpiry OBJECT-TYPE
+     SYNTAX      Integer32
+     MAX-ACCESS  read-only
+     STATUS      current
+     DESCRIPTION "Certificate days to expiry"
+     ::= { ciscoSdwanSecurityMIBNotifObjects 29 }
+
+-- ********************************************************************
+-- *  Notifications
+-- ********************************************************************
+
+ciscoSdwanSecurityControlConnectionStateChange NOTIFICATION-TYPE
+        OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality,
+ 		ciscoSdwanSecurityPeerType,
+ 		ciscoSdwanSecurityPeerSystemIp,
+ 		ciscoSdwanSecurityPeerVmanageSystemIp,
+ 		ciscoSdwanSecurityPublicIp,
+ 		ciscoSdwanSecurityPublicPort,
+ 		ciscoSdwanSecuritySrcColor,
+ 		ciscoSdwanSecurityRemoteColor,
+ 		ciscoSdwanSecurityUptime,
+ 		ciscoSdwanSecurityNewState
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 1 }
+ 
+ciscoSdwanSecurityControlConnectionAuthFail NOTIFICATION-TYPE
+ 	OBJECTS {
+		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality,
+ 		ciscoSdwanSecurityPeerType,
+ 		ciscoSdwanSecurityPeerSystemIp,
+ 		ciscoSdwanSecurityLocalSystemIp,
+ 		ciscoSdwanSecurityLocalColor,
+ 		ciscoSdwanSecurityReason
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 2 }
+ 
+ciscoSdwanSecurityControlConnectionTlocIpChange NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality,
+ 		ciscoSdwanSecurityOldPublicIp,
+ 		ciscoSdwanSecurityOldPublicPort,
+ 		ciscoSdwanSecurityNewPublicIp,
+ 		ciscoSdwanSecurityNewPublicPort
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 3 }
+
+ciscoSdwanSecurityControlVbondStateChange NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality,
+ 		ciscoSdwanSecurityNewState
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "ciscoSdwan trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 4 }
+
+ciscoSdwanSecurityControlNoActiveVsmart NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 5 }
+ 
+ciscoSdwanSecurityControlNoActiveVbond NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality
+	}
+	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 6 }
+
+ciscoSdwanSecurityTunnelIpsecRekey NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality,
+ 		ciscoSdwanSecurityColor
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 7 }
+
+ciscoSdwanSecurityTunnelIpsecManualRekey NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityPersonality,
+ 		ciscoSdwanSecurityColor
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 8 }
+
+ciscoSdwanSecuritySecurityRootCertChainInstalled NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 9 }
+
+ciscoSdwanSecuritySecurityCertificateExpiring NOTIFICATION-TYPE
+        OBJECTS {
+             netconfNotificationSeverity,
+	     ciscoSdwanSecurityCertificateType,
+             ciscoSdwanSecurityCertificateSerialNumber,
+             ciscoSdwanSecurityIssuer,
+             ciscoSdwanSecurityDaysToExpiry
+         }
+         STATUS current
+         DESCRIPTION "Cisco SDWAN trap from security"
+         ::= { ciscoSdwanSecurityMIBNotifs 10 }
+
+ciscoSdwanSecuritySecurityCertificateExpired NOTIFICATION-TYPE
+	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 11 }
+
+ciscoSdwanSecuritySecurityCertificateInstalled NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 12 }
+
+ciscoSdwanSecuritySecurityNewCsrGenerated NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 13 }
+
+ciscoSdwanSecuritySecurityRootCertChainUninstalled NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+	}
+ 	STATUS current
+	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 14 }
+
+ciscoSdwanSecuritySecurityClearInstalledCertificate NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 15 }
+
+ciscoSdwanSecuritySecurityVedgeSerialFileUploaded NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 16 }
+
+ciscoSdwanSecuritySecurityVsmartSerialFileUploaded NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 17 }
+
+ciscoSdwanSecuritySecurityVedgeEntryAdded NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityUuid,
+ 		ciscoSdwanSecuritySerial
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 18 }
+
+ciscoSdwanSecuritySecurityVedgeEntryRemoved NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecurityUuid
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+	::= { ciscoSdwanSecurityMIBNotifs 19 }
+
+ciscoSdwanSecuritySecurityVsmartEntryAdded NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecuritySerial
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 20 }
+
+ciscoSdwanSecuritySecurityVsmartEntryRemoved NOTIFICATION-TYPE
+ 	OBJECTS {
+ 		netconfNotificationSeverity,
+ 		ciscoSdwanSecuritySerial
+ 	}
+ 	STATUS current
+ 	DESCRIPTION "Cisco SDWAN trap from security"
+ 	::= { ciscoSdwanSecurityMIBNotifs 21 }
+
+ciscoSdwanSecurityVmanageConnectionPreferenceChanged NOTIFICATION-TYPE
+        OBJECTS {
+                netconfNotificationSeverity,
+                ciscoSdwanSecurityColor,
+                ciscoSdwanSecurityVmanageConnectionPreference
+         }
+         STATUS current
+         DESCRIPTION "Cisco SDWAN trap from security"
+         ::= { ciscoSdwanSecurityMIBNotifs 23 }
+
+ciscoSdwanSecurityVbondRejectVedgeConnection NOTIFICATION-TYPE
+        OBJECTS {
+             netconfNotificationSeverity,
+             ciscoSdwanSecurityUuid,
+             ciscoSdwanSecurityOrganizationName,
+             ciscoSdwanSecuritySpOrganizationName,
+             ciscoSdwanSecurityReason
+         }
+         STATUS current
+         DESCRIPTION "Cisco SDWAN trap from security"
+         ::= { ciscoSdwanSecurityMIBNotifs 24 }
+
+ciscoSdwanSecurityDeviceTemplateMissing NOTIFICATION-TYPE
+        OBJECTS {
+             netconfNotificationSeverity,
+             ciscoSdwanSecurityUuid,
+             ciscoSdwanSecurityPeerType
+         }
+         STATUS current
+         DESCRIPTION "Cisco SDWAN trap from security"
+         ::= { ciscoSdwanSecurityMIBNotifs 25 }
+
+ciscoSdwanSecurityDeviceTemplateAttachedDuringZtp NOTIFICATION-TYPE
+        OBJECTS {
+             netconfNotificationSeverity,
+             ciscoSdwanSecurityUuid,
+             ciscoSdwanSecurityPeerType
+         }
+         STATUS current
+         DESCRIPTION "Cisco SDWAN trap from security"
+         ::= { ciscoSdwanSecurityMIBNotifs 26 }
+
+-- *******************************************************************
+-- *    Compliance statements
+-- *******************************************************************
+
+ciscoSdwanSecurityMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSdwanSecurityMIBConform 1 }
+
+ciscoSdwanSecurityMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSdwanSecurityMIBConform 2 }
+
+ciscoSdwanSecurityMIBCompliance MODULE-COMPLIANCE
+    STATUS         current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities
+         that implement the ciscoSdwanSecurityMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+            cSdwanSecurityControlConnectionsInfoGroup,
+            cSdwanSecurityControlConnectionsGroup,
+            cSdwanSecurityControlStatisticsGroup,
+            cSdwanSecurityControlLocalPropertiesGroup,
+            cSdwanSecurityControlValidVsmartsGroup,
+            cSdwanSecurityIpAddressListGroup,
+            cSdwanSecurityVbondAddressListGroup,
+            cSdwanSecurityWanInterfaceListGroup,
+            cSdwanSecurityNotifObjsGroup,
+            cSdwanSecurityNotifsGroup,
+            cSdwanSecurityControlSummaryGroup,
+            cSdwanSecurityAffinityStatusGroup,
+            cSdwanSecurityAffinityConfigGroup,
+            cSdwanSecuritySecurityInfoGroup,
+            cSdwanSecurityControlConnectionsHistoryGroup,
+            cSdwanSecurityIpsecLocalSaGroup,
+            cSdwanSecurityIpsecInboundConnectionsGroup,
+            cSdwanSecurityIpsecOutboundConnectionsGroup,
+            cSdwanSecurityTunnelStatistics
+                    }
+    ::= { ciscoSdwanSecurityMIBCompliances 1 }
+
+-- *******************************************************************
+-- *    Units of conformance
+-- *******************************************************************
+
+cSdwanSecurityControlLocalPropertiesGroup OBJECT-GROUP
+    OBJECTS {
+             controlLocalPropertiesDeviceType,
+	     controlLocalPropertiesOrganizationName,
+	     controlLocalPropertiesCertificateStatus,
+	     controlLocalPropertiesRootCaChainStatus,
+	     controlLocalPropertiesCertificateValidity,
+	     controlLocalPropertiesCertificateNotValidBefore,
+	     controlLocalPropertiesCertificateNotValidAfter,
+	     controlLocalPropertiesDnsName,
+	     controlLocalPropertiesSiteId,
+	     controlLocalPropertiesDomainId,
+	     controlLocalPropertiesTlsPort,
+	     controlLocalPropertiesSystemIp,
+	     controlLocalPropertiesUuid,
+	     controlLocalPropertiesBoardSerial,
+	     controlLocalPropertiesRegisterInterval,
+	     controlLocalPropertiesRetryInterval,
+	     controlLocalPropertiesNoActivity,
+	     controlLocalPropertiesDnsCacheFlushInterval,
+	     controlLocalPropertiesPortHopped,
+	     controlLocalPropertiesTimeSincePortHop,
+	     controlLocalPropertiesMaxControllers,
+	     controlLocalPropertiesKeygenInterval,
+	     controlLocalPropertiesNumberVbondPeers,
+	     controlLocalPropertiesNumberActiveWanInterfaces,
+	     controlLocalPropertiesVsmartListVersion,
+	     controlLocalPropertiesSPOrganizationName,
+	     controlLocalPropertiesToken,
+	     controlLocalPropertiesEmbargoCheck,
+	     controlLocalPropertiesEnterpriseSerial,
+	     controlLocalPropertiesEnterpriseCertificateStatus,
+	     controlLocalPropertiesEnterpriseCertificateValidity,
+	     controlLocalPropertiesEnterpriseCertificateNotValidBefore,
+	     controlLocalPropertiesEnterpriseCertificateNotValidAfter,
+	     controlLocalPropertiesRootCaCrlStatus,
+	     controlLocalPropertiesPairwiseKeying,
+	     controlLocalPropertiesSubjectSerialNumber
+            }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of 
+	                         security control local properties."
+    ::= { ciscoSdwanSecurityMIBGroups 1 }
+
+cSdwanSecurityNotifObjsGroup OBJECT-GROUP
+    OBJECTS {
+                netconfNotificationSeverity,
+		ciscoSdwanSecurityPersonality,
+		ciscoSdwanSecurityPeerType,
+		ciscoSdwanSecurityPeerSystemIp,
+		ciscoSdwanSecurityPeerVmanageSystemIp,
+		ciscoSdwanSecurityPublicIp,
+		ciscoSdwanSecurityPublicPort,
+		ciscoSdwanSecuritySrcColor,
+		ciscoSdwanSecurityRemoteColor,
+		ciscoSdwanSecurityUptime,
+		ciscoSdwanSecurityNewState,
+		ciscoSdwanSecurityLocalSystemIp,
+		ciscoSdwanSecurityLocalColor,
+		ciscoSdwanSecurityReason,
+		ciscoSdwanSecurityOldPublicIp,
+		ciscoSdwanSecurityOldPublicPort,
+		ciscoSdwanSecurityNewPublicIp,
+		ciscoSdwanSecurityNewPublicPort,
+		ciscoSdwanSecurityColor,
+		ciscoSdwanSecurityUuid,
+		ciscoSdwanSecuritySerial,
+		ciscoSdwanSecurityVmanageConnectionPreference,
+		ciscoSdwanSecurityOrganizationName,
+		ciscoSdwanSecuritySpOrganizationName,
+		ciscoSdwanSecurityCertificateType,
+		ciscoSdwanSecurityCertificateSerialNumber,
+		ciscoSdwanSecurityIssuer,
+		ciscoSdwanSecurityDaysToExpiry
+	    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of 
+	                         security notification objects."
+    ::= { ciscoSdwanSecurityMIBGroups 2 }
+
+cSdwanSecurityNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS {
+                  ciscoSdwanSecurityControlConnectionStateChange,
+		  ciscoSdwanSecurityControlConnectionAuthFail,
+		  ciscoSdwanSecurityControlConnectionTlocIpChange,
+		  ciscoSdwanSecurityControlVbondStateChange,
+		  ciscoSdwanSecurityControlNoActiveVsmart,
+		  ciscoSdwanSecurityControlNoActiveVbond,
+		  ciscoSdwanSecurityTunnelIpsecRekey,
+		  ciscoSdwanSecurityTunnelIpsecManualRekey,
+		  ciscoSdwanSecuritySecurityRootCertChainInstalled,
+		  ciscoSdwanSecuritySecurityCertificateExpiring,
+		  ciscoSdwanSecuritySecurityCertificateExpired,
+		  ciscoSdwanSecuritySecurityCertificateInstalled,
+		  ciscoSdwanSecuritySecurityNewCsrGenerated,
+		  ciscoSdwanSecuritySecurityRootCertChainUninstalled,
+		  ciscoSdwanSecuritySecurityClearInstalledCertificate,
+		  ciscoSdwanSecuritySecurityVedgeSerialFileUploaded,
+		  ciscoSdwanSecuritySecurityVsmartSerialFileUploaded,
+		  ciscoSdwanSecuritySecurityVedgeEntryAdded,
+		  ciscoSdwanSecuritySecurityVedgeEntryRemoved,
+		  ciscoSdwanSecuritySecurityVsmartEntryAdded,
+		  ciscoSdwanSecuritySecurityVsmartEntryRemoved,
+		  ciscoSdwanSecurityVmanageConnectionPreferenceChanged,
+		  ciscoSdwanSecurityVbondRejectVedgeConnection,
+		  ciscoSdwanSecurityDeviceTemplateMissing,
+		  ciscoSdwanSecurityDeviceTemplateAttachedDuringZtp
+                 }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of security notifications."  
+    ::= { ciscoSdwanSecurityMIBGroups 3 }
+
+cSdwanSecurityControlSummaryGroup OBJECT-GROUP
+    OBJECTS {
+         controlSummaryVbondCounts,
+         controlSummaryVmanageCounts,
+         controlSummaryVsmartCounts,
+         controlSummaryVedgeCounts,
+         controlSummaryProtocol,
+         controlSummaryListeningIp,
+         controlSummaryListeningPort,
+         controlSummaryListeningIpv6,
+         controlSummaryValidControllerCounts
+                 }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of
+                             security control summary."
+    ::= { ciscoSdwanSecurityMIBGroups 4 }
+
+cSdwanSecurityAffinityConfigGroup OBJECT-GROUP
+    OBJECTS {
+         controlAffinityConfigAffcInterface,
+         controlAffinityConfigAffcErvc,
+         controlAffinityConfigAffcEcl,
+         controlAffinityConfigAffcCcl,
+         controlAffinityConfigAffcEquil,
+         controlAffinityConfigAffcLastResort,
+         controlAffinityConfigAffcTenantCount
+                 }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of
+                             security affinity config."
+    ::= { ciscoSdwanSecurityMIBGroups 5 }
+
+cSdwanSecurityIpAddressListGroup OBJECT-GROUP
+     OBJECTS {
+               controlLocalPropertiesIpAddressListIp,
+               controlLocalPropertiesIpAddressListPort
+             }
+     STATUS          current
+     DESCRIPTION
+         "This is a collection of ip addresses."
+     ::= { ciscoSdwanSecurityMIBGroups 6 }
+
+cSdwanSecurityVbondAddressListGroup OBJECT-GROUP
+     OBJECTS {
+               controlLocalPropertiesVbondAddressListIp,
+               controlLocalPropertiesVbondAddressListPort
+             }
+     STATUS          current
+     DESCRIPTION
+         "This is a collection of vbond peer addresses."
+     ::= { ciscoSdwanSecurityMIBGroups 7 }
+
+
+cSdwanSecurityAffinityStatusGroup OBJECT-GROUP
+    OBJECTS {
+         controlAffinityStatusAffsInterface,
+         controlAffinityStatusAffsAcc,
+         controlAffinityStatusAffsUcc,
+         controlAffinityStatusAffsAc
+                 }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of
+                             security affinity status."
+    ::= { ciscoSdwanSecurityMIBGroups 8 }
+
+
+cSdwanSecurityControlConnectionsInfoGroup OBJECT-GROUP
+    OBJECTS {
+                controlConnectionsInfoRate
+            }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of 
+	                         security control connections info."
+    ::= { ciscoSdwanSecurityMIBGroups 9 }
+
+cSdwanSecuritySecurityInfoGroup OBJECT-GROUP
+   OBJECTS {
+                securityInfoRekey,
+                securityInfoReplayWindow,
+                securityInfoEncryptionSupported,
+                securityInfoFipsMode,
+                securityInfoPairwiseKeying,
+                securityInfoPwkSymRekey,
+                securityInfoExtendedAntiReplayWindow,
+                securityInfoIntegrityType
+            }
+    STATUS           current
+    DESCRIPTION
+        "This is a collection of security information."
+    ::= {ciscoSdwanSecurityMIBGroups 10 }
+
+cSdwanSecurityWanInterfaceListGroup OBJECT-GROUP
+     OBJECTS {
+           controlLocalPropertiesWanInterfaceListInterface,
+           controlLocalPropertiesWanInterfaceListPublicIp,
+           controlLocalPropertiesWanInterfaceListPublicPort,
+           controlLocalPropertiesWanInterfaceListPrivateIp,
+           controlLocalPropertiesWanInterfaceListPrivatePort,
+           controlLocalPropertiesWanInterfaceListNumVsmarts,
+           controlLocalPropertiesWanInterfaceListNumVmanages,
+           controlLocalPropertiesWanInterfaceListWeight,
+           controlLocalPropertiesWanInterfaceListColor,
+           controlLocalPropertiesWanInterfaceListCarrier,
+           controlLocalPropertiesWanInterfaceListPreference,
+           controlLocalPropertiesWanInterfaceListAdminState,
+           controlLocalPropertiesWanInterfaceListOperationState,
+           controlLocalPropertiesWanInterfaceListLastConnTime,
+           controlLocalPropertiesWanInterfaceListRestrictStr,
+           controlLocalPropertiesWanInterfaceListControlStr,
+           controlLocalPropertiesWanInterfaceListPerWanMaxControllers,
+           controlLocalPropertiesWanInterfaceListPrivateIpv6,
+           controlLocalPropertiesWanInterfaceListSpiChange,
+           controlLocalPropertiesWanInterfaceListLastResort,
+           controlLocalPropertiesWanInterfaceListWanPortHopped,
+           controlLocalPropertiesWanInterfaceListWanTimeSincePortHop,
+           controlLocalPropertiesWanInterfaceListVbondAsStunServer,
+           controlLocalPropertiesWanInterfaceListVmanageConnPreference,
+           controlLocalPropertiesWanInterfaceListLowBandwidthLink,
+           controlLocalPropertiesWanInterfaceListNatType,
+           controlLocalPropertiesWanInterfaceListInterfaceAdminState,
+           controlLocalPropertiesWanInterfaceListInterfaceOperState,
+           controlLocalPropertiesWanInterfaceListRegionId
+              }
+     STATUS          current
+     DESCRIPTION
+         "Wan interface list"
+     ::= { ciscoSdwanSecurityMIBGroups 11 }
+
+
+cSdwanSecurityControlStatisticsGroup OBJECT-GROUP
+    OBJECTS {
+        controlStatisticsTxPkts,
+        controlStatisticsTxOctets,
+        controlStatisticsTxError,
+        controlStatisticsTxBlocked,
+        controlStatisticsTxHello,
+        controlStatisticsTxConnects,
+        controlStatisticsTxRegisters,
+        controlStatisticsTxRegisterReplies,
+        controlStatisticsTxDtlsHandshake,
+        controlStatisticsTxDtlsHandshakeFailures,
+        controlStatisticsTxDtlsHandshakeDone,
+        controlStatisticsTxChallenge,
+        controlStatisticsTxChallengeResp,
+        controlStatisticsTxChallengeAck,
+        controlStatisticsTxChallengeError,
+        controlStatisticsTxChallengeRespError,
+        controlStatisticsTxChallengeAckError,
+        controlStatisticsTxChallengeGenError,
+        controlStatisticsTxVmanageToPeer,
+        controlStatisticsTxRegisterToVmanage,
+        controlStatisticsRxPkts,
+        controlStatisticsRxOctets,
+        controlStatisticsRxError,
+        controlStatisticsRxHello,
+        controlStatisticsRxConnects,
+        controlStatisticsRxRegisters,
+        controlStatisticsRxRegisterReplies,
+        controlStatisticsRxDtlsHandshake,
+        controlStatisticsRxDtlsHandshakeFailures,
+        controlStatisticsRxDtlsHandshakeDone,
+        controlStatisticsRxChallenge,
+        controlStatisticsRxChallengeResp,
+        controlStatisticsRxChallengeAck,
+        controlStatisticsChallengeFailures,
+        controlStatisticsRxVmanageToPeer,
+        controlStatisticsRxRegisterToVmanage,
+        controlStatisticsBidFailuresNeedingReset
+            }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of control statistics."
+    ::= { ciscoSdwanSecurityMIBGroups 12 }
+
+cSdwanSecurityControlValidVsmartsGroup OBJECT-GROUP
+    OBJECTS {
+              controlValidVsmartsSerialNumber,
+              controlValidVsmartsOrg
+    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects of control
+         valid vsmarts group"
+    ::= { ciscoSdwanSecurityMIBGroups 13 }
+
+cSdwanSecurityControlConnectionsHistoryGroup OBJECT-GROUP
+    OBJECTS {
+        controlConnectionsHistoryPeerType,
+        controlConnectionsHistorySiteId,
+        controlConnectionsHistoryDomainId,
+        controlConnectionsHistoryPrivateIp,
+        controlConnectionsHistoryPrivatePort,
+        controlConnectionsHistoryPublicIp,
+        controlConnectionsHistoryPublicPort,
+        controlConnectionsHistorySystemIp,
+        controlConnectionsHistoryProtocol,
+        controlConnectionsHistoryLocalColor,
+        controlConnectionsHistoryRemoteColor,
+        controlConnectionsHistoryState,
+        controlConnectionsHistoryLocalEnum,
+        controlConnectionsHistoryRemoteEnum,
+        controlConnectionsHistoryLocalStateInfo,
+        controlConnectionsHistoryRemoteStateInfo,
+        controlConnectionsHistoryDowntime,
+        controlConnectionsHistoryTxHello,
+        controlConnectionsHistoryTxConnects,
+        controlConnectionsHistoryTxRegisters,
+        controlConnectionsHistoryTxRegisterReplies,
+        controlConnectionsHistoryTxChallenge,
+        controlConnectionsHistoryTxChallengeResp,
+        controlConnectionsHistoryTxChallengeAck,
+        controlConnectionsHistoryTxTeardown,
+        controlConnectionsHistoryTxTeardownAll,
+        controlConnectionsHistoryTxVmToPeer,
+        controlConnectionsHistoryTxRegisterToVm,
+        controlConnectionsHistoryRxHello,
+        controlConnectionsHistoryRxConnects,
+        controlConnectionsHistoryRxRegisters,
+        controlConnectionsHistoryRxRegisterReplies,
+        controlConnectionsHistoryRxChallenge,
+        controlConnectionsHistoryRxChallengeResp,
+        controlConnectionsHistoryRxChallengeAck,
+        controlConnectionsHistoryRxTeardown,
+        controlConnectionsHistoryRxVmToPeer,
+        controlConnectionsHistoryRxRegisterToVm,
+        controlConnectionsHistoryRepCount,
+        controlConnectionsHistoryPrevDowntime,
+        controlConnectionsHistoryVHOrgName,
+        controlConnectionsHistoryUuid,
+        controlConnectionsHistoryTxCreateCert,
+        controlConnectionsHistoryRxCreateCert,
+        controlConnectionsHistoryTxCreateCertReply,
+        controlConnectionsHistoryRxCreateCertReply,
+        controlConnectionsHistoryLocalInterface
+    }
+    STATUS      current
+    DESCRIPTION "This is a collection of objects of 
+                 control connections history."
+    ::= { ciscoSdwanSecurityMIBGroups 14 }
+
+cSdwanSecurityIpsecLocalSaGroup OBJECT-GROUP
+    OBJECTS {
+        ipsecLocalSaIp,
+        ipsecLocalSaPort,
+        ipsecLocalSaEncryptKeyHash,
+        ipsecLocalSaAuthKeyHash,
+        ipsecLocalSaIpv6
+    }
+    STATUS           current
+    DESCRIPTION
+        "This is a collection of IPSec local SA information."
+    ::= {ciscoSdwanSecurityMIBGroups 15 }
+
+cSdwanSecurityControlConnectionsGroup OBJECT-GROUP
+    OBJECTS {
+        controlConnectionsVOrgName,
+        controlConnectionsSystemIp,
+        controlConnectionsProtocol,
+        controlConnectionsLocalColor,
+        controlConnectionsRemoteColor,
+        controlConnectionsPrivateIp,
+        controlConnectionsPrivatePort,
+        controlConnectionsState,
+        controlConnectionsLocalEnum,
+        controlConnectionsRemoteEnum,
+        controlConnectionsLocalStateInfo,
+        controlConnectionsRemoteStateInfo,
+        controlConnectionsUptime,
+        controlConnectionsTxHello,
+        controlConnectionsTxConnects,
+        controlConnectionsTxRegisters,
+        controlConnectionsTxRegisterReplies,
+        controlConnectionsTxChallenge,
+        controlConnectionsTxChallengeResp,
+        controlConnectionsTxChallengeAck,
+        controlConnectionsTxTeardown,
+        controlConnectionsTxTeardownAll,
+        controlConnectionsTxVmToPeer,
+        controlConnectionsTxRegisterToVm,
+        controlConnectionsRxHello,
+        controlConnectionsRxConnects,
+        controlConnectionsRxRegisters,
+        controlConnectionsRxRegisterReplies,
+        controlConnectionsRxChallenge,
+        controlConnectionsRxChallengeResp,
+        controlConnectionsRxChallengeAck,
+        controlConnectionsRxTeardown,
+        controlConnectionsRxVmToPeer,
+        controlConnectionsRxRegisterToVm,
+        controlConnectionsNegotiatedHelloInterval,
+        controlConnectionsNegotiatedHelloTolerance,
+        controlConnectionsTxCreateCert,
+        controlConnectionsRxCreateCert,
+        controlConnectionsTxCreateCertReply,
+        controlConnectionsRxCreateCertReply,
+        controlConnectionsBehindProxy,
+        controlConnectionsPeerSessId,
+        controlConnectionsLocalInterface
+    }
+    STATUS      current
+    DESCRIPTION "This is a collection of objects of 
+                 control connections."
+    ::= { ciscoSdwanSecurityMIBGroups 16 }
+
+cSdwanSecurityIpsecOutboundConnectionsGroup OBJECT-GROUP
+    OBJECTS {
+        ipsecOutboundConnectionsTunnelMtu,
+        ipsecOutboundConnectionsRemoteTlocAddress,
+        ipsecOutboundConnectionsRemoteTlocColor,
+        ipsecOutboundConnectionsAuthenticationUsed,
+        ipsecOutboundConnectionsEncryptKeyHash,
+        ipsecOutboundConnectionsAuthKeyHash,
+        ipsecOutboundConnectionsNegotiatedAlgo,
+        ipsecOutboundConnectionsTcSpiPerTun
+    }
+    STATUS           current
+    DESCRIPTION
+        "This is a collection of IPSec outbound connections"
+    ::= {ciscoSdwanSecurityMIBGroups 17 }
+
+cSdwanSecurityTunnelStatistics OBJECT-GROUP
+    OBJECTS {
+        tunnelStatisticsSystemIp,
+        tunnelStatisticsLocalColor,
+        tunnelStatisticsRemoteColor,
+        tunnelStatisticsTunnelMtu,
+        tunnelStatisticsTxPkts,
+        tunnelStatisticsTxOctets,
+        tunnelStatisticsRxPkts,
+        tunnelStatisticsRxOctets,
+        tunnelStatisticsIpsecDecryptInbound,
+        tunnelStatisticsIpsecRxAuthFailures,
+        tunnelStatisticsIpsecRxFailures,
+        tunnelStatisticsIpsecEncryptOutbound,
+        tunnelStatisticsIpsecTxAuthFailures,
+        tunnelStatisticsIpsecTxFailures,
+        tunnelStatisticsTcpMssAdjust,
+        tunnelStatisticsBfdTxPkts,
+        tunnelStatisticsBfdRxPkts,
+        tunnelStatisticsBfdTxOctets,
+        tunnelStatisticsBfdRxOctets,
+        tunnelStatisticsPmtuTxPkts,
+        tunnelStatisticsPmtuRxPkts,
+        tunnelStatisticsPmtuTxOctets,
+        tunnelStatisticsPmtuRxOctets,
+        tunnelStatisticsIPv6TxPkts,
+        tunnelStatisticsIPv6TxOctets,
+        tunnelStatisticsIPv6RxPkts,
+        tunnelStatisticsIPv6RxOctets,
+        tunnelStatisticsFecRxDataPkts,
+        tunnelStatisticsFecRxParityPkts,
+        tunnelStatisticsFecTxDataPkts,
+        tunnelStatisticsFecTxParityPkts,
+        tunnelStatisticsFecReconstructPkts,
+        tunnelStatisticsFecCapable,
+        tunnelStatisticsFecDynamic,
+        tunnelStatisticsPktDupRxPkts,
+        tunnelStatisticsPktDupRxOtherPkts,
+        tunnelStatisticsPktDupRxThisPkts,
+        tunnelStatisticsPktDupTxPkts,
+        tunnelStatisticsPktDupTxOtherPkts,
+        tunnelStatisticsPktDupCapable,
+        tunnelStatisticsIPv4TxMcPkts,
+        tunnelStatisticsIPv4TxMcOctets,
+        tunnelStatisticsIPv4RxMcPkts,
+        tunnelStatisticsIPv4RxMcOctets
+    }
+    STATUS      current
+    DESCRIPTION "This is a collection of objects of tunnel statistics."
+    ::= { ciscoSdwanSecurityMIBGroups 18 }
+
+cSdwanSecurityIpsecInboundConnectionsGroup OBJECT-GROUP
+    OBJECTS {
+        ipsecInboundConnectionsSourceIp,
+        ipsecInboundConnectionsSourcePort,
+        ipsecInboundConnectionsDestIp,
+        ipsecInboundConnectionsDestPort,
+        ipsecInboundConnectionsNegEncrAlgo,
+        ipsecInboundConnectionsTcSpiPerTun
+    }
+    STATUS           current
+    DESCRIPTION
+        "This is a collection of IPSec  Inbound Connections 
+         SA information."
+    ::= {ciscoSdwanSecurityMIBGroups 19 }
+
+END
